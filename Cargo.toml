@@ -36,12 +36,9 @@ plugins = [
 
 [dependencies]
 anyhow = "1.0.104"
-core-foundation = "0.10.1"
-coremidi-sys = "3.2.1"
 cpal = "0.18.2"
 crossterm = { version = "0.29.0", optional = true }
 libc = "0.2.189"
-mach2 = "0.7.0"
 ratatui = { version = "0.30.2", optional = true }
 rtrb = "0.4.0"
 # rustysynth 1.3.6 (MIT, https://github.com/sinshu/rustysynth), vendored with five patches,
@@ -73,54 +70,62 @@ rustysynth = { path = "vendor/rustysynth" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# CoreMIDI and Mach: macOS only. On Linux (development only) rt/perf use libc instead.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10.1"
+coremidi-sys = "3.2.1"
+mach2 = "0.7.0"
+
 # Plugin hosting only (the `plugins` feature). The objc2 project's generated bindings to
 # AudioToolbox, CoreAudioKit and AppKit; cpal already depends on objc2 / audio-toolbox.
-[dependencies.objc2]
+# macOS only: elsewhere the feature pulls in nothing and src/lib.rs stops with a
+# compile_error.
+[target.'cfg(target_os = "macos")'.dependencies.objc2]
 version = "0.6.4"
 optional = true
 features = ["exception"]
 
-[dependencies.block2]
+[target.'cfg(target_os = "macos")'.dependencies.block2]
 version = "0.6.2"
 optional = true
 
-[dependencies.objc2-foundation]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-foundation]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread"]
 
-[dependencies.objc2-core-foundation]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-foundation]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "CFString", "CFData", "CFError", "CFPropertyList"]
 
-[dependencies.objc2-core-audio-types]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-types]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "CoreAudioBaseTypes"]
 
-[dependencies.objc2-audio-toolbox]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-audio-toolbox]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "AudioComponent", "AUComponent", "AudioUnitProperties", "MusicDevice", "block2", "objc2-core-audio-types", "objc2-core-foundation"]
 
-[dependencies.objc2-app-kit]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-app-kit]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "NSApplication", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSViewController", "NSGraphics", "NSEvent", "objc2-core-foundation"]
 
-[dependencies.objc2-core-audio-kit]
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-kit]
 version = "0.3.2"
 optional = true
 default-features = false
 features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]
 
-# The test gates: `cargo test --profile test-fast` (scripts/test-all.sh). Release semantics
+# The test profile: `cargo test --profile test-fast` (see AGENTS.md). Release semantics
 # (no debug assertions, no overflow checks) so the tests see what ships, but our own crate
 # builds incrementally with light optimisation, and the dependencies (vendored rustysynth
 # included) at full optimisation, where sccache caches them. An edit rebuilds in seconds
@@ -135,3 +140,17 @@ debug = 0
 [profile.test-fast.package."*"]
 opt-level = 3
 codegen-units = 16
+
+# An agent's targeted tests while it works (`cargo test --profile test-quick <filter>`, the
+# bacon `test` job): our crate unoptimised and incremental, so a one-line edit relinks in the
+# least time; the dependencies at full optimisation so audio-rendering tests still run
+# quickly. Debug semantics (debug assertions, overflow checks). The batch gate stays on
+# test-fast.
+[profile.test-quick]
+inherits = "dev"
+opt-level = 0
+incremental = true
+debug = 0
+
+[profile.test-quick.package."*"]
+opt-level = 3

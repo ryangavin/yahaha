@@ -1,0 +1,104 @@
+# The checks in AGENTS.md, run directly. CI on the pull request is the final check before merge.
+# linux: Rust checks and tests without plugins, plus the app shell's Rust tests.
+# macos: the plugins build and tests, plus the web app's verify.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages (same as the Dockerfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libasound2-dev \
+            build-essential \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # A stable key per job, so PRs read the cache develop's own run seeds (the first
+      # develop run after a merge populates it for later PRs to reuse); cache-on-failure
+      # so a run that fails partway through still saves what it built.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            app/src-tauri -> target
+
+      - name: cargo check --all-targets
+        run: cargo check --all-targets
+
+      - name: cargo check --no-default-features --lib
+        run: cargo check --no-default-features --lib
+
+      - name: cargo test --profile test-fast
+        run: cargo test --profile test-fast
+
+      # The app shell's tests run once, in the macos job (with plugins, as the real app
+      # builds). Here we only prove the Linux (no-plugins) variant compiles.
+      - name: cargo check --all-targets (app/src-tauri)
+        working-directory: app/src-tauri
+        run: cargo check --all-targets
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Same idea as the linux job's cache (stable key, cache-on-failure).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            app/src-tauri -> target
+
+      - name: cargo check --all-targets --features plugins
+        run: cargo check --all-targets --features plugins
+
+      - name: cargo test --profile test-fast --features plugins
+        run: cargo test --profile test-fast --features plugins
+
+      - name: cargo test (app/src-tauri)
+        working-directory: app/src-tauri
+        run: cargo test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: npm ci (app)
+        working-directory: app
+        run: npm ci
+
+      - name: npm run verify (app)
+        working-directory: app
+        run: npm run verify

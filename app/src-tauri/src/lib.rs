@@ -136,6 +136,11 @@ fn emit_meters(app: tauri::AppHandle, backend: Shared) {
     }
 }
 
+// Plugin hosting (Audio Unit instrument editor windows) is macOS only (docs/plugin-hosting.md):
+// yahaha's `plugins` feature, and so `yahaha::plugin` and `Session::plugin_editor`, only exist
+// there (see app/src-tauri/Cargo.toml). Elsewhere the two commands below just report that.
+
+#[cfg(target_os = "macos")]
 thread_local! {
     /// The open plugin editor windows, by keyboard part. Main thread only (AppKit).
     static EDITORS: std::cell::RefCell<std::collections::HashMap<u8, yahaha::plugin::editor::Editor>> = Default::default();
@@ -144,11 +149,13 @@ thread_local! {
 /// The instance each keyboard part's editor window edits (`EditorTarget::instance_id`; 0 =
 /// no window), for the event thread to see when a part's instance changes. Set on the main
 /// thread as a window opens.
+#[cfg(target_os = "macos")]
 static EDITING: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
 
 /// The parts whose editor window edits an instance the part no longer plays (another
 /// instance, or none), with the instance their window edits. `current(part)` is the
 /// instance the part plays now.
+#[cfg(target_os = "macos")]
 fn stale_editors(editing: &[usize; 4], current: impl Fn(u8) -> Option<usize>) -> Vec<(u8, usize)> {
     (0..4u8).filter(|&p| editing[p as usize] != 0 && current(p) != Some(editing[p as usize])).map(|p| (p, editing[p as usize])).collect()
 }
@@ -158,6 +165,7 @@ fn stale_editors(editing: &[usize; 4], current: impl Fn(u8) -> Option<usize>) ->
 /// plugin nobody hears. Its settings are not saved (the part has moved on). A window the
 /// player closed with the red button is let go here too, so its unit does not stay alive
 /// in the map until the part's editor is opened again.
+#[cfg(target_os = "macos")]
 fn close_stale_editors(app: &tauri::AppHandle, s: &yahaha::Session) {
     let editing: [usize; 4] = std::array::from_fn(|p| EDITING[p].load(Ordering::Acquire));
     if editing == [0; 4] {
@@ -181,6 +189,7 @@ fn close_stale_editors(app: &tauri::AppHandle, s: &yahaha::Session) {
 
 /// Open keyboard part `part`'s plugin editor (or bring it to the front). The mock has no
 /// plugins: it says so in the message line.
+#[cfg(target_os = "macos")]
 #[tauri::command]
 fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
     let target = match &**backend {
@@ -214,8 +223,17 @@ fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandl
     .map_err(failed)
 }
 
+/// Plugins are macOS only: nothing to open here.
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[allow(unused_variables)]
+fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
+    Err(failed("plugins are macOS only"))
+}
+
 /// Close keyboard part `part`'s plugin editor and keep the plugin's settings with the part
 /// (if it plays a plugin: a part back on its SoundFont voice has none to save).
+#[cfg(target_os = "macos")]
 #[tauri::command]
 fn close_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
     let part = part & 3;
@@ -232,6 +250,14 @@ fn close_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHand
     Ok(())
 }
 
+/// Plugins are macOS only: nothing to close here.
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[allow(unused_variables)]
+fn close_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
+    Err(failed("plugins are macOS only"))
+}
+
 /// Forward the engine's events to the webview. The frontend coalesces `stateChanged` to
 /// one fetch per animation frame.
 fn forward_events(app: tauri::AppHandle, backend: Shared) {
@@ -239,6 +265,7 @@ fn forward_events(app: tauri::AppHandle, backend: Shared) {
     for e in s.subscribe() {
         let stopped = e == yahaha::Event::Stopped;
         if matches!(e, yahaha::Event::StateChanged { .. }) {
+            #[cfg(target_os = "macos")]
             close_stale_editors(&app, s);
         }
         if app.emit("yahaha", e).is_err() || stopped {
@@ -374,6 +401,8 @@ mod tests {
 
     /// An editor window closes once its part plays another instance or none; one whose
     /// part still plays its instance stays, and parts with no window are left alone.
+    /// (`stale_editors` only exists on macOS: plugin hosting is macOS only.)
+    #[cfg(target_os = "macos")]
     #[test]
     fn editor_windows_close_when_their_part_moves_on() {
         let editing = [0x10, 0, 0x30, 0x40];

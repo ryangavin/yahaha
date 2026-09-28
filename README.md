@@ -317,7 +317,29 @@ The engine, the runtime and the app API are the `yahaha` library. A `Session` ow
 - `yahaha drive`: fake keyboard for testing against a running `yahaha play --input TestKbd`.
 - `yahaha state-json <style or folder> ["C Am F"] [--library]`: an offline session's `AppState` (or its library) as JSON, after playing the chords one bar each. This is mock data for the app (docs/app-api.md).
 
-Tests: run `scripts/test-all.sh` for every gate (engine with and without `--features plugins`, the app's Rust and web tests), one step at a time, stopping at the first failure. For the engine alone, run `cargo test --profile test-fast` (add a test name to filter). The `test-fast` profile keeps release semantics but builds our crate incrementally, so an edit rebuilds in seconds rather than a minute or more; `cargo test --release` still works and runs the same tests. The suite covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes. The oracle scores in `tests/oracle/scores.txt` are pinned too: a change to note conversion fails `oracle::tests::corpus_scores` with the score delta until you regenerate them with `UPDATE_GOLDEN=1`.
+Tests: [AGENTS.md](AGENTS.md) lists the commands that must pass, and when to run each one. CI runs them on every pull request. For the engine alone, run `cargo test --profile test-fast --features plugins` (add a test name to filter). The `test-fast` profile keeps release semantics but builds our crate incrementally, so an edit rebuilds in seconds rather than a minute or more; `cargo test --release` still works and runs the same tests. The suite covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes. The oracle scores in `tests/oracle/scores.txt` are pinned too: a change to note conversion fails `oracle::tests::corpus_scores` with the score delta until you regenerate them with `UPDATE_GOLDEN=1`.
+
+## Developing on Linux
+
+yahaha runs on macOS only, but it builds and tests on Linux so that development (mostly agents) can happen there. On Linux there is no MIDI (a no-op backend) and no plugin hosting, so leave out `--features plugins`.
+
+- **Docker:** `docker build -t yahaha-linux .` then `docker run --rm yahaha-linux` runs the Linux commands from [AGENTS.md](AGENTS.md) on the copied source. Append a command to run just that one. To test the live checkout instead, run `docker run --rm -v "$PWD":/work -v /work/app/node_modules yahaha-linux`. The second volume keeps the image's Linux `node_modules`, and Linux build output goes to `target/linux`, apart from the macOS `target/`.
+- **Native:** install Rust, Node 22, and the packages listed in the `Dockerfile` (`pkg-config`, `libasound2-dev`, `build-essential`, and the Tauri WebKitGTK packages). Then run `npm ci` in `app/` and the Linux commands in [AGENTS.md](AGENTS.md).
+- **CI:** `.github/workflows/ci.yml` runs those commands on Linux, and the plugin tests and `npm run verify` on macOS. It runs on every pull request and on pushes to `develop` and `main`.
+- **Signing:** the macOS setup signs commits with 1Password (`op-ssh-sign`), which agents on Linux can't use. Commits made there are unsigned or signed with that machine's own key.
+
+## Agent feedback loop
+
+Each worktree can run [bacon](https://dystroy.org/bacon) headless (`cargo install --locked bacon`). It re-runs a job on every source change and, after every run, writes `.bacon-result.json` (git-ignored): the exit code, error/warning/failed-test counts and each item's location and message. The file's mtime is the run's finish time. An agent edits, then reads the result; it doesn't run cargo itself or poll.
+
+```sh
+scripts/agent-feedback.sh start                        # the `check` job: cargo check --all-targets --features plugins
+scripts/agent-feedback.sh start test -- --lib fx::     # or targeted tests (test-quick profile); drop --lib for integration tests
+scripts/agent-feedback.sh result                       # PASS/FAIL line, then each error or failed test
+scripts/agent-feedback.sh stop                         # before switching job, and when done
+```
+
+`result` waits (at most 60 s, `WAIT=` to change) only while the export is older than the newest edit under `src/`, `tests/`, `vendor/`, `Cargo.toml`, `Cargo.lock` or `bacon.toml`, then prints `stale` (exit 2) or the result (exit 0 pass, 1 fail). The jobs (`bacon.toml`): `check` (default), `check-portable` (no plugins, for Linux), `clippy`, `test`. The `test-quick` profile (Cargo.toml) builds our crate unoptimised with optimised dependencies, for an agent's targeted tests only; the batch gate stays on `test-fast` (`scripts/test-all.sh`). Measured on the development Mac, warm, after a one-line edit in `src/fx.rs`: `check` result in about 3 s; one lib test in 5.5 s under `test-quick` against 8.2 s under `test-fast` (all test targets: 10.3 s against 14.4 s).
 
 ## Known gaps
 

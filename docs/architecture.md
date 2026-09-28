@@ -289,11 +289,8 @@ Rules:
    `app/docs/controls.md`.
 8. **Docs.** docs/app-api.md (commands, state, example), regenerated `docs/fixtures`,
    `app/src/lib/api/engine-shape.json`, and `docs/<feature>.md`.
-9. **Verify.** `cargo build --release` (default, `--no-default-features`,
-   `--features plugins`), `scripts/test-all.sh` (every test gate, fail-fast:
-   `cargo test --profile test-fast` with and without `--features plugins`, `cargo test`
-   in `app/src-tauri`, `npm run verify` in `app/`; goldens unchanged unless on purpose,
-   no-alloc tests), no new
-   clippy warnings, and `yahaha bench <style>` if a real-time path changed.
+9. **Verify.** The commands in [AGENTS.md](../AGENTS.md) that cover the change (goldens
+   unchanged unless on purpose, no-alloc tests), no new clippy warnings, and
+   `yahaha bench <style>` if a real-time path changed. CI on the pull request runs them all.
 10. **Board.** A CHANGED line (what moved, new shapes, new tooltip keys), then release
     the claims.

@@ -31,6 +31,10 @@ pub mod patches;
 pub mod perf;
 #[cfg(feature = "plugins")]
 pub mod plugin;
+// Plugin hosting is Audio Units: macOS only. Without the feature, session's rack is the
+// stub it already uses when plugins are off.
+#[cfg(all(feature = "plugins", not(target_os = "macos")))]
+compile_error!("the `plugins` feature (Audio Unit hosting) is macOS only; build without it on this platform");
 #[cfg(test)]
 mod recognizer_golden;
 pub mod registration;

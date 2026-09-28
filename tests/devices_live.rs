@@ -64,6 +64,11 @@ fn enters_daw(rx: &mpsc::Receiver<String>, secs: u64) -> bool {
 #[test]
 #[ignore = "live CoreMIDI; run with --ignored"]
 fn a_device_from_another_process_comes_goes_and_comes_back() {
+    // No MIDI devices off macOS (the Linux backend is a no-op): nothing to plug.
+    if cfg!(not(target_os = "macos")) {
+        eprintln!("no MIDI devices on this platform; skipping");
+        return;
+    }
     let style = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
     if !style.exists() {
         eprintln!("corpus missing; skipping");
