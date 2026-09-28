@@ -33,7 +33,10 @@ mod mock_home;
 mod mock_regist;
 mod mock_looper;
 
-use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "ios"))]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -294,29 +297,49 @@ fn tick_mock(app: tauri::AppHandle, backend: Shared) {
 }
 
 /// The repo root in a dev checkout (app/src-tauri/../..).
+#[cfg(not(target_os = "ios"))]
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// The style and SoundFont folders when YAHAHA_STYLES / YAHAHA_SOUNDFONTS aren't set, and
+/// where to put styles if there are none: the repo's `corpus/` and `soundfonts/`.
+#[cfg(not(target_os = "ios"))]
+fn default_dirs() -> (PathBuf, PathBuf, &'static str) {
+    (repo_root().join("corpus"), repo_root().join("soundfonts"), "set YAHAHA_STYLES")
+}
+
+/// On iPad there are no environment variables or repo: `styles/` and `soundfonts/` in the
+/// app's Documents/yahaha folder, which the Files app shows (UIFileSharingEnabled). Both
+/// are created on launch so they're there to copy into.
+#[cfg(target_os = "ios")]
+fn default_dirs() -> (PathBuf, PathBuf, &'static str) {
+    let base = yahaha::session::default_data_dir().unwrap_or_default();
+    let (styles, fonts) = (base.join("styles"), base.join("soundfonts"));
+    let _ = std::fs::create_dir_all(&styles);
+    let _ = std::fs::create_dir_all(&fonts);
+    (styles, fonts, "copy styles into Files › yahaha › yahaha › styles, and .sf2 files into soundfonts")
 }
 
 fn backend() -> Backend {
     if std::env::var_os("YAHAHA_MOCK").is_some_and(|v| v != "0") {
         return Backend::Mock(Box::new(Mutex::new(MockSession::new())));
     }
+    let (style_dir, font_dir, hint) = default_dirs();
     let paths: Vec<PathBuf> = match std::env::var_os("YAHAHA_STYLES") {
         Some(v) => std::env::split_paths(&v).collect(),
-        None => {
-            let corpus = repo_root().join("corpus");
-            if corpus.is_dir() { vec![corpus] } else { vec![] }
-        }
+        // An empty folder is no styles (the iPad's is created empty).
+        None if std::fs::read_dir(&style_dir).is_ok_and(|mut d| d.next().is_some()) => vec![style_dir],
+        None => vec![],
     };
     if paths.is_empty() {
-        eprintln!("yahaha: no styles (set YAHAHA_STYLES); running the mock session");
-        return Backend::Mock(Box::new(Mutex::new(MockSession::fallback(
-            "No styles found (set YAHAHA_STYLES): a demo band with no sound or MIDI",
-        ))));
+        eprintln!("yahaha: no styles ({hint}); running the mock session");
+        return Backend::Mock(Box::new(Mutex::new(MockSession::fallback(format!(
+            "No styles found ({hint}): a demo band with no sound or MIDI"
+        )))));
     }
     let sf2 = std::env::var_os("YAHAHA_SF2").map(PathBuf::from);
-    let sound_font_dir = Some(std::env::var_os("YAHAHA_SOUNDFONTS").map_or_else(|| repo_root().join("soundfonts"), PathBuf::from));
+    let sound_font_dir = Some(std::env::var_os("YAHAHA_SOUNDFONTS").map_or(font_dir, PathBuf::from));
     let opts = yahaha::Options { paths, sf2, sound_font_dir, data_dir: yahaha::session::default_data_dir(), ..yahaha::Options::default() };
     match yahaha::Session::start(opts) {
         Ok(s) => Backend::Live(s),

@@ -198,11 +198,11 @@ pub fn drive() -> Result<()> {
         }
         anyhow::ensure!(std::time::Instant::now() < deadline, "no \"yahaha\" source; is `yahaha play` running?");
         // CoreMIDI only learns about endpoints created by other processes via the run loop.
-        #[cfg(target_os = "macos")]
+        #[cfg(target_vendor = "apple")]
         unsafe {
             core_foundation::runloop::CFRunLoopRunInMode(core_foundation::runloop::kCFRunLoopDefaultMode, 0.1, 0);
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(target_vendor = "apple"))]
         std::thread::sleep(Duration::from_millis(100));
     };
     rx_port.connect(out, 0)?;
@@ -426,11 +426,11 @@ pub fn audio(args: &[String]) -> Result<()> {
         }
         if paced {
             wake += period;
-            #[cfg(target_os = "macos")]
+            #[cfg(target_vendor = "apple")]
             unsafe {
                 mach2::mach_time::mach_wait_until(rt::ns_to_host(wake))
             };
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(target_vendor = "apple"))]
             std::thread::sleep(Duration::from_nanos(wake.saturating_sub(rt::now_ns())));
         }
         let (a, c) = (rt::now_ns(), rt::thread_cpu_ns());

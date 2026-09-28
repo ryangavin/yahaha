@@ -4,16 +4,16 @@
 //! On Linux (agentic development only) the backend is a no-op with the same API: no
 //! devices, and ports and virtual endpoints that never carry anything.
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 pub use coremidi::*;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(target_vendor = "apple"))]
 pub use null::*;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(target_vendor = "apple"))]
 mod null;
 
-/// The CoreMIDI backend (macOS).
-#[cfg(target_os = "macos")]
+/// The CoreMIDI backend (macOS and iOS).
+#[cfg(target_vendor = "apple")]
 mod coremidi {
 use super::InputHandler;
 use anyhow::{bail, Result};
