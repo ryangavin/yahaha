@@ -43,6 +43,7 @@ pub mod rt;
 pub mod session;
 pub mod sff;
 pub mod sim;
+pub mod style_types;
 pub mod synth;
 pub mod theory;
 pub mod voice_gm;

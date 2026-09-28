@@ -5,7 +5,8 @@
 //! Nothing here runs on the engine or MIDI threads. The UI thread owns the `Library` and
 //! drains index results from a channel between frames.
 
-use crate::sff::{SectionId, Summary};
+use crate::sff::Summary;
+use crate::style_types::SectionId;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
