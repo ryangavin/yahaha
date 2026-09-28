@@ -2,7 +2,7 @@
 //!
 //! Everything here is allocation-free so it can run on the real-time threads.
 
-use crate::sff::{ChannelRule, Ntr, Ntt, Zone};
+use crate::style_types::{ChannelRule, Ntr, Ntt, Zone};
 
 pub const CANCEL: u8 = 0x22;
 /// The two-note Fingered shapes: 1+8 (root alone or in octaves) and 1+5 (root and fifth).
@@ -986,7 +986,7 @@ fn guitar(key: u8, z: &Zone, chord: Chord) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sff::{ChannelRule, Rtr};
+    use crate::style_types::{ChannelRule, Rtr};
 
     fn rule(ntr: Ntr, ntt: Ntt, hk: u8, lo: u8, hi: u8) -> ChannelRule {
         let mut r = ChannelRule::default_for(12);
@@ -2040,11 +2040,11 @@ mod tests {
                     any = true;
                     records += 1;
                     let mut keys = [false; 128];
-                    for id in seg.sections.iter().filter_map(|n| crate::sff::SectionId::parse(n)) {
+                    for id in seg.sections.iter().filter_map(|n| crate::style_types::SectionId::parse(n)) {
                         let Some(sec) = s.sections.get(&id) else { continue };
                         let mut strum: Vec<(u32, u8)> = Vec::new();
                         for ev in &sec.events {
-                            let crate::sff::Ev::NoteOn { ch, key, vel } = ev.ev else { continue };
+                            let crate::style_types::Ev::NoteOn { ch, key, vel } = ev.ev else { continue };
                             if ch != r.src_ch || vel == 0 || r.zone_for(key).ntr != Ntr::Guitar {
                                 continue;
                             }
