@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file is the one place that says what must pass. CI on the pull request runs these commands, and it must pass before merge. There is no other required process.
+This file is the one place that says what must pass. CI on the pull request runs these commands, and it must pass before merge. There is no other required process. A PR that only changes Markdown docs skips them (`.github/workflows/ci.yml` says which files count).
 
 ## Checks
 

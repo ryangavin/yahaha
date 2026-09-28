@@ -1,12 +1,21 @@
 # The checks in AGENTS.md, run directly. CI on the pull request is the final check before merge.
 # linux: Rust checks and tests without plugins, plus the app shell's Rust tests.
 # macos: the plugins build and tests, plus the web app's verify.
+#
+# Each commit is checked once:
+# - PRs into develop run on the PR.
+# - A push to develop (a merged PR) runs again: it checks the merged result and seeds the
+#   develop cache that PR runs restore from (a PR's own cache is only visible to that PR).
+# - Release PRs (develop into main) don't run: their head is develop's tip, which the push
+#   run above already checked, and those checks count for the PR. Nothing runs on main.
+# - Docs-only changes skip linux and macos (see `changes`). A skipped job counts as passed.
 name: ci
 
 on:
   pull_request:
+    branches: [develop]
   push:
-    branches: [develop, main]
+    branches: [develop]
 
 permissions:
   contents: read
@@ -16,7 +25,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether anything but docs changed. Docs = Markdown files, except the ones the code
+  # compiles in (docs/app-api.md; docs/capture-kit/). With no usable base (a new branch),
+  # everything counts as changed.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          code=true
+          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            files=$(git diff --name-only "$BASE" HEAD)
+            echo "$files"
+            if [ -n "$files" ] \
+              && ! printf '%s\n' "$files" | grep -qvE '\.md$' \
+              && ! printf '%s\n' "$files" | grep -qE '^docs/(app-api\.md|capture-kit/)'; then
+              code=false
+            fi
+          fi
+          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+
   linux:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +102,8 @@ jobs:
         run: cargo check --all-targets
 
   macos:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
