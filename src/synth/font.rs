@@ -135,12 +135,26 @@ pub struct Baked {
 /// The preset data `pdta` (its body, "pdta" first) with velocity -> cutoff baked in (or,
 /// with `velocity_tone` off, only the default switched off), and what was done.
 pub fn bake(pdta: &[u8], velocity_tone: bool) -> Result<(Vec<u8>, Baked)> {
+    bake_within(pdta, velocity_tone, MAX_RECORDS)
+}
+
+/// [`bake`] with at most `limit` zones and generators on each side (the format's
+/// [`MAX_RECORDS`]; lower in tests). If the instruments can't fit, the preset data as it was.
+fn bake_within(pdta: &[u8], velocity_tone: bool, limit: usize) -> Result<(Vec<u8>, Baked)> {
     let p = Pdta::parse(pdta)?;
     let insts = p.instruments()?;
+    let inst_zones: usize = insts.out.iter().map(|(_, zs)| zs.len()).sum();
+    let inst_gens: usize = insts.out.iter().flat_map(|(_, zs)| zs).map(|&z| (p.ibag[z + 1][0] as usize).saturating_sub(p.ibag[z][0] as usize)).sum();
+    if inst_zones > limit || inst_gens > limit {
+        // The split instruments don't fit in 16 bits: the font as it was, a flat tone.
+        let zones = p.pbag.len().saturating_sub(1);
+        let baked = Baked { zones_in: zones, zones_out: zones, generators_out: p.pgen.len().saturating_sub(1), ..Baked::default() };
+        return Ok((pdta.to_vec(), baked));
+    }
     let mut last = None;
     for &tol in &TOLERANCES {
         let presets = p.presets(&insts, velocity_tone.then_some(tol))?;
-        let fits = presets.generators.len() <= MAX_RECORDS && presets.bags.len() <= MAX_RECORDS;
+        let fits = presets.generators.len() <= limit && presets.bags.len() <= limit;
         let baked = Baked {
             tolerance: if presets.layered > 0 { tol } else { 0.0 },
             zones_in: p.pbag.len().saturating_sub(1),
@@ -706,6 +720,20 @@ mod tests {
         assert_eq!((baked.layered, baked.tolerance), (0, 0.0));
         let p = Pdta::parse(&out).unwrap();
         assert_eq!(p.pgen[..p.pgen.len() - 1], [[INSTRUMENT, 0], [INSTRUMENT, 1]]);
+    }
+
+    /// Instrument zones or generators over the limit: the preset data as it was (no
+    /// wrapped indices), nothing layered or split, and no panic.
+    #[test]
+    fn instruments_over_the_limit_fall_back_to_the_font_as_it_was() {
+        let pdta = split_pdta();
+        // The split writes 4 instrument zones and 6 generators; the presets fit in 128.
+        let (out, baked) = bake_within(&pdta, true, 5).unwrap();
+        assert_eq!(out, pdta);
+        assert_eq!((baked.layered, baked.split, baked.tolerance), (0, 0, 0.0));
+        assert!(Pdta::parse(&out).is_ok());
+        let (_, baked) = bake_within(&pdta, true, 128).unwrap();
+        assert_eq!(baked.split, 1, "within the limit it still splits");
     }
 
     /// The SoundFonts in `soundfonts/` (git-ignored; skipped without them): each bakes
