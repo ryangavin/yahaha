@@ -37,11 +37,11 @@ The M5–M8 wave is fully merged into `develop`, and all gates are green. No PRs
 - #110: iReal and looper edge cases.
 - #111: fills and rules edge cases, including a style chosen while an Ending is only queued.
 
-**Process now in place** (see `docs/agents/wave-brief.md`):
+**Process in place at the time** (retired since; see AGENTS.md for the current one):
 - small PRs;
 - a PR is green and mergeable before review;
 - only real bugs block a merge;
-- a `READY <sha>` comment plus the `ready-to-merge` label hands the PR to a long-running merge-steward agent, which merges it and runs the gates on integration after every merge.
+- a `READY <sha>` comment plus the `ready-to-merge` label hands the PR to a long-running merge-steward agent, which merges it and runs the checks on integration after every merge.
 
 ## Also outstanding
 
@@ -57,13 +57,13 @@ The M5–M8 wave is fully merged into `develop`, and all gates are green. No PRs
 - **Clippy drift:** a newer toolchain flagged lints in files no one touched (`src/sff.rs`, `src/theory.rs`). If `clippy -D warnings` fails on untouched code, fix it in a separate small PR rather than inside a feature PR.
 - After the wave: the owner playtests `develop`, then it merges to `main`.
 
-## How the swarm ran (reuse this)
+## How the swarm ran (historical; the process and its scripts have since been retired and removed — see AGENTS.md for what replaced it)
 
-- `docs/agents/wave-brief.md`: the brief every implementation, fix and review agent read first. It has the hard rules: push after every step, real-time safety, the mixer principle, wire compatibility, both mocks, tooltips, gates, and no copyrighted data (the repo is public).
-- `docs/agents/ui-brief.md` and `docs/agents/ui-review.md`: extra rules for app UI work and UI reviews.
-- `docs/agents/wave-workflow.js`: the workflow script. Each track runs implement → adversarial review → fix, for up to 3 rounds, with no merging inside the workflow. Replace `<SCRATCHPAD>` with a real scratch directory.
-- `docs/agents/board-archive.md`: the coordination board from this wave. Agents appended CLAIM, NEED, FINDING, CHANGED and RELEASE lines, and it includes cross-PR notes still pending. For a new wave, copy it to a scratch directory outside the repo; agents appending to a tracked file would conflict.
-- `.claude/scripts/merge-integration.sh <pr> [expected-head-sha]` squash-merges a PR only when its base is `integration/*` and the head matches what was reviewed. The coordinator does the merges; agents never merge. Auto mode blocks merges unless the owner approves them.
+- `docs/agents/wave-brief.md` (removed): the brief every implementation, fix and review agent read first. It had the hard rules: push after every step, real-time safety, the mixer principle, wire compatibility, both mocks, tooltips, checks, and no copyrighted data (the repo is public).
+- `docs/agents/ui-brief.md` (design decisions kept, process stripped) and `docs/agents/ui-review.md` (removed): extra rules for app UI work and UI reviews.
+- `docs/agents/wave-workflow.js` (removed): the workflow script. Each track ran implement → adversarial review → fix, for up to 3 rounds, with no merging inside the workflow.
+- `docs/agents/board-archive.md` (removed): the coordination board from this wave. Agents appended CLAIM, NEED, FINDING, CHANGED and RELEASE lines, and it included cross-PR notes still pending.
+- `.claude/scripts/merge-integration.sh` (removed): squash-merged a PR only when its base was `integration/*` and the head matched what was reviewed. The coordinator did the merges; agents never merged.
 
 ## Lessons
 
