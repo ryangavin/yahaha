@@ -23,11 +23,16 @@
 //!
 //! Every lane of a part gets the part's controllers, pitch bend and note-offs; a note-on,
 //! program change or bank select goes to the lanes of the font the channel plays now.
+//! Mono mode and portamento are played on the way in (voicing.rs): a part's messages go to
+//! all of its synthesizer's MIDI channels, and a gliding note plays on a channel of its own
+//! whose pitch bend steps once a synthesizer block, so a lane with a glide renders a block
+//! at a time.
 //!
 //! All memory is allocated when the rack is built, off the audio thread; `render` never
 //! allocates, locks or panics.
 
 use super::part_tone::PartTone;
+use super::voicing::{To, Voicing};
 use super::*;
 use crate::fx::BUSES;
 
@@ -56,12 +61,18 @@ pub(super) struct Lane {
     sends: [f32; BUSES],
     /// Frames it has rendered below `IDLE_LEVEL` (a note-on starts it again).
     pub(super) quiet: u32,
+    /// The part's bank there (CC0; 128 and up: a drum kit).
+    bank: i32,
+    /// Frames into the synthesizer's block (0: the next frame renders a new block).
+    phase: usize,
 }
 
 /// A part (a MIDI channel): its lanes, and what the rack keeps of its state.
 pub(super) struct Part {
     /// Slot k's lane at k (0 = the main font); then the main font's note lanes.
     pub(super) lanes: Vec<Lane>,
+    /// Its mono mode and portamento, and the channels its notes play on.
+    voicing: Voicing,
     /// CC7/39 and CC11/43, 14 bits each, as rustysynth keeps them (for an insert's level).
     volume: i32,
     expression: i32,
@@ -75,31 +86,23 @@ pub(super) struct Part {
 }
 
 impl Part {
-    fn new(lanes: Vec<Lane>, sample_rate: f32) -> Part {
-        Part { lanes, volume: 100 << 7, expression: 127 << 7, held: 0, sustained: 0, pedal: false, tone: PartTone::new(sample_rate) }
+    fn new(lanes: Vec<Lane>, voicing: Voicing, sample_rate: f32) -> Part {
+        Part { lanes, voicing, volume: 100 << 7, expression: 127 << 7, held: 0, sustained: 0, pedal: false, tone: PartTone::new(sample_rate) }
     }
 
-    /// A message to the part's tone (part_tone.rs), before its synthesizers get it. True
-    /// if it is the tone's own and goes no further.
+    /// The mod wheel to every lane, on every channel the part's notes play on (a glide's
+    /// too), if the tone's has changed.
     #[inline]
-    fn tone_msg(&mut self, ch: i32, st: i32, d1: i32, d2: i32) -> bool {
-        let own = self.tone.follow(st, d1, d2);
-        if st == 0xB0 && d1 == 121 {
-            // The synthesizers reset their mod wheel: send them the tone's after.
-            self.lanes.iter_mut().for_each(|l| l.synth.process_midi_message(ch, st, d1, d2));
-            self.send_modulation(ch);
-            return true;
-        }
-        self.send_modulation(ch);
-        own
-    }
-
-    /// The mod wheel to every lane, if the tone's has changed.
-    #[inline]
-    fn send_modulation(&mut self, ch: i32) {
+    fn send_modulation(&mut self) {
         if let Some(v) = self.tone.modulation() {
-            self.lanes.iter_mut().for_each(|l| l.synth.process_midi_message(ch, 0xB0, 1, v));
+            send(&mut self.lanes, 0, To::All, self.voicing.chans(), 0xB0, 1, v);
         }
+    }
+
+    /// Whether it plays a melodic voice (not a drum kit) on `slot`'s font.
+    #[inline]
+    fn melodic(&self, slot: u8) -> bool {
+        self.voicing.home() != 9 && self.lanes.get(slot as usize).is_some_and(|l| l.bank < 128)
     }
 
     /// Follow a message to this part, as rustysynth's channel does: its volume and
@@ -178,6 +181,8 @@ pub struct Rack {
     pub(super) mapped: u16,
     /// Each channel's gains into the effect bus's send buses (#204), taken on its stem.
     send_gains: [[f32; BUSES]; 16],
+    /// The synthesizers' block, in frames.
+    block: usize,
     /// The master volume every lane renders at (it is in the stems).
     master: f32,
     /// A part's stem, and a second lane's block before it joins the stem.
@@ -222,10 +227,11 @@ impl Rack {
     pub(super) fn build(main: &Arc<SoundFont>, extras: &[&Arc<SoundFont>], sample_rate: i32, legacy: bool) -> Result<Rack> {
         let lane = |font: &Arc<SoundFont>, slot: u8, polyphony: usize| -> Result<Lane> {
             let synth = Synthesizer::new(font, &settings(sample_rate, polyphony, legacy)).map_err(|e| anyhow!("{e:?}"))?;
-            Ok(Lane { synth, slot, sends: PART_SENDS, quiet: IDLE_FRAMES })
+            Ok(Lane { synth, slot, sends: PART_SENDS, quiet: IDLE_FRAMES, bank: 0, phase: 0 })
         };
+        let block = settings(sample_rate, MAIN_POLYPHONY, legacy).block_size;
         let mut parts = Vec::with_capacity(16);
-        for _ in 0..16 {
+        for ch in 0..16u8 {
             let mut lanes = Vec::with_capacity(1 + extras.len() + NOTE_LANES);
             lanes.push(lane(main, 0, MAIN_POLYPHONY)?);
             for (i, f) in extras.iter().enumerate() {
@@ -234,7 +240,7 @@ impl Rack {
             for _ in 0..NOTE_LANES {
                 lanes.push(lane(main, 0, NOTE_POLYPHONY)?);
             }
-            parts.push(Part::new(lanes, sample_rate as f32));
+            parts.push(Part::new(lanes, Voicing::new(ch, block, sample_rate), sample_rate as f32));
         }
         let mut r = Rack {
             parts,
@@ -243,6 +249,7 @@ impl Rack {
             ch_slot: [0; 16],
             mapped: 0,
             send_gains: [[0.0; BUSES]; 16],
+            block,
             master: 0.5,
             stem_l: vec![0.0; 8192],
             stem_r: vec![0.0; 8192],
@@ -253,9 +260,8 @@ impl Rack {
             rms: [0.0; 16],
         };
         // Rhythm 1 (ch 9) is a drum part too: on the drum bank, on every font.
-        for l in &mut r.parts[8].lanes {
-            l.synth.process_midi_message(8, 0xB0, 0, 128);
-        }
+        let p = &mut r.parts[8];
+        send(&mut p.lanes, 0, To::All, p.voicing.chans(), 0xB0, 0, 128);
         r.set_master_volume(r.master);
         Ok(r)
     }
@@ -307,11 +313,13 @@ impl Rack {
         self.send_gains = *gains;
     }
 
-    /// A channel's mono or poly mode (#246), on every lane (as a controller).
+    /// A channel's mono or poly mode (#246), without an All Notes Off (voicing.rs).
     pub(super) fn set_mono(&mut self, ch: u8, mono: bool) {
-        for l in &mut self.parts[ch as usize & 15].lanes {
-            l.synth.set_mono(ch as i32, mono);
-        }
+        let slot = self.ch_slot[ch as usize & 15];
+        let part = &mut self.parts[ch as usize & 15];
+        let melodic = part.melodic(slot);
+        let lanes = &mut part.lanes;
+        part.voicing.set_mono(mono, melodic, &mut |to, chans, st, d1, d2| send(lanes, slot, to, chans, st, d1, d2));
     }
 
     pub(super) fn set_master_volume(&mut self, v: f32) {
@@ -323,24 +331,27 @@ impl Rack {
         }
     }
 
-    /// A channel message to the lane(s) that take it (see the module docs).
+    /// A channel message to the lane(s) that take it (see the module docs), through the
+    /// part's mono mode and portamento (voicing.rs).
     pub(super) fn process(&mut self, ch: i32, st: i32, d1: i32, d2: i32) {
         let c = ch as usize & 15;
         let slot = self.ch_slot[c];
         let part = &mut self.parts[c];
         part.track(st, d1, d2);
-        if part.tone_msg(ch, st, d1, d2) {
-            return;
+        // The part's tone first (part_tone.rs): its own controllers go no further.
+        let own = part.tone.follow(st, d1, d2);
+        // Reset All Controllers zeroes the synthesizers' mod wheel: the tone's goes after.
+        let reset = st == 0xB0 && d1 == 121;
+        if !reset {
+            part.send_modulation();
         }
-        match st {
-            0x90 if d2 > 0 => {
-                let l = &mut part.lanes[slot as usize];
-                l.quiet = 0;
-                l.synth.process_midi_message(ch, st, d1, d2);
-            }
-            0xC0 => part.slot_lanes(slot).for_each(|l| l.synth.process_midi_message(ch, st, d1, d2)),
-            0xB0 if d1 == 0 || d1 == 32 => part.slot_lanes(slot).for_each(|l| l.synth.process_midi_message(ch, st, d1, d2)),
-            _ => part.lanes.iter_mut().for_each(|l| l.synth.process_midi_message(ch, st, d1, d2)),
+        if !own {
+            let melodic = part.melodic(slot);
+            let lanes = &mut part.lanes;
+            part.voicing.process(st, d1, d2, melodic, slot, &mut |to, chans, st, d1, d2| send(lanes, slot, to, chans, st, d1, d2));
+        }
+        if reset {
+            part.send_modulation();
         }
     }
 
@@ -352,8 +363,11 @@ impl Rack {
         let slots = self.slots;
         let part = &mut self.parts[c];
         part.track(0x90, key as i32, velocity as i32);
-        part.tone_msg(ch as i32, 0x90, key as i32, velocity as i32);
-        let i =if slot == 0 && note.sends != PART_SENDS { part.note_lane(slots, note.sends) } else { slot as usize };
+        part.tone.follow(0x90, key as i32, velocity as i32);
+        part.send_modulation();
+        let melodic = part.melodic(slot);
+        part.voicing.note_elsewhere(key, melodic);
+        let i = if slot == 0 && note.sends != PART_SENDS { part.note_lane(slots, note.sends) } else { slot as usize };
         let l = &mut part.lanes[i];
         l.quiet = 0;
         l.synth.note_on_with(ch as i32, key as i32, velocity as i32, note);
@@ -362,10 +376,9 @@ impl Rack {
     /// Channel `ch`'s bank and program on the lanes of `slot` (a route, #103).
     pub(super) fn program_on(&mut self, ch: u8, slot: u8, bank: i32, program: i32) {
         let part = &mut self.parts[ch as usize & 15];
-        for l in part.slot_lanes(slot) {
-            l.synth.process_midi_message(ch as i32, 0xB0, 0, bank);
-            l.synth.process_midi_message(ch as i32, 0xC0, program, 0);
-        }
+        let chans = part.voicing.chans();
+        send(&mut part.lanes, slot, To::Slot, chans, 0xB0, 0, bank);
+        send(&mut part.lanes, slot, To::Slot, chans, 0xC0, program, 0);
         // The slot's synthesizer renders again (until it has gone quiet once more).
         if let Some(l) = part.lanes.get_mut(slot as usize) {
             l.quiet = 0;
@@ -399,6 +412,7 @@ impl Rack {
         let (mut extra_ns, mut extra_total) = (0u64, 0u64);
         let mut ch_peak = [0f32; 16];
         let mut ch_sq = [0f32; 16];
+        let block = self.block;
         for ch in 0..16 {
             if ch == 4 {
                 // The keyboard parts (ch 1-4) are your playing; the rest the band's.
@@ -415,7 +429,7 @@ impl Rack {
             // A part with no note sounding whose lanes have gone quiet renders nothing.
             let holds = part.notes() > 0;
             // The mod wheel as the tone has it now (a vibrato delay fading in).
-            part.send_modulation(ch as i32);
+            part.send_modulation();
             for (i, lane) in part.lanes.iter_mut().enumerate() {
                 let is_live = i == live;
                 if lane.quiet >= IDLE_FRAMES && !(is_live && holds) {
@@ -424,7 +438,7 @@ impl Rack {
                 let t0 = if profile { crate::rt::host_now() } else { 0 };
                 // The first lane renders straight into the stem; any other beside it.
                 let (l, r): (&mut [f32], &mut [f32]) = if first { (&mut *sl, &mut *sr) } else { (&mut *tl, &mut *tr) };
-                lane.synth.render(l, r);
+                render_lane(lane, i, &mut part.voicing, block, l, r);
                 if profile {
                     let dt = crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
                     ns += dt;
@@ -530,12 +544,6 @@ impl Rack {
 }
 
 impl Part {
-    /// The lanes playing `slot`'s font.
-    #[inline]
-    fn slot_lanes(&mut self, slot: u8) -> impl Iterator<Item = &mut Lane> {
-        self.lanes.iter_mut().filter(move |l| l.slot == slot)
-    }
-
     /// The note lane for a note with `sends` of its own: the one with those sends, else an
     /// idle one (it takes them), else the one whose sends are nearest.
     fn note_lane(&mut self, slots: usize, sends: [f32; BUSES]) -> usize {
@@ -556,6 +564,57 @@ impl Part {
             best
         };
         slots + i
+    }
+}
+
+/// A message to the lanes of a part that `to` names (`slot`: the font the part plays), on
+/// each of the synthesizer channels in `chans`.
+fn send(lanes: &mut [Lane], slot: u8, to: To, chans: u16, st: i32, d1: i32, d2: i32) {
+    for (i, l) in lanes.iter_mut().enumerate() {
+        let take = match to {
+            To::Live => i == slot as usize,
+            To::Slot => l.slot == slot,
+            To::All => true,
+            To::Lane(k) => i == k as usize,
+        };
+        if !take {
+            continue;
+        }
+        if to == To::Live {
+            l.quiet = 0;
+        }
+        if st == 0xB0 && d1 == 0 {
+            l.bank = d2;
+        }
+        let mut m = chans;
+        while m != 0 {
+            let c = m.trailing_zeros() as i32;
+            m &= m - 1;
+            l.synth.process_midi_message(c, st, d1, d2);
+        }
+    }
+}
+
+/// Render lane `i` of a part into `l`/`r`: at once, or with a glide in it a block at a
+/// time, each glide stepping before the block (voicing.rs).
+#[inline]
+fn render_lane(lane: &mut Lane, i: usize, voicing: &mut Voicing, block: usize, l: &mut [f32], r: &mut [f32]) {
+    let n = l.len();
+    if !voicing.glides_in(i) {
+        lane.synth.render(l, r);
+        lane.phase = (lane.phase + n) % block;
+        return;
+    }
+    let mut k = 0;
+    while k < n {
+        if lane.phase == 0 {
+            let synth = &mut lane.synth;
+            voicing.block(i, &mut |c, st, d1, d2| synth.process_midi_message(c, st, d1, d2));
+        }
+        let m = (block - lane.phase).min(n - k);
+        lane.synth.render(&mut l[k..k + m], &mut r[k..k + m]);
+        lane.phase = (lane.phase + m) % block;
+        k += m;
     }
 }
 
@@ -615,7 +674,7 @@ mod tests {
     /// part's volume and expression on rustysynth's curve, for an insert's level.
     #[test]
     fn a_part_counts_its_notes_and_keeps_its_level() {
-        let mut p = Part::new(Vec::new(), 48_000.0);
+        let mut p = Part::new(Vec::new(), Voicing::new(0, 64, 48_000), 48_000.0);
         p.track(0x90, 60, 100);
         p.track(0x90, 64, 100);
         assert_eq!(p.notes(), 2);
@@ -722,6 +781,134 @@ mod tests {
         assert!(lit > open * 1.3, "the held note brightens: {lit} vs {open}");
         let edge = &a[4800 - 64..4800 + 480];
         assert!(jump(edge) <= jump(&b[..4800]) * 2.0, "no click: {} vs {}", jump(edge), jump(&b[..4800]));
+    }
+
+    /// With portamento on, CC77's vibrato (folded into CC1 by the tone) reaches a gliding
+    /// note on a channel of its own, not only the part's home channel.
+    #[test]
+    fn vibrato_depth_reaches_a_gliding_note() {
+        let run = |depth: Option<i32>| {
+            let mut r = rack();
+            r.process(2, 0xB0, 65, 127);
+            r.process(2, 0xB0, 5, 60);
+            r.process(2, 0x90, 48, 100);
+            play(&mut r, 4800, 480);
+            r.process(2, 0x80, 48, 0);
+            play(&mut r, 96_000, 480);
+            assert!(play(&mut r, 4800, 480).iter().all(|&v| v == 0.0), "the home channel has gone quiet");
+            if let Some(d) = depth {
+                r.process(2, 0xB0, 77, d);
+            }
+            r.process(2, 0x90, 72, 100);
+            assert!(r.parts[2].voicing.glides_in(0), "the new note glides, on a channel of its own");
+            play(&mut r, 48_000, 480)
+        };
+        assert_ne!(run(Some(127)), run(None), "CC77 changes the gliding note");
+    }
+
+    /// The rack's mix (left + right) over `frames`, rendered in buffers of `buf`.
+    fn play(rack: &mut Rack, frames: usize, buf: usize) -> Vec<f32> {
+        let p = peaks();
+        let (mut l, mut r) = (vec![0f32; buf], vec![0f32; buf]);
+        let mut mix = Vec::new();
+        while mix.len() < frames {
+            let n = buf.min(frames - mix.len());
+            rack.render_dry(&mut l[..n], &mut r[..n], &p, None);
+            mix.extend(l[..n].iter().zip(&r[..n]).map(|(a, b)| a + b));
+        }
+        mix
+    }
+
+    /// Zero crossings in each `win`-frame window (the tiny font's square wave: its pitch).
+    fn crossings(x: &[f32], win: usize) -> Vec<usize> {
+        x.chunks(win).map(|c| c.windows(2).filter(|w| (w[0] >= 0.0) != (w[1] >= 0.0)).count()).collect()
+    }
+
+    /// Mono with portamento, in the rack (on upstream rustysynth's note-on, note-off, RPN
+    /// and pitch bend): the second key glides up from the first and lands on its own pitch;
+    /// letting go of it glides back down to the key still held. Buffers of any size (here
+    /// not a whole number of blocks) give the same sound.
+    #[test]
+    fn mono_portamento_glides_up_and_back() {
+        // Each 50 ms window's crossings over 0.5 s.
+        let reference = |key: i32| {
+            let mut r = rack();
+            r.process(2, 0x90, key, 100);
+            crossings(&play(&mut r, 24_000, 480)[..24_000], 2400)
+        };
+        let (c3, c4) = (reference(48), reference(60));
+        let tail = |x: &[usize]| x[7..].iter().sum::<usize>();
+        assert!(tail(&c4) > tail(&c3) * 3 / 2, "{c3:?} {c4:?}");
+        let run = |buf: usize| {
+            let mut r = rack();
+            // Time 64: an octave in 0.32 s.
+            for cc in [[126, 0], [65, 127], [5, 64]] {
+                r.process(2, 0xB0, cc[0], cc[1]);
+            }
+            r.process(2, 0x90, 48, 100);
+            play(&mut r, 4800, buf);
+            r.process(2, 0x90, 60, 100);
+            let up = play(&mut r, 24_000, buf);
+            assert_eq!(r.voices(), 2, "two keys held");
+            r.process(2, 0x80, 60, 0);
+            let down = play(&mut r, 24_000, buf);
+            (crossings(&up[..24_000], 2400), crossings(&down[..24_000], 2400))
+        };
+        let (up, down) = run(480);
+        assert!(up[0] < c4[0] * 3 / 4 && up[0] < up[2] && up[2] < up[4], "starts low and climbs: {up:?} vs C4 {c4:?}");
+        assert!(tail(&up).abs_diff(tail(&c4)) <= 2, "lands on C4: {up:?} vs {c4:?}");
+        assert!(down[0] > c3[0] * 5 / 4, "glides back down: {down:?} vs C3 {c3:?}");
+        assert!(tail(&down).abs_diff(tail(&c3)) <= 2, "lands on C3: {down:?} vs {c3:?}");
+        assert_eq!(run(333), (up, down), "the same in any buffer size");
+    }
+
+    /// Portamento off (its time set) and poly mode play exactly as neither was sent.
+    #[test]
+    fn portamento_off_and_poly_change_nothing() {
+        let run = |setup: &[[i32; 2]]| {
+            let mut r = rack();
+            for &[cc, v] in setup {
+                r.process(2, 0xB0, cc, v);
+            }
+            for k in [48, 55, 60] {
+                r.process(2, 0x90, k, 100);
+            }
+            let mut out = play(&mut r, 4800, 480);
+            r.process(2, 0x80, 55, 0);
+            r.process(2, 0x90, 64, 100);
+            out.extend(play(&mut r, 4800, 480));
+            out
+        };
+        assert_eq!(run(&[]), run(&[[5, 40], [65, 0], [127, 0]]));
+    }
+
+    /// Poly portamento: a new note glides on a channel of its own; a note held keeps its
+    /// pitch. CC126/127 and CC5/65 never reach the synthesizer (upstream has none).
+    #[test]
+    fn poly_portamento_leaves_the_held_note_alone() {
+        let held_alone = {
+            let mut r = rack();
+            r.process(2, 0x90, 48, 100);
+            play(&mut r, 9600, 480)
+        };
+        let mut r = rack();
+        r.process(2, 0xB0, 65, 127);
+        r.process(2, 0xB0, 5, 60);
+        r.process(2, 0x90, 48, 100);
+        let first = play(&mut r, 4800, 480);
+        assert_eq!(first[..], held_alone[..4800], "the first note: no glide, as without portamento");
+        r.process(2, 0x90, 72, 100);
+        let both = play(&mut r, 4800, 480);
+        // Take the held note away (the same note alone, in the same place): what is left
+        // is the gliding one, which starts well below C5.
+        let rest: Vec<f32> = both.iter().zip(&held_alone[4800..]).map(|(a, b)| a - b).collect();
+        let c5 = {
+            let mut q = rack();
+            q.process(2, 0x90, 72, 100);
+            crossings(&play(&mut q, 960, 480), 960)[0]
+        };
+        let early = crossings(&rest[..960], 960)[0];
+        assert!(early * 2 < c5, "the new note glides up: {early} crossings in its first 20 ms vs C5's {c5}");
     }
 
     /// A drum note with sends of its own (#239) plays in a note lane with those sends: the

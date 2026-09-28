@@ -71,9 +71,9 @@ fn note(s: &mut Synthesizer, key: i32, hold: usize, tail: usize) -> (Vec<f32>, V
 #[test]
 fn neutral_sound_controllers_change_nothing() {
     let Some(font) = font() else { return };
-    // The sound controllers at 64, portamento off (its time set, #246), poly mode.
-    let mut all: Vec<[i32; 2]> = (71..=78).map(|cc| [cc, 64]).collect();
-    all.extend([[5, 40], [65, 0], [127, 0]]);
+    // The sound controllers at 64. (Portamento off and poly mode are the rack's:
+    // rack.rs, `portamento_off_and_poly_change_nothing`.)
+    let all: Vec<[i32; 2]> = (71..=78).map(|cc| [cc, 64]).collect();
     for program in [0, 48, 73] {
         let (a, at) = note(&mut synth(&font, program, &[]), 60, 24_000, 24_000);
         let (b, bt) = note(&mut synth(&font, program, &all), 60, 24_000, 24_000);
@@ -232,6 +232,19 @@ fn pitch_track(x: &[f32], from: usize, win: usize) -> Vec<f64> {
     crossings(&x[from..], win)
 }
 
+/// `frames` frames of a rack's mix (left + right).
+fn render_rack(r: &mut Rack, frames: usize) -> Vec<f32> {
+    let peaks: [AtomicU32; 16] = std::array::from_fn(|_| AtomicU32::new(0));
+    let (mut l, mut rr) = (vec![0f32; 4800], vec![0f32; 4800]);
+    let mut mix = Vec::with_capacity(frames);
+    while mix.len() < frames {
+        let n = (frames - mix.len()).min(4800);
+        r.render_dry(&mut l[..n], &mut rr[..n], &peaks, None);
+        mix.extend(l[..n].iter().zip(&rr[..n]).map(|(a, b)| a + b));
+    }
+    mix
+}
+
 /// CC65 on with a CC5 time: a note glides from the key played before at a fixed rate; with
 /// time 0 (or CC65 off) it starts on its own pitch.
 #[test]
@@ -239,11 +252,12 @@ fn portamento_glides_the_pitch() {
     let Some(font) = font() else { return };
     // Flute C4, then C5: each 20 ms window's crossings over the first 0.6 s of C5.
     let glide = |setup: &[[i32; 2]]| {
-        let mut s = synth(&font, 73, setup);
-        note(&mut s, 60, 14_400, 0);
-        s.note_off(0, 60);
-        s.note_on(0, 72, 100);
-        pitch_track(&render(&mut s, 28_800), 0, 960)
+        let mut s = rack(&font, 73, setup);
+        s.process(0, 0x90, 60, 100);
+        render_rack(&mut s, 14_400);
+        s.process(0, 0x80, 60, 0);
+        s.process(0, 0x90, 72, 100);
+        pitch_track(&render_rack(&mut s, 28_800), 0, 960)
     };
     let mean = |p: &[f64]| p.iter().sum::<f64>() / p.len() as f64;
     let plain = glide(&[[65, 127], [5, 0]]);
@@ -265,24 +279,24 @@ fn mono_plays_one_note_at_a_time() {
     // Flute C4 and G4 held together, then G4 let go: (energy of the last 0.5 s of both
     // held, the last 0.5 s after G4 is up, and the crossings then).
     let play = |setup: &[[i32; 2]]| {
-        let mut s = synth(&font, 73, setup);
-        s.note_on(0, 60, 100);
-        render(&mut s, 4800);
-        s.note_on(0, 67, 100);
-        let both = render(&mut s, 48_000);
-        s.note_off(0, 67);
-        let after = render(&mut s, 48_000);
+        let mut s = rack(&font, 73, setup);
+        s.process(0, 0x90, 60, 100);
+        render_rack(&mut s, 4800);
+        s.process(0, 0x90, 67, 100);
+        let both = render_rack(&mut s, 48_000);
+        s.process(0, 0x80, 67, 0);
+        let after = render_rack(&mut s, 48_000);
         (energy(&both[24_000..]), energy(&after[24_000..]), crossings(&after[24_000..], 24_000)[0])
     };
     let one = {
-        let mut s = synth(&font, 73, &[]);
-        s.note_on(0, 67, 100);
-        energy(&render(&mut s, 52_800)[28_800..])
+        let mut s = rack(&font, 73, &[]);
+        s.process(0, 0x90, 67, 100);
+        energy(&render_rack(&mut s, 52_800)[28_800..])
     };
     let c4 = {
-        let mut s = synth(&font, 73, &[]);
-        s.note_on(0, 60, 100);
-        crossings(&render(&mut s, 48_000)[24_000..], 24_000)[0]
+        let mut s = rack(&font, 73, &[]);
+        s.process(0, 0x90, 60, 100);
+        crossings(&render_rack(&mut s, 48_000)[24_000..], 24_000)[0]
     };
     let (poly, _, _) = play(&[]);
     assert!(poly > one * 1.5, "poly: two notes {poly} vs one {one}");
