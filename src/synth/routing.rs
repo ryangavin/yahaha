@@ -1,9 +1,9 @@
 //! Per-channel routes (#103): each MIDI channel of the rack plays from one sound source,
 //! the rack's main SoundFont or another one the sound library uses.
 //!
-//! A [`Rack`] holds one synthesizer per SoundFont in use: the main font's two (the band's
-//! and your playing's, as before) and one more per extra font. `slot_of` says which slot
-//! plays a font id (`patches::Route`), `ch_slot` which slot each channel plays now.
+//! A [`Rack`] gives each part one synthesizer per SoundFont in use (rack.rs): the main
+//! font's and one more per extra font. `slot_of` says which slot plays a font id
+//! (`patches::Route`), `ch_slot` which slot each channel plays now.
 //!
 //! What goes where:
 //!
@@ -26,9 +26,6 @@ use crate::patches::{Route, Routes};
 
 /// `Rack::slot_of`: the font is not in this rack.
 pub(super) const NO_SLOT: u8 = 0xFF;
-
-/// Voices per extra SoundFont's synthesizer.
-const EXTRA_POLYPHONY: usize = 64;
 
 /// The audio thread's view of the program map: the table, the bank the band's channels
 /// use now, and the generations it last routed by.
@@ -58,28 +55,24 @@ impl Router {
 }
 
 impl Rack {
-    /// A rack playing several SoundFonts: `fonts[0]` is the main one (the band's and your
-    /// playing's synthesizers), the rest get one synthesizer each. Each is `(font id,
-    /// font)`. Slow: call it off the audio thread.
+    /// A rack playing several SoundFonts: `fonts[0]` is the main one, the rest are extra
+    /// slots (each part gets a synthesizer on each). Each is `(font id, font)`. Slow: call
+    /// it off the audio thread.
     pub fn with_fonts(fonts: &[(u8, Arc<SoundFont>)], sample_rate: i32) -> Result<Rack> {
         let (main_id, main) = fonts.first().ok_or_else(|| anyhow!("no SoundFont"))?;
-        let mut rack = Rack::new(main, sample_rate)?;
-        rack.slot_of[*main_id as usize % crate::patches::route::MAX_FONTS] = 0;
-        let mut settings = SynthesizerSettings::new(sample_rate);
-        settings.maximum_polyphony = EXTRA_POLYPHONY;
-        settings.velocity_to_filter = super::velocity_to_filter();
+        let mut slot_of = [NO_SLOT; crate::patches::route::MAX_FONTS];
+        slot_of[*main_id as usize % crate::patches::route::MAX_FONTS] = 0;
+        let mut extras = Vec::new();
         for (id, font) in fonts.iter().skip(1) {
-            let slot = &mut rack.slot_of[*id as usize % crate::patches::route::MAX_FONTS];
-            if *slot != NO_SLOT || rack.extra.len() >= 250 {
+            let slot = &mut slot_of[*id as usize % crate::patches::route::MAX_FONTS];
+            if *slot != NO_SLOT || extras.len() >= 250 {
                 continue;
             }
-            let mut s = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
-            s.process_midi_message(8, 0xB0, 0, 128);
-            s.set_internal_effects(false);
-            *slot = rack.extra.len() as u8 + 1;
-            rack.extra.push(s);
-            rack.quiet.push(0);
+            *slot = extras.len() as u8 + 1;
+            extras.push(font);
         }
+        let mut rack = Rack::build(main, &extras, sample_rate, false)?;
+        rack.slot_of = slot_of;
         Ok(rack)
     }
 
@@ -87,44 +80,7 @@ impl Rack {
     #[inline]
     fn slot_for(&self, r: Route) -> Option<u8> {
         let s = self.slot_of[r.font()? as usize % crate::patches::route::MAX_FONTS];
-        (s != NO_SLOT && (s as usize) <= self.extra.len()).then_some(s)
-    }
-
-    /// The synthesizer of `slot` for channel `ch`.
-    #[inline]
-    fn synth(&mut self, slot: u8, ch: i32) -> &mut Synthesizer {
-        match slot {
-            0 if parts::part_of_channel(ch as u8).is_some() => &mut self.player,
-            0 => &mut self.band,
-            k => &mut self.extra[k as usize - 1],
-        }
-    }
-
-    /// A channel message to the synthesizer(s) that take it (see the module docs).
-    #[inline]
-    /// A note-on on `ch` whose voices start with `note`'s own settings (a drum setup's,
-    /// #239), on the synthesizer the channel plays.
-    pub(super) fn note_on_with(&mut self, ch: u8, key: u8, velocity: u8, note: &rustysynth::NoteParams) {
-        let slot = self.ch_slot[ch as usize & 15];
-        self.synth(slot, ch as i32).note_on_with(ch as i32, key as i32, velocity as i32, note);
-    }
-
-    pub(super) fn process(&mut self, ch: i32, st: i32, d1: i32, d2: i32) {
-        let routed = match st {
-            0x90 => d2 > 0,
-            0xC0 => true,
-            0xB0 => d1 == 0 || d1 == 32,
-            _ => false,
-        };
-        let slot = self.ch_slot[ch as usize & 15];
-        if routed || self.extra.is_empty() {
-            self.synth(slot, ch).process_midi_message(ch, st, d1, d2);
-            return;
-        }
-        self.synth(0, ch).process_midi_message(ch, st, d1, d2);
-        for s in &mut self.extra {
-            s.process_midi_message(ch, st, d1, d2);
-        }
+        (s != NO_SLOT && (s as usize) < self.slots).then_some(s)
     }
 
     /// Channel `ch` plays `r` from `slot`: its bank and program there.
@@ -134,9 +90,7 @@ impl Rack {
         self.mapped |= 1 << c;
         // Channel 10 is rustysynth's percussion channel: its bank numbers start at 128.
         let bank = if ch == 9 { r.bank.saturating_sub(128) } else { r.bank } as i32;
-        let s = self.synth(slot, ch as i32);
-        s.process_midi_message(ch as i32, 0xB0, 0, bank);
-        s.process_midi_message(ch as i32, 0xC0, r.program as i32, 0);
+        self.program_on(ch, slot, bank, r.program as i32);
     }
 
     /// Channel `ch` goes back to the main SoundFont; true if it was routed to a patch (its
@@ -296,7 +250,7 @@ mod tests {
         // The same font twice if the checkout has one: two slots all the same.
         let second = f.get(1).unwrap_or(&f[0]).1.clone();
         let mut rack = Rack::with_fonts(&[(3, f[0].1.clone()), (7, second)], 48_000).unwrap();
-        assert_eq!((rack.slot_of[3], rack.slot_of[7], rack.extra.len()), (0, 1, 1));
+        assert_eq!((rack.slot_of[3], rack.slot_of[7], rack.slots), (0, 1, 2));
         assert_eq!(rack.slot_of.iter().filter(|&&s| s != NO_SLOT).count(), 2);
         let routes = Arc::new(Routes::new());
         let mut prog = [None; 128];
@@ -394,25 +348,28 @@ mod tests {
         let mut rack = Rack::with_fonts(&[(0, f[0].1.clone()), (1, f[1].1.clone())], 48_000).unwrap();
         let p = peaks();
         let (mut l, mut r) = (vec![0f32; 512], vec![0f32; 512]);
+        // Channel 11's synthesizer on the extra font.
+        let quiet = |rack: &Rack| rack.parts[10].lanes[1].quiet;
         rack.route_to(10, 1, Route::sound_font(1, 0, 33));
         rack.process(10, 0x90, 40, 110);
         rack.render_dry(&mut l, &mut r, &p, None);
-        assert_eq!(rack.quiet[0], 0, "a slot a channel plays renders");
+        assert_eq!(quiet(&rack), 0, "a slot a channel plays renders");
         rack.process(10, 0x80, 40, 0);
         rack.unroute(10);
         let mut n = 0;
-        while rack.quiet[0] < IDLE_FRAMES && n < 4000 {
+        while quiet(&rack) < crate::synth::rack::IDLE_FRAMES && n < 4000 {
             rack.render_dry(&mut l, &mut r, &p, None);
             n += 1;
         }
         assert!(n > 1, "the tail is rendered first");
-        let idle = rack.quiet[0];
-        assert!(idle >= IDLE_FRAMES, "the tail died away ({n} buffers)");
+        let idle = quiet(&rack);
+        assert!(idle >= crate::synth::rack::IDLE_FRAMES, "the tail died away ({n} buffers)");
         rack.render_dry(&mut l, &mut r, &p, None);
-        assert_eq!(rack.quiet[0], idle, "then it is skipped");
+        assert_eq!(quiet(&rack), idle, "then it is skipped");
         rack.route_to(10, 1, Route::sound_font(1, 0, 33));
         rack.render_dry(&mut l, &mut r, &p, None);
-        assert_eq!(rack.quiet[0], 0, "a channel routed to it again renders it");
+        // Rendered again: its silence counted from 0 (every lane idles the same way, #346).
+        assert_eq!(quiet(&rack), 512, "a channel routed to it again renders it");
         rack.process(10, 0x90, 40, 110);
         rack.render_dry(&mut l, &mut r, &p, None);
         assert!(level(&p, 10) > 1e-3, "and it sounds");

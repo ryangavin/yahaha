@@ -276,8 +276,8 @@ impl Insert {
     }
 }
 
-/// The eight Style parts' inserts (channels 9-16) for the band's synthesizer, as
-/// `rustysynth::ChannelInsert` (audio thread; allocated in `new`).
+/// The eight Style parts' inserts (channels 9-16), each run on its part's stem by the
+/// synth's rack (audio thread; allocated in `new`).
 pub struct BandInserts {
     slots: [Insert; 8],
     settings: [InsertSettings; 8],
@@ -302,8 +302,9 @@ impl BandInserts {
     }
 }
 
-impl rustysynth::ChannelInsert for BandInserts {
-    fn mask(&self) -> u16 {
+impl BandInserts {
+    /// The channels (bit = channel) whose stem runs through `process` before the mix.
+    pub fn mask(&self) -> u16 {
         let mut m = 0;
         for (p, (slot, s)) in self.slots.iter().zip(&self.settings).enumerate() {
             if slot.active(s.kind) {
@@ -313,7 +314,9 @@ impl rustysynth::ChannelInsert for BandInserts {
         m
     }
 
-    fn process(&mut self, channel: usize, left: &mut [f32], right: &mut [f32], level: f32) {
+    /// Run channel `channel`'s stem (`left`/`right`) through its effect in place. `level`
+    /// is the part's gain in the mix (volume x expression, squared, x the master volume).
+    pub fn process(&mut self, channel: usize, left: &mut [f32], right: &mut [f32], level: f32) {
         if let Some(p) = channel.checked_sub(super::BAND_CHANNELS.start).filter(|&p| p < 8) {
             let perf = &crate::perf::PERF;
             let t0 = perf.on().then(crate::rt::host_now);

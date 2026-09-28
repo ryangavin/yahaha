@@ -8,9 +8,9 @@
 //! the master fader's clipper.
 //!
 //! The SoundFont synthesizers' own reverb and chorus are off: the bus replaces them
-//! (`Synthesizer::set_internal_effects`), so a send is not heard twice. `FxControl::legacy`
-//! turns them back on and the bus off, for a before/after comparison (`YAHAHA_FX=legacy
-//! yahaha render ...`).
+//! (`SynthesizerSettings::enable_reverb_and_chorus`), so a send is not heard twice. For a
+//! before/after comparison (`YAHAHA_FX=legacy yahaha render ...`), a rack built with them on
+//! (`synth::Rack::new_legacy`) plays with `FxControl::legacy`, which turns the bus off.
 //!
 //! The blocks: Reverb ([`Reverb`], Hall/Room/Stage/Plate), Chorus ([`Chorus`]), and
 //! Variation, a stereo delay synced to the style tempo ([`Delay`]: 1/8, dotted 1/8, 1/4,
@@ -32,8 +32,8 @@
 //!
 //! Insertion effects (#269, [`insert`]): a style's XG Insertion Effect on one of its parts
 //! (a distortion or amp simulator, a compressor, a wah, a tremolo, a rotary speaker) runs
-//! on that part's own signal inside the band's synthesizer, before its sends and the mix
-//! ([`BandInserts`], `rustysynth::ChannelInsert`).
+//! on that part's own stem, before its sends and the mix ([`BandInserts`], run by
+//! `synth::Rack::render`).
 //!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
@@ -56,7 +56,7 @@ pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 
 /// The send buses: Reverb (CC91), Chorus (CC93), Variation (CC94).
-pub const BUSES: usize = rustysynth::SEND_BUSES;
+pub const BUSES: usize = 3;
 pub const REVERB: usize = 0;
 pub const CHORUS: usize = 1;
 pub const VARIATION: usize = 2;

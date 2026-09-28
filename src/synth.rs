@@ -4,10 +4,10 @@
 //! the start of each buffer. With a 64-frame buffer at 48 kHz, an event waits at most
 //! 1.3 ms before it is rendered.
 //!
-//! The band and your playing each have a synthesizer (a [`Rack`]), with the same
-//! SoundFont. They measure each channel's level as they mix it, for the meters. A new
-//! SoundFont is loaded into a new rack off the audio thread and swapped in between two
-//! buffers (a new main font, or the fonts the GM map needs).
+//! Each part (MIDI channel) has its own synthesizer, all on the same SoundFont (a
+//! [`Rack`], rack.rs), and renders its own stem: the meters, sends and insertion effects
+//! work on the stems. A new SoundFont is loaded into a new rack off the audio thread and
+//! swapped in between two buffers (a new main font, or the fonts the GM map needs).
 //!
 //! Each MIDI channel renders from the SoundFont or, with the `plugins` feature, from an
 //! Audio Unit instrument in the plugin rack: the per-channel route table
@@ -40,14 +40,16 @@ pub type PluginLink = ();
 pub const PLUGIN_MAX_BLOCK: usize = 1024;
 
 pub mod drum_setup;
+mod rack;
 mod routing;
 pub mod xg_part;
 #[cfg(test)]
 mod sound_tests;
 mod stream;
+pub use rack::Rack;
 pub use routing::Router;
 pub use stream::{BUFFER_CHOICES, DEFAULT_BUFFER};
-use routing::{apply_routed, NO_SLOT};
+use routing::apply_routed;
 
 pub type Msg = [u8; 3];
 
@@ -70,9 +72,9 @@ pub struct SynthInfo {
 
 /// Knobs the UI and input thread can turn without a ring: plain atomics.
 ///
-/// Your playing has its own synthesizer instance: the keyboard parts on their channels
+/// Every part has its own synthesizer (`Rack`): the keyboard parts on their channels
 /// (`parts::CHANNEL`: Right 1 = 0, Left = 1, Right 2 = 2, Right 3 = 3), exactly as the
-/// input thread sends them to the port. The band plays on a second instance, channels 9-16.
+/// input thread sends them to the port, the Multi Pads on 5-8 and the band on 9-16.
 pub struct SynthControl {
     pub master: AtomicU8,
     pub muted: AtomicBool,
@@ -143,244 +145,6 @@ pub const RACK_CHANNELS: [u8; 12] = [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15];
 /// The channels the meters report: the keyboard parts, the Multi Pads (5-8) and the Style
 /// parts, in channel order.
 pub const METER_CHANNELS: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-
-/// The built-in synth's synthesizers, one SoundFont: the band's (ch 9-16) and your
-/// playing's (the keyboard parts, ch 1-4), 128 voices each. Each measures its channels'
-/// levels as it mixes them (`Synthesizer::channel_peaks`, a patch in vendor/rustysynth),
-/// so the meters cost no extra synthesizers. (A synthesizer per part would run each
-/// part's reverb and chorus again and give every part 128 voices of its own: up to 12 x
-/// 128 voices on the audio thread, about 1 ms of a 64-frame buffer's 1.33 ms.)
-///
-/// With the sound library (#103) a rack can hold more SoundFonts, one synthesizer each,
-/// and route each channel to one of them (routing.rs).
-pub struct Rack {
-    band: Synthesizer,
-    player: Synthesizer,
-    tmp_l: Vec<f32>,
-    tmp_r: Vec<f32>,
-    /// The extra SoundFonts' synthesizers (slots 1..).
-    extra: Vec<Synthesizer>,
-    /// Font id (`patches::Route`) -> slot (0 = the main font), `NO_SLOT` if not here.
-    slot_of: [u8; crate::patches::route::MAX_FONTS],
-    /// The slot each channel plays now.
-    ch_slot: [u8; 16],
-    /// Channels routed to a library patch (bit = channel).
-    mapped: u16,
-    /// Per extra synthesizer: how many frames it has rendered silence with no channel on
-    /// it. Past `IDLE_FRAMES` it is not rendered until a channel routes to it again.
-    quiet: Vec<u32>,
-    /// The performance view is on: `render` times its synthesizers and reports each
-    /// channel's cost, voices and level to `perf::PERF`.
-    profile: bool,
-    /// Each channel's RMS in the last `render` (the loudest synthesizer's, after a fade),
-    /// for the meters: the audio thread folds it into `SynthControl::rms`.
-    pub rms: [f32; 16],
-}
-
-/// An extra synthesizer no channel plays is rendered until its output (reverb and chorus
-/// tails included) has been below `IDLE_LEVEL` for this long, then skipped.
-const IDLE_FRAMES: u32 = 4800;
-const IDLE_LEVEL: f32 = 1e-6;
-
-impl Rack {
-    pub fn new(font: &Arc<SoundFont>, sample_rate: i32) -> Result<Rack> {
-        let mut settings = SynthesizerSettings::new(sample_rate);
-        settings.maximum_polyphony = 128;
-        settings.velocity_to_filter = velocity_to_filter();
-        let mut band = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
-        let mut player = Synthesizer::new(font, &settings).map_err(|e| anyhow!("{e:?}"))?;
-        // The shared effect bus (src/fx.rs) plays the reverb and chorus (#204).
-        band.set_internal_effects(false);
-        player.set_internal_effects(false);
-        let mut r = Rack {
-            band,
-            player,
-            tmp_l: vec![0.0; 8192],
-            tmp_r: vec![0.0; 8192],
-            extra: Vec::new(),
-            slot_of: [NO_SLOT; crate::patches::route::MAX_FONTS],
-            ch_slot: [0; 16],
-            mapped: 0,
-            quiet: Vec::new(),
-            profile: false,
-            rms: [0.0; 16],
-        };
-        // Rhythm 1 (ch 9) is a drum part too: on the drum bank.
-        r.process(8, 0xB0, 0, 128);
-        Ok(r)
-    }
-
-    /// Load a SoundFont into a new rack (slow: call it off the audio thread).
-    pub fn load(sf2: &Path, sample_rate: u32) -> Result<Box<Rack>> {
-        let mut file = std::fs::File::open(sf2).with_context(|| format!("opening {}", sf2.display()))?;
-        let font = Arc::new(SoundFont::new(&mut file).map_err(|e| anyhow!("{e:?}"))?);
-        Ok(Box::new(Rack::new(&font, sample_rate as i32)?))
-    }
-
-    /// Measure for the performance view (`perf`), or stop.
-    fn set_profiling(&mut self, on: bool) {
-        if self.profile != on {
-            self.profile = on;
-            for s in self.synths() {
-                s.set_profiling(on);
-            }
-        }
-    }
-
-    /// The last render's per-channel costs and voices into `perf::PERF` (profiling only),
-    /// leaving out the channels in `skip` (a plugin plays them).
-    fn report_profile(&mut self, skip: u16) {
-        let perf = &crate::perf::PERF;
-        let (mut ns, mut voices) = ([0u64; 16], [0u32; 16]);
-        for s in self.synths() {
-            for (ch, (t, v)) in s.take_channel_ns().into_iter().zip(s.channel_voices()).enumerate() {
-                ns[ch] += t;
-                voices[ch] += v as u32;
-            }
-        }
-        let mut total = 0;
-        for ch in 0..16 {
-            total += voices[ch];
-            perf.channel_voices[ch].store(voices[ch], Relaxed);
-            if skip >> ch & 1 == 0 {
-                perf.channel[ch].add(ns[ch]);
-            }
-        }
-        perf.voices.store(total, Relaxed);
-        perf.voices_peak.fetch_max(total, Relaxed);
-    }
-
-    /// The voices sounding now, in every synthesizer of the rack.
-    pub fn voices(&self) -> usize {
-        self.band.active_voice_count() + self.player.active_voice_count() + self.extra.iter().map(|s| s.active_voice_count()).sum::<usize>()
-    }
-
-    fn synths(&mut self) -> impl Iterator<Item = &mut Synthesizer> {
-        [&mut self.band, &mut self.player].into_iter().chain(self.extra.iter_mut())
-    }
-
-    /// Each channel's gains into the effect bus's send buses (#204).
-    fn set_sends(&mut self, gains: &[[f32; crate::fx::BUSES]; 16]) {
-        for s in self.synths() {
-            for (ch, g) in gains.iter().enumerate() {
-                s.set_channel_sends(ch, *g);
-            }
-        }
-    }
-
-    /// The synthesizers' own reverb and chorus on (the sound before #204) or off (the
-    /// effect bus plays them).
-    fn set_internal_effects(&mut self, on: bool) {
-        for s in self.synths() {
-            s.set_internal_effects(on);
-        }
-    }
-
-    /// A channel's mono or poly mode (#246), on every synthesizer (as a controller).
-    fn set_mono(&mut self, ch: u8, mono: bool) {
-        for s in self.synths() {
-            s.set_mono(ch as i32, mono);
-        }
-    }
-
-    fn set_master_volume(&mut self, v: f32) {
-        self.band.set_master_volume(v);
-        self.player.set_master_volume(v);
-        for s in &mut self.extra {
-            s.set_master_volume(v);
-        }
-    }
-
-    /// `render`, the send buses left out (tests).
-    #[cfg(test)]
-    fn render_dry(&mut self, left: &mut [f32], right: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
-        let mut sends = vec![0f32; 2 * crate::fx::BUSES * left.len()];
-        self.render(left, right, &mut sends, peaks, fade, None);
-    }
-
-    /// Render `left.len()` frames of the mix into `left`/`right` and the effect bus's send
-    /// buses into `sends` (all overwritten; bus b's left side at `2 * b * n`, its right at
-    /// `(2 * b + 1) * n`), noting each channel's peak in `peaks`. `fade` ramps the whole
-    /// from one gain to another over the buffer. `inserts`: the Style parts' insertion
-    /// effects (#269), on the band's synthesizer.
-    fn render(
-        &mut self,
-        left: &mut [f32],
-        right: &mut [f32],
-        sends: &mut [f32],
-        peaks: &[AtomicU32; 16],
-        fade: Option<(f32, f32)>,
-        inserts: Option<&mut dyn rustysynth::ChannelInsert>,
-    ) {
-        let n = left.len().min(self.tmp_l.len()).min(sends.len() / (2 * crate::fx::BUSES));
-        let (left, right) = (&mut left[..n], &mut right[..n]);
-        let sends = &mut sends[..2 * crate::fx::BUSES * n];
-        sends.fill(0.0);
-        let mut clock = crate::perf::Lap::start(self.profile);
-        match inserts {
-            Some(ins) => self.band.render_with_inserts(left, right, sends, ins),
-            None => self.band.render_with_sends(left, right, sends),
-        }
-        clock.lap(crate::perf::ST_BAND);
-        let (l, r) = (&mut self.tmp_l[..n], &mut self.tmp_r[..n]);
-        // The extra synthesizers some channel plays (slot k+1 = extra[k]).
-        let mut used = 0u64;
-        for &s in &self.ch_slot {
-            if s != 0 && s != NO_SLOT {
-                used |= 1 << ((s - 1) & 63);
-            }
-        }
-        for (i, s) in std::iter::once(&mut self.player).chain(self.extra.iter_mut()).enumerate() {
-            let quiet = if i == 0 { None } else { self.quiet.get_mut(i - 1) };
-            let played = i == 0 || (used >> ((i - 1) & 63)) & 1 == 1;
-            if let Some(q) = quiet.as_deref()
-                && !played
-                && *q >= IDLE_FRAMES
-            {
-                continue;
-            }
-            s.render_with_sends(l, r, sends);
-            let mut peak = 0f32;
-            for k in 0..n {
-                left[k] += l[k];
-                right[k] += r[k];
-                peak = peak.max(l[k].abs()).max(r[k].abs());
-            }
-            if let Some(q) = quiet {
-                *q = if played || peak >= IDLE_LEVEL { 0 } else { q.saturating_add(n as u32) };
-            }
-            clock.lap(if i == 0 { crate::perf::ST_KEYS } else { crate::perf::ST_EXTRA });
-        }
-        let mut most = 1f32;
-        if let Some((a, b)) = fade {
-            most = a.max(b);
-            for k in 0..n {
-                let g = a + (b - a) * k as f32 / n as f32;
-                left[k] *= g;
-                right[k] *= g;
-            }
-            for (i, x) in sends.iter_mut().enumerate() {
-                let k = i % n;
-                *x *= a + (b - a) * k as f32 / n as f32;
-            }
-        }
-        self.rms = [0.0; 16];
-        for s in [&mut self.band, &mut self.player].into_iter().chain(self.extra.iter_mut()) {
-            for (ch, r) in s.channel_rms().into_iter().enumerate() {
-                self.rms[ch] = self.rms[ch].max(r * most);
-            }
-            for (ch, &p) in s.channel_peaks().iter().enumerate() {
-                if p > 0.0 {
-                    peaks[ch].fetch_max((p * most).to_bits(), Relaxed);
-                    if self.profile {
-                        crate::perf::Perf::peak(&crate::perf::PERF.channel_peak[ch], p * most);
-                    }
-                }
-            }
-            s.reset_channel_peaks();
-        }
-    }
-}
 
 /// What the audio thread last sent each channel, so a new rack takes over
 /// with the same voices and controllers.
@@ -630,7 +394,7 @@ pub fn render_offline(
     inserts: &[(u8, crate::fx::InsertKind, u8)],
 ) -> Result<(Vec<f32>, Vec<f32>)> {
     const BLOCK: usize = 64;
-    let rack = Rack::load(sf2, sample_rate)?;
+    let rack = if legacy_fx() { Rack::load_legacy(sf2, sample_rate)? } else { Rack::load(sf2, sample_rate)? };
     let (mut tx, rx) = RingBuffer::<Msg>::new(4096);
     let ctl = Arc::new(SynthControl::new(0));
     ctl.fx.legacy.store(legacy_fx(), Relaxed);
@@ -929,7 +693,6 @@ impl AudioCore {
             && let Ok(mut new) = self.swap_rx.pop()
         {
             self.shadow.replay(&mut new, &mut self.bank, &self.parts, self.router.as_ref());
-            new.set_internal_effects(self.legacy);
             self.sends_dirty = true;
             self.fading = self.rack.replace(new);
             self.last_master = 255;
@@ -1057,15 +820,13 @@ impl AudioCore {
                 }
             }
         }
-        // The effect bus (#204): the SoundFont's own reverb and chorus instead, for a
-        // before/after comparison; each channel's send gains.
+        // The effect bus (#204) off, for a before/after comparison with a rack that plays
+        // the SoundFont's own reverb and chorus (`Rack::new_legacy`); each channel's send
+        // gains.
         let legacy = ctl.fx.legacy.load(Relaxed);
         if legacy != self.legacy {
             self.legacy = legacy;
             self.sends_dirty = true;
-            for r in [self.rack.as_mut(), self.fading.as_mut()].into_iter().flatten() {
-                r.set_internal_effects(legacy);
-            }
         }
         let frames = (out.len() / channels).min(self.left.len());
         // The band and Multi Pad send scales glide to where the control side set them
@@ -1113,16 +874,16 @@ impl AudioCore {
         let sends = &mut self.sends[..2 * crate::fx::BUSES * frames];
         self.inserts.update(&ctl.fx);
         if let Some(rack) = self.rack.as_mut() {
-            rack.set_profiling(prof);
+            rack.set_timing(prof);
         }
         if let Some(f) = self.fading.as_mut() {
             // A rack fading out counts as a stage of its own, not as the parts'.
-            f.set_profiling(false);
+            f.set_timing(false);
         }
         clock.lap(crate::perf::ST_MIDI);
         match self.rack.as_mut() {
             Some(rack) => {
-                let ins: Option<&mut dyn rustysynth::ChannelInsert> = if self.legacy { None } else { Some(&mut *self.inserts) };
+                let ins = if self.legacy { None } else { Some(&mut *self.inserts) };
                 rack.render(left, right, sends, &ctl.peaks, None, ins);
                 for (a, &r) in ctl.rms.iter().zip(&rack.rms) {
                     if r > 0.0 {
@@ -1634,7 +1395,8 @@ mod rack_tests {
     fn sends_feed_the_effect_bus_and_the_soundfonts_own_effects_are_off() {
         let Some(font) = font() else { return };
         let play = |setup: &[Msg], ret: u8, legacy: bool| -> (f64, f64) {
-            let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+            // Legacy: a rack that plays the SoundFont's own effects, the bus off.
+            let rack = Box::new(if legacy { Rack::new_legacy(&font, 48_000) } else { Rack::new(&font, 48_000) }.unwrap());
             let (mut tx, rx) = RingBuffer::<Msg>::new(64);
             let ctl = Arc::new(SynthControl::new(0));
             ctl.fx.reverb_return.store(ret, Relaxed);
@@ -1743,8 +1505,9 @@ mod rack_tests {
     fn note_tune_shifts_the_pitch() {
         let Some(font) = font() else { return };
         let crossings = |key: i32, tune: f32| {
-            let mut s = Synthesizer::new(&font, &SynthesizerSettings::new(48_000)).unwrap();
-            s.set_internal_effects(false);
+            let mut settings = SynthesizerSettings::new(48_000);
+            settings.enable_reverb_and_chorus = false;
+            let mut s = Synthesizer::new(&font, &settings).unwrap();
             s.process_midi_message(0, 0xC0, 0, 0);
             let note = rustysynth::NoteParams { tune, ..rustysynth::NoteParams::NEUTRAL };
             s.note_on_with(0, key, 100, &note);
