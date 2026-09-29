@@ -26,21 +26,48 @@
   const sl = $derived(app.state.soundLibrary)
   const style = $derived(nav.styleScope)
   const map = $derived(style ? sl.styleMap : sl.map)
+  // Each slice on its own, so the passes below re-run only when it changes.
   const rows = $derived(sl.gmMap)
+  const usage = $derived(sl.usage)
+  const styleMap = $derived(sl.styleMap)
   const drums = $derived(rows.find((r) => r.program === null))
-  const autoCount = $derived(rows.filter((r) => r.resolved.layer === 'auto').length)
-  const noneCount = $derived(rows.filter((r) => r.resolved.layer === 'none').length)
-  const styleRules = $derived(sl.styleMap.families.filter(Boolean).length + sl.styleMap.overrides.length + (sl.styleMap.drums ? 1 : 0))
+  /** The rows of each family, in one pass. */
+  const byFamily = $derived.by(() => {
+    const out: GmMapRow[][] = sl.families.map(() => [])
+    for (const r of rows) if (r.family !== null) out[r.family]?.push(r)
+    return out
+  })
+  const counts = $derived.by(() => {
+    let auto = 0
+    let none = 0
+    for (const r of rows) {
+      if (r.resolved.layer === 'auto') auto++
+      else if (r.resolved.layer === 'none') none++
+    }
+    return { auto, none }
+  })
+  const autoCount = $derived(counts.auto)
+  const noneCount = $derived(counts.none)
+  const styleRules = $derived(styleMap.families.filter(Boolean).length + styleMap.overrides.length + (styleMap.drums ? 1 : 0))
+  /** The style's parts on each program (or the drums, under null), in one pass. */
+  const parts = $derived.by(() => {
+    const at: Record<string, string[]> = {}
+    for (const u of usage) {
+      const k = u.drums ? 'drums' : String(u.gmProgram)
+      const list = (at[k] ??= [])
+      if (!list.includes(u.part)) list.push(u.part)
+    }
+    return at
+  })
 
   /** The style's parts on a program (or the drums). */
-  const usedBy = (program: number | null) =>
-    [...new Set(sl.usage.filter((u) => (program === null ? u.drums : !u.drums && u.gmProgram === program)).map((u) => u.part))].join(', ')
+  const usedBy = (program: number | null) => parts[program === null ? 'drums' : String(program)]?.join(', ') ?? ''
   const override = (p: number) => map.overrides.find((o) => o.program === p)?.patch ?? null
   const globalOverride = (p: number) => sl.map.overrides.find((o) => o.program === p)?.patch ?? null
   /** What an unset rule in the style's map falls through to. */
   const fall = (global: string | null) => (style && global ? `↳ ${patchName(sl, global)}` : '—')
   const resolvedName = (r: GmMapRow) => soundName(sl, app.sounds.entries, r.resolved.sound, r.resolved.font)
-  const familyRows = (f: number) => rows.filter((r) => r.family === f)
+  const familyRows = (f: number) => byFamily[f] ?? []
 </script>
 
 {#snippet badge(r: GmMapRow)}
