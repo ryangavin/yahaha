@@ -699,8 +699,8 @@ mod tests {
             return;
         }
         let (mut settings, mut with_pan) = (0, 0);
-        for f in crate::library::style_files(&dir) {
-            let Ok(style) = crate::sff::Style::load(&f) else { continue };
+        // The MOX_v2 styles, in path order, from the shared parsed corpus.
+        for (f, style) in crate::library::corpus_loaded().iter().filter(|(f, _)| f.starts_with(&dir)) {
             let Some((_, otsc)) = style.other_chunks.iter().find(|(id, _)| id == "OTSc") else { continue };
             // The OTS tracks, read here independently of `parse_ots`.
             let mut tracks = Vec::new();
@@ -745,8 +745,7 @@ mod tests {
     #[test]
     fn ots_recalls_voice_settings_across_the_corpus() {
         let (mut settings, mut ccs, mut sysex) = (0, 0, 0);
-        for f in crate::library::corpus_styles() {
-            let Ok(style) = crate::sff::Style::load(&f) else { continue };
+        for (f, style) in crate::library::corpus_loaded() {
             for (i, ots) in style.ots.iter().enumerate() {
                 let parts = Parts::new();
                 parts.apply_ots(ots, i as u8 + 1, true);

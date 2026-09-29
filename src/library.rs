@@ -37,6 +37,30 @@ pub fn corpus_styles() -> Vec<PathBuf> {
     style_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus"))
 }
 
+/// Every corpus style, parsed: [`corpus_styles`] loaded once per test binary and shared by
+/// every corpus test, so a sweep costs the parse only once. Tests that change a style clone
+/// it. A style that fails to parse panics with its path (every corpus style parses).
+#[cfg(test)]
+pub fn corpus_loaded() -> &'static [(PathBuf, crate::sff::Style)] {
+    static LOADED: std::sync::OnceLock<Vec<(PathBuf, crate::sff::Style)>> = std::sync::OnceLock::new();
+    LOADED.get_or_init(|| {
+        corpus_styles()
+            .into_iter()
+            .map(|p| {
+                let s = crate::sff::Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
+                (p, s)
+            })
+            .collect()
+    })
+}
+
+/// The corpus style whose file name is `name` (parsed once, as [`corpus_loaded`]), or
+/// `None` without a corpus.
+#[cfg(test)]
+pub fn corpus_style(name: &str) -> Option<&'static crate::sff::Style> {
+    corpus_loaded().iter().find(|(p, _)| p.file_name().is_some_and(|f| f == name)).map(|(_, s)| s)
+}
+
 /// The files directly in `dir` (not its folders), in path order: for tests that check what
 /// a folder of fixtures holds (tests/reference), so they need not list folders themselves.
 #[cfg(test)]

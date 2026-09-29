@@ -118,8 +118,7 @@ fn corpus_chord_and_command_in_one_wake_leave_no_blips() {
     }
     let mut changes = 0;
     let mut fails = Vec::new();
-    for (fi, f) in files.iter().enumerate() {
-        let style = Style::load(f).unwrap();
+    for (fi, (f, style)) in files.iter().enumerate() {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
         let bar = bar_ns(&Prepared::new(&style));
         let mut x = fi as u64 * 7919 + 1;
@@ -212,10 +211,9 @@ fn corpus_rolled_chords_settle_once() {
     let mut styles = [0usize; 2];
     let mut fails = Vec::new();
     let mut held = 0;
-    for f in &files {
-        let style = Style::load(f).unwrap();
+    for (f, style) in files {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
-        let bar = bar_ns(&Prepared::new(&style));
+        let bar = bar_ns(&Prepared::new(style));
         let mut s = vec![(0, Step::Chord(Chord::new(0, 0)))];
         let mut rolls = Vec::new();
         let pairs = [(5, 0, 5, 10), (7, 0, 7, 10), (9, 8, 9, 13), (2, 8, 2, 13), (0, 0, 0, 1)];
@@ -273,10 +271,9 @@ fn corpus_chord_ahead_of_the_beat_is_not_delayed() {
     }
     let window = crate::engine::CHORD_SETTLE_DEFAULT_MS as u64 * 1_000_000;
     let mut compared = 0;
-    for f in &files {
-        let style = Style::load(f).unwrap();
+    for (f, style) in files {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
-        let bar = bar_ns(&Prepared::new(&style));
+        let bar = bar_ns(&Prepared::new(style));
         let chords = [Chord::new(5, 0), Chord::new(7, 10), Chord::new(9, 8), Chord::new(2, 13), Chord::new(0, 1)];
         let mut s = vec![(0, Step::Chord(Chord::new(0, 0)))];
         let beats: Vec<u64> = (1..16u64).map(|i| i * bar / 2).collect();
@@ -311,10 +308,9 @@ fn corpus_sync_start_under_the_window() {
     }
     let window = crate::engine::CHORD_SETTLE_DEFAULT_MS as u64 * 1_000_000;
     let mut held = 0;
-    for f in &files {
-        let style = Style::load(f).unwrap();
+    for (f, style) in files {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
-        let bar = bar_ns(&Prepared::new(&style));
+        let bar = bar_ns(&Prepared::new(style));
         let s = [(0, Step::Chord(Chord::new(5, 0)))];
         let a = pitched_ons(&drive(&style, 0, &s, bar).1);
         let b = pitched_ons(&drive(&style, window, &s, bar).1);
