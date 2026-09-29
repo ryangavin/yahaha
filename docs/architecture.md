@@ -18,19 +18,19 @@ This document is about the inside.
 | `src/engine.rs`, `src/engine/*` | `Engine`: the arranger (sections, pattern playback, chord following). Deterministic, allocation-free. |
 | `src/live.rs`, `src/live/*` | The real-time threads' code: MIDI input (`Input`, the key pipeline) and the engine loop (`EngineLoop`). |
 | `src/synth.rs`, `src/synth/` | The built-in SoundFont synth (cpal audio thread), on upstream rustysynth. |
-| `src/midi.rs`, `src/rt.rs` | CoreMIDI, real-time helpers (clock, wakeups, packet sink, histograms). |
+| `crates/yahaha-core/src/midi.rs`, `crates/yahaha-core/src/rt.rs` | CoreMIDI, real-time helpers (clock, wakeups, packet sink, histograms). |
 | `src/sff.rs`, `src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
-| `src/theory.rs`, `src/fingering.rs` | Chords, chord recognition, fingering types. |
+| `crates/yahaha-core/src/theory.rs`, `crates/yahaha-core/src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
 | `src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
 | `src/patches/` | The sound library (#103): patches, the program map and its resolution, the versioned library file, the route table the synth and the port read, `.sf2` preset headers (docs/sound-library.md). The synth's side is `src/synth/routing.rs`. |
 | `src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
-| `src/harmony.rs`, `src/arp/` | Keyboard Harmony and the arpeggio (pure, real-time safe), wired in by `src/live/pipeline.rs` and `src/live/kbdfx.rs`. |
+| `crates/yahaha-core/src/harmony.rs`, `crates/yahaha-core/src/arp/` | Keyboard Harmony and the arpeggio (pure, real-time safe), wired in by `src/live/pipeline.rs` and `src/live/kbdfx.rs`. |
 | `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
-| `src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
-| `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
+| `crates/yahaha-core/src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
+| `crates/yahaha-core/src/looper.rs`, `crates/yahaha-core/src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
-| `crates/` | The layer crates of the planned crate split (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). Empty for now. |
+| `crates/` | The layer crates of the planned crate split (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). `yahaha-core` holds its modules; the others are empty for now. |
 
 The modules above are moving, lane by lane, out of the one `yahaha` crate into layer
 crates under `crates/`: core → sff, fx → engine → synth → the `yahaha` facade (session,
@@ -180,8 +180,8 @@ Timing, OTS Link Timing, a chart player driving sections) changes these policies
 
 The keyboard-part note path on the MIDI thread is a fixed sequence of stages: **note in →
 transpose → processor → part routing, held-note bookkeeping, output**. The processor slot
-(`live::Processor`, an enum) is where Keyboard Harmony (`src/harmony.rs`) and the
-Arpeggiator (`src/arp/`) go, as variants: they are mutually exclusive, as on the Genos.
+(`live::Processor`, an enum) is where Keyboard Harmony (`crates/yahaha-core/src/harmony.rs`) and the
+Arpeggiator (`crates/yahaha-core/src/arp/`) go, as variants: they are mutually exclusive, as on the Genos.
 A processor sees every note-on (after transpose) and note-off; it passes the note on, or
 swallows it, and sends any extra notes itself. The mode comes from one packed settings
 word (`Shared::kbd_fx`, `live::FxConfig`), and each held key remembers the way it went,

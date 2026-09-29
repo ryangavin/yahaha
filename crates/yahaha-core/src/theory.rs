@@ -152,7 +152,10 @@ pub fn chord_tones(ty: u8) -> &'static [u8] {
     TONES.get(ty as usize).copied().unwrap_or(TONES[0])
 }
 
-fn mask_of(ty: u8) -> u16 {
+/// The pitch-class mask (bit 0 = root) of chord type `ty`. Facade-internal: `pub` only
+/// for the facade's corpus tests (src/theory_corpus_tests.rs).
+#[doc(hidden)]
+pub fn mask_of(ty: u8) -> u16 {
     mask_of_set(chord_tones(ty))
 }
 
@@ -160,7 +163,10 @@ fn mask_of_set(set: &[u8]) -> u16 {
     set.iter().fold(0, |m, &t| m | 1 << t)
 }
 
-fn rot(mask: u16, by: u8) -> u16 {
+/// `mask` rotated up `by` semitones. Facade-internal: `pub` only for the facade's corpus
+/// tests (src/theory_corpus_tests.rs).
+#[doc(hidden)]
+pub fn rot(mask: u16, by: u8) -> u16 {
     let by = by % 12;
     ((mask << by) | (mask >> (12 - by))) & 0x0FFF
 }
@@ -832,8 +838,10 @@ pub fn transpose_group(keys: &[u8], rule: &ChannelRule, chord: Chord, out: &mut 
 
 /// Open strings, string 1 (high E) to string 6 (low E).
 const OPEN: [u8; 6] = [64, 59, 55, 50, 45, 40];
-/// Open 6th string (E1): the lowest note a guitar has.
-const LOW_E: u8 = 40;
+/// Open 6th string (E1): the lowest note a guitar has. Facade-internal: `pub` only for
+/// the facade's corpus tests (src/theory_corpus_tests.rs).
+#[doc(hidden)]
+pub const LOW_E: u8 = 40;
 /// Lowest fret of the window for each source octave: up to B2, C3-B3, from C4.
 const POSITION: [u8; 3] = [0, 5, 10];
 /// Frets one hand reaches in a position.
@@ -1898,36 +1906,6 @@ mod tests {
         }
     }
 
-    /// Every channel rule of every corpus style (plus the defaults used for channels without
-    /// CASM) transposes every key under every chord without panicking.
-    #[cfg(feature = "slow-tests")]
-    #[test]
-    fn corpus_every_rule_every_chord() {
-        let files = crate::library::corpus_loaded();
-        if files.is_empty() {
-            eprintln!("no corpus; skipping");
-            return;
-        }
-        // Most styles share their rules, so each distinct one is exercised once. The fields
-        // neither `plays` nor `transpose` reads (source channel, name, flags) are left out of
-        // the key.
-        let key = |r: &ChannelRule| ChannelRule { src_ch: 0, name: String::new(), editable: false, autostart: false, sff2: false, ..r.clone() };
-        let mut rules: std::collections::HashSet<ChannelRule> = (8..16).map(|ch| key(&ChannelRule::default_for(ch))).collect();
-        let mut total = 8;
-        for (f, s) in files {
-            for r in s.casm.iter().flat_map(|seg| &seg.rules) {
-                assert!((r.src_type as usize) < NUM_TYPES, "{}: src_type {}", f.display(), r.src_type);
-                rules.insert(key(r));
-                total += 1;
-            }
-        }
-        eprintln!("{} styles, {total} channel rules, {} distinct", files.len(), rules.len());
-        assert!(total > 8 && !rules.is_empty(), "no corpus channel rules to exercise");
-        for r in &rules {
-            exercise(r);
-        }
-    }
-
     fn guitar(ntt: Ntt) -> ChannelRule {
         rule(Ntr::Guitar, ntt, 11, 40, 127)
     }
@@ -2117,89 +2095,5 @@ mod tests {
         }
         eprintln!("x32000 keeps the 3rd over {thirds} of {with_third} chords with one");
         assert!(thirds * 5 >= with_third * 4, "{thirds} of {with_third}");
-    }
-
-    /// Every Guitar channel of every corpus style (all file types): noise keys come back
-    /// untouched, and under every chord the channel plays, every other note is a chord tone
-    /// (or the slash bass) on the neck, and Stroke alone leaves strings out. It also counts
-    /// how the corpus writes its Guitar parts, for the PR's evidence (counts only).
-    #[cfg(feature = "slow-tests")]
-    #[test]
-    fn corpus_guitar_parts_play_chord_tones() {
-        let files = crate::library::corpus_loaded();
-        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
-        let (mut notes, mut noise, mut records, mut styles) = (0u32, 0u32, 0u32, 0u32);
-        // Per top folder of the corpus: strums of 3+ strings, and those written as stacked seconds.
-        let mut strums: std::collections::BTreeMap<String, (u32, u32)> = Default::default();
-        for (f, s) in files {
-            let folder = f.strip_prefix(&corpus).ok().and_then(|p| p.components().next()).map(|c| c.as_os_str().to_string_lossy().to_string());
-            let tally = strums.entry(folder.unwrap_or_default()).or_default();
-            let mut any = false;
-            for seg in &s.casm {
-                for r in seg.rules.iter().filter(|r| r.zones.iter().any(|z| z.ntr == Ntr::Guitar)) {
-                    any = true;
-                    records += 1;
-                    let mut keys = [false; 128];
-                    for id in seg.sections.iter().filter_map(|n| crate::style_types::SectionId::parse(n)) {
-                        let Some(sec) = s.sections.get(&id) else { continue };
-                        let mut strum: Vec<(u32, u8)> = Vec::new();
-                        for ev in &sec.events {
-                            let crate::style_types::Ev::NoteOn { ch, key, vel } = ev.ev else { continue };
-                            if ch != r.src_ch || vel == 0 || r.zone_for(key).ntr != Ntr::Guitar {
-                                continue;
-                            }
-                            notes += 1;
-                            noise += (key >= GUITAR_NOISE) as u32;
-                            keys[key as usize] = true;
-                            if key >= GUITAR_NOISE {
-                                continue;
-                            }
-                            // A strum: notes at most 30 ticks apart. Count the ones of three
-                            // or more strings written as two or more stacked seconds.
-                            if strum.last().is_some_and(|&(t, _)| ev.tick - t > 30) {
-                                tally.0 += (strum.len() >= 3) as u32;
-                                tally.1 += (strum.len() >= 3 && stacked_seconds(&strum) >= 2) as u32;
-                                strum.clear();
-                            }
-                            strum.push((ev.tick, key));
-                        }
-                        tally.0 += (strum.len() >= 3) as u32;
-                        tally.1 += (strum.len() >= 3 && stacked_seconds(&strum) >= 2) as u32;
-                    }
-                    for c in every_target().filter(|&c| plays(r, c)) {
-                        for k in (0..128u8).filter(|&k| keys[k as usize] && r.zone_for(k).ntr == Ntr::Guitar) {
-                            let z = r.zone_for(k);
-                            let out = transpose(k, r, c);
-                            if k >= GUITAR_NOISE {
-                                assert_eq!(out, Some(k), "{} noise key {k}", f.display());
-                                continue;
-                            }
-                            let Some(n) = out else {
-                                assert_eq!(z.ntt, Ntt::GuitarStroke, "{} {} key {k}", f.display(), c.name());
-                                continue;
-                            };
-                            let tones = rot(mask_of(c.ty), c.root);
-                            assert!(tones & 1 << (n % 12) != 0, "{} {} key {k}: {n}", f.display(), c.name());
-                            assert!(n >= LOW_E.min(z.lo) && n <= z.hi.max(LOW_E), "{} {} key {k}: {n}", f.display(), c.name());
-                        }
-                    }
-                }
-            }
-            styles += any as u32;
-        }
-        eprintln!("{styles} styles, {records} Guitar rules, {notes} Guitar notes ({noise} noise keys)");
-        for (folder, (all, stacked)) in strums.iter().filter(|(_, t)| t.0 > 0) {
-            eprintln!("  {folder}: {stacked} of {all} strums of 3+ strings are stacked seconds");
-        }
-        assert!(files.is_empty() || notes > 0, "corpus has no Guitar parts");
-    }
-
-    /// Adjacent distinct keys of a strum at most two semitones apart.
-    #[cfg(feature = "slow-tests")]
-    fn stacked_seconds(strum: &[(u32, u8)]) -> usize {
-        let mut k: Vec<u8> = strum.iter().map(|x| x.1).collect();
-        k.sort_unstable();
-        k.dedup();
-        k.windows(2).filter(|w| w[1] - w[0] <= 2).count()
     }
 }

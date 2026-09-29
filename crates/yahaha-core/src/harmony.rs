@@ -236,7 +236,7 @@ impl Default for HarmonySettings {
 }
 
 /// The Right parts' state as the harmony sees it: which are on and which are Mono (Mono,
-/// Legato or Crossfade). Index 0-2 is Right 1-3 ([`crate::parts::RIGHT1`] ..).
+/// Legato or Crossfade). Index 0-2 is Right 1-3 ([`crate::parts_data::RIGHT1`] ..).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RightParts {
     pub on: [bool; 3],
