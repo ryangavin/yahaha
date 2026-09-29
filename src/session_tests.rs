@@ -1329,7 +1329,10 @@ fn advance_until(s: &Session, mut f: impl FnMut(&AppState) -> bool) -> bool {
     f(&s.state())
 }
 
-/// Wait in real time (a background thread) for `f`, advancing the offline clock.
+/// Wait in real time for a background thread (a rescan, a rack load) to make `f` hold.
+/// Each step advances the offline clock by 1 ms, which runs the session's pumps (they
+/// take the thread's result with `try_recv`, whatever the clock says), then checks `f`;
+/// only when it doesn't hold yet does it sleep 1 ms to let the thread work.
 fn wait_for(s: &Session, mut f: impl FnMut(&AppState) -> bool) -> bool {
     let t0 = std::time::Instant::now();
     while t0.elapsed() < std::time::Duration::from_secs(60) {
@@ -1337,9 +1340,20 @@ fn wait_for(s: &Session, mut f: impl FnMut(&AppState) -> bool) -> bool {
         if f(&s.state()) {
             return true;
         }
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
     false
+}
+
+/// The tiny test SoundFont (`patches::sf2::tiny_gm_sound_font`) as `Test.sf2`, alone in
+/// a fresh folder of its own.
+fn tiny_font_file(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("yahaha-session-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("Test.sf2");
+    std::fs::write(&p, crate::patches::sf2::tiny_gm_sound_font()).unwrap();
+    p
 }
 
 #[test]
@@ -1548,10 +1562,7 @@ fn midi_input_choice() {
 #[test]
 fn the_meters_carry_each_tracks_cpu() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
-    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-    let Some(sf2) = library::sound_font_files(&sf_dir).into_iter().map(|f| sf_dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)) else {
-        return;
-    };
+    let sf2 = tiny_font_file("cpu-meters");
     let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
     s.offline_audio(Some(&sf2), 48_000).unwrap();
     let m = s.meters();
@@ -1569,15 +1580,15 @@ fn the_meters_carry_each_tracks_cpu() {
 #[test]
 fn the_main_font_loads_into_a_rack_once_there_is_a_synth() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
-    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-    let fonts = library::sound_font_files(&sf_dir);
-    let sf2 = fonts.first().map(|f| sf_dir.join(f));
-    let s = Session::offline(Options { paths: vec![p], sf2: sf2.clone(), ..Options::default() }).unwrap();
+    let sf2 = tiny_font_file("main-font-rack");
+    let fonts = library::sound_font_files(sf2.parent().unwrap());
+    assert_eq!(fonts, vec!["Test.sf2".to_string()]);
+    let s = Session::offline(Options { paths: vec![p], sf2: Some(sf2.clone()), ..Options::default() }).unwrap();
     let st = s.state();
     assert_eq!(st.io.sound_fonts, fonts);
     assert_eq!(st.io.sound_font_file, None, "no synth offline");
     assert_eq!(s.meters().channels.len(), 0, "no synth, no meters");
-    let Some(file) = fonts.first().cloned() else { return };
+    let file = fonts[0].clone();
     // A synth as a live session has one, with the rings its audio thread would drain.
     let (tx, mut rx) = RingBuffer::<Box<synth::Rack>>::new(2);
     let (_old_tx, old) = RingBuffer::<Box<synth::Rack>>::new(4);
@@ -1605,10 +1616,7 @@ fn audio_buffer_changes_keep_notes_and_report_the_size() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
     let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
     assert!(s.send(SettingsCmd::SetAudioBuffer { frames: 128 }).is_err(), "no synth");
-    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-    let Some(sf2) = library::sound_font_files(&sf_dir).into_iter().map(|f| sf_dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)) else {
-        return;
-    };
+    let sf2 = tiny_font_file("audio-buffer");
     s.offline_audio(Some(&sf2), 48_000).unwrap();
     let energy = |(l, r): (Vec<f32>, Vec<f32>)| l.iter().chain(&r).map(|x| (*x as f64).powi(2)).sum::<f64>();
     s.midi_in(Port::Keys, &[0x90, 72, 110]);

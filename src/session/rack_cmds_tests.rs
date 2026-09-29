@@ -110,7 +110,8 @@ fn loading_a_rack_autosaves_the_live_rack() {
         if text.contains(&id) || std::time::Instant::now() > deadline {
             break text;
         }
-        std::thread::yield_now();
+        // The `live-rack` thread writes it; it signals nothing per write.
+        std::thread::sleep(std::time::Duration::from_millis(1));
     };
     let v: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!((v["rack"]["id"].as_str(), v["rack"]["name"].as_str(), v["modified"].as_bool()), (Some(id.as_str()), Some("Ballad"), Some(false)));
@@ -318,7 +319,7 @@ mod plugins {
         while s.state().keyboard_parts[part].plugin.as_ref().is_some_and(|p| p.status == PluginStatus::Loading) {
             assert!(t0.elapsed() < Duration::from_secs(20), "the plugin did not load");
             s.advance(1_000_000);
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(s.state().keyboard_parts[part].plugin.as_ref().map(|p| p.status), Some(PluginStatus::Playing));
     }
@@ -328,7 +329,7 @@ mod plugins {
         let t0 = Instant::now();
         while s.inner.lock().plugin_state_reads_pending() && t0.elapsed() < Duration::from_secs(10) {
             s.advance(1_000_000);
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::sleep(Duration::from_millis(1));
         }
         s.advance(1_000_000);
         s.advance(1_000_000);
@@ -359,9 +360,12 @@ mod plugins {
         }
     }
 
+    /// Offline audio, and a plugin host with a scan cache of the test's own (never the
+    /// user's).
     fn dls_session(d: &Path) -> Session {
         let s = session(d);
         s.offline_audio(None, 48_000).unwrap();
+        s.inner.lock().plugins.host = Some(crate::plugin::PluginHost::new(Some(d.join("plugins.json"))));
         s
     }
 
@@ -459,7 +463,7 @@ mod plugins {
         while s.state().plugins.scanning || s.state().plugins.list.is_empty() {
             assert!(t0.elapsed() < Duration::from_secs(60), "the plugin scan did not finish");
             s.advance(1_000_000);
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(Duration::from_millis(1));
         }
         let preset = format!("au:{DLS}#u:{}", file.path.display());
         s.send(SoundsCmd::AssignSound { part: 1, id: preset.clone() }).unwrap();

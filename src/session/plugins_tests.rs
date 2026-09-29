@@ -1,12 +1,62 @@
 //! Plugin parts through an offline session, with Apple's DLSMusicDevice (every Mac has
 //! it) and the real audio callback (`Session::offline_audio` / `render`).
 
-use super::super::testing::{self, session};
+use super::super::testing;
 use super::super::{Options, Port, Session};
 use crate::api::{PluginCmd, PluginStatus, PartsCmd};
+use crate::plugin::PluginHost;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const DLS: &str = "aumu dls  appl";
+
+/// How long a wait loop sleeps between pumps.
+const POLL: Duration = Duration::from_millis(1);
+
+/// A fresh, empty temp folder of this test's own (`tag` plus a per-process counter).
+fn temp_dir(tag: &str) -> PathBuf {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let d = std::env::temp_dir().join(format!("yahaha-plugins-{tag}-{}-{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// Give `s` a real plugin host (a real scan of the installed Audio Units, so DLS loads)
+/// whose scan cache is `dir/plugins.json`: tests never read or write the player's own
+/// cache, nor each other's.
+fn own_cache(s: &Session, dir: &Path) {
+    s.inner.lock().plugins.host = Some(PluginHost::new(Some(dir.join("plugins.json"))));
+}
+
+/// An offline session on the synthetic style with a plugin scan cache of its own in a temp
+/// folder, removed when it is dropped.
+struct Sess {
+    s: Option<Session>,
+    dir: PathBuf,
+}
+
+impl std::ops::Deref for Sess {
+    type Target = Session;
+    fn deref(&self) -> &Session {
+        self.s.as_ref().unwrap()
+    }
+}
+
+impl Drop for Sess {
+    fn drop(&mut self) {
+        drop(self.s.take());
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn session() -> Sess {
+    let s = testing::session();
+    let dir = temp_dir("session");
+    own_cache(&s, &dir);
+    Sess { s: Some(s), dir }
+}
 
 fn energy(l: &[f32], r: &[f32]) -> f64 {
     l.iter().chain(r).map(|x| (*x as f64).powi(2)).sum()
@@ -20,7 +70,7 @@ fn wait_scanned(s: &Session) {
     while s.state().plugins.scanning || s.state().plugins.list.is_empty() {
         assert!(t0.elapsed() < Duration::from_secs(60), "the plugin scan did not finish");
         s.advance(1_000_000);
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(POLL);
     }
 }
 
@@ -60,7 +110,7 @@ fn wait_playing(s: &Session, part: usize) -> PluginStatus {
         s.advance(1_000_000);
         let st = s.state().keyboard_parts[part].plugin.as_ref().map(|p| p.status);
         match st {
-            Some(PluginStatus::Loading) if t0.elapsed() < Duration::from_secs(20) => std::thread::sleep(Duration::from_millis(5)),
+            Some(PluginStatus::Loading) if t0.elapsed() < Duration::from_secs(20) => std::thread::sleep(POLL),
             Some(x) => return x,
             None => panic!("no plugin on the part"),
         }
@@ -137,11 +187,9 @@ fn a_keyboard_part_plays_an_audio_unit() {
 #[test]
 fn the_soundfont_voice_hands_over_to_the_plugin() {
     let s = session();
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-    let Some(sf2) = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)) else {
-        eprintln!("no SoundFont; skipping");
-        return;
-    };
+    // The tiny test font (a looped square wave on every GM program), not a real one.
+    let sf2 = s.dir.join("Tiny.sf2");
+    std::fs::write(&sf2, crate::patches::sf2::tiny_gm_sound_font()).unwrap();
     s.offline_audio(Some(&sf2), 48_000).unwrap();
     s.midi_in(Port::Keys, &[0x90, 72, 110]);
     let (l, r) = s.render(4800);
@@ -170,7 +218,7 @@ fn wait_saved(s: &Session, part: usize) -> (String, Option<String>) {
         if v.1.is_some() || t0.elapsed() > Duration::from_secs(10) {
             return v;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        std::thread::sleep(POLL);
     }
 }
 
@@ -200,7 +248,7 @@ fn a_plugin_state_is_read_off_the_control_thread() {
     let t0 = Instant::now();
     while !s.inner.lock().plugins.state_reads.is_empty() && t0.elapsed() < Duration::from_secs(10) {
         s.advance(1_000_000);
-        std::thread::sleep(Duration::from_millis(2));
+        std::thread::sleep(POLL);
     }
     assert_eq!(s.inner.lock().part_plugin_voice(1).unwrap().1, None, "the old instance's state is not the new one's");
     // No plugin: an error at once, nothing read.
@@ -487,7 +535,7 @@ fn saving_a_part_saves_its_plugin_and_its_state_now() {
     let t0 = Instant::now();
     while state(source(&s)).1.is_empty() && t0.elapsed() < Duration::from_secs(10) {
         s.advance(1_000_000);
-        std::thread::sleep(Duration::from_millis(2));
+        std::thread::sleep(POLL);
     }
     let saved = state(source(&s)).1;
     assert!(saved.len() > 100, "the plugin's state as it is now");
@@ -529,7 +577,7 @@ fn a_plugin_patch_auditions_on_channel_16() {
     let t0 = Instant::now();
     while ch16(&s) == Some(PluginStatus::Loading) && t0.elapsed() < Duration::from_secs(20) {
         s.advance(1_000_000);
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(POLL);
     }
     assert_eq!(ch16(&s), Some(PluginStatus::Playing));
     s.advance(1_000_000);
@@ -613,14 +661,14 @@ fn set_plugin_in_process_shows_in_the_list() {
     let t0 = Instant::now();
     while !s.state().plugins.list.iter().any(|p| p.id == DLS) && t0.elapsed() < Duration::from_secs(20) {
         s.advance(1_000_000);
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(POLL);
     }
     let dls = |s: &Session| s.state().plugins.list.iter().find(|p| p.id == DLS).cloned().unwrap();
     assert!(dls(&s).can_run_in_process);
     let was = dls(&s).in_process;
     s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: !was }).unwrap();
     assert_eq!(dls(&s).in_process, !was);
-    // Put the player's cache back as it was.
+    // And back (the test's own cache).
     s.send(PluginCmd::SetPluginInProcess { id: DLS.into(), in_process: was }).unwrap();
     assert_eq!(dls(&s).in_process, was);
 }
@@ -672,6 +720,7 @@ fn a_soundfont_sound_from_the_browser_ends_a_picked_plugin() {
     std::fs::write(sf.join("B.sf2"), tiny(&[(0, 88, "Warm Pad")])).unwrap();
     let opts = Options { paths: vec![p], data_dir: Some(data.clone()), sound_font_dir: Some(sf.clone()), ..Options::default() };
     let s = Session::offline(opts).unwrap();
+    own_cache(&s, &data);
     s.offline_audio(Some(&sf.join("A.sf2")), 48_000).unwrap();
     wait_scanned(&s);
     let au = format!("au:{DLS}");
@@ -823,7 +872,7 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
     while s.state().keyboard_parts[1].plugin.as_ref().and_then(|p| p.preset.clone()).is_none() {
         assert!(t0.elapsed() < Duration::from_secs(20), "the preset was not saved");
         s.advance(1_000_000);
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(POLL);
     }
     let saved = root.join("Apple/DLSMusicDevice/My Organ.aupreset");
     assert!(saved.exists());
@@ -877,7 +926,7 @@ fn one_save_makes_one_record() {
     while s.state().keyboard_parts[1].plugin.as_ref().and_then(|p| p.preset.clone()).is_none() {
         assert!(t0.elapsed() < Duration::from_secs(20), "the preset was not saved");
         s.advance(1_000_000);
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(POLL);
     }
     wait_reads(&s);
     assert_eq!(records(&s), n + 1, "Save as… with an .aupreset makes one record");
@@ -918,7 +967,7 @@ fn wait_reads(s: &Session) {
     let t0 = Instant::now();
     while s.inner.lock().plugin_state_reads_pending() && t0.elapsed() < Duration::from_secs(10) {
         s.advance(1_000_000);
-        std::thread::sleep(Duration::from_millis(2));
+        std::thread::sleep(POLL);
     }
     s.advance(1_000_000);
     s.advance(1_000_000);
@@ -1063,7 +1112,7 @@ fn a_probe_that_ends_without_a_result_does_not_stop_the_reads() {
         while !done(s) {
             assert!(t0.elapsed() < Duration::from_secs(5), "{what}");
             s.advance(250_000_000);
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(POLL);
         }
     };
     let _window = editor.watch();
@@ -1193,7 +1242,7 @@ fn wait_listed(s: &Session) {
             break;
         }
         assert!(t0.elapsed() < Duration::from_secs(40), "the preset listing never ended");
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(POLL);
     }
     s.advance(1_000_000);
     assert!(s.state().sounds.listing_presets.is_empty());
