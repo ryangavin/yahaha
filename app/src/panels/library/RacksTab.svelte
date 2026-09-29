@@ -19,6 +19,14 @@
   (`deleteRack`, after an inline confirm; refused for the loaded rack). + New rack sends
   `newRack`, with the same guard. With nothing selected, the details are the loaded rack's.
 
+  Style racks (docs/racks.md "Styles and OTS", journey 4): the loaded style's OTS buttons
+  1–4 (`ots.settings`, `ots.racks`), each with a select, "Style's own" or one of your racks
+  (`setOtsRack` / `clearOtsRack`, kept per style), and Load (`recallOts`).
+
+  │ STYLE RACKS: Soul Ballad (OTS buttons 1–4)                                    │
+  │ ▶ OTS 1 · Soul Ballad's own   Tine EP · Strings…   [Style's own ▾] [Load] Style │
+  │   OTS 2 · Ballad Pad          Grand + Pad          [Ballad Pad  ▾] [Load] Mine  │
+
   Split, Harmony/Arp and the transpose are only in the state for the live rack, so they show
   for the loaded rack; Quick Racks state carries only the bank on view, so the labels (A1)
   are that bank's.
@@ -74,6 +82,13 @@
     confirming = null
   }
   const load = (id: string) => app.send({ type: 'loadRack', id })
+
+  // Style racks: what the loaded style's OTS buttons load (docs/racks.md "Styles and OTS").
+  const ots = $derived(s.ots)
+  /** The OTS rack select: '' is the style's own. */
+  function pickOtsRack(i: number, id: string) {
+    app.send(id ? { type: 'setOtsRack', index: i, id } : { type: 'clearOtsRack', index: i })
+  }
 
   // The name as typed, until the state has the new name (or refused it: a name another
   // rack has); null shows the state's.
@@ -234,6 +249,31 @@
         {:else}
           <p class="coming">No racks yet. Press Store, then a Quick Rack button, to save the live rack ({live.name}) and put it there.</p>
         {/if}
+        {#if !query && ots.settings.length}
+          <div class="rhead"><span>Style racks: {s.style.name} (OTS buttons 1–4)</span><span>swap in your own per style</span></div>
+          <div role="list" aria-label="Style racks">
+            {#each ots.settings.slice(0, 4) as o, i (i)}
+              {@const sr = ots.racks[i]}
+              {@const mine = sr && sr.rack !== null && !sr.missing ? s.racks.find((r) => r.id === sr.rack) : undefined}
+              <div class="row slot" role="listitem" class:sel={ots.applied === i + 1}>
+                <span class="mark" aria-hidden="true">{ots.applied === i + 1 ? '▶' : ''}</span>
+                <span class="name"
+                  ><b class="ots">OTS {i + 1}</b> · {mine ? mine.name : `${s.style.name}'s own`}<span class="sub"
+                    >{#if sr?.missing}⚠ the rack chosen is gone: the style's own plays ·
+                    {/if}{mine ? mine.parts.filter((_, j) => mine.on[j]).join(' + ') : o.parts.map((p) => (p.on ? p.voiceName : '—')).join(' · ')}</span
+                  ></span
+                >
+                <select class="slotsel" aria-label="OTS {i + 1} rack" value={mine ? mine.id : ''} disabled={ots.racksReadOnly} use:tip={'ots.rack'} onchange={(e) => pickOtsRack(i, e.currentTarget.value)}>
+                  <option value="">Style's own</option>
+                  {#each s.racks as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
+                </select>
+                <button type="button" class="act mat-raised" use:tip={'library.style_rack_load'} onclick={() => app.send({ type: 'recallOts', index: i })}>Load</button>
+                <span class="badge" class:mine={!!mine}>{mine ? 'Mine' : 'Style'}</span>
+              </div>
+            {/each}
+          </div>
+          {#if ots.racksReadOnly}<p class="muted">Style racks can't be changed now (see the message at start).</p>{/if}
+        {/if}
       {/if}
     </div>
   </div>
@@ -388,6 +428,23 @@
   }
   .badge:empty {
     display: none;
+  }
+  .row.slot {
+    grid-template-columns: 1rem minmax(0, 1fr) auto auto auto;
+  }
+  .ots {
+    font-family: var(--font-display);
+    font-size: 0.85em;
+  }
+  .slotsel {
+    max-width: 11rem;
+    min-height: 1.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+  }
+  .badge.mine {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    color: var(--accent);
   }
   .row.sel {
     background: color-mix(in srgb, var(--accent) 16%, transparent);

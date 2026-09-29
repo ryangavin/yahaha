@@ -205,7 +205,9 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 
 | Command | Fields | Does |
 |---|---|---|
-| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts: voice, on/off, volume, octave, and the pan and reverb/chorus sends the OTS sets (CC10/91/93; one it does not set is left as it is). A part the OTS gives a voice ends a plugin picked for it, as `setPartVoice` does. Ignored if the style has no such OTS. |
+| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts: voice, on/off, volume, octave, and the pan and reverb/chorus sends the OTS sets (CC10/91/93; one it does not set is left as it is). A part the OTS gives a voice ends a plugin picked for it, as `setPartVoice` does. Ignored if the style has no such OTS. When `setOtsRack` gave this OTS one of the user's racks (for the loaded style), that rack loads instead, as `loadRack` does: with unsaved changes it fails with `unsavedChanges` and `liveRack.prompt` asks, and the OTS counts as recalled (`ots.applied`) once the prompt's switch is made. From the Launchkey (pad page 3), a pedal or OTS Link, which have no dialog, unsaved changes are kept as a "Recovered: <name>" rack and the switch goes ahead. A rack that is gone falls back to the style's own OTS. Either way it turns Sync Start on. |
+| `setOtsRack` | `index` 0–3, `id` | For the loaded style, OTS `index` loads the user's rack `id` instead of the style's own (docs/racks.md "Styles and OTS"; `ots.racks`). Kept by the style's file name in `<data>/style-racks.json`; the style file isn't touched. Loading a style never loads a rack by itself: only OTS Link, which is off by default. Fails for an OTS the style lacks, a rack that doesn't exist, or while `ots.racksReadOnly`. Deleting a rack (`deleteRack`) gives every OTS that loaded it back to its style. |
+| `clearOtsRack` | `index` 0–3 | For the loaded style, OTS `index` is the style's own again ("Style's own"). |
 | `setOtsLink` / `toggleOtsLink` | `on` | OTS Link: Main A–D recall OTS 1–4, and so does a style change. |
 | `setOtsLinkTiming` | `timing`: `immediate` \| `mainChange` | OTS Link Timing: during playback, recall the Main's OTS as it is pressed (`immediate`), or when that Main starts playing (`mainChange`, the default: at its change point, or after its fill; never while the old section still plays). Stopped, both recall at once. A style change recalls the new style's OTS when that style takes over (the bar line or beat Section Change Timing gives, or the end of an Ending), under both. |
 | `loadStyle` | `id` | A library entry (`LibraryEntry.id`). Stopped, it loads at once. Playing, it takes over at the next bar line, as on a Genos: the band carries on in the same section (the same Main, or the nearest the new style has) at the same bar position, at the same tempo. Until then `preview.queued` names it and `style` is still the old one. A later style change before the bar line replaces it; stopping first loads it then. |
@@ -570,7 +572,7 @@ except `newRack`.
 | `revertRack` | | Discards the live rack's changes: loads its own rack again, with no question. Fails when it has none. |
 | `renameRack` | `id`, `name` | Renames rack `id` (its file follows; the id stays, so Quick Racks keep it). Renaming the loaded rack renames the live rack too, leaving `modified` as it was. Fails for an empty name or one another rack has. |
 | `duplicateRack` | `id` | Copies rack `id` as `<name> copy` (`<name> copy 2`… if taken), with a new id. |
-| `deleteRack` | `id` | Deletes rack `id`'s file. Refused for the loaded rack (`liveRack.id`): load another first. |
+| `deleteRack` | `id` | Deletes rack `id`'s file. Refused for the loaded rack (`liveRack.id`): load another first. Quick Rack buttons holding it are emptied, and any style's OTS that loaded it (`setOtsRack`) is the style's own again. |
 | `dismissRackPrompt` | | Keep editing: clears `liveRack.prompt`; nothing else changes. |
 
 The Launchkey and pedals, which have no dialog, switch racks with
@@ -814,6 +816,8 @@ describes the start. Keyboards are different: the session lists the MIDI sources
 | `applied` | 0–4 | The last OTS recalled, 1-based. 0 means none since the style loaded. |
 | `link` | bool | OTS Link. |
 | `linkTiming` | `immediate` \| `mainChange` | OTS Link Timing (default `mainChange`). |
+| `racks` | OtsRack[0–4] | Per OTS of the loaded style (as `settings`), what its button loads: `rack` (the user's rack id `setOtsRack` chose, or null for the style's own), `name` (that rack's name; empty for the style's own) and `missing` (the rack chosen is gone: the style's own loads). |
+| `racksReadOnly` | bool | `style-racks.json` can't be changed: it is from a newer yahaha or can't be read (it is never saved over), or there is no data folder. |
 
 ### `library`
 | Field | Type | Meaning |
@@ -1569,7 +1573,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "applied": 1,
     "link": false,
-    "linkTiming": "mainChange"
+    "linkTiming": "mainChange",
+    "racks": [{ "rack": "3f2a9c1e", "name": "Ballad Pad", "missing": false }],
+    "racksReadOnly": false
   },
   "library": { "revision": 3, "count": 35, "position": 23, "pending": 0, "roots": ["/Users/me/Styles/MOX_v2"], "scanning": false },
   "surface": {

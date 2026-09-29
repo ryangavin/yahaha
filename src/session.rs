@@ -58,6 +58,7 @@ mod plugins;
 mod playlist;
 mod preview;
 mod quick_racks;
+mod style_racks;
 mod racks;
 mod rack_cmds;
 mod registration;
@@ -365,6 +366,8 @@ struct Control {
     presence: plugin_presence::Presence,
     /// Quick Racks: the buttons, the bank on view, Store (session/quick_racks.rs).
     quick: quick_racks::QuickCtl,
+    /// Style racks: which OTS buttons load a user rack, per style (session/style_racks.rs).
+    style_racks: style_racks::StyleRacksCtl,
     /// The command being applied came from the Launchkey or a pedal, which have no dialog
     /// (a rack switch keeps unsaved changes as a Recovered rack instead of asking).
     hardware: bool,
@@ -437,6 +440,7 @@ impl Control {
             AppCmd::Rack(c) => {
                 let r = self.rack_cmd(c.clone());
                 self.quick_after_rack_cmd(&c, r.is_ok());
+                self.style_racks_after_rack_cmd(&c, r.is_ok());
                 r
             }
             AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
@@ -773,6 +777,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         live_rack: Default::default(),
         presence: plugin_presence::Presence::open(opts.data_dir.as_deref()),
         quick: quick_racks::QuickCtl::open(opts.data_dir.as_deref()),
+        style_racks: style_racks::StyleRacksCtl::open(opts.data_dir.as_deref()),
         hardware: false,
     };
     let mut control = control;
@@ -782,6 +787,9 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     }
     if let Some(e) = control.quick.load_error().map(str::to_string) {
         control.say(format!("Quick Racks not loaded (they will not be saved over): {e}"), true);
+    }
+    if let Some(e) = control.style_racks.load_error().map(str::to_string) {
+        control.say(format!("Style racks not loaded (they will not be saved over): {e}"), true);
     }
     Ok((shared, Assembled { control, engine: EngineLoopParts { engine, io: ch.io }, input }))
 }

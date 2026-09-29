@@ -5,8 +5,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum OtsCmd {
-    /// Recall One Touch Setting 1-4 (`index` 0-3) into the keyboard parts.
+    /// Recall One Touch Setting 1-4 (`index` 0-3) into the keyboard parts. When the loaded
+    /// style's OTS `index` loads one of the user's racks (`setOtsRack`), that rack loads
+    /// instead, as `loadRack` does (the same unsaved-changes guard; from the Launchkey or a
+    /// pedal, a "Recovered" rack keeps unsaved changes).
     RecallOts { index: u8 },
+    /// For the loaded style, OTS `index` (0-3) loads the user's rack `id` instead of the
+    /// style's own (kept in `<data>/style-racks.json`; the style file isn't touched).
+    SetOtsRack { index: u8, id: String },
+    /// For the loaded style, OTS `index` (0-3) is the style's own again.
+    ClearOtsRack { index: u8 },
     /// OTS Link: Main A-D recall OTS 1-4.
     SetOtsLink { on: bool },
     ToggleOtsLink,
@@ -41,6 +49,24 @@ pub struct OtsState {
     pub link: bool,
     /// When OTS Link recalls during playback.
     pub link_timing: OtsLinkTiming,
+    /// Per OTS of the loaded style (as `settings`): the user's rack it loads instead of the
+    /// style's own (docs/racks.md, "Styles and OTS").
+    pub racks: Vec<OtsRack>,
+    /// Style racks can't be changed: `style-racks.json` is from a newer yahaha or can't be
+    /// read, or there is no data folder.
+    pub racks_read_only: bool,
+}
+
+/// What one OTS button of the loaded style loads.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtsRack {
+    /// The user's rack it loads; null: the style's own OTS (`settings`).
+    pub rack: Option<String>,
+    /// That rack's name; empty for the style's own.
+    pub name: String,
+    /// The rack chosen is gone (its file was removed): the style's own loads.
+    pub missing: bool,
 }
 
 /// One One Touch Setting (the style has no names for them: "OTS 1".."OTS 4").
