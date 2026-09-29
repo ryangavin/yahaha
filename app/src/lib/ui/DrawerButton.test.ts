@@ -11,7 +11,7 @@ import { ui } from '../store.svelte'
 
 afterEach(() => {
   cleanup()
-  ui.rack = ui.mixer = ui.sound = ui.multipad = ui.charts = ui.harmony = ui.looper = ui.settings = false
+  ui.rack = ui.mixer = ui.multipad = ui.charts = ui.harmony = ui.looper = ui.settings = false
   ui.browser = false
   ui.view = 'stage'
   ui.libraryTab = 'sounds'

@@ -478,6 +478,9 @@ each file on the board. In order:
 
 ### 4. Registration Memory
 
+Gone: Quick Racks replaced Registration Memory, and racks item 13 deleted the warm pool
+with it (a Quick Rack press loads its plugins as any rack load does). The record:
+
 As built (#104): `VoiceRef::Plugin` in the `parts` registrable, and a warm pool of at most 8
 instances keyed by (plugin id, state) rather than (button, part), refilled after each recall
 (docs/registration.md). Retired instances are not recycled into the pool yet. The design as

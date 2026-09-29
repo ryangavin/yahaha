@@ -1,32 +1,23 @@
 //! Putting a stored sound back on a keyboard part: a plugin with its state, a library
-//! patch, or the GM voice. Registration recall and rack apply both use these.
+//! patch, or the GM voice. Rack apply uses these.
 
 use super::{Control, PluginVoice};
 use crate::api::{base64_decode, PluginStatus};
 use crate::parts;
 use crate::patches::SoundTag;
 
-/// What a failed plugin load leaves on the part.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum OnFail {
-    /// Back to the GM voice: the plugin is forgotten.
-    Clear,
-    /// The plugin stays on the part as failed (retryable, saved), so the part's choice
-    /// survives; its GM voice plays meanwhile, or nothing if the plugin isn't installed
-    /// (docs/racks.md, "Plugins coming and going").
-    Keep,
-}
-
 impl Control {
     /// Put plugin `id` with `state` (base64; None: its default preset) on part `p`:
     /// nothing when it already plays that plugin with that state (playing or loading);
     /// else load it as `setPartPlugin` does (the part's library patch ends). Ok(true) when
     /// a load started. A plugin that can't play (not installed, no plugin host in this
-    /// build) leaves the part on its GM voice, and says so.
+    /// build) stays on the part as failed (retryable, saved), so the part's choice
+    /// survives; its GM voice plays meanwhile, or nothing if the plugin isn't installed
+    /// (docs/racks.md, "Plugins coming and going"), and it says so.
     ///
     /// `sound` is the Sound the record names; a record from before sounds had ids names
     /// none, and gets the library's sound with exactly that state, if there is one.
-    pub(super) fn recall_part_plugin(&mut self, p: usize, id: &str, name: &str, state: Option<&str>, sound: Option<&SoundTag>, on_fail: OnFail) -> Result<bool, String> {
+    pub(super) fn recall_part_plugin(&mut self, p: usize, id: &str, name: &str, state: Option<&str>, sound: Option<&SoundTag>) -> Result<bool, String> {
         let ch = parts::CHANNEL[p];
         let same = !self.part_has_patch_plugin(p)
             && self.part_plugin_voice(p).is_some_and(|(i, s)| i == id && s.as_deref() == state)
@@ -40,20 +31,15 @@ impl Control {
             None => None,
         };
         self.sound_library_part_plugin(p, true);
-        // A preloaded instance is used up (by a Registration or a rack): the pool refills
-        // at the next pump.
-        self.reg.warm_dirty = true;
         let sound = sound.cloned().or_else(|| self.sound_tag_for_state(id, state.unwrap_or_default()));
         let voice = PluginVoice { id: id.to_string(), state: bytes, preset: None, sound };
         let r = self.assign_channel_plugin(ch, voice.clone());
         let mut missing = false;
         if let Err(e) = &r {
             self.clear_channel_plugin(ch);
-            if on_fail == OnFail::Keep {
-                // A plugin that isn't installed leaves the part silent (`mark_missing`).
-                missing = self.plugin_is_missing(id);
-                self.keep_failed_channel_plugin(ch, voice, e.clone());
-            }
+            // A plugin that isn't installed leaves the part silent (`mark_missing`).
+            missing = self.plugin_is_missing(id);
+            self.keep_failed_channel_plugin(ch, voice, e.clone());
         }
         self.mark_plugins_dirty();
         r.map(|_| true).map_err(|e| match missing {

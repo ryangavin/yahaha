@@ -35,11 +35,9 @@ mod pads;
 mod param_lock;
 mod plugins;
 mod parts;
-mod playlist;
 mod preview;
 mod quick_racks;
 mod racks;
-mod registration;
 mod settings;
 mod style_change;
 mod sound_library;
@@ -68,11 +66,9 @@ pub use pads::*;
 pub use param_lock::*;
 pub use plugins::*;
 pub use parts::*;
-pub use playlist::*;
 pub use preview::*;
 pub use quick_racks::*;
 pub use racks::*;
-pub use registration::*;
 pub use settings::*;
 pub use style_change::*;
 pub use sound_library::*;
@@ -98,7 +94,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 macro_rules! app_cmd {
     (
         $($(#[$doc:meta])* $group:ident($ty:ty),)*
-        @retired { $($(#[$rdoc:meta])* $rgroup:ident($rty:ty),)* }
     ) => {
         /// Every user action, by feature. Indices are 0-based. Keyboard parts: 0 = Right 1,
         /// 1 = Right 2, 2 = Right 3, 3 = Left. Style parts: 0-7 = Rhythm 1, Rhythm 2, Bass,
@@ -110,17 +105,11 @@ macro_rules! app_cmd {
         #[serde(untagged)]
         pub enum AppCmd {
             $($(#[$doc])* $group($ty),)*
-            $($(#[$rdoc])* #[serde(skip)] $rgroup($rty),)*
         }
 
         $(impl From<$ty> for AppCmd {
             fn from(c: $ty) -> AppCmd {
                 AppCmd::$group(c)
-            }
-        })*
-        $(impl From<$rty> for AppCmd {
-            fn from(c: $rty) -> AppCmd {
-                AppCmd::$rgroup(c)
             }
         })*
 
@@ -184,7 +173,7 @@ app_cmd! {
     HarmonyArp(HarmonyArpCmd),
     /// The sound library: patches, the program map, auditions, import/export.
     SoundLibrary(SoundLibraryCmd),
-    /// Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
+    /// Parameter Lock: groups that OTS and rack recalls leave alone.
     ParamLock(ParamLockCmd),
     /// The sound catalog (#117): favourites, audition, assigning a sound to a part.
     Sounds(SoundsCmd),
@@ -198,16 +187,6 @@ app_cmd! {
     Rack(RackCmd),
     /// Quick Racks: the one-press rack buttons (banks A-H of eight), Store, bank -/+.
     QuickRacks(QuickRackCmd),
-    // Quick Racks replaced these (docs/racks.md, "Migration"). They are off the wire: the
-    // app, the Launchkey, the pedals and the terminal UI no longer send them, and a JSON
-    // command of theirs is refused. Their code goes with the rest of the Registration code
-    // (racks item 13).
-    @retired {
-        /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
-        Registration(RegistrationCmd),
-        /// The Playlist.
-        Playlist(PlaylistCmd),
-    }
 }
 
 impl From<Button> for AppCmd {
@@ -380,13 +359,6 @@ pub struct AppState {
     pub chart: ChartState,
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
     pub style_settings: StyleSettingsState,
-    /// Registration Memory, retired with its commands (Quick Racks replaced it): off the
-    /// wire, kept for the code that goes in racks item 13.
-    #[serde(skip)]
-    pub registration: RegistrationState,
-    /// The Playlist, retired with Registration Memory: off the wire.
-    #[serde(skip)]
-    pub playlist: PlaylistState,
     /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
     pub multi_pad: MultiPadState,
     /// Pedals, wheels, their parts and the pedals' assignable functions.

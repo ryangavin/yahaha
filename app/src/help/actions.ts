@@ -240,8 +240,6 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'exportSoundPreset': return 'sound.export_preset'
     // The Sound Browser (#117).
     case 'setSoundFavourite': return 'sounds.favourite'
-    case 'auditionSound': return 'sounds.audition'
-    case 'stopSoundAudition': return 'sounds.audition_stop'
     case 'replacePartSound':
     case 'assignSound': return 'sounds.row'
     case 'setSoundCategory': return 'sound.category'

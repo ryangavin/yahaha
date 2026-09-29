@@ -336,8 +336,6 @@ mod imp {
         /// `state_reads`, so the autosave and a Save never wait for them. Each with its
         /// channel, so a read that ends without a result still frees the channel's probe.
         pub(crate) probes: Vec<(u8, mpsc::Receiver<ProbeRead>)>,
-        /// Plugins preloaded for the Registration bank's buttons (plugins/pool.rs).
-        pub(crate) warm: super::pool::WarmPool,
         /// Preset listings running (`listPluginPresets`).
         pub(crate) listing: Vec<PresetListing>,
         /// Why a plugin's preset listing failed, by plugin id. It is not tried again until
@@ -432,11 +430,7 @@ mod imp {
             if voice.state.as_ref().is_some_and(|s| s.len() > MAX_STATE_BYTES) {
                 return Err(format!("the plugin state is larger than {} MB", MAX_STATE_BYTES >> 20));
             }
-            // A plugin preloaded for a Registration button plays at once; else it loads now.
-            let (info, mode, load) = match self.take_warm(&voice) {
-                Some(w) => (w.info, w.mode, w.load),
-                None => self.start_load(&voice)?,
-            };
+            let (info, mode, load) = self.start_load(&voice)?;
             // What is in the rack now (playing, or muted by a fault) stays there until the
             // new one is ready: it keeps playing, and comes back if the new one fails. A
             // quick re-pick while loading keeps the one from before the first pick.
@@ -833,18 +827,12 @@ mod imp {
 
         /// The player's "run in process" override for plugin `id`, saved in the scan cache.
         /// It applies from the plugin's next load; a part playing it now keeps running where
-        /// it is. What the Registration bank preloaded of it loads again in the new mode
-        /// (`rewarm_plugin`, #176).
+        /// it is.
         pub(crate) fn set_plugin_in_process(&mut self, id: &str, on: bool) -> Result<(), String> {
             let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
             let info = self.plugins.host().set_in_process(&pid, on).map_err(|e| format!("{e:#}"))?;
-            let mut changed = true;
             if let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == pid) {
-                changed = p.in_process != info.in_process;
                 p.in_process = info.in_process;
-            }
-            if changed {
-                self.rewarm_plugin(&pid.to_string());
             }
             let playing = self.plugins.channels.iter().flatten().any(|c| c.voice.id == id && c.status == PluginStatus::Playing);
             if playing {
@@ -1140,7 +1128,6 @@ mod imp {
                 self.pump_channel_load(ch);
             }
             self.pump_presets();
-            self.pump_warm();
             let events = match self.synth.as_mut().and_then(|s| s.plugins.as_mut()) {
                 Some(link) => link.poll(),
                 None => Vec::new(),
@@ -1441,7 +1428,6 @@ impl Control {
         None
     }
     pub(crate) fn adopt_channel_sound(&mut self, _ch: u8, _tag: Option<crate::patches::SoundTag>) {}
-    pub(crate) fn warm_plugins(&mut self, _want: Vec<PluginVoice>) {}
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()
     }
@@ -1618,10 +1604,6 @@ impl Control {
         }
     }
 }
-
-#[cfg(feature = "plugins")]
-#[path = "plugin_pool.rs"]
-pub(crate) mod pool;
 
 #[cfg(all(test, feature = "plugins"))]
 #[path = "plugins_tests.rs"]

@@ -1,32 +1,34 @@
+// Library › Style map: the GM map and Add from SoundFont pages (moved here from the Sound
+// Library drawer's tests when the drawer went, racks item 13).
+
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GM, MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
-import SoundLibrary from './SoundLibrary.svelte'
-import { byCategory, filterPatches, nav, sourceText } from './nav.svelte'
+import { nav, sourceText } from '../sound/nav.svelte'
+import MapTab from './MapTab.svelte'
+import { libraryNav } from './nav.svelte'
 
 function setup() {
   const session = new MockSession({ manual: true })
   app.attach(session)
-  ui.sound = true
   flushSync()
-  render(SoundLibrary)
+  render(MapTab)
   return session
 }
 
 afterEach(() => {
   cleanup()
   app.detach()
-  ui.sound = false
-  nav.tab = 'gm'
+  libraryNav.reset()
   nav.styleScope = false
   ui.soundPick = null
 })
 
 const tipped = (key: string) => [...document.querySelectorAll<HTMLElement>(`[data-tip="${key}"]`)]
-const tab = (id: string) => document.querySelector<HTMLButtonElement>(`#sound-tab-${id}`)!
-/** A map picker (#117): open it, and pick in the Sound Browser (catalog id; null clears). */
+const tab = (id: 'gm' | 'add') => document.querySelector<HTMLButtonElement>(`#lib-map-${id}`)!
+/** A map picker (#117): open it, and pick in the sound picker (catalog id; null clears). */
 const pickIn = async (el: HTMLElement, id: string | null) => {
   if (id === null) {
     await fireEvent.click(el.parentElement!.querySelector<HTMLElement>('[data-tip="sound.rule_clear"]')!)
@@ -44,44 +46,13 @@ const change = async (el: HTMLSelectElement | HTMLInputElement, value: string) =
   flushSync()
 }
 
-describe('Sound Library drawer', () => {
-  it('opens on the GM map; the Patches tab folded into the Sound Browser', () => {
-    const s = setup()
-    expect(document.querySelector('#sound-tab-patches')).toBe(null)
-    expect(tab('gm').getAttribute('aria-selected')).toBe('true')
-    expect(tipped('sound.export')).toHaveLength(1)
-    const ps = s.state.soundLibrary.patches
-    expect(filterPatches(ps, 'warm', 'all', false).map((p) => p.name)).toEqual(['Warm Rhodes', 'Silk Strings']) // a name and a tag
-    expect(filterPatches(ps, '', 'all', true).map((p) => p.name)).toEqual(['Stage Grand', 'Warm Rhodes'])
-    // A plugin patch plays itself (the app builds with plugin hosting).
-    expect(filterPatches(ps, 'keys', 'all', false)[0].available).toBe(true)
-  })
-
-  it('a plugin patch on a part plays its plugin, until the part leaves the patch', () => {
-    const s = setup()
-    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
-    const r1 = () => s.state.keyboardParts[0]
-    expect(r1().patch).toBe('keys-au')
-    expect(r1().voiceName).toBe('Keys (AU)')
-    expect(r1().plugin?.id).toBe('aumu dls  appl')
-    // A SoundFont patch: the plugin goes.
-    s.send({ type: 'setPartPatch', part: 0, id: 'stage-grand' })
-    expect(r1().plugin).toBeUndefined()
-    // A GM voice ends a plugin patch and its plugin.
-    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
-    s.send({ type: 'setPartVoice', part: 0, program: 0 })
-    expect([r1().patch, r1().plugin]).toEqual([null, undefined])
-    // A plugin picked on the Plugins tab ends the patch, and stays when a patch is left.
-    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
-    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
-    expect([r1().patch, r1().plugin?.id]).toEqual([null, 'aumu dls  appl'])
-  })
-
+describe('Library › Style map', () => {
   it('the GM map page: drums and 128 programs by family, each with its deciding layer', async () => {
     const s = setup()
     await fireEvent.click(tab('gm'))
     flushSync()
-    const page = document.querySelector('#sound-page-gm')!
+    const page = document.querySelector('#lib-map-page-gm')!
+    expect(tipped('sound.export')).toHaveLength(1)
     expect(tipped('sound.family')).toHaveLength(16)
     expect(tipped('sound.drums')).toHaveLength(1)
     expect(tipped('sound.override_patch')).toHaveLength(128)
@@ -99,8 +70,6 @@ describe('Sound Library drawer', () => {
 
   it('the GM map page sets and clears family, override and drum rules, globally or for this style', async () => {
     const s = setup()
-    await fireEvent.click(tab('gm'))
-    flushSync()
     const families = tipped('sound.family')
     await pickIn(families[10], 'saved:warm-rhodes')
     expect(s.state.soundLibrary.map.families[10]).toBe('warm-rhodes')
@@ -114,7 +83,7 @@ describe('Sound Library drawer', () => {
     expect(s.state.soundLibrary.map.overrides.find((o) => o.program === 0)?.patch).toBe('warm-rhodes')
     flushSync()
     expect(tipped('sound.map_layer')[1].textContent).toBe('Override')
-    expect(document.querySelector('#sound-page-gm .plays')!.textContent).toBe('Warm Rhodes')
+    expect(document.querySelector('#lib-map-page-gm .plays')!.textContent).toBe('Warm Rhodes')
     await pickIn(tipped('sound.override_patch')[0], null)
     expect(s.state.soundLibrary.map.overrides.some((o) => o.program === 0)).toBe(false)
     // Any sound: a SoundFont preset becomes a library patch the rule names.
@@ -135,24 +104,16 @@ describe('Sound Library drawer', () => {
     expect(s.state.soundLibrary.styleMap.families[4]).toBe(null)
   })
 
-  it('the GM map page is keyboard-reachable: the tab strip and every rule picker', async () => {
+  it('every rule picker is keyboard-reachable and opens the sound picker', async () => {
     setup()
-    tab('gm').focus()
-    await fireEvent.keyDown(tab('gm'), { key: 'ArrowRight' })
-    flushSync()
-    expect(nav.tab).toBe('add')
-    await fireEvent.keyDown(tab('add'), { key: 'ArrowLeft' })
-    flushSync()
-    expect(nav.tab).toBe('gm')
-    expect(document.activeElement).toBe(tab('gm'))
-    const page = document.querySelector('#sound-page-gm')!
+    const page = document.querySelector('#lib-map-page-gm')!
     const controls = [...page.querySelectorAll<HTMLElement>('button, select, input')]
     expect(controls.length).toBeGreaterThan(145)
     for (const c of controls) {
       expect(c.tabIndex, c.outerHTML).toBeGreaterThanOrEqual(0)
       expect(c.dataset.tip, c.outerHTML).toBeTruthy()
     }
-    // Enter on a picker opens Sounds (a native button: Enter clicks it).
+    // Enter on a picker opens the picker (a native button: Enter clicks it).
     await fireEvent.click(tipped('sound.override_patch')[5])
     expect(ui.soundPick?.title).toBe(`Override for ${GM[5]}`)
   })
@@ -161,6 +122,7 @@ describe('Sound Library drawer', () => {
     const s = setup()
     await fireEvent.click(tab('add'))
     flushSync()
+    expect(libraryNav.mapPage).toBe('add')
     await change(tipped('sound.soundfont')[0] as HTMLSelectElement, 'GeneralUser-GS.sf2')
     expect(s.state.soundLibrary.browse?.presets.length).toBeGreaterThan(128)
     const n = s.state.soundLibrary.patches.length
@@ -169,11 +131,31 @@ describe('Sound Library drawer', () => {
     expect(s.state.soundLibrary.patches[n].category).toBe('bass')
   })
 
-  it('helpers', () => {
+  it('a patch names its source', () => {
     const s = new MockSession({ manual: true })
-    const groups = byCategory(s.state.soundLibrary.patches)
-    expect(groups.map((g) => g.label)).toEqual(['Piano', 'E.Piano', 'Bass', 'Strings', 'Brass', 'Pad', 'Drums/Perc'])
     expect(sourceText(s.state.soundLibrary.patches[3])).toBe('GeneralUser-GS · drum kit 1')
     expect(sourceText(s.state.soundLibrary.patches[2])).toBe('GeneralUser-GS · 0:34')
+  })
+})
+
+describe('library patches on a part (mock session)', () => {
+  it('a plugin patch on a part plays its plugin, until the part leaves the patch', () => {
+    const s = new MockSession({ manual: true })
+    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
+    const r1 = () => s.state.keyboardParts[0]
+    expect(r1().patch).toBe('keys-au')
+    expect(r1().voiceName).toBe('Keys (AU)')
+    expect(r1().plugin?.id).toBe('aumu dls  appl')
+    // A SoundFont patch: the plugin goes.
+    s.send({ type: 'setPartPatch', part: 0, id: 'stage-grand' })
+    expect(r1().plugin).toBeUndefined()
+    // A GM voice ends a plugin patch and its plugin.
+    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
+    s.send({ type: 'setPartVoice', part: 0, program: 0 })
+    expect([r1().patch, r1().plugin]).toEqual([null, undefined])
+    // A plugin picked on the Plugins tab ends the patch, and stays when a patch is left.
+    s.send({ type: 'setPartPatch', part: 0, id: 'keys-au' })
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null })
+    expect([r1().patch, r1().plugin?.id]).toEqual([null, 'aumu dls  appl'])
   })
 })

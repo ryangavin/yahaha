@@ -500,8 +500,13 @@ mod tests {
             }
             let text = std::fs::read_to_string(&f).unwrap();
             let n = text.matches(&needle).count();
-            // data_files.rs lists one folder of saved data files (`.rack.json`, `.regist.json`), never styles.
-            let allowed = if name == "main.rs" || name == "data_files.rs" { 1 } else { 0 };
+            // data_files.rs lists one folder of saved data files (`.rack.json`, `.looper.json`),
+            // and looks up a file name's spelling on disk (`existing_file`), never styles.
+            let allowed = match name.as_str() {
+                "main.rs" => 1,
+                "data_files.rs" => 2,
+                _ => 0,
+            };
             assert!(n <= allowed, "src/{name} lists folders itself ({n}x); use library::style_files");
         }
     }

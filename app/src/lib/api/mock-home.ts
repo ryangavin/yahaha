@@ -31,13 +31,10 @@ export function mockHome(st: AppState): HomeState {
   const n = t.sectionBars
   const b = Math.max(1, t.beatsPerBar)
   const fraction = t.running && n ? Math.min(1, Math.max(0, ((Math.max(1, t.bar) - 1) * b + Math.max(1, t.beat) - 1) / (n * b))) : 0
-  // Registration Memory is retired (Quick Racks replaced it), so no snapshot is recalled.
-  const snapshot = null
   const o = st.ots.settings[st.ots.applied - 1]
   return {
     mains,
     progress: { running: t.running, bar: t.bar, beat: t.beat, bars: n, beatsPerBar: t.beatsPerBar, fraction },
-    snapshot,
     ots: st.ots.applied > 0 && o ? { index: st.ots.applied - 1, name: o.name } : null,
     bandSends: st.effects.blocks.map((x) => ({ block: x.block, name: x.name, effectName: x.effectName, level: x.bandSend })),
   }

@@ -253,8 +253,6 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setParamLock","item":"fingeringType","on":false}"#,
     // Sound catalog
     r#"{"type":"setSoundFavourite","id":"sf:GeneralUser-GS.sf2:0:0","on":true}"#,
-    r#"{"type":"auditionSound","id":"au:aumu Xf2X XFER"}"#,
-    r#"{"type":"stopSoundAudition"}"#,
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
     r#"{"type":"replacePartSound","part":1,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,

@@ -55,7 +55,7 @@
   import QuickBar from './panels/quickracks/QuickBar.svelte'
   import Library from './panels/library/Library.svelte'
   import Settings from './panels/settings/Settings.svelte'
-  import SoundBrowser from './panels/sounds/SoundBrowser.svelte'
+  import SoundPicker from './panels/sounds/SoundPicker.svelte'
 
   let { session }: { session: Session } = $props()
 
@@ -123,7 +123,7 @@
 {#if ui.browser}<Browser />{/if}
 <!-- The Sound Browser only picks for a program map rule now (Style map); Library took over
      choosing a part's sound. -->
-{#if ui.soundPick !== null}<SoundBrowser pick={ui.soundPick} />{/if}
+{#if ui.soundPick !== null}<SoundPicker pick={ui.soundPick} />{/if}
 {#if tips.floating}<Tooltip />{/if}
 
 <style>

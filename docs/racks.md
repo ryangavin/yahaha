@@ -155,19 +155,22 @@ saved over (the rule the sound library and Registration banks already follow).
 
 Each item is one PR into `develop`.
 
-1. Sounds dialog bugs, on today's code: real preset lists and counts; preset listing
-   never hangs; the playing sound is named; one save makes one record; edits show as
-   modified at once.
-2. `racks::Rack`: the model, its file, capture from and apply to the session.
-3. Sound = raw instrument: sound library v3, no defaults.
-4. Live rack: autosave and boot restore (replaces `plugin-parts.json`), modified state.
-5. Rack commands: new, load, save, save as, revert, rename, duplicate, delete, with the
-   switching guard.
-6. Quick Racks replace Registrations (bar, pads, pedals, Store, banks).
-7. Style racks: per-style OTS overrides.
-8. Missing and new plugins.
-9. Library page shell and the Stage | Library switch; Sounds tab.
-10. Library Racks and Instruments tabs; Style map tab.
-11. Rack panel (drawer and dock), replacing Parts & OTS.
-12. Stage: sound names on part faders, the Rack knob page, controller map.
-13. Remove the old Sounds modal, Sound Library drawer and Registration code.
+1. Done (#369). Sounds dialog bugs, on today's code: real preset lists and counts;
+   preset listing never hangs; the playing sound is named; one save makes one record;
+   edits show as modified at once.
+2. Done (#366). `racks::Rack`: the model, its file, capture from and apply to the session.
+3. Done (#378). Sound = raw instrument: sound library v3, no defaults.
+4. Done (#377). Live rack: autosave and boot restore (replaces `plugin-parts.json`),
+   modified state.
+5. Done (#381). Rack commands: new, load, save, save as, revert, rename, duplicate,
+   delete, with the switching guard.
+6. Done (#383). Quick Racks replace Registrations (bar, pads, pedals, Store, banks).
+7. Done (#390). Style racks: per-style OTS overrides.
+8. Done (#376). Missing and new plugins.
+9. Done (#379). Library page shell and the Stage | Library switch; Sounds tab.
+10. Done (#379). Library Racks and Instruments tabs; Style map tab.
+11. Done (#380). Rack panel (drawer and dock), replacing Parts & OTS.
+12. In part (#380; the Rack knob page and controller map in #392). Stage: sound names on
+    part faders, the Rack knob page, controller map.
+13. Done (this PR). Remove the old Sounds modal, Sound Library drawer and Registration
+    code. What is left of the Sounds modal is the map rule's sound picker.

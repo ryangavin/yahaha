@@ -42,7 +42,7 @@ export function handleKey(e: KeyboardEvent) {
     if (!e.repeat) NAV.find((n) => n.key === b.nav)?.toggle()
     return
   }
-  if (ui.browser || ui.soundBrowser !== null || ui.soundPick !== null) return
+  if (ui.browser || ui.soundPick !== null) return
   if (isTextField(target)) return
   if (target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return
   if (!b) return

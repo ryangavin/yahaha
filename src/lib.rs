@@ -40,7 +40,6 @@ compile_error!("the `plugins` feature (Audio Unit hosting) is macOS only; build 
 #[cfg(test)]
 mod recognizer_golden;
 pub mod racks;
-pub mod registration;
 pub mod route;
 pub mod rt;
 pub mod session;

@@ -1996,8 +1996,7 @@
   "sounds": {
     "revision": 1,
     "count": 0,
-    "scanning": false,
-    "auditioning": null
+    "scanning": false
   },
   "dynamics": {
     "control": true,
@@ -2286,7 +2285,6 @@
       "beatsPerBar": 4,
       "fraction": 0.0
     },
-    "snapshot": null,
     "ots": null,
     "bandSends": []
   },

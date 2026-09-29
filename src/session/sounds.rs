@@ -99,14 +99,11 @@ impl Control {
     pub(super) fn sounds_state(&self) -> SoundsState {
         let presets: usize = self.sound_fonts.iter().filter_map(|f| self.sounds.presets.get(f)).map(Vec::len).sum();
         let plugins = self.plugins_state();
-        let auditioning =
-            self.sound_audition().map(|l| if l.starts_with("sf:") || l.starts_with("au:") { l.to_string() } else { format!("saved:{l}") });
         let plugin_presets: usize = self.plugin_preset_lists().iter().map(|l| l.presets.len()).sum();
         SoundsState {
             revision: self.sounds.revision,
             count: (presets + plugins.list.len() + plugin_presets + self.sound_patches().len()) as u32,
             scanning: plugins.scanning,
-            auditioning: auditioning.filter(|a| a != "saved:preset"),
             listing_presets: self.plugin_presets_listing().into_iter().map(|id| format!("au:{id}")).collect(),
         }
     }
@@ -125,28 +122,6 @@ impl Control {
                 }
                 self.save_sounds("favourites", serde_json::to_value(&self.sounds.prefs.favourites));
             }
-            SoundsCmd::AuditionSound { id } => {
-                if let Some(patch) = id.strip_prefix("saved:") {
-                    return self.sound_library_cmd(SoundLibraryCmd::AuditionPatch { id: patch.into() });
-                }
-                if let Some((plugin, preset)) = parse_plugin_id(&id) {
-                    self.need_sound(&id)?;
-                    let (name, drums) = (self.sound_name(&id), self.plugin_category_of(&id) == Category::DrumsPerc);
-                    let voice = match preset {
-                        Some(key) => match self.preset_voice(plugin, key) {
-                            Ok(v) => v,
-                            Err(e) => return self.fail(e),
-                        },
-                        None => super::PluginVoice { id: plugin.to_string(), state: None, preset: None, sound: None },
-                    };
-                    return self.start_plugin_audition(id, &name, voice, drums);
-                }
-                let Some((file, bank, program)) = parse_preset_id(&id) else { return self.fail(format!("no sound {id}")) };
-                let file = file.to_string();
-                self.need_sound(&id)?;
-                return self.start_audition(id, file, bank, program);
-            }
-            SoundsCmd::StopSoundAudition => return self.sound_library_cmd(SoundLibraryCmd::StopPatchAudition),
             SoundsCmd::AssignSound { part, id } => return self.assign_sound(part, id),
             SoundsCmd::ReplacePartSound { part, id } => return self.replace_part_sound(part, id),
             SoundsCmd::SetSoundCategory { id, category } => {

@@ -284,7 +284,7 @@ export function initialState(): AppState {
     dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110, accentMode: 'hits', accentSource: 'left' },
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
-    home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
+    home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, ots: null, bandSends: [] },
     liveRack: { name: 'New rack', id: null, modified: false, controls: defaultControlMap(), prompt: null },
     racks: [],
     quickRacks: emptyQuickRacks(),
@@ -670,7 +670,6 @@ export class MockSession implements Session {
     if (!t.running) this.stepAudition(ms)
     else this.state.soundLibrary.auditioning = null
     this.sound.advance(ms)
-    this.catalogMock.advance(ms, t.running)
     this.multiPads.beats((ms / 60000) * t.tempo)
     this.plugins.step(ms)
     if (this.scanLeft > 0) {
@@ -1918,8 +1917,6 @@ export class MockSession implements Session {
         break
       }
       case 'setSoundFavourite':
-      case 'auditionSound':
-      case 'stopSoundAudition':
       case 'assignSound':
       case 'setSoundCategory':
       case 'listPluginPresets':

@@ -1,7 +1,7 @@
 //! What the Home screen shows (the redesign's section grid, docs/design): the style's Main
-//! A-D patterns with a preview of each, the fill for each Main, the bar progress, the
-//! snapshot and OTS in use, and the band's effect sends. Read-only: every command that
-//! changes any of it is elsewhere (sections, registration, OTS, effects).
+//! A-D patterns with a preview of each, the fill for each Main, the bar progress, the OTS
+//! in use, and the band's effect sends. Read-only: every command that changes any of it is
+//! elsewhere (sections, OTS, effects).
 
 use serde::{Deserialize, Serialize};
 
@@ -13,8 +13,6 @@ pub struct HomeState {
     pub mains: Vec<HomeMain>,
     /// Where the section playing is.
     pub progress: HomeProgress,
-    /// The snapshot last recalled or stored, if any.
-    pub snapshot: Option<HomeSnapshot>,
     /// The One Touch Setting applied last, if any.
     pub ots: Option<HomeOts>,
     /// The band's effect sends (Reverb, Chorus, Delay).
@@ -74,18 +72,6 @@ pub struct HomeProgress {
     pub beats_per_bar: u8,
     /// How far through the section, 0.0-1.0, at beat resolution (0 when stopped).
     pub fraction: f64,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HomeSnapshot {
-    /// Its index in the bank file.
-    pub index: u8,
-    /// "A3".
-    pub label: String,
-    pub name: String,
-    /// The bank file's name.
-    pub bank: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

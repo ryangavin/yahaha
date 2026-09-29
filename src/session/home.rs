@@ -2,7 +2,7 @@
 //! the style loads (`Patterns`), and the rest read from the state just built.
 
 use super::Control;
-use crate::api::{AppState, HomeFill, HomeLanes, HomeMain, HomeOts, HomeProgress, HomeSend, HomeSnapshot, HomeState};
+use crate::api::{AppState, HomeFill, HomeLanes, HomeMain, HomeOts, HomeProgress, HomeSend, HomeState};
 use crate::engine::{slot_of, Prepared};
 use crate::sff::SectionId;
 
@@ -105,13 +105,6 @@ impl Control {
             }
             _ => 0.0,
         };
-        let r = &st.registration;
-        let snapshot = r.selected.and_then(|i| {
-            let b = r.buttons.get(i as usize).filter(|b| b.stored)?;
-            let label = crate::registration::snapshot_label(i as usize);
-            let name = if !b.name.is_empty() { b.name.clone() } else { b.style.clone().unwrap_or_else(|| format!("Snapshot {label}")) };
-            Some(HomeSnapshot { index: i, label, name, bank: r.bank.name.clone() })
-        });
         let o = &st.ots;
         let ots = o.applied.checked_sub(1).and_then(|i| o.settings.get(i as usize).map(|s| HomeOts { index: i, name: s.name.clone() }));
         let band_sends = st
@@ -123,7 +116,6 @@ impl Control {
         HomeState {
             mains,
             progress: HomeProgress { running: t.running, bar: t.bar, beat: t.beat, bars, beats_per_bar: t.beats_per_bar, fraction },
-            snapshot,
             ots,
             band_sends,
         }
@@ -155,7 +147,6 @@ mod tests {
         assert!(h.mains[st.transport.main as usize].current);
         assert_eq!(h.band_sends.len(), 3);
         assert_eq!(h.band_sends[0].level, st.effects.blocks[0].band_send);
-        assert!(h.snapshot.is_none());
         assert!(!h.progress.running && h.progress.fraction == 0.0);
         s.send(AppCmd::Transport(TransportCmd::StartStop)).unwrap();
         s.advance(1_500_000_000);
