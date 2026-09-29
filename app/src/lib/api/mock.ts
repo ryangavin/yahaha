@@ -1250,12 +1250,11 @@ export class MockSession implements Session {
       return
     }
     if (isStripCmd(cmd)) {
-      // As the session's `strips_cmd`: the older command first, then the strips; what the
-      // older command took, it decided.
-      const old = stripLegacy(cmd)
-      if (old) this.cmd(old)
+      // As the session's `strips_cmd`: the older commands first, then the strips, whose
+      // refusal still shows.
+      for (const old of stripLegacy(cmd)) this.cmd(old)
       const why = this.strips.apply(cmd)
-      if (why && !old) this.message(why, true)
+      if (why) this.message(why, true)
       return
     }
     const st = this.state
@@ -2163,8 +2162,9 @@ const MOCK_STYLE_SENDS:[number, number, number][] = [[30, 0, 0], [30, 0, 0], [20
 /** What the live rack holds, as the state shows it (docs/racks.md): the keyboard parts'
  *  sounds and mix, the split, the keyboard transpose, Harmony/Arp and the controller map. */
 export function liveRackView(st: AppState): string {
-  const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.insert, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false])
-  return JSON.stringify([parts, st.chord.split, st.chord.transposeKeyboard, st.harmonyArp, st.liveRack.controls])
+  const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.insert, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false, p.strip])
+  const sends = st.effects.sends.filter((s) => s.setByRack).map((s) => [s.send, s.kind, s.params.map((p) => p.value), s.returnLevel])
+  return JSON.stringify([parts, sends, st.chord.split, st.chord.transposeKeyboard, st.harmonyArp, st.liveRack.controls])
 }
 
 export function initialEffects(): EffectsState {
