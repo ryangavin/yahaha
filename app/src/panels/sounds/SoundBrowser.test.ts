@@ -488,10 +488,9 @@ describe('sound browser model', () => {
 
 describe('what a part plays, named (api::part_sound)', () => {
   const SMP = 'aumu Smp7 Fake'
-  const defaults = { volume: null, pan: null, reverb: null, chorus: null, octave: 0 }
-  const plugin = (id: string, name: string, origin: PluginOrigin): Patch => ({ id, name, category: 'piano', tags: [], favourite: false, source: { kind: 'plugin', componentId: SMP, state: '', origin }, defaults })
+  const plugin = (id: string, name: string, origin: PluginOrigin): Patch => ({ id, name, category: 'piano', tags: [], favourite: false, source: { kind: 'plugin', componentId: SMP, state: '', origin } })
   const patches: Patch[] = [
-    { id: 'grand', name: 'Stage Grand', category: 'piano', tags: [], favourite: false, source: { kind: 'soundFont', file: 'A.sf2', bank: 0, program: 0 }, defaults },
+    { id: 'grand', name: 'Stage Grand', category: 'piano', tags: [], favourite: false, source: { kind: 'soundFont', file: 'A.sf2', bank: 0, program: 0 } },
     plugin('warm', 'Warm Keys', { kind: 'factory', number: 3 }),
     plugin('mine', 'My Keys', { kind: 'user' }),
   ]
@@ -541,7 +540,7 @@ describe('every part names what is playing (mock session)', () => {
     const s = await setup(0, (m) => (onFactory(m), m.send({ type: 'saveSoundAs', part: 0, name: 'My Grand' })))
     const id = s.state.keyboardParts[0].sound!.id.slice('saved:'.length)
     const p = s.state.soundLibrary.patches.find((x) => x.id === id)!
-    s.send({ type: 'updatePatch', id, patch: { name: 'Renamed', category: p.category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults } })
+    s.send({ type: 'updatePatch', id, patch: { name: 'Renamed', category: p.category, tags: p.tags, favourite: p.favourite, source: p.source } })
     flushSync()
     expect([s.state.keyboardParts[0].sound?.name, s.state.keyboardParts[0].voiceName]).toEqual(['Renamed', 'Renamed'])
     expect(foot()).toContain('Right 1 plays Sampler Deluxe · Renamed')
