@@ -87,23 +87,58 @@ impl KnobSpec {
 /// The eighth note's index in `super::NOTES`.
 const EIGHTH: u16 = 2;
 
+/// The distortion's settings:
+/// - Drive (0-127): the soft clipper's pre gain, 1 (clean) .. 40 (lead), with the output
+///   kept near the input's loudness; more drive also lowers the cabinet-like high cut
+///   (5.5 kHz .. 3 kHz).
+/// - Tone (0-127): moves that high cut, 32 steps an octave; 64 leaves it where Drive puts
+///   it (0: two octaves down, 127: about two up).
+/// - Output (0-127): the effect's output gain, linear; 100 = unity.
 const DISTORTION: [KnobSpec; 3] =
     [KnobSpec::new("Drive", "Drive", 0, 127, 64, Unit::Plain), KnobSpec::new("Tone", "Tone", 0, 127, 64, Unit::Plain), KnobSpec::new("Output", "Output", 0, 127, 100, Unit::Plain)];
+/// The compressor's settings:
+/// - Squeeze (0-127): the threshold, -12 dB .. -30 dB (ratio 4), with makeup gain to
+///   match.
+/// - Attack (1-80 ms) and Release (10-1000 ms): the level follower's times (defaults 3 ms
+///   and 150 ms).
+/// - Output (0-127): the output gain after makeup, linear; 100 = unity.
 const COMPRESSOR: [KnobSpec; 4] = [
     KnobSpec::new("Squeeze", "Squeeze", 0, 127, 64, Unit::Plain),
-    KnobSpec::new("Attack", "Attack", 1, 80, 10, Unit::Ms),
-    KnobSpec::new("Release", "Release", 10, 1000, 200, Unit::Ms),
+    KnobSpec::new("Attack", "Attack", 1, 80, 3, Unit::Ms),
+    KnobSpec::new("Release", "Release", 10, 1000, 150, Unit::Ms),
     KnobSpec::new("Output", "Output", 0, 127, 100, Unit::Plain),
 ];
+/// The auto wah's settings:
+/// - Sensitivity (0-127): how far the part's envelope opens the filter.
+/// - Resonance (0-127): the filter's peak, 32 steps an octave of its Q; 64 is the
+///   default peak, 0 flat, 127 sharp.
+/// - Frequency (0-127): where the sweep starts (the filter closed), 32 steps an octave:
+///   0 = 175 Hz, 32 = 350 Hz, 127 = about 2.7 kHz.
 const AUTO_WAH: [KnobSpec; 3] = [
     KnobSpec::new("Sensitivity", "Sens", 0, 127, 64, Unit::Plain),
     KnobSpec::new("Resonance", "Reso", 0, 127, 64, Unit::Plain),
     KnobSpec::new("Frequency", "Freq", 0, 127, 32, Unit::Plain),
 ];
+/// The tremolo's settings:
+/// - Depth (0-127): how far the level dips, 20% .. 80%.
+/// - Note (a note value, `super::NOTES`, 1/16 .. 1/2): one LFO cycle per note at the
+///   style tempo (at most 12 Hz); 1/8 by default.
+/// - Shape (0-127): 0 = a smooth sine, up to a nearly square on/off.
 const TREMOLO: [KnobSpec; 3] =
     [KnobSpec::new("Depth", "Depth", 0, 127, 64, Unit::Plain), KnobSpec::new("Note", "Note", 0, 7, EIGHTH, Unit::Note), KnobSpec::new("Shape", "Shape", 0, 127, 0, Unit::Plain)];
+/// The rotary speaker's settings:
+/// - Depth (0-127): how far the horn and drum move the level (and the sides apart).
+/// - Drive (0-127): the amp in front of the speaker; 0 = clean, up to a soft overdrive.
+/// - Balance (0-127): horn against drum; 0 = drum only, 64 = horn 60% and drum 40%,
+///   127 = horn only.
 const ROTARY: [KnobSpec; 3] =
     [KnobSpec::new("Depth", "Depth", 0, 127, 64, Unit::Plain), KnobSpec::new("Drive", "Drive", 0, 127, 0, Unit::Plain), KnobSpec::new("Balance", "Balance", 0, 127, 64, Unit::Plain)];
+/// The phaser's settings (the insert's and the send's, `super::Phaser`):
+/// - Depth (0-127): how deep the notches are; 0 = dry, 127 = the dry and the allpass
+///   chain in equal parts.
+/// - Rate (0.05-5.00 Hz, in hundredths): the sweep's speed (200 Hz .. 3.2 kHz and back;
+///   the right side a quarter cycle ahead of the left).
+/// - Feedback (0-90%): the chain's output fed back into it, sharpening the peaks.
 const PHASER: [KnobSpec; 3] = [
     KnobSpec::new("Depth", "Depth", 0, 127, 64, Unit::Plain),
     KnobSpec::new("Rate", "Rate", 5, 500, 50, Unit::CentiHz),

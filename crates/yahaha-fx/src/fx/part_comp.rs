@@ -2,9 +2,13 @@
 //! inserts. Its settings mirror the Master Compressor's ([`super::master::MasterComp`]):
 //! a type ([`CompPreset`]) that brings its parameters, which can then be edited.
 //!
-//! Stub: the settings, their control-side cell ([`PartCompCell`], atomics only) and a DSP
-//! that passes the signal through ([`PartCompDsp`]). The compressor itself is the mixer
-//! rework's lane A.
+//! The settings ([`PartComp`]), their control-side cell ([`PartCompCell`], atomics only)
+//! and the compressor on the audio thread ([`PartCompDsp`]): the Master Compressor's
+//! algorithm (`master::CompCore`) at a threshold, ratio, attack, release and make-up of
+//! its own. Like the inserts it sees the part as if at full volume (the part's level is
+//! divided out of its detector), so a fader move doesn't change how hard it compresses.
+//! Turning it on or off glides (a few ms); off and settled it isn't run at all, so the
+//! stem is bit-identical to one without it.
 
 use super::master::CompPreset;
 use serde::{Deserialize, Serialize};
@@ -166,19 +170,98 @@ impl PartComp {
     }
 }
 
-/// A strip compressor on the audio thread. Stub: it passes the signal through.
-#[derive(Default)]
+/// How long the make-up gain glides to a new value (turning on or off, or a new make-up),
+/// and the longest the gain change takes to come back when turned off (s).
+const GLIDE_S: f32 = 0.005;
+/// The knee's width, dB (as the Master Compressor's, `master::comp_curve`).
+const KNEE_DB: f32 = 6.0;
+
+/// A strip compressor on the audio thread: the Master Compressor's algorithm
+/// (`master::CompCore`) at a [`PartComp`]'s parameters, on one part's stem. Off and
+/// settled, it isn't run: the samples are left as they are.
+#[derive(Clone, Copy, Debug)]
 pub struct PartCompDsp {
-    _sample_rate: f32,
+    sample_rate: f32,
+    /// The gain change now, dB (at most 0).
+    gr_db: f32,
+    /// The make-up gain now (linear), the one it glides to, its step per sample and the
+    /// samples left in the glide.
+    makeup: f32,
+    makeup_target: f32,
+    makeup_step: f32,
+    glide_left: u32,
+    /// Off and settled: not run.
+    idle: bool,
+}
+
+impl Default for PartCompDsp {
+    fn default() -> PartCompDsp {
+        PartCompDsp::new(48_000.0)
+    }
 }
 
 impl PartCompDsp {
     pub fn new(sample_rate: f32) -> PartCompDsp {
-        PartCompDsp { _sample_rate: sample_rate }
+        let sample_rate = if sample_rate.is_finite() && sample_rate > 1_000.0 { sample_rate } else { 48_000.0 };
+        PartCompDsp { sample_rate, gr_db: 0.0, makeup: 1.0, makeup_target: 1.0, makeup_step: 0.0, glide_left: 0, idle: true }
     }
 
-    /// Run `left`/`right` through it in place, at `c`. Never allocates. Stub: unchanged.
-    pub fn process(&mut self, _left: &mut [f32], _right: &mut [f32], _c: &PartComp) {}
+    /// Whether it runs: on, or gliding back after being turned off.
+    pub fn active(&self, c: &PartComp) -> bool {
+        c.on || !self.idle
+    }
+
+    /// The gain change now, dB (0 or less).
+    pub fn gain_reduction_db(&self) -> f32 {
+        self.gr_db
+    }
+
+    /// Run `left`/`right` through it in place, at `c`. `level` is the part's gain in the
+    /// mix: it is divided out of what the detector sees, so the part is compressed as if
+    /// at full volume and a fader move doesn't change how hard. Off and settled, the
+    /// samples aren't touched. Never allocates, locks or panics.
+    pub fn process(&mut self, left: &mut [f32], right: &mut [f32], level: f32, c: &PartComp) {
+        let on = c.on;
+        if !on && self.idle {
+            return;
+        }
+        let n = left.len().min(right.len());
+        if n == 0 {
+            return;
+        }
+        let c = c.clamped();
+        let sr = self.sample_rate;
+        let glide_k = super::master::comp_coef(GLIDE_S * 1000.0, sr);
+        let (ka, kr) = (super::master::comp_coef(c.attack as f32, sr), super::master::comp_coef(c.release as f32, sr));
+        // Off: back within the glide, or the release if that's faster.
+        let kr = if on { kr } else { kr.min(glide_k) };
+        let target = if on { super::master::db_gain(c.makeup as f32) } else { 1.0 };
+        if target != self.makeup_target {
+            let steps = ((GLIDE_S * sr) as u32).max(1);
+            self.makeup_target = target;
+            self.makeup_step = (target - self.makeup) / steps as f32;
+            self.glide_left = steps;
+        }
+        let g = if level.is_finite() && level > 1e-4 { level } else { 1.0 };
+        let core = super::master::CompCore { on, threshold: c.threshold as f32, ratio: c.ratio as f32 / 10.0, knee: KNEE_DB, ka, kr, detect: 1.0 / g };
+        let (m0, dm, left_n) = (self.makeup, self.makeup_step, self.glide_left as usize);
+        core.run(&mut self.gr_db, &mut left[..n], &mut right[..n], |i| if i < left_n { m0 + dm * (i + 1) as f32 } else { target });
+        if n >= left_n {
+            self.makeup = target;
+            self.glide_left = 0;
+        } else {
+            self.makeup = m0 + dm * n as f32;
+            self.glide_left -= n as u32;
+        }
+        if on {
+            self.idle = false;
+        } else if self.gr_db > -1e-4 && self.glide_left == 0 {
+            // Back at unity: stop, so the stem is its own again.
+            self.gr_db = 0.0;
+            self.makeup = 1.0;
+            self.idle = true;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -210,6 +293,49 @@ mod tests {
         let cell = PartCompCell::new();
         cell.set(&c);
         assert_eq!(cell.get(), PartComp { preset: CompPreset::Natural, ..c });
+    }
+
+    fn sine(amp: f32, n: usize) -> Vec<f32> {
+        (0..n).map(|i| (std::f32::consts::TAU * 220.0 * i as f32 / 48_000.0).sin() * amp).collect()
+    }
+
+    /// `x` through a fresh compressor at `c` and `level`, 256 samples a buffer.
+    fn run(c: &PartComp, x: &[f32], level: f32) -> Vec<f32> {
+        let mut d = PartCompDsp::new(48_000.0);
+        let (mut l, mut r) = (x.to_vec(), x.to_vec());
+        for (lb, rb) in l.chunks_mut(256).zip(r.chunks_mut(256)) {
+            d.process(lb, rb, level, c);
+        }
+        l
+    }
+
+    fn rms_db(v: &[f32]) -> f32 {
+        10.0 * (v.iter().map(|s| s * s).sum::<f32>() / v.len() as f32).log10()
+    }
+
+    #[test]
+    fn on_it_evens_out_loud_and_soft() {
+        let c = PartComp { threshold: -30, ratio: 80, attack: 2, release: 50, makeup: 0, ..PartComp::of(true, CompPreset::Loud) };
+        let n = 9_600;
+        let (loud, soft) = (run(&c, &sine(1.0, n), 1.0), run(&c, &sine(0.1, n), 1.0));
+        let diff = rms_db(&loud[n / 2..]) - rms_db(&soft[n / 2..]);
+        assert!(diff < 8.0, "a 20 dB difference became {diff} dB");
+        assert!(rms_db(&loud[n / 2..]) < rms_db(&sine(1.0, n)[n / 2..]) - 10.0);
+        // Off: untouched.
+        let x = sine(1.0, n);
+        assert_eq!(run(&PartComp { on: false, ..c }, &x, 1.0), x);
+    }
+
+    #[test]
+    fn the_parts_level_is_divided_out() {
+        let c = PartComp::of(true, CompPreset::Punchy);
+        let x = sine(0.8, 4_800);
+        let full = run(&c, &x, 1.0);
+        let quarter: Vec<f32> = x.iter().map(|s| s * 0.25).collect();
+        let got = run(&c, &quarter, 0.25);
+        for (a, b) in full.iter().zip(&got) {
+            assert!((a * 0.25 - b).abs() < 1e-6, "{a} {b}");
+        }
     }
 
     #[test]
