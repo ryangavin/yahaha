@@ -106,20 +106,23 @@ describe('now playing, Save and Save as… (O3)', () => {
   it('a preset names its sound; the editor closing marks it edited; Save and Save as… clear it', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    const n = m.state.soundLibrary.patches.length
     m.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
     m.advance(5000)
+    // Picking a preset adds no library record (docs/racks.md "One save makes one record").
+    expect(m.state.soundLibrary.patches.length).toBe(n)
     const kp = () => m.state.keyboardParts[0]
-    expect(kp().sound).toMatchObject({ name: 'Bright Grand' })
+    expect(kp().sound).toEqual({ id: 'au:aumu Smp7 Fake#f:1', name: 'Bright Grand' })
     expect(kp().soundEdited).toBeUndefined()
     const factory = kp().sound!
     m.send({ type: 'savePartPluginState', part: 0 })
     expect(kp().soundEdited).toBe(true)
-    // A factory preset's sound is never overwritten: Save is Save as….
-    const n = m.state.soundLibrary.patches.length
+    // A factory preset is never overwritten: Save makes one sound named after it.
     m.send({ type: 'saveSound', part: 0 })
     expect(m.state.soundLibrary.patches.length).toBe(n + 1)
     const mine = kp().sound!
     expect(mine.id).not.toBe(factory.id)
+    expect(mine.name).toBe('Bright Grand')
     expect(kp().soundEdited).toBeUndefined()
     // Now the user's own: Save overwrites it.
     m.send({ type: 'savePartPluginState', part: 0 })
@@ -129,6 +132,14 @@ describe('now playing, Save and Save as… (O3)', () => {
     expect(kp().soundEdited).toBeUndefined()
     m.send({ type: 'saveSoundAs', part: 0, name: 'Mine 2' })
     expect(kp().sound?.name).toBe('Mine 2')
+  })
+
+  it('saving a GM voice part again and again makes one record, which the part then plays', () => {
+    const m = new MockSession({ manual: true })
+    const n = m.state.soundLibrary.patches.length
+    for (let i = 0; i < 3; i++) m.send({ type: 'saveSound', part: 2 })
+    expect(m.state.soundLibrary.patches.length).toBe(n + 1)
+    expect(m.state.keyboardParts[2].patch).toBe(m.state.soundLibrary.patches.at(-1)!.id)
   })
 })
 

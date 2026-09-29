@@ -264,6 +264,12 @@ pub fn write_user_preset(root: &Path, info: &PluginInfo, name: &str, state: &[u8
     Ok(UserPreset { name, path, folder: None })
 }
 
+/// Whether two plugin states are the same settings: the same bytes, or the same property
+/// list (an `.aupreset` file holds the XML form of the state it was written from).
+pub fn same_settings(a: &[u8], b: &[u8]) -> bool {
+    a == b || matches!((super::sys::plist_to_xml(a), super::sys::plist_to_xml(b)), (Some(x), Some(y)) if x == y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

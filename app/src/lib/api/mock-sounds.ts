@@ -195,7 +195,10 @@ export class MockSounds {
     const have = st.soundLibrary.patches.find((p) =>
       pre
         ? p.source.kind === 'soundFont' && p.source.file === pre.file && p.source.bank === pre.bank && p.source.program === pre.program
-        : p.source.kind === 'plugin' && p.source.componentId === plugin && (origin ? sameOrigin(p.source.origin, origin) : p.source.state === state && !p.source.origin),
+        : p.source.kind === 'plugin' &&
+          p.source.componentId === plugin &&
+          // Its preset's sound, or (as the session's) the one with exactly its settings.
+          (origin ? sameOrigin(p.source.origin, origin) || (state !== '' && p.source.state === state) : p.source.state === state && !p.source.origin),
     )
     if (have) return { patch: have.id }
     if (pre) run({ type: 'addPresetAsPatch', file: pre.file, bank: pre.bank, program: pre.program, name: null })

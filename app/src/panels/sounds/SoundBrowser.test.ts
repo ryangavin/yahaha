@@ -326,6 +326,24 @@ describe('the Save flow (O3)', () => {
     expect(foot()).toContain('Sampler Deluxe · My Grand')
   })
 
+  it("the just-saved highlight is Save as…'s own sound, not a Duplicate's", async () => {
+    const s = await setup(0, onFactory)
+    await key('S', { ctrlKey: true, shiftKey: true })
+    await tick()
+    const name = tipped('sounds.save_as_name')[0] as HTMLInputElement
+    await fireEvent.input(name, { target: { value: 'My Grand' } })
+    await fireEvent.submit(name.form!)
+    flushSync()
+    // A Duplicate lands before the catalog lists the saved sound: its copy is not it.
+    const saved = s.state.soundLibrary.lastAdded!
+    s.send({ type: 'duplicatePatch', id: saved })
+    const copy = s.state.soundLibrary.lastAdded!
+    expect(copy).not.toBe(saved)
+    await refresh(s)
+    expect(activeEntry().id).not.toBe(`saved:${copy}`)
+    expect(activeEntry().id).toBe(`saved:${saved}`)
+  })
+
   it('Save as… can also keep an .aupreset, asking before it replaces one; Esc cancels', async () => {
     const s = await setup(0, (m) => (onFactory(m), m.send({ type: 'savePartAsPluginPreset', part: 0, name: 'Taken', category: 'piano' })))
     await fireEvent.click(tipped('sounds.save')[0])

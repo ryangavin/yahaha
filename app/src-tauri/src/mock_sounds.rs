@@ -256,7 +256,12 @@ impl MockSounds {
             return Err(format!("no sound {id}"));
         }
         let same = |p: &&PatchInfo| match &source {
-            PatchSource::Plugin { component_id, origin, .. } if !origin.is_user() => p.patch.source.same_plugin_origin(component_id, origin),
+            // Or the sound with exactly its settings (Save as… with an .aupreset), as the
+            // session's.
+            PatchSource::Plugin { component_id, origin, state } if !origin.is_user() => {
+                p.patch.source.same_plugin_origin(component_id, origin)
+                    || (!state.is_empty() && matches!(&p.patch.source, PatchSource::Plugin { component_id: c, state: s, .. } if c == component_id && s == state))
+            }
             _ => p.patch.source == source,
         };
         if let Some(p) = st.sound_library.patches.iter().find(same) {

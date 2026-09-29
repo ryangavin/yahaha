@@ -123,19 +123,14 @@ impl MockSound {
         self.edited[p] = false;
     }
 
-    /// A plugin preset picked on part `part`: its one library sound (added once, found
-    /// again by its origin), as the session's `link_voice_sound`.
+    /// A plugin preset picked on part `part`: the part plays the preset itself, named by
+    /// its catalog id, and no library record is made (as the session's
+    /// `PluginVoice::name_preset_sound`).
     pub fn preset_sound(&mut self, part: usize, component: &str, key: &str, name: &str) {
-        let Some(origin) = PluginOrigin::from_preset_key(key) else { return };
-        let i = match self.patches.iter().position(|p| p.source.same_plugin_origin(component, &origin)) {
-            Some(i) => i,
-            None => {
-                let source = PatchSource::Plugin { component_id: component.into(), state: String::new(), origin };
-                self.add(Patch { id: String::new(), name: name.into(), category: Category::SynthLead, tags: vec![], favourite: false, source, defaults: PatchDefaults::default() });
-                self.patches.len() - 1
-            }
-        };
-        self.plugin_sound[part & 3] = Some(self.patches[i].tag());
+        if PluginOrigin::from_preset_key(key).is_none() {
+            return;
+        }
+        self.plugin_sound[part & 3] = Some(SoundTag { id: plugin_preset_id(component, key), name: name.into() });
     }
 
     /// The part's plugin's editor closed: its sound counts as edited (the mock has no
@@ -145,9 +140,9 @@ impl MockSound {
         self.edited[p] = self.plugin_parts[p].is_some() || self.plugin_sound[p].is_some();
     }
 
-    /// The library sound part `p` plays through its plugin, if any.
+    /// The library sound part `p` plays through its plugin, if any (a preset is none).
     fn plugin_sound_id(&self, p: usize) -> Option<String> {
-        self.plugin_parts[p].clone().or_else(|| self.plugin_sound[p].as_ref().map(|t| t.id.strip_prefix("saved:").unwrap_or(&t.id).to_string()))
+        self.plugin_parts[p].clone().or_else(|| self.plugin_sound[p].as_ref().and_then(|t| t.id.strip_prefix("saved:")).map(str::to_string))
     }
 
     /// Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's).
@@ -188,7 +183,8 @@ impl MockSound {
     pub fn cmd(&mut self, st: &mut AppState, c: SoundLibraryCmd) -> Option<String> {
         let nope = |id: &str| Some(format!("no patch {id} in the sound library"));
         let key = st.sound_library.style_key.clone();
-        let fields = |id: String, f: PatchFields| Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source, defaults: f.defaults.clamped() };
+        let save_as = matches!(c, SoundLibraryCmd::SaveSoundAs { .. });
+        let fields =|id: String, f: PatchFields| Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source, defaults: f.defaults.clamped() };
         match c {
             SoundLibraryCmd::CreatePatch { patch } => self.add(fields(String::new(), patch)),
             SoundLibraryCmd::UpdatePatch { id, patch } => {
@@ -253,13 +249,15 @@ impl MockSound {
                     .or_else(|| patches::resolve(&self.map, self.style_maps.get(&key), false, kp.program).patch.map(str::to_string))
                     .and_then(|id| self.at(&id))
                     .map(|i| self.patches[i].clone());
+                // A plugin playing a named Sound (a preset): the new sound takes its name.
+                let sound_name = self.plugin_sound[(part & 3) as usize].as_ref().map(|t| t.name.clone()).filter(|n| !n.trim().is_empty());
                 let plugin = kp.plugin.as_ref().filter(|p| p.status != PluginStatus::Failed).map(|p| {
                     let source = PatchSource::plugin(p.id.clone(), String::new());
                     match plays.clone() {
                         Some(q) if matches!(&q.source, PatchSource::Plugin { component_id, .. } if *component_id == p.id) => Patch { source, ..q },
                         q => Patch {
                             id: String::new(),
-                            name: p.name.clone(),
+                            name: sound_name.clone().unwrap_or_else(|| p.name.clone()),
                             category: q.map_or_else(|| Category::guess(0, kp.program), |q| q.category),
                             tags: vec![],
                             favourite: false,
@@ -283,9 +281,15 @@ impl MockSound {
                     p.name = n;
                 }
                 let plugin = matches!(p.source, PatchSource::Plugin { .. });
+                let adopt_font = save_as && !plugin && !kp.plays_bass && kp.plugin.is_none();
                 self.add(p);
-                // A part playing a plugin plays the new sound, not edited (O3).
+                // A part playing a plugin plays the new sound, not edited (O3). Save as… on
+                // a SoundFont part: the part takes it as its own patch (not Left playing
+                // Manual Bass), so a second Save updates it.
                 let i = (part & 3) as usize;
+                if adopt_font {
+                    self.parts[i] = self.last_added.clone();
+                }
                 if plugin && let Some(new) = self.patches.last() {
                     if self.plugin_parts[i].is_some() {
                         self.parts[i] = Some(new.id.clone());
