@@ -9,7 +9,7 @@
 
 import { render, cleanup } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../App.svelte'
 import { MockSession } from '../lib/api/mock'
 import { ui } from '../lib/store.svelte'
@@ -226,6 +226,12 @@ const STATES: [string, Setup][] = [
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
+
+// Other files leave hover and focus state in the shared tooltip module (isolate: false).
+beforeEach(() => {
+  ;(document.activeElement as HTMLElement | null)?.blur()
+  tips.reset()
+})
 
 afterEach(() => {
   cleanup()
