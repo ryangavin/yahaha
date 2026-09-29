@@ -4,6 +4,10 @@
 
 import type { AppCmd, AppState, ClockState, ControlId, Level, LibraryList, Neighbour, Rgb, SurfaceControl, SurfaceFader, SurfaceState } from './types'
 import { PAD_PAGES, STYLE_PART_NAMES } from './types'
+import { MockKnobs, faderRoute, rackFn } from './mock-knobs'
+
+/** Reads a controller map target for a fader's label and level (no knob state of its own). */
+const RACK_READER = new MockKnobs()
 
 // Novation palette indices (src/launchkey.rs) and how they look.
 const OFF = 0
@@ -158,6 +162,14 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
     }
     const p = s.keyboardParts[i]
     if (!p) return { label: '', value: null, waiting: false, position, set: null }
+    // Panel faders 1-4 in the Volume layer follow the live rack's controller map.
+    const target = s.liveRack.controls.faders[i]
+    const route = target && s.mixer.faderLayer === 'volume' ? faderRoute(target, i) : 'own'
+    if (route === 'off') return { label: '', value: null, waiting: false, position, set: null }
+    if (route === 'control') {
+      const k = RACK_READER.read(rackFn(target), s)
+      return { label: k.short.toUpperCase(), value: k.level, waiting: false, position, set: { type: 'moveRackFader', fader: i, volume: 0 } }
+    }
     return { label: PART_LABELS[i], value: p.volume, waiting: p.waiting, position, set: { type: 'setPartVolume', part: i, volume: 0 } }
   })
   const masterPos = hw.faders[8] ?? null

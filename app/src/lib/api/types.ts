@@ -248,6 +248,8 @@ export type RackCmd =
   | { type: 'deleteRack'; id: string }
   /** Keep editing: `liveRack.prompt` goes. */
   | { type: 'dismissRackPrompt' }
+  | { type: 'setRackControl'; control: RackControl; index: number; target: ControlTarget }
+  | { type: 'moveRackFader'; fader: number; volume: number }
 
 /** The effect bus's blocks (#204; docs/app-api.md › Effects). */
 export type FxCmd =
@@ -364,7 +366,7 @@ export type KnobsCmd =
   /** Knob `knob` back to its function's default (a double-click): Dynamics max, sends dry, pan centre. */
   | { type: 'resetKnob'; knob: number }
 
-export type KnobPage = 'style' | 'parts' | 'pan' | 'reverb' | 'chorus' | 'delay'
+export type KnobPage = 'style' | 'rack' | 'pan' | 'reverb' | 'chorus' | 'delay'
 export type KnobFunction =
   | 'none'
   | 'dynamics'
@@ -384,6 +386,8 @@ export type KnobFunction =
   | 'fxReturn'
   | 'fxParam'
   | 'delayTime'
+  | 'harmonyArp'
+  | 'splitPoint'
 
 /** The Knob Assign page and its eight knobs. */
 export interface KnobsState {
@@ -1291,6 +1295,13 @@ export type ControlTarget =
   | { kind: 'partLevel' | 'partPan' | 'partReverb' | 'partChorus'; part: number }
   | { kind: 'harmonyArp' }
   | { kind: 'splitPoint' }
+  | { kind: 'harmonyVolume' }
+  | { kind: 'metronomeVolume' }
+  /** Knobs only. */
+  | { kind: 'tempo' }
+
+/** A controller in the controller map (`setRackControl`). */
+export type RackControl = 'fader' | 'knob'
 
 /** A rack's controller map: four fader targets and eight knob targets. */
 export interface ControlMap {
@@ -1298,10 +1309,12 @@ export interface ControlMap {
   knobs: ControlTarget[]
 }
 
-/** A new rack's map (`ControlMap::default`): the parts' levels on faders 1-4 and knobs 1-4. */
+/** A new rack's map (`ControlMap::default`): the Parts knob page before racks. The parts'
+ * levels on faders 1-4 and knobs 1-4, then Harmony volume, Metronome volume, none, Tempo. */
 export function defaultControlMap(): ControlMap {
   const level = (part: number): ControlTarget => ({ kind: 'partLevel', part })
-  return { faders: [0, 1, 2, 3].map(level), knobs: [...[0, 1, 2, 3].map(level), ...Array.from({ length: 4 }, (): ControlTarget => ({ kind: 'none' }))] }
+  const rest: ControlTarget[] = [{ kind: 'harmonyVolume' }, { kind: 'metronomeVolume' }, { kind: 'none' }, { kind: 'tempo' }]
+  return { faders: [0, 1, 2, 3].map(level), knobs: [...[0, 1, 2, 3].map(level), ...rest] }
 }
 
 /** What a refused rack command asks. */

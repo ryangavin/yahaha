@@ -66,6 +66,10 @@ pub struct Parts {
     /// Where each Launchkey fader 1-8 physically is (`HW_UNKNOWN` until it moves). Faders
     /// are shared by both pages, so a page switch needs this for soft takeover.
     pub fader_hw: [AtomicU8; 8],
+    /// What Panel faders 1-4 do in the Volume layer (`FaderRoute`), from the live rack's
+    /// controller map: set by the control side when the map changes, read by the input
+    /// thread.
+    rack_fader: [AtomicU8; COUNT],
     /// The faders went to the Style page: the engine rebinds the Style parts' takeover to
     /// `rebind_hw` on its next wake (`take_rebind`). A flag rather than a command, so a full
     /// ring can never lose it.
@@ -130,6 +134,7 @@ impl Parts {
             layer_gen: AtomicU8::new(0),
             send_waiting: AtomicU8::new(0),
             fader_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
+            rack_fader: [const { AtomicU8::new(FaderRoute::Own as u8) }; COUNT],
             rebind: AtomicBool::new(false),
             rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
             solo: AtomicU8::new(NO_SOLO),
@@ -472,6 +477,18 @@ impl Parts {
 
     pub fn fader_layer(&self) -> FaderLayer {
         FaderLayer::from_u8(self.fader_layer.load(Relaxed))
+    }
+
+    /// What Panel fader `f` (0-3) does in the Volume layer.
+    pub fn rack_fader(&self, f: usize) -> FaderRoute {
+        self.rack_fader.get(f).map_or(FaderRoute::Own, |a| FaderRoute::from_u8(a.load(Relaxed)))
+    }
+
+    /// The live rack's controller map changed: what Panel faders 1-4 do now.
+    pub fn set_rack_faders(&self, routes: [FaderRoute; COUNT]) {
+        for (a, r) in self.rack_fader.iter().zip(routes) {
+            a.store(r as u8, Relaxed);
+        }
     }
 
     /// Switch the fader layer. Back on Volume, the faders pick their parts' levels up

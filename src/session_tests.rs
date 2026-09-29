@@ -545,7 +545,7 @@ fn launchkey_pads_are_commands() {
     s.midi_in(Port::Pads, &[0xBF, 21, 61]);
     assert_eq!(s.state().dynamics.level, 121);
     s.midi_in(Port::Pads, &[0xB0, 52, 127]);
-    assert_eq!(s.state().knobs.page_name, "Parts");
+    assert_eq!(s.state().knobs.page_name, "Rack");
 }
 
 /// Style faders move the Style parts (soft takeover); a software move makes the fader

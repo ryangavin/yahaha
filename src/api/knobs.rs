@@ -24,7 +24,7 @@ pub enum KnobsCmd {
 #[serde(rename_all = "camelCase")]
 pub struct KnobsState {
     pub page: KnobPage,
-    /// "Style", "Parts".
+    /// "Style", "Rack".
     pub page_name: String,
     /// 1-based page number, and how many pages there are.
     pub page_number: u8,

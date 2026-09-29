@@ -359,6 +359,9 @@ pub enum Action {
     Knob(u8, i8),
     /// The Knob Assign page up (-1) / down (+1): the encoder page buttons.
     KnobPage(i8),
+    /// Panel fader 1-4 (0-3) moved to a value (0-127) in the Volume layer, where the live
+    /// rack's controller map gives it something other than its own part's level.
+    RackFader(u8, u8),
 }
 
 /// What a pad does on a page.

@@ -274,7 +274,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setAccentMode","mode":"fill"}"#,
     r#"{"type":"setAccentSource","source":"both"}"#,
     // Knob Assign pages (#197)
-    r#"{"type":"setKnobPage","page":"parts"}"#,
+    r#"{"type":"setKnobPage","page":"rack"}"#,
     r#"{"type":"stepKnobPage","delta":-1}"#,
     r#"{"type":"turnKnob","knob":3,"delta":-2}"#,
     r#"{"type":"resetKnob","knob":3}"#,
@@ -304,6 +304,10 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"duplicateRack","id":"r5f3a2c1d-0"}"#,
     r#"{"type":"deleteRack","id":"r5f3a2c1d-0"}"#,
     r#"{"type":"dismissRackPrompt"}"#,
+    r#"{"type":"setRackControl","control":"knob","index":4,"target":{"kind":"partPan","part":2}}"#,
+    r#"{"type":"setRackControl","control":"fader","index":0,"target":{"kind":"splitPoint"}}"#,
+    r#"{"type":"setRackControl","control":"knob","index":7,"target":{"kind":"none"}}"#,
+    r#"{"type":"moveRackFader","fader":1,"volume":90}"#,
     // Quick Racks
     r#"{"type":"pressQuickRack","slot":0}"#,
     r#"{"type":"pressQuickRack","slot":7,"discard":true}"#,

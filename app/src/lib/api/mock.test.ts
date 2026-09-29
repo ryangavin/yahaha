@@ -19,11 +19,12 @@ describe('mock session', () => {
       { type: 'setPartVolume', part: 0, volume: 12 },
       { type: 'setSplit', note: 48 },
       { type: 'setHarmonyArpOn', on: true },
+      { type: 'setRackControl', control: 'knob', index: 6, target: { kind: 'splitPoint' } },
     ] as const) {
       const m = new MockSession({ manual: true })
       expect(m.state.liveRack).toMatchObject({ name: 'New rack', id: null, modified: false, prompt: null })
       expect(m.state.liveRack.controls.faders).toEqual([0, 1, 2, 3].map((part) => ({ kind: 'partLevel', part })))
-      expect(m.state.liveRack.controls.knobs.slice(4)).toEqual(Array(4).fill({ kind: 'none' }))
+      expect(m.state.liveRack.controls.knobs.slice(4)).toEqual([{ kind: 'harmonyVolume' }, { kind: 'metronomeVolume' }, { kind: 'none' }, { kind: 'tempo' }])
       m.send({ type: 'startStop' })
       m.advance(bar(m) * 2)
       expect(m.state.liveRack.modified).toBe(false)
@@ -349,7 +350,7 @@ describe('mock knobs (#197)', () => {
     m.send({ type: 'turnKnob', knob: 2, delta: 1 })
     expect(m.state.transport.retrigger).toBe(true)
     m.send({ type: 'stepKnobPage', delta: 1 })
-    expect(m.state.knobs).toMatchObject({ page: 'parts', pageNumber: 2, pageCount: 6 })
+    expect(m.state.knobs).toMatchObject({ page: 'rack', pageNumber: 2, pageCount: 6 })
     const v = m.state.keyboardParts[1].volume
     m.send({ type: 'turnKnob', knob: 1, delta: -1 })
     expect(m.state.keyboardParts[1].volume).toBe(Math.max(0, v - 2))
