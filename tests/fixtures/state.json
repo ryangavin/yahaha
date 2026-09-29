@@ -2387,6 +2387,56 @@
   "liveRack": {
     "name": "New rack",
     "id": null,
-    "modified": false
+    "modified": false,
+    "controls": {
+      "faders": [
+        {
+          "kind": "partLevel",
+          "part": 0
+        },
+        {
+          "kind": "partLevel",
+          "part": 1
+        },
+        {
+          "kind": "partLevel",
+          "part": 2
+        },
+        {
+          "kind": "partLevel",
+          "part": 3
+        }
+      ],
+      "knobs": [
+        {
+          "kind": "partLevel",
+          "part": 0
+        },
+        {
+          "kind": "partLevel",
+          "part": 1
+        },
+        {
+          "kind": "partLevel",
+          "part": 2
+        },
+        {
+          "kind": "partLevel",
+          "part": 3
+        },
+        {
+          "kind": "none"
+        },
+        {
+          "kind": "none"
+        },
+        {
+          "kind": "none"
+        },
+        {
+          "kind": "none"
+        }
+      ]
+    }
   }
 }
