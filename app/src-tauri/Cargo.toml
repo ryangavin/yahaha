@@ -3,7 +3,7 @@ name = "yahaha-app"
 version = "0.1.0"
 description = "yahaha: the app shell (Tauri) around the arranger engine"
 license = "MIT"
-repository = "https://github.com/ryangavin/yahaha"
+repository = "https://github.com/satoramoto/yahaha"
 edition = "2024"
 rust-version = "1.85"
 
