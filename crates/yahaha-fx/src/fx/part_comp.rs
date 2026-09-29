@@ -70,11 +70,13 @@ impl Default for PartComp {
 /// Each type's threshold, ratio, attack, release and make-up.
 fn preset_params(p: CompPreset) -> (i8, u8, u16, u16, i8) {
     match p {
-        CompPreset::Natural => (-18, 25, 10, 200, 3),
-        CompPreset::Rich => (-20, 20, 30, 400, 3),
-        CompPreset::Punchy => (-24, 60, 5, 120, 6),
-        CompPreset::Electronic => (-22, 40, 3, 100, 5),
-        CompPreset::Loud => (-30, 80, 2, 150, 9),
+        // Unity make-up on every type (mixer rule: a part's level is CC7 plus master);
+        // the player adds make-up explicitly.
+        CompPreset::Natural => (-18, 25, 10, 200, 0),
+        CompPreset::Rich => (-20, 20, 30, 400, 0),
+        CompPreset::Punchy => (-24, 60, 5, 120, 0),
+        CompPreset::Electronic => (-22, 40, 3, 100, 0),
+        CompPreset::Loud => (-30, 80, 2, 150, 0),
     }
 }
 
@@ -166,7 +168,7 @@ impl PartCompCell {
 impl PartComp {
     /// `PartComp::default()` as a const.
     const fn of_natural_off() -> PartComp {
-        PartComp { on: false, preset: CompPreset::Natural, threshold: -18, ratio: 25, attack: 10, release: 200, makeup: 3 }
+        PartComp { on: false, preset: CompPreset::Natural, threshold: -18, ratio: 25, attack: 10, release: 200, makeup: 0 }
     }
 }
 
@@ -342,7 +344,17 @@ mod tests {
     fn it_round_trips_as_json() {
         let c = PartComp::of(true, CompPreset::Rich);
         let j = serde_json::to_string(&c).unwrap();
-        assert_eq!(j, r#"{"on":true,"preset":"rich","threshold":-20,"ratio":20,"attack":30,"release":400,"makeup":3}"#);
+        assert_eq!(j, r#"{"on":true,"preset":"rich","threshold":-20,"ratio":20,"attack":30,"release":400,"makeup":0}"#);
         assert_eq!(serde_json::from_str::<PartComp>(&j).unwrap(), c);
+    }
+
+    /// Every type has unity make-up: switching a strip's compressor on adds no gain.
+    #[test]
+    fn every_preset_has_unity_makeup() {
+        for p in [CompPreset::Natural, CompPreset::Rich, CompPreset::Punchy, CompPreset::Electronic, CompPreset::Loud] {
+            assert_eq!(preset_params(p).4, 0, "{p:?}");
+            assert_eq!(PartComp::of(true, p).makeup, 0, "{p:?}");
+        }
+        assert_eq!(PartComp::default().makeup, 0);
     }
 }

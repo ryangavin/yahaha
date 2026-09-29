@@ -231,7 +231,9 @@ impl SendFx {
         }
         let Some(e) = Engine::of_code(self.kind) else { return };
         let param = |i: usize, p: Param| p.clamp(ctl.params[i].load(Relaxed));
-        match e {
+        // While the old kind fades out it keeps the params it already has: the control
+        // holds the new kind's, which apply from the next buffer, as the new kind ramps in.
+        if !fading { match e {
             Engine::Reverb(t) => {
                 let [a, b, c] = std::array::from_fn(|i| param(i, REVERB_PARAMS[i]) as f32);
                 self.reverb.set(t, a / 10.0, b, c * 100.0);
@@ -245,7 +247,7 @@ impl SendFx {
                 let [a, b, c] = std::array::from_fn(|i| ctl.params[i].load(Relaxed).clamp(PHASER_RANGE[i].0, PHASER_RANGE[i].1));
                 self.phaser.set(a, b, c);
             }
-        }
+        } }
         let n = n.min(il.len()).min(ir.len()).min(left.len()).min(right.len());
         let input = il[..n].iter().chain(&ir[..n]).any(|x| *x != 0.0);
         let target = if fading { 0.0 } else { super::return_gain(ctl.return_level.load(Relaxed)) };

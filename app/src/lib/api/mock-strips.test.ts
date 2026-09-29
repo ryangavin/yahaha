@@ -115,7 +115,7 @@ describe('mock strips', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'setStripCompressorOn', strip: 2, on: true })
     m.send({ type: 'setStripCompressorPreset', strip: 2, preset: 'loud' })
-    expect(m.state.keyboardParts[2].strip.comp).toEqual({ on: true, preset: 'loud', threshold: -30, ratio: 80, attack: 2, release: 150, makeup: 9, edited: false })
+    expect(m.state.keyboardParts[2].strip.comp).toEqual({ on: true, preset: 'loud', threshold: -30, ratio: 80, attack: 2, release: 150, makeup: 0, edited: false })
     m.send({ type: 'setStripCompressorParam', strip: 2, param: 'release', value: 5000 })
     expect(m.state.keyboardParts[2].strip.comp).toMatchObject({ release: 1000, edited: true })
     m.send({ type: 'setRackSendOverride', send: 1, on: true })
