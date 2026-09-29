@@ -12,7 +12,8 @@
   │ KEYBOARD PARTS                                                                │
   │ four RackSlots: R1, R2, R3, L                                                 │
   │ ONE TOUCH SETTINGS · <style>                                                  │
-  │ OTS Link · timing · OTS 1–4 cards                                             │
+  │ OTS Link · timing · OTS 1–4 cards, each with its rack select                  │
+  │   (Style's own / one of your racks: `setOtsRack`, `clearOtsRack`)             │
   │ AS WRITTEN FOR (the band's voices per channel)                                │
   └───────────────────────────────────────────────────────────────────────────────┘
 

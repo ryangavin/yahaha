@@ -19,6 +19,14 @@
   (`deleteRack`, after an inline confirm; refused for the loaded rack). + New rack sends
   `newRack`, with the same guard. With nothing selected, the details are the loaded rack's.
 
+  Style racks (docs/racks.md "Styles and OTS", journey 4): the loaded style's OTS buttons
+  1–4 (`ots.settings`, `ots.racks`), each with a select, "Style's own" or one of your racks
+  (`setOtsRack` / `clearOtsRack`, kept per style), and Load (`recallOts`).
+
+  │ STYLE RACKS: Soul Ballad (OTS buttons 1–4)                                    │
+  │ ▶ OTS 1 · Soul Ballad's own   Tine EP · Strings…   [Style's own ▾] [Load] Style │
+  │   OTS 2 · Ballad Pad          Grand + Pad          [Ballad Pad  ▾] [Load] Mine  │
+
   Split, Harmony/Arp and the transpose are only in the state for the live rack, so they show
   for the loaded rack; Quick Racks state carries only the bank on view, so the labels (A1)
   are that bank's.

@@ -455,6 +455,40 @@ describe('Library › Racks', () => {
     expect(s.state.racks).toHaveLength(2)
   })
 
+  it('Style racks: an OTS row picks a rack of mine for this style; Load and the Rack panel follow; Style\'s own puts it back', async () => {
+    const s = await twoRacks()
+    const ballad = idOf(s, 'Ballad')
+    expect(s.state.ots.settings.length).toBeGreaterThanOrEqual(2)
+    expect(document.body.textContent).toContain(`Style racks: ${s.state.style.name} (OTS buttons 1–4)`)
+    const rows = () => all('[aria-label="Style racks"] [role="listitem"]')
+    const libSelect = (i: number) => rows()[i].querySelector('select')!
+    const panelSelect = (i: number) => all('.otsrack')[i] as HTMLSelectElement
+    expect(rows()).toHaveLength(Math.min(4, s.state.ots.settings.length))
+    expect(rows()[1].textContent).toContain(`OTS 2 · ${s.state.style.name}'s own`)
+    expect(libSelect(1).value).toBe('')
+
+    libSelect(1).value = ballad
+    await fireEvent.change(libSelect(1))
+    await refresh(s)
+    expect(s.state.ots.racks[1]).toEqual({ rack: ballad, name: 'Ballad', missing: false })
+    expect(rows()[1].textContent).toContain('OTS 2 · Ballad')
+    expect(panelSelect(1).value).toBe(ballad)
+    expect(all('.otsw')[1].textContent).toContain('Ballad')
+
+    // Load on the row recalls OTS 2: Ballad loads (Evening is loaded, unmodified).
+    await click(tipped('library.style_rack_load')[1])
+    await refresh(s)
+    expect(s.state.liveRack.name).toBe('Ballad')
+    expect(s.state.ots.applied).toBe(2)
+
+    // Style's own, from the Rack panel's OTS card.
+    panelSelect(1).value = ''
+    await fireEvent.change(panelSelect(1))
+    await refresh(s)
+    expect(s.state.ots.racks[1]).toEqual({ rack: null, name: '', missing: false })
+    expect(libSelect(1).value).toBe('')
+  })
+
   it('+ New rack starts one; with unsaved changes the docked Rack panel asks first', async () => {
     const s = await twoRacks()
     s.send({ type: 'setPartVoice', part: 0, program: 12 })

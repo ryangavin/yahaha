@@ -621,7 +621,7 @@ const catalog = {
   // ── One Touch Settings ──────────────────────────────────────────────────
   'ots.1': {
     title: 'OTS 1',
-    body: 'A sound setup for your own hands that the style\'s author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. If you chose one of your racks for it (OTS rack), that rack loads instead. Dark if the style has none.',
+    body: 'A sound setup for your own hands that the style\'s author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds (or loads the rack of yours chosen for it), and the band doesn\'t change. Dark if the style has none.',
     genos: 'ONE TOUCH SETTING 1',
     keys: ['shift+1'],
     launchkey: pad(P3, 'top', 1),
