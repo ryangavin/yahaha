@@ -4,7 +4,7 @@
 //! the Multi Pads on 4-7, the Style parts on 8-15) from one of:
 //!
 //! - [`Source::SoundFont`]`(n)`: the built-in SoundFont synth, font `n` (0 = the synth's
-//!   SoundFont; 1-14 are reserved for per-channel SoundFonts, #103), or
+//!   SoundFont; 1-13 are reserved for per-channel SoundFonts, #103), or
 //! - [`Source::Plugin`]: the plugin rack's slot for that channel (an Audio Unit
 //!   instrument, `src/plugin/`), or
 //! - [`Source::Silent`]: nothing. A keyboard part whose plugin isn't installed any more

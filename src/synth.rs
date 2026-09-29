@@ -584,6 +584,9 @@ pub struct AudioCore {
     plugin_on: u16,
     /// Channels routed to silence in the last buffer (`route::Source::Silent`).
     silent_on: u16,
+    /// Tests: the channel messages that got past the silent-channel filter.
+    #[cfg(test)]
+    passed: Vec<Msg>,
     /// The sound library's program map (#103; None: every channel plays its GM voice on
     /// the main SoundFont, as before).
     router: Option<Router>,
@@ -659,6 +662,8 @@ impl AudioCore {
             plugins,
             plugin_on: 0,
             silent_on: 0,
+            #[cfg(test)]
+            passed: Vec::new(),
             router: None,
             fx: crate::fx::FxBus::new(sample_rate),
             sends: vec![0f32; 2 * crate::fx::BUSES * 8192],
@@ -828,6 +833,10 @@ impl AudioCore {
                 // for a plugin channel.
                 if m[0] & 0xF0 == 0x90 && m[2] > 0 && silent >> (m[0] & 0x0F) & 1 == 1 {
                     continue;
+                }
+                #[cfg(test)]
+                if (0x80..0xF0).contains(&m[0]) {
+                    self.passed.push(m);
                 }
                 // The control side's ring carries auditions, not the band: the shadow keeps
                 // the band's setup of the channel for when the audition ends.
@@ -1272,6 +1281,27 @@ mod tests {
                 assert!(*rms > 0.001, "ch {ch} played {notes} notes but rendered silence");
             }
         }
+    }
+}
+
+/// A channel routed to silence (a keyboard part whose plugin is missing) drops its
+/// note-ons; its note-offs and controllers, and every other channel's notes, go on.
+#[cfg(test)]
+mod silent_tests {
+    use super::*;
+
+    #[test]
+    fn silent_channel_drops_note_ons_only() {
+        let (mut tx, rx) = RingBuffer::<Msg>::new(16);
+        let ctl = Arc::new(SynthControl::new(0));
+        ctl.routes.set(0, crate::route::Source::Silent);
+        let (mut core, _swap, _link) = AudioCore::new(None, vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+        let sent = [[0x90, 60, 100], [0x80, 60, 0], [0x90, 61, 0], [0xB0, 7, 90], [0x91, 60, 100]];
+        for m in sent {
+            tx.push(m).unwrap();
+        }
+        core.process(&mut [0f32; 128]);
+        assert_eq!(core.passed, sent[1..]);
     }
 }
 
