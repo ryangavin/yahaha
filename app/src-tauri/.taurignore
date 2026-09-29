@@ -1,0 +1,14 @@
+# Paths `cargo tauri dev` must not rebuild on (gitignore syntax).
+# Same list as the repo root's .taurignore, which covers the workspace; this copy
+# covers the case where the CLI reads it only from the tauri dir.
+node_modules/
+.vite/
+.vite-temp/
+dist/
+target/
+.claude/
+corpus/
+soundfonts/
+*.log
+.bacon-result.json
+.DS_Store

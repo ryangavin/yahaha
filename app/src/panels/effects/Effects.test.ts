@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import type { FxType } from '../../lib/api/types'
 import { app, ui } from '../../lib/store.svelte'
@@ -200,5 +200,125 @@ describe('Effects screen', () => {
     await fireEvent.click(toggle(card('Delay'), 'Tempo sync'))
     flushSync()
     expect(untipped(document.body)).toEqual([])
+  })
+})
+
+describe('Effects screen: send effects', () => {
+  const addGroup = () => document.querySelector<HTMLElement>('[role="group"][aria-label="Add send"]')
+  const select = (label: string) => control(label) as HTMLSelectElement
+  const spy = (s: MockSession) => vi.spyOn(s, 'send')
+  const sendCards = () => [...document.querySelectorAll('section.card[data-send]')].map((e) => e.getAttribute('aria-label'))
+
+  async function addSend(kind: string) {
+    const picker = select('New send type')
+    picker.value = kind
+    await fireEvent.change(picker)
+    await fireEvent.click(addGroup()!.querySelector<HTMLElement>('[data-tip="fx.send_add"]')!)
+    flushSync()
+  }
+
+  it('Add send sends addSend with the picked kind, Hall to start, and a fourth card shows', async () => {
+    const s = setup()
+    const sent = spy(s)
+    expect(sendCards()).toEqual([])
+    expect(select('New send type').value).toBe('hall')
+    await fireEvent.click(addGroup()!.querySelector<HTMLElement>('[data-tip="fx.send_add"]')!)
+    expect(sent).toHaveBeenLastCalledWith({ type: 'addSend', kind: 'hall' })
+    flushSync()
+    expect(sendCards()).toEqual(['Send 4'])
+    await addSend('phaser')
+    expect(sent).toHaveBeenLastCalledWith({ type: 'addSend', kind: 'phaser' })
+    expect(sendCards()).toEqual(['Send 4', 'Send 5'])
+    expect(card('Send 5').textContent).toContain('Phaser')
+  })
+
+  it('the Add control goes at six sends and comes back after a remove', async () => {
+    const s = setup()
+    const sent = spy(s)
+    await addSend('hall')
+    await addSend('room')
+    expect(addGroup()).not.toBeNull()
+    await addSend('plate')
+    expect(s.state.effects.sends).toHaveLength(6)
+    expect(addGroup()).toBeNull()
+    await fireEvent.click(control('Remove Send 5'))
+    expect(sent).toHaveBeenLastCalledWith({ type: 'removeSend', send: 4 })
+    flushSync()
+    expect(sendCards()).toEqual(['Send 4', 'Send 5'])
+    expect(card('Send 5').textContent).toContain('Plate')
+    expect(addGroup()).not.toBeNull()
+  })
+
+  it('an added send\'s kind, parameters and return', async () => {
+    const s = setup()
+    await addSend('hall')
+    const sent = spy(s)
+    const kind = select('Send 4 type')
+    expect(kind.value).toBe('hall')
+    kind.value = 'pingPong'
+    await fireEvent.change(kind)
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setSendKind', send: 3, kind: 'pingPong' })
+    flushSync()
+    expect(card('Send 4').textContent).toContain('Ping-Pong')
+
+    const p = s.state.effects.sends[3].params
+    const feedback = p.findIndex((x) => x.name === 'Feedback')
+    const knob = control(`Send 4 ${p[feedback].name}`)
+    expect(knob.getAttribute('aria-valuemin')).toBe(String(p[feedback].min))
+    expect(knob.getAttribute('aria-valuemax')).toBe(String(p[feedback].max))
+    expect(knob.getAttribute('aria-valuetext')).toBe(p[feedback].display)
+    await fireEvent.keyDown(knob, { key: 'ArrowUp' })
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setSendParam', send: 3, param: feedback, value: p[feedback].value + 1 })
+    flushSync()
+    await fireEvent.dblClick(control(`Send 4 ${p[feedback].name}`))
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setSendParam', send: 3, param: feedback, value: p[feedback].default })
+
+    await fireEvent.keyDown(control('Send 4 return'), { key: 'Home' })
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setSendReturn', send: 3, level: 0 })
+    flushSync()
+    expect(control('Send 4 return').getAttribute('aria-valuetext')).toBe('Off')
+  })
+
+  it('shows a kind this build doesn\'t list by its name', () => {
+    const s = setup()
+    s.send({ type: 'addSend', kind: 'hall' })
+    const sends = [...s.state.effects.sends]
+    sends[3] = { ...sends[3], kind: 'shimmer', name: 'Shimmer', params: [] }
+    app.apply({ ...s.state, version: s.state.version + 1, effects: { ...s.state.effects, sends } })
+    flushSync()
+    const kind = select('Send 4 type')
+    expect(kind.value).toBe('shimmer')
+    expect(kind.selectedOptions[0].textContent).toBe('Shimmer')
+  })
+
+  it('sends 1-3: the rack override toggle, and a Set by rack badge with Use style\'s', async () => {
+    const s = setup()
+    const sent = spy(s)
+    const reverb = card('Reverb')
+    expect(reverb.textContent).not.toContain('Set by rack')
+    expect(reverb.querySelector('[data-tip="fx.send_use_style"]')).toBeNull()
+    await fireEvent.click(toggle(reverb, 'Rack keeps type'))
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setRackSendOverride', send: 0, on: true })
+    flushSync()
+    expect(toggle(reverb, 'Rack keeps type').getAttribute('aria-checked')).toBe('true')
+    expect(reverb.textContent).toContain('Set by rack: Hall')
+    expect(card('Chorus').textContent).not.toContain('Set by rack')
+
+    s.send({ type: 'setRackSendOverride', send: 2, on: true })
+    flushSync()
+    const delay = card('Delay')
+    expect(delay.textContent).toContain(`Set by rack: ${s.state.effects.sends[2].name}`)
+    await fireEvent.click(delay.querySelector<HTMLElement>('[data-tip="fx.send_use_style"]')!)
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setRackSendOverride', send: 2, on: false })
+    flushSync()
+    expect(delay.textContent).not.toContain('Set by rack')
+  })
+
+  it('every send control has a tooltip', async () => {
+    const s = setup()
+    s.send({ type: 'setRackSendOverride', send: 1, on: true })
+    await addSend('phaser')
+    expect(untipped(document.body)).toEqual([])
+    for (const e of document.querySelectorAll('select')) expect(isTipKey(e.getAttribute('data-tip') ?? '')).toBe(true)
   })
 })

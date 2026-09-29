@@ -103,6 +103,17 @@ class TipState {
     }
   }
 
+  /** Tests only: forget every hovered, focused, pinned and pending control, so state left
+   * by an earlier test file (vitest runs with `isolate: false`) can't leak in. */
+  reset() {
+    this.clear()
+    this.warmUntil = 0
+    this.help = false
+    this.pinned = null
+    this.focused = null
+    this.setFloating(false)
+  }
+
   private clear() {
     this.cancel()
     if (this.key) this.warmUntil = performance.now() + WARM_MS

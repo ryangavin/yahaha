@@ -5017,10 +5017,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "core-foundation",
- "coremidi-sys",
- "cpal",
  "crossterm",
- "libc",
  "mach2 0.7.0",
  "ratatui",
  "rtrb",

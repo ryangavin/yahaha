@@ -368,6 +368,11 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Insert setting 3** | The insert's third setting, named on the knob. Drag up or down; double-click for the type's default. | Mixer › Effect › Insertion Effect › Parameter | — | — |
 | **Insert setting 4** | The insert's fourth setting, where its type has one (the compressor's output). Drag up or down; double-click for the type's default. | Mixer › Effect › Insertion Effect › Parameter | — | — |
 | **Send level** | How much of this strip goes to this send effect, 0–127. Sends 1–3 are the part's reverb, chorus and delay sends. | Mixer › Effect › Send level | — | — |
+| **Level** | This part's level (its CC 7), 0–127. Drag up or down. | Mixer › Volume | — | Panel faders 1–4 (keyboard parts); Style page faders 1–8 (Style parts) |
+| **Pan** | Where this part sits left to right (CC 10), 64 = centre. Drag up or down; double-click for centre. | Mixer › Pan | — | — |
+| **Previous part** | Shows the part before this one in the Channel view (after Right 1 comes Phrase 2). | — | — | — |
+| **Next part** | Shows the part after this one in the Channel view (after Phrase 2 comes Right 1). | — | — | — |
+| **Close the channel** | Closes the Channel view and puts back what the display showed before. Esc, or clicking the selected strip again, does the same. | — | `Esc` (terminal: ) | — |
 | **Style volume** | The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part's CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. | Balance › Style (Mixer › Panel › Style) | — | Panel fader page: fader 5 |
 | **Multi Pad volume** | All four Multi Pads against the band, in one fader: 100 plays each pad at its own level, lower scales the pads' CC 7 down together (above 100 raises them, up to 127). | Balance › M.Pad (Mixer › Panel › Multi Pad) | — | Panel fader page: fader 6 |
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
@@ -384,6 +389,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | Knobs 4 and 5 on the Style knob page |
 | **Track Mute order** | A starts from Rhythm 2, then Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1 and Phrase 2. B starts from Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2 and the rhythm parts last. | Style Track Mute A / B | — | — |
 | **MIDI out channel** | The channel this part plays on at yahaha's MIDI output: Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4, the band 9–16. Map a DAW track (Ableton: MIDI From yahaha, this channel) to record or re-voice it. | Part / Style channel | — | — |
+| **Mixer strip** | Selects this part: its strip lights up. A keyboard part (Right 1–3, Left) also becomes the part you edit, as the Launchkey's part buttons do. | Mixer › channel | — | — |
+| **Voice** | The sound this part plays. On a keyboard part, click to choose another in Library › Sounds, loading into this part. A Style part plays the voice the style names; the name is cut short on a narrow strip, so hover it for the whole name. | Mixer › Voice | — | — |
 | **Voice** | Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it. | Mixer › Voice | — | — |
 | **Track CPU** | How much of each audio buffer this track takes to render over the last second (its SoundFont voices, filter and insert effect, or its plugin), where 100% is the whole buffer. "pk" is its slowest single buffer, red past half the buffer, where dropouts start. A larger audio buffer (Settings) gives a heavy plugin more room. | — | — | — |
 | **Group CPU** | How much of each audio buffer this group's tracks take together to render over the last second, where 100% is the whole buffer; red past half the buffer. "≤ pk" adds up each track's slowest single buffer. Those need not happen in the same buffer, so it is only an upper bound and never turns the strip red: open the group's tab to see each track's own peak. | — | — | — |
@@ -424,6 +431,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Send parameter** | One of this send effect's parameters, named on the knob. Drag up or down; double-click for the type's default. | Mixer › Effect › Parameter | — | — |
 | **Send return** | How loud this send effect comes back into the mix, 0–127 (64 = 0 dB). | Mixer › Effect › Return level | — | — |
 | **Rack keeps this type** | Lit, the live rack keeps this send's type and brings it back when loaded, over the style's. Off, the style sets it. | — | — | — |
+| **Use style's** | Drops the live rack's type for this send, so the style sets it again. | — | — | — |
+| **New send type** | What the next added send effect plays. Add send adds it. | Mixer › Effect › Type | — | — |
 | **Master Compressor** | A compressor on the whole mix, after the effects and before the output: it evens out the dynamics, bringing loud passages down. Lit, it plays (not on the metronome); off, the mix is untouched. It stays as set until you change it, even after a restart. | Mixer › Master › Compressor | — | — |
 | **Master Compressor type** | The compressor's character: Natural (moderate), Rich (gentle, for acoustic music), Punchy (heavy and fast, for rock), Electronic (for dance music) or Loud (the most). Choosing one sets its Compression, Texture and Output. | Mixer › Master › Compressor type | — | — |
 | **Master editor** | Opens the Master Compressor's parameters and the Master EQ's eight bands. | Mixer › Master › Edit | — | — |
@@ -626,7 +635,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Rack** | Opens the Rack: what's under your hands (the four keyboard parts with their sounds and mix, the split, Harmony/Arp, transpose) and the style's One Touch Settings. Press again to close. | Voice Setting, ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
 | **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
 | **Effects** | Opens the Effects screen: the Reverb, Chorus and Delay cards (type, settings, return and the band's and pads' sends) and the style's inserts. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
-| **Mixer** | Opens the full mixer. Press again to close. | Mixer | `Alt+M` (terminal: ) | — |
+| **Mixer details** | Shows the mixer row's details: its bar (fader page and layer, metronome, Track Mute, Style and Multi Pad volume, CPU) and, on every strip, its Chorus send, EQ, insert and CPU. Press again to hide them. | Mixer | `Alt+M` (terminal: ) | — |
 | **Chord Looper** | Opens the Chord Looper. Press again to close. | Menu › Chord Looper | `Alt+L` (terminal: ) | — |
 | **Charts** | Opens the iReal Pro chart player. Press again to close. | — | `Alt+C` (terminal: ) | — |
 | **Harmony/Arp** | Opens the Keyboard Harmony and Arpeggio panel. Press again to close. | HARMONY/ARPEGGIO | `Alt+H` (terminal: ) | — |
@@ -638,7 +647,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Rack** | Opens the Rack: Right 1–3 and Left with their sounds and mix, the split, Harmony/Arp, transpose, the controller map and the style's One Touch Settings. Alt+O too. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the part and OTS controls |
-| **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
+| **Mixer details** | Shows the mixer row's details: its bar (fader page and layer, metronome, Track Mute, Style and Multi Pad volume, CPU) and, on every strip, its Chorus send, EQ, insert and CPU. Press again to hide them. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
 | **Effects** | Opens the Effects screen: the Reverb, Chorus and Delay cards and the style's inserts. Beside it, the type each effect plays now; each strip's own sends stay on its knobs here. | Mixer › Effect | — | — |
 | **Charts** | Opens the iReal Pro chart player: import playlists, pick a song, and set how the band plays it. | — | — | — |
 | **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |

@@ -225,10 +225,27 @@ fn fx_type(kind: &SendKind) -> Option<(crate::api::FxBlock, crate::api::FxType)>
 }
 
 impl StripCmd {
-    /// The older command this one is, when one covers it: the session and the dev mock
-    /// send that one instead (and still keep this one in [`Strips`], for what the older
-    /// one doesn't carry). None: [`Strips::apply`] alone.
-    pub fn legacy(&self) -> Option<crate::api::AppCmd> {
+    /// The older commands this one is, when they cover it: the session and the dev mock
+    /// send those first (and still keep this one in [`Strips`], for what the older
+    /// ones don't carry). Empty: [`Strips::apply`] alone.
+    pub fn legacy(&self) -> Vec<crate::api::AppCmd> {
+        use crate::api::PartsCmd;
+        // Emptying a keyboard strip's insert 1: the slot goes back to `PartInsert::OFF`,
+        // which `fill` shows as none (turning it off alone would keep the old kind).
+        if let StripCmd::SetStripInsertKind { strip, slot: 0, kind: InsertType::None } = *self {
+            if (strip as usize) < KEYBOARD_STRIPS {
+                let off = crate::api::PartInsert::OFF;
+                return vec![
+                    PartsCmd::SetKeyboardInsertEffect { part: strip, effect: off.effect }.into(),
+                    PartsCmd::SetKeyboardInsertOn { part: strip, on: off.on }.into(),
+                    PartsCmd::SetKeyboardInsertAmount { part: strip, amount: off.amount }.into(),
+                ];
+            }
+        }
+        self.legacy_one().map_or_else(Vec::new, |c| vec![c])
+    }
+
+    fn legacy_one(&self) -> Option<crate::api::AppCmd> {
         use crate::api::{FxCmd, InsertEffect, MixerCmd, PartSend, PartsCmd};
         let kb = |strip: u8| ((strip as usize) < KEYBOARD_STRIPS).then_some(strip);
         let style = |strip: u8| (strip as usize).checked_sub(KEYBOARD_STRIPS).filter(|&p| p < 8).map(|p| p as u8);
@@ -243,7 +260,8 @@ impl StripCmd {
             StripCmd::SetStripInsertKind { strip, slot: 0, ref kind } => {
                 let part = kb(strip)?;
                 match kind {
-                    InsertType::None => PartsCmd::SetKeyboardInsertOn { part, on: false }.into(),
+                    // `legacy` empties the slot.
+                    InsertType::None => return None,
                     InsertType::Unknown(_) => return None,
                     k => PartsCmd::SetKeyboardInsertEffect { part, effect: InsertEffect::from(k.kind()) }.into(),
                 }
@@ -454,13 +472,13 @@ mod tests {
     #[test]
     fn older_commands_cover_what_they_did() {
         let c = StripCmd::SetStripSend { strip: 1, send: 0, level: 90 };
-        assert_eq!(c.legacy(), Some(PartsCmd::SetPartSend { part: 1, send: crate::api::PartSend::Reverb, value: 90 }.into()));
+        assert_eq!(c.legacy(), vec![PartsCmd::SetPartSend { part: 1, send: crate::api::PartSend::Reverb, value: 90 }.into()]);
         let c = StripCmd::SetStripInsertOn { strip: 6, slot: 0, on: false };
-        assert_eq!(c.legacy(), Some(FxCmd::SetPartInsertOn { part: 2, on: false }.into()));
+        assert_eq!(c.legacy(), vec![FxCmd::SetPartInsertOn { part: 2, on: false }.into()]);
         let c = StripCmd::SetSendKind { send: 0, kind: SendKind::Plate };
-        assert_eq!(c.legacy(), Some(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Plate }.into()));
-        assert_eq!(StripCmd::SetStripInsertOn { strip: 6, slot: 1, on: true }.legacy(), None, "insert 2 is new");
-        assert_eq!(StripCmd::SetStripSend { strip: 1, send: 3, level: 9 }.legacy(), None, "sends 4-6 are new");
+        assert_eq!(c.legacy(), vec![FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Plate }.into()]);
+        assert!(StripCmd::SetStripInsertOn { strip: 6, slot: 1, on: true }.legacy().is_empty(), "insert 2 is new");
+        assert!(StripCmd::SetStripSend { strip: 1, send: 3, level: 9 }.legacy().is_empty(), "sends 4-6 are new");
     }
 
     #[test]
