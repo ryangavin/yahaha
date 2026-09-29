@@ -206,6 +206,27 @@ export type AppCmd =
   | KnobsCmd
   // The effect bus (#204): see EffectsState below.
   | FxCmd
+  // Racks (docs/racks.md): see RackEntry and LiveRackState below.
+  | RackCmd
+
+/** The rack commands (docs/app-api.md › Racks). A rack is named by its stable `id`. */
+export type RackCmd =
+  /** A new rack. With unsaved changes and no `discard`, nothing changes: `liveRack.prompt` asks. */
+  | { type: 'newRack'; discard?: boolean }
+  /** Load the user's rack `id`; the same guard as `newRack`. */
+  | { type: 'loadRack'; id: string; discard?: boolean }
+  /** Save over the live rack's own rack (none: as a new one), with its edited sounds.
+   * `soundNames` names, by part (0-3), the new sounds edited presets become. */
+  | { type: 'saveRack'; soundNames?: Record<number, string> }
+  | { type: 'saveRackAs'; name: string; soundNames?: Record<number, string> }
+  /** Discard the changes: load the live rack's own rack again. */
+  | { type: 'revertRack' }
+  | { type: 'renameRack'; id: string; name: string }
+  | { type: 'duplicateRack'; id: string }
+  /** Refused for the loaded rack. */
+  | { type: 'deleteRack'; id: string }
+  /** Keep editing: `liveRack.prompt` goes. */
+  | { type: 'dismissRackPrompt' }
 
 /** The effect bus's blocks (#204; docs/app-api.md › Effects). */
 export type FxCmd =
@@ -440,7 +461,13 @@ export type HarmonyArpCmd =
 /** Style Track Mute order (RM p.148). A: Rhythm 2 first; B: Chord 1 first. */
 export type TrackMuteOrder = 'a' | 'b'
 
-export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
+export type CmdError =
+  | { kind: 'busy' }
+  | { kind: 'failed'; message: string }
+  /** A rack switch would lose unsaved changes; `liveRack.prompt` asks. */
+  | { kind: 'unsavedChanges' }
+  /** A rack save needs names for new sounds; `liveRack.prompt` lists the parts. */
+  | { kind: 'needsSoundNames' }
 
 /** Stop Accompaniment: what a chord sounds on with the band stopped and Sync Start off. */
 export type StopAcmpMode = 'off' | 'style' | 'fixed'
@@ -1179,6 +1206,8 @@ export interface AppState {
   home: HomeState
   /** The live rack (docs/racks.md): its name, the saved rack it came from, unsaved changes. */
   liveRack: LiveRackState
+  /** The user's racks (`<data>/Racks`), by name: Library › Racks. */
+  racks: RackEntry[]
 }
 
 /** The live rack: what's under the player's hands now, autosaved and restored on boot. */
@@ -1189,6 +1218,30 @@ export interface LiveRackState {
   id: string | null
   /** Changed since it was loaded or saved: a sound, the mix, the split, Harmony/Arp, the transpose, the controller map, or a plugin edit. */
   modified: boolean
+  /** A rack command waiting for the player's answer; null when none. */
+  prompt: RackPrompt | null
+}
+
+/** What a refused rack command asks. */
+export type RackPrompt =
+  /** Unsaved changes: Save first, Discard and switch (`discard: true`), or Keep editing (`dismissRackPrompt`). */
+  | { kind: 'unsavedChanges'; then: RackSwitch }
+  /** Edited presets become new sounds: send the save again with `soundNames`. `saveAs`: the
+   * rack name `saveRackAs` had, null for `saveRack`. */
+  | { kind: 'soundNames'; parts: { part: number; suggested: string }[]; saveAs: string | null }
+
+export type RackSwitch = { kind: 'load'; id: string; name: string } | { kind: 'new' }
+
+/** One of the user's racks. */
+export interface RackEntry {
+  id: string
+  name: string
+  /** The sound each part plays, by name: Right 1, Right 2, Right 3, Left. */
+  parts: string[]
+  /** Which parts are on. */
+  on: boolean[]
+  /** A part's sound is on a missing plugin. */
+  needsAttention: boolean
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────
