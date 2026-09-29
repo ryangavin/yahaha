@@ -20,7 +20,7 @@ into the engine and the app. The bank parser and the player core are in `src/mul
 A bank is parsed and its `MultiPadPlayer` built on the control side (`loadMultiPad`), sent
 to the engine thread through a ring as a `Box`, swapped in there (the old bank's notes end),
 and the old player comes back through another ring to be freed on the control side. The
-engine thread never allocates or frees for pads (`tests/multipad_no_alloc.rs`).
+engine thread never allocates or frees for pads (`tests/it/multipad_no_alloc.rs`).
 
 ## Behaviour
 

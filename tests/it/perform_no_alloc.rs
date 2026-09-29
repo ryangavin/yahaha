@@ -1,33 +1,15 @@
 //! The engine thread must not allocate or free while it fades (and the Style volume moves), retriggers, resets a
 //! section, slows an ending down, leaves an Ending for a Main or times the Synchro Stop
-//! Window. A counting global
-//! allocator (in this test binary only) checks `EngineLoop::step` through all of them.
+//! Window. The crate's counting allocator (`alloc_count`) checks `EngineLoop::step`
+//! through all of them.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::alloc_count::{count_here, counts};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use yahaha::engine::{Button, Engine, FadeState, MainTiming, Prepared, StyleSettings};
 use yahaha::live::{self, Cmd, EngineLoop, Out, Shared};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::{SectionId, Style};
-
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static FREES: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        FREES.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
 
 #[test]
 fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
@@ -47,7 +29,8 @@ fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
     // With the performance view collecting (`perf`): the command rings' depths.
     yahaha::perf::enable();
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let _on = count_here();
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     // What the snapshots showed (read as they come: the ring holds 256).
     let mut seen = Seen::default();
@@ -123,8 +106,8 @@ fn fades_retrigger_reset_and_ritardando_do_not_allocate() {
     ch.ui_tx.push(Cmd::Button(Button::Fade)).ok().unwrap();
     l.step(now);
     run(&mut l, snaps, &mut now, 500_000_000);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
     assert!(seen.fade_in, "faded in");
     assert!(seen.retrigger, "retriggered");
     assert!(seen.rit, "slowed down");

@@ -46,7 +46,7 @@ arp.all_off(now, &mut sink);        // stop and send the note-offs right away
   pattern with no steps plays nothing, and a zero step length counts as one tick, so
   neither can panic or hang the real-time thread.
 - **No allocation** in `process`, `note_on`, `note_off`, `set_sustain`, `set_settings`,
-  `set_hold`, `stop` or `all_off`. `tests/arp_no_alloc.rs` checks this with a counting
+  `set_hold`, `stop` or `all_off`. `tests/it/arp_no_alloc.rs` checks this with a counting
   global allocator. `set_pattern` moves the new pattern in and drops the old one. The
   library patterns are borrowed `Cow`s, so swapping between them frees nothing.
 - **Limits:** 16 notes held at once (later keys are ignored) and 64 queued note-ons

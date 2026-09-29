@@ -105,6 +105,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_link_timing_at_main_section_change() {
         let Some(s) = offline("SlowWalker.T552.sty") else { return };
         assert_eq!(s.state().ots.link_timing, OtsLinkTiming::MainChange, "the default");
@@ -214,6 +215,7 @@ mod tests {
     /// Immediate and At Main Section Change recall the same OTS for a Main the style
     /// lacks: the pressed button's.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_link_timings_agree_on_a_missing_main() {
         let Some((path, missing)) = corpus_lacking_a_main() else {
             eprintln!("no corpus style lacks a Main; skipping");
@@ -234,6 +236,7 @@ mod tests {
     }
 
     /// A corpus style with four OTS that lacks a Main (and has Main A), and that Main.
+    #[cfg(feature = "slow-tests")]
     fn corpus_lacking_a_main() -> Option<(PathBuf, u8)> {
         use crate::sff::{SectionId, Style};
         let mut paths = Vec::new();
@@ -281,16 +284,26 @@ mod tests {
         assert!(!st.mixer.style_parts[2].on, "Part On/Off Lock keeps the mute");
         assert_eq!(st.transport.main, 3);
     }
+    #[test]
+    fn ots_link_timing_defaults_to_at_main_section_change() {
+        let Some(s) = offline("SlowWalker.T552.sty") else { return };
+        assert_eq!(s.state().ots.link_timing, OtsLinkTiming::MainChange);
+    }
+
     // ----- OTS Link timing at the change point (owner requirement) -----
+    // These play the band through bars of two corpus styles: slow-tests only.
 
     /// What a keyboard part plays: on, program, volume, octave.
+    #[cfg(feature = "slow-tests")]
     type PartSound = Vec<(bool, u8, u8, i8)>;
 
+    #[cfg(feature = "slow-tests")]
     fn sounds(st: &AppState) -> PartSound {
         st.keyboard_parts.iter().map(|p| (p.on, p.program, p.volume, p.octave)).collect()
     }
 
     /// Two styles (SlowWalker first, BubblyDub), OTS Link on at the default timing.
+    #[cfg(feature = "slow-tests")]
     fn two_styles() -> Option<(Session, usize)> {
         let (a, b) = (corpus("SlowWalker.T552.sty")?, corpus("BubblyDub.T552.sty")?);
         let s = Session::offline(Options { paths: vec![a, b], ..Options::default() }).unwrap();
@@ -305,6 +318,7 @@ mod tests {
     }
 
     /// The keyboard parts as OTS `i` of style `id` sets them (a session of its own).
+    #[cfg(feature = "slow-tests")]
     fn ots_sounds(path: &str, i: u8) -> Option<PartSound> {
         let s = offline(path)?;
         s.send(OtsCmd::RecallOts { index: i }).unwrap();
@@ -314,6 +328,7 @@ mod tests {
 
     /// Step 5 ms at a time until `done`; at every step before it, the keyboard parts must
     /// still sound as `before` (no OTS reaches them early). Returns the state at `done`.
+    #[cfg(feature = "slow-tests")]
     fn nothing_until(s: &Session, before: &PartSound, max_ms: u64, mut done: impl FnMut(&AppState) -> bool) -> std::sync::Arc<AppState> {
         for _ in 0..max_ms / 5 {
             let st = s.state();
@@ -328,6 +343,7 @@ mod tests {
 
     /// Playing Main A of SlowWalker (Auto Fill as given), OTS 1 recalled, on beat 3 of
     /// bar 1 (mid-bar: not the first beat, where Next Bar changes at once).
+    #[cfg(feature = "slow-tests")]
     fn playing_main_a(auto_fill: bool) -> Option<(Session, usize)> {
         let (s, other) = two_styles()?;
         if s.state().transport.auto_fill != auto_fill {
@@ -340,15 +356,10 @@ mod tests {
         Some((s, other))
     }
 
-    #[test]
-    fn ots_link_timing_defaults_to_at_main_section_change() {
-        let Some(s) = offline("SlowWalker.T552.sty") else { return };
-        assert_eq!(s.state().ots.link_timing, OtsLinkTiming::MainChange);
-    }
-
     /// A Main pressed mid-bar (Auto Fill off): its OTS comes exactly as that Main starts,
     /// never while Main A still plays.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_at_change_main_pressed_mid_bar() {
         let Some((s, _)) = playing_main_a(false) else { return };
         let want = ots_sounds("SlowWalker.T552.sty", 1).unwrap();
@@ -361,6 +372,7 @@ mod tests {
 
     /// Fill -> Main (Auto Fill on): nothing during the fill; OTS 2 when Main B starts.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_at_change_fill_then_main() {
         let Some((s, _)) = playing_main_a(true) else { return };
         let before = sounds(&s.state());
@@ -375,6 +387,7 @@ mod tests {
     /// by tapping Main A, and Main A coming back after them, recall nothing under either
     /// timing: a keyboard part the player set meanwhile keeps its level throughout.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_link_does_not_follow_looped_fills() {
         for timing in [OtsLinkTiming::MainChange, OtsLinkTiming::Immediate] {
             let Some((s, _)) = playing_main_a(true) else { return };
@@ -408,6 +421,7 @@ mod tests {
     /// A style queued at the next bar: its OTS reaches the keyboard parts as it takes over,
     /// not on selection.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_at_change_style_queued_at_next_bar() {
         let Some((s, other)) = playing_main_a(false) else { return };
         let want = ots_sounds("BubblyDub.T552.sty", 0).unwrap();
@@ -422,6 +436,7 @@ mod tests {
 
     /// A style chosen while an Ending plays waits for the Ending (#94), and so does its OTS.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_at_change_style_queued_during_an_ending() {
         let Some((s, other)) = playing_main_a(false) else { return };
         let want = ots_sounds("BubblyDub.T552.sty", 0).unwrap();
@@ -439,6 +454,7 @@ mod tests {
     /// on in the new style, and the keyboard parts change only when Main B starts, to the
     /// new style's OTS 2. Nothing reaches them at the swap, mid-fill.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_at_change_style_swapping_in_during_a_fill() {
         use crate::engine::MainTiming;
         let Some((s, other)) = playing_main_a(true) else { return };
@@ -465,6 +481,7 @@ mod tests {
     /// #111: a style that takes over during an Intro (At Main Section Change): its OTS
     /// comes when the Main starts, not at the swap.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_at_change_style_swapping_in_during_an_intro() {
         let Some((s, bubbly)) = two_styles() else { return };
         let walker = s.state().style.id;
@@ -486,6 +503,7 @@ mod tests {
     /// Real Time (Immediate) is still there: the pressed Main's OTS at once, while Main A
     /// plays on.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn ots_real_time_still_immediate() {
         let Some((s, _)) = playing_main_a(false) else { return };
         s.send(OtsCmd::SetOtsLinkTiming { timing: OtsLinkTiming::Immediate }).unwrap();

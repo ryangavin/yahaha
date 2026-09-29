@@ -93,6 +93,7 @@ mod with_plugins {
     const SAMPLER: &str = "aumu Smp7 Fake";
     const PADS: &str = "aumu Pad1 Fake";
     const ORGAN: &str = "aumu Org1 Fake";
+    #[cfg(feature = "slow-tests")]
     const DLS: &str = "aumu dls  appl";
 
     fn info(id: &str, name: &str, manufacturer: &str) -> PluginInfo {
@@ -122,6 +123,7 @@ mod with_plugins {
         info(ORGAN, "Organ Deluxe", "Fake Instruments")
     }
     /// Apple's DLSMusicDevice (every Mac has it): the plugin that really plays.
+    #[cfg(feature = "slow-tests")]
     fn dls() -> PluginInfo {
         info(DLS, "DLSMusicDevice", "Apple")
     }
@@ -256,6 +258,7 @@ mod with_plugins {
     }
 
     /// Part `part`'s plugin state, once read (`savePartPluginState`).
+    #[cfg(feature = "slow-tests")]
     fn saved_state(s: &Session, part: usize) -> Option<Vec<u8>> {
         s.inner.lock().saved_parts().parts[part].as_ref().and_then(|v| v.state.clone())
     }
@@ -264,6 +267,7 @@ mod with_plugins {
         s.inner.lock().synth.as_ref().unwrap().control.routes.source(crate::parts::CHANNEL[part])
     }
 
+    #[cfg(feature = "slow-tests")]
     fn energy(l: &[f32], r: &[f32]) -> f64 {
         l.iter().chain(r).map(|x| (*x as f64).powi(2)).sum()
     }
@@ -272,6 +276,7 @@ mod with_plugins {
     /// SoundFont) and say so, their mix and the rack's reference stay, nothing is written;
     /// once the plugin is back and scanned, they play it again with the state they had.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn a_part_whose_plugin_is_missing_is_silent_and_plays_again_when_it_is_back() {
         let d = data_dir("presence-silent");
         let s = session(&d);

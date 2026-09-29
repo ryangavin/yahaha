@@ -1052,6 +1052,7 @@ fn build_style(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "slow-tests")]
     use crate::theory::{self, Chord, NUM_TYPES};
 
     /// A Ctb2 record: src ch 12 -> dest 12, all roots/types on, source C + `src_type`,
@@ -1065,7 +1066,7 @@ mod tests {
         d
     }
 
-    fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
+    pub(super) fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
         let mut v = id.to_vec();
         v.extend_from_slice(&(body.len() as u32).to_be_bytes());
         v.extend_from_slice(body);
@@ -1074,6 +1075,7 @@ mod tests {
 
     /// Smallest style the parser accepts: one Main A bar with a note on ch 12 plus a CASM
     /// segment holding `rec`.
+    #[cfg(feature = "slow-tests")]
     fn style_bytes(rec_id: &[u8], rec: &[u8]) -> Vec<u8> {
         style_bytes_recs(&[(rec_id, rec)])
     }
@@ -1099,6 +1101,7 @@ mod tests {
     /// `transpose` and `transpose_group` are pure functions of the rule, chord and keys, so a
     /// rule equal to one already in `seen` would repeat exactly the same calls and is not
     /// driven again (most corrupted files parse back to rules the test has already seen).
+    #[cfg(feature = "slow-tests")]
     fn exercise(style: &Style, seen: &mut Vec<ChannelRule>) {
         for seg in &style.casm {
             for r in &seg.rules {
@@ -1145,6 +1148,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn malformed_ctab_transposes_without_panicking() {
         // Out-of-range source types with garbage zone bytes (NTR/NTT/RTR enums, High Key and
@@ -1161,7 +1165,7 @@ mod tests {
     }
 
     /// A 27-byte SFF1 Ctab record for src ch 12 (see `ctb2`) with the given NTR and NTT bytes.
-    fn ctab(ntr: u8, ntt: u8) -> Vec<u8> {
+    pub(super) fn ctab(ntr: u8, ntt: u8) -> Vec<u8> {
         let mut d = ctb2(2, 0)[..27].to_vec();
         d[20] = ntr;
         d[21] = ntt;
@@ -1228,6 +1232,7 @@ mod tests {
         assert!(r.zones.iter().all(|z| z.ntt == Ntt::Chord && !z.bass_on));
     }
 
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_cntt_bass_parts_follow_slash_chords() {
         // Every corpus Cntt style writes its Ctab "Bass" channel's Cntt as plain Melody. The Bass
@@ -1298,6 +1303,7 @@ mod tests {
         assert!(sec.len > u32::MAX - tpb, "len {} should cover the whole saturated span", sec.len);
     }
 
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn truncated_and_corrupted_files_do_not_panic() {
         let good = style_bytes(b"Ctb2", &ctb2(0xFF, 0xFF));
@@ -1408,6 +1414,7 @@ mod tests {
     }
 
     /// Corpus counts (#238): how many OTS parts set each voice setting.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_ots_voice_settings() {
         let (mut parts, mut tone, mut bend, mut xg, mut xg_max, mut inserts) = (0, [0; crate::tone::TONE], 0, 0, 0, 0);
@@ -1521,6 +1528,7 @@ mod tests {
     /// Every corpus style's SInt survives structuring: each channel's last value of every
     /// controller is where the structure says, its voice and bank registers end up as the
     /// file leaves them, and every SysEx but the resets is kept.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn sint_structures_every_corpus_style() {
         let (mut styles, mut resets, mut pending) = (0, 0, 0);
@@ -1597,7 +1605,7 @@ mod tests {
     }
 
     /// A style track built from (delta, raw event bytes) pairs, ppq 96 (a 4/4 bar is 384).
-    fn track_style(evs: &[(u32, Vec<u8>)]) -> Vec<u8> {
+    pub(super) fn track_style(evs: &[(u32, Vec<u8>)]) -> Vec<u8> {
         let mut trk = Vec::new();
         for (delta, ev) in evs {
             let mut d = *delta;
@@ -1616,13 +1624,13 @@ mod tests {
         out
     }
 
-    fn marker(t: &str) -> Vec<u8> {
+    pub(super) fn marker(t: &str) -> Vec<u8> {
         let mut v = vec![0xFF, 0x06, t.len() as u8];
         v.extend_from_slice(t.as_bytes());
         v
     }
 
-    fn tempo(us: u32) -> Vec<u8> {
+    pub(super) fn tempo(us: u32) -> Vec<u8> {
         vec![0xFF, 0x51, 3, (us >> 16) as u8, (us >> 8) as u8, us as u8]
     }
 
@@ -1701,6 +1709,7 @@ mod tests {
 
     /// Corpus counts: 3 unknown markers (2 Fill In AB, 1 Fill In EE) in 2 styles, and tempo
     /// changes after bar 1 (Intro/Ending ritardandos) in 71 styles; no later meter changes.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_unknown_markers_and_later_timing() {
         let (mut styles, mut opaque, mut tempo_styles, mut tempos, mut sigs) = (0, Vec::new(), 0, 0, 0);
@@ -1726,5 +1735,266 @@ mod tests {
         eprintln!("{styles} styles: opaque {opaque:?}, {tempos} tempo changes in {tempo_styles} styles, {sigs} meter changes");
         assert_eq!(opaque, vec!["Fill In AB", "Fill In AB", "Fill In EE"]);
         assert_eq!((tempo_styles, tempos, sigs), (71, 1193, 0));
+    }
+}
+
+/// A synthetic style for tests that must run without the git-ignored corpus (CI has none):
+/// original notes, no Yamaha data. It has what the Launchkey's pads reach: Intro A-C, Main
+/// A-D, Fill In AA-DD, Break and Ending A-C; an SFF1 CASM (rhythm Bypass with Autostart,
+/// Bass, Chord and Melody parts); a channel setup with voices and XG effect types; and four
+/// One Touch Settings that differ in voices, part on/off, volume, octave and sends.
+#[cfg(test)]
+pub(crate) mod test_style {
+    use super::tests::{chunk, ctab, marker, tempo, track_style};
+
+    /// Ticks per quarter note (`track_style`'s) and per 4/4 bar.
+    const PPQ: u32 = 96;
+    const BAR: u32 = PPQ * 4;
+    /// 100 BPM.
+    pub(crate) const TEMPO_US: u32 = 600_000;
+    pub(crate) const NAME: &str = "Synthetic Test";
+
+    /// The sections in track order, with their length in bars.
+    pub(crate) const SECTIONS: [(&str, u32); 15] = [
+        ("Main A", 2),
+        ("Main B", 2),
+        ("Main C", 2),
+        ("Main D", 2),
+        ("Fill In AA", 1),
+        ("Fill In BB", 1),
+        ("Fill In CC", 1),
+        ("Fill In DD", 1),
+        ("Fill In BA", 1),
+        ("Intro A", 1),
+        ("Ending A", 1),
+        ("Intro B", 2),
+        ("Ending B", 2),
+        ("Intro C", 1),
+        ("Ending C", 1),
+    ];
+
+    /// A style part: its channel (0-based, 8-15), Ctab name, voice (bank MSB, LSB,
+    /// program), volume, pan, Ctab NTR, NTT, RTR, Autostart, high key and note limit low,
+    /// and its notes in each bar: (tick in the bar, length, key). Every note ends inside
+    /// its bar, so no note-off lands on the next section's first tick.
+    struct Part {
+        ch: u8,
+        name: &'static [u8; 8],
+        voice: (u8, u8, u8),
+        volume: u8,
+        pan: u8,
+        ntr: u8,
+        ntt: u8,
+        rtr: u8,
+        autostart: bool,
+        high_key: u8,
+        lo: u8,
+        notes: &'static [(u32, u32, u8)],
+    }
+
+    /// NTR: 0 Root Trans, 1 Root Fixed. NTT (Ctab): 0 Bypass, 1 Melody, 2 Chord, 3 Bass.
+    /// RTR: 1 Pitch Shift, 3 Retrigger. Source chord: C Maj.
+    const PARTS: [Part; 8] = [
+        Part { ch: 8, name: b"Rhythm1 ", voice: (127, 0, 0), volume: 100, pan: 64, ntr: 1, ntt: 0, rtr: 1, autostart: true, high_key: 6, lo: 0, notes: &[(0, 48, 36), (96, 48, 38), (192, 48, 36), (288, 48, 38)] },
+        Part { ch: 9, name: b"Rhythm2 ", voice: (127, 0, 0), volume: 90, pan: 64, ntr: 1, ntt: 0, rtr: 1, autostart: true, high_key: 6, lo: 0, notes: &[(0, 40, 42), (48, 40, 42), (96, 40, 42), (144, 40, 42), (192, 40, 42), (240, 40, 42), (288, 40, 42), (336, 40, 46)] },
+        Part { ch: 10, name: b"Bass    ", voice: (0, 0, 33), volume: 100, pan: 64, ntr: 0, ntt: 3, rtr: 1, autostart: false, high_key: 7, lo: 28, notes: &[(0, 180, 36), (192, 90, 43), (288, 90, 40)] },
+        Part { ch: 11, name: b"Chord1  ", voice: (0, 0, 0), volume: 80, pan: 44, ntr: 1, ntt: 2, rtr: 1, autostart: false, high_key: 6, lo: 40, notes: &[(0, 90, 60), (0, 90, 64), (0, 90, 67), (192, 90, 60), (192, 90, 64), (192, 90, 67)] },
+        Part { ch: 12, name: b"Chord2  ", voice: (0, 0, 25), volume: 75, pan: 84, ntr: 1, ntt: 2, rtr: 3, autostart: false, high_key: 6, lo: 40, notes: &[(96, 80, 55), (96, 80, 60), (96, 80, 64), (288, 80, 55), (288, 80, 60), (288, 80, 64)] },
+        Part { ch: 13, name: b"Pad     ", voice: (0, 0, 48), volume: 70, pan: 64, ntr: 0, ntt: 2, rtr: 1, autostart: false, high_key: 7, lo: 40, notes: &[(0, 376, 48), (0, 376, 55), (0, 376, 64)] },
+        Part { ch: 14, name: b"Phrase1 ", voice: (0, 0, 61), volume: 85, pan: 54, ntr: 0, ntt: 1, rtr: 1, autostart: false, high_key: 7, lo: 40, notes: &[(0, 90, 72), (144, 40, 76), (288, 90, 79)] },
+        Part { ch: 15, name: b"Phrase2 ", voice: (0, 0, 73), volume: 80, pan: 74, ntr: 0, ntt: 1, rtr: 3, autostart: false, high_key: 7, lo: 40, notes: &[(192, 180, 84)] },
+    ];
+
+    /// Which parts play in a section: the Mains build up, the fills are rhythm, bass and
+    /// Chord 1 (plus toms), the Break is kick and bass.
+    fn plays(section: &str, ch: u8) -> bool {
+        match section {
+            "Main A" => matches!(ch, 8..=11 | 13),
+            "Main B" => ch != 15,
+            "Fill In BA" => matches!(ch, 8 | 10),
+            s if s.starts_with("Fill In") => ch <= 11,
+            s if s.starts_with("Intro") => matches!(ch, 8 | 9 | 11 | 13 | 14),
+            _ => true,
+        }
+    }
+
+    /// Toms on Rhythm 1 in the second half of a fill's bar.
+    const TOMS: [(u32, u32, u8); 4] = [(192, 40, 45), (240, 40, 47), (288, 40, 48), (336, 40, 50)];
+
+    /// Four One Touch Settings: (Right 1, Right 2, Right 3, Left) each (on, GM program,
+    /// volume, octave).
+    const OTS: [[(bool, u8, u8, i8); 4]; 4] = [
+        [(true, 0, 100, 0), (true, 48, 80, -1), (false, 25, 90, 0), (true, 32, 90, 0)],
+        [(true, 4, 110, 0), (false, 49, 70, 0), (false, 26, 90, 0), (true, 33, 85, -1)],
+        [(true, 16, 95, 1), (false, 50, 90, 0), (true, 61, 75, 1), (false, 34, 90, 0)],
+        [(true, 24, 105, 0), (true, 52, 85, 0), (true, 73, 80, 0), (true, 35, 100, 0)],
+    ];
+
+    fn ots_bytes() -> Vec<u8> {
+        let mut out = Vec::new();
+        for (n, setting) in OTS.iter().enumerate() {
+            let n = n as u8;
+            let mut trk = Vec::new();
+            let mut ev = |bytes: &[u8]| {
+                trk.push(0);
+                trk.extend_from_slice(bytes);
+            };
+            for (part, &(on, prog, volume, octave)) in setting.iter().enumerate() {
+                let (p, ch) = (part as u8, 0xB0 | part as u8);
+                for (cc, v) in [(0, 0), (32, 0), (7, volume), (10, 34 + 20 * p), (91, 30 + 10 * n), (93, 10 * n)] {
+                    ev(&[ch, cc, v]);
+                }
+                ev(&[0xC0 | p, prog]);
+                // Genos part on/off and octave (`F0 43 73 01 50 08 pp 00|03 vv F7`).
+                ev(&[0xF0, 9, 0x43, 0x73, 0x01, 0x50, 0x08, p, 0x00, if on { 0x7F } else { 0x00 }, 0xF7]);
+                ev(&[0xF0, 9, 0x43, 0x73, 0x01, 0x50, 0x08, p, 0x03, (0x40 + octave) as u8, 0xF7]);
+                if part == 0 {
+                    // Right 1: bend range (RPN 0), cutoff, and mono in OTS 1 (XG 08 pp 05 00).
+                    for (cc, v) in [(101, 0), (100, 0), (6, 2 + n), (74, 64 + 4 * n)] {
+                        ev(&[ch, cc, v]);
+                    }
+                    if n == 0 {
+                        ev(&[0xF0, 8, 0x43, 0x10, 0x4C, 0x08, 0x00, 0x05, 0x00, 0xF7]);
+                    }
+                }
+            }
+            trk.extend_from_slice(&[0, 0xFF, 0x2F, 0]);
+            out.extend(chunk(b"MTrk", &trk));
+        }
+        out
+    }
+
+    /// The part's SFF1 Ctab record (27 bytes).
+    fn part_ctab(p: &Part) -> Vec<u8> {
+        let mut d = ctab(p.ntr, p.ntt);
+        d[0] = p.ch;
+        d[1..9].copy_from_slice(p.name);
+        d[9] = p.ch;
+        if p.autostart {
+            d[13] |= 0x04; // chord mute bit 34
+        }
+        d[18] = 0; // source root C
+        d[19] = 0; // source chord Maj
+        d[22] = p.high_key;
+        d[23] = p.lo;
+        d[25] = p.rtr;
+        d
+    }
+
+    /// The style file's bytes.
+    pub(crate) fn synthetic_style_bytes() -> Vec<u8> {
+        let mut name = vec![0xFF, 0x03, NAME.len() as u8];
+        name.extend_from_slice(NAME.as_bytes());
+        // (absolute tick, event), then sorted (stably) by tick.
+        let mut evs: Vec<(u32, Vec<u8>)> = vec![
+            (0, name),
+            (0, marker("SFF1")),
+            (0, tempo(TEMPO_US)),
+            (0, vec![0xFF, 0x58, 4, 4, 2, 24, 8]),
+            (0, marker("SInt")),
+            // XG System On, Reverb type Hall 1, Chorus type Chorus 1.
+            (0, vec![0xF0, 8, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7]),
+            (0, vec![0xF0, 9, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x00, 0x01, 0x00, 0xF7]),
+            (0, vec![0xF0, 9, 0x43, 0x10, 0x4C, 0x02, 0x01, 0x20, 0x41, 0x00, 0xF7]),
+        ];
+        for p in &PARTS {
+            let cc = 0xB0 | p.ch;
+            for (c, v) in [(0, p.voice.0), (32, p.voice.1)] {
+                evs.push((0, vec![cc, c, v]));
+            }
+            evs.push((0, vec![0xC0 | p.ch, p.voice.2]));
+            for (c, v) in [(7, p.volume), (10, p.pan), (91, 40), (93, 10)] {
+                evs.push((0, vec![cc, c, v]));
+            }
+        }
+        // The sections start a bar after the setup.
+        let mut start = BAR;
+        for (i, &(section, bars)) in SECTIONS.iter().enumerate() {
+            let vel = 70 + 4 * i as u8;
+            evs.push((start, marker(section)));
+            if let Some(m) = section.strip_prefix("Main ") {
+                // Pad expression, per Main.
+                let m = m.as_bytes()[0] - b'A';
+                evs.push((start, vec![0xB0 | 13, 11, 127 - 10 * m]));
+            }
+            for bar in (0..bars).map(|b| start + b * BAR) {
+                let fill = section.starts_with("Fill In") && section != "Fill In BA";
+                for p in PARTS.iter().filter(|p| plays(section, p.ch)) {
+                    let toms: &[(u32, u32, u8)] = if fill && p.ch == 8 { &TOMS } else { &[] };
+                    for &(t, len, key) in p.notes.iter().chain(toms) {
+                        evs.push((bar + t, vec![0x90 | p.ch, key, vel]));
+                        evs.push((bar + t + len, vec![0x80 | p.ch, key, 0]));
+                    }
+                }
+            }
+            start += bars * BAR;
+        }
+        // An empty text event at the end, so the last section's length is exact.
+        evs.push((start, vec![0xFF, 0x01, 0]));
+        evs.sort_by_key(|e| e.0);
+        let mut now = 0;
+        let deltas: Vec<(u32, Vec<u8>)> = evs
+            .into_iter()
+            .map(|(t, e)| {
+                let d = t - now;
+                now = t;
+                (d, e)
+            })
+            .collect();
+        let mut out = track_style(&deltas);
+        let names: Vec<&str> = SECTIONS.iter().map(|s| s.0).collect();
+        let mut cseg = chunk(b"Sdec", names.join(",").as_bytes());
+        for p in &PARTS {
+            cseg.extend(chunk(b"Ctab", &part_ctab(p)));
+        }
+        out.extend(chunk(b"CASM", &chunk(b"CSEG", &cseg)));
+        out.extend(chunk(b"OTSc", &ots_bytes()));
+        out
+    }
+
+    #[test]
+    fn synthetic_style_parses_with_what_the_launchkey_reaches() {
+        use super::{Ntt, SectionId};
+        let s = super::parse(&synthetic_style_bytes()).unwrap();
+        assert_eq!((s.name.as_str(), s.format.as_str(), s.ppq, s.timesig), (NAME, "SFF1", PPQ as u16, (4, 4)));
+        assert_eq!(s.tempo_us, TEMPO_US);
+        assert!(s.opaque_sections.is_empty() && s.timing_changes.is_empty());
+        for (name, bars) in SECTIONS {
+            let id = SectionId::parse(name).unwrap();
+            let sec = &s.sections[&id];
+            assert_eq!(sec.len, bars * BAR, "{name}");
+            assert!(sec.events.iter().any(|e| matches!(e.ev, super::Ev::NoteOn { .. })), "{name} plays");
+        }
+        for i in 0..3 {
+            assert!(s.sections.contains_key(&SectionId::Intro(i)) && s.sections.contains_key(&SectionId::Ending(i)));
+        }
+        for i in 0..4 {
+            assert!(s.sections.contains_key(&SectionId::Main(i)) && s.sections.contains_key(&SectionId::Fill(i)));
+        }
+        assert!(s.sections.contains_key(&SectionId::Break));
+        // One CASM segment for every section, a rule per part.
+        assert_eq!(s.casm.len(), 1);
+        assert_eq!(s.casm[0].sections.len(), SECTIONS.len());
+        let rules = s.rules_for(SectionId::Main(0));
+        assert_eq!(rules.keys().copied().collect::<Vec<_>>(), (8..16).collect::<Vec<u8>>());
+        assert!(rules[&8].autostart && rules[&9].autostart && !rules[&10].autostart);
+        assert_eq!((rules[&10].zones[0].ntt, rules[&10].zones[0].bass_on), (Ntt::Bass, true));
+        assert_eq!(rules[&11].zones[0].ntt, Ntt::Chord);
+        assert_eq!((rules[&11].src_root, rules[&11].src_type), (0, 0));
+        // The channel setup gives every part a voice.
+        let sint = s.sint();
+        for p in &PARTS {
+            let c = &sint.channels[p.ch as usize];
+            assert_eq!((c.bank_msb, c.bank_lsb, c.program), (Some(p.voice.0), Some(p.voice.1), Some(p.voice.2)));
+        }
+        // Four OTS, each different, with voices, on/off and octave as written.
+        assert_eq!(s.ots.len(), 4);
+        for (o, want) in s.ots.iter().zip(OTS) {
+            for (q, (on, prog, volume, octave)) in o.parts.iter().zip(want) {
+                assert_eq!((q.on, q.voice, q.volume, q.octave), (on, Some((0, 0, prog)), volume, octave));
+            }
+        }
+        assert_eq!(s.ots[0].parts[0].bend_range, Some(2));
+        assert!(s.ots[0].parts[0].xg.iter().any(|x| x == (0x08, 0x05, 0)), "Right 1 mono in OTS 1");
     }
 }

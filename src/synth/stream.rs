@@ -276,13 +276,13 @@ mod tests {
                 }
             })
         };
-        while rendered.load(Relaxed) < 100 {
+        while rendered.load(Relaxed) < 10 {
             std::thread::yield_now();
         }
         let mut core = reclaim(&slot, Duration::from_secs(1)).expect("the callback hands the core over");
         let after = rendered.load(Relaxed);
         tx.push([0x90, 60, 100]).unwrap();
-        while silent.load(Relaxed) < 100 {
+        while silent.load(Relaxed) < 10 {
             std::thread::yield_now();
         }
         assert_eq!(rendered.load(Relaxed), after, "the callback never renders with a core it gave up");

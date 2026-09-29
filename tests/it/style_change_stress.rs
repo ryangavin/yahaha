@@ -6,6 +6,9 @@
 //! note-ons, and through the built-in synth (`offline_audio`) they sound.
 //!
 //! Every failing case is collected and reported together.
+//!
+//! Corpus sweeps through whole offline sessions (a minute or more each): `slow-tests` only.
+#![cfg(feature = "slow-tests")]
 
 use yahaha::api::*;
 use yahaha::session::Port;

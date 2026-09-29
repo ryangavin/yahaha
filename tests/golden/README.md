@@ -67,7 +67,7 @@ The first passing run on a fresh checkout writes the baseline. If the digests al
 If the change is intended, regenerate the digests and the local baselines, then commit the digests together with the code change:
 
 ```sh
-UPDATE_GOLDEN=1 cargo test --release golden
+UPDATE_GOLDEN=1 cargo test --release --features slow-tests golden
 ```
 
 You can print the same listing for any style and script:

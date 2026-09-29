@@ -106,12 +106,14 @@ fn strum_delays_step_down_from_the_melody() {
     assert!(voice(T::StandardTrio, ON, Some(C)).delays_ms().iter().all(|&d| d == 0));
 }
 
+#[cfg(feature = "slow-tests")]
 fn chord_following_tones_only(ty: HarmonyType) -> bool {
     matches!(ty, T::StandardDuet1 | T::StandardDuet2 | T::StandardTrio | T::FullChord | T::RockDuet
         | T::CountryDuet1 | T::CountryDuet2 | T::CountryTrio | T::Strum)
 }
 
 /// Invariants over every root, chord type and a wide melody range.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn invariants_every_chord_every_melody() {
     for ty in ALL_TYPES {
@@ -611,6 +613,7 @@ fn close3_keeps_an_altered_ninth() {
     assert_eq!(voice(T::FourWayClose3, 76, Some(Chord::new(0, 25))).keys(), [73, 70, 67]);
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn drop_voicings_never_make_a_minor_ninth() {
     for ty in [T::FourWayOpen1, T::FourWayOpen2, T::FourWayOpen3] {
@@ -631,6 +634,10 @@ fn drop_voicings_never_make_a_minor_ninth() {
             }
         }
     }
+}
+
+#[test]
+fn a_drop_voicing_keeps_a_note_that_would_make_a_minor_ninth() {
     // Cmaj7 with E on top: the drop-3 B would sit a b9 under C, so it stays put.
     assert_eq!(voice(T::FourWayOpen2, 64, Some(Chord::new(0, 2))).keys(), [60, 59, 55]);
 }

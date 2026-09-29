@@ -1,13 +1,19 @@
 //! Chord settling (engine/settle.rs): a chord and a command in one engine wake (#47), and
 //! rolled chords under the chord-settle window (#65).
 
+//!
+//! The corpus sweeps here are slow, so they run only with the `slow-tests` feature.
+
 use super::*;
-use crate::theory::{is_drum_part, CANCEL};
+use crate::theory::is_drum_part;
+#[cfg(feature = "slow-tests")]
+use crate::theory::CANCEL;
 
 fn bar_ns(p: &Prepared) -> u64 {
     (60e9 / p.bpm * (p.tpb as f64 / p.ppq as f64)) as u64
 }
 
+#[cfg(feature = "slow-tests")]
 fn step_name(s: &Step) -> String {
     match s {
         Step::Chord(c) => format!("chord {}/{}", c.root, c.ty),
@@ -20,6 +26,7 @@ fn step_name(s: &Step) -> String {
 
 /// `Recorder::pitch_ons` without guitar noise keys (MegaVoice): they are not pitches, and
 /// sound with whatever bend the part has.
+#[cfg(feature = "slow-tests")]
 fn pitched_ons(rec: &Recorder) -> Vec<(u64, u8, u8)> {
     let sent = rec.out.iter().filter(|(_, m)| m[0] & 0xF0 == 0x90 && m[2] > 0).map(|(_, m)| m[1]);
     rec.pitch_ons().into_iter().zip(sent).filter(|&(_, key)| key < crate::theory::GUITAR_NOISE).map(|(n, _)| n).collect()
@@ -63,10 +70,12 @@ fn drive(style: &Style, settle: u64, script: &[(u64, Step)], end: u64) -> (Engin
 }
 
 /// Notes as (channel, key, start, end).
+#[cfg(feature = "slow-tests")]
 type Notes = Vec<(u8, u8, u64, u64)>;
 
 /// The notes on the parts that follow chords, and the problems: a key started twice, a
 /// note-off with no note, a note still sounding at the end.
+#[cfg(feature = "slow-tests")]
 fn notes(rec: &Recorder) -> (Notes, Vec<String>) {
     let mut on = std::collections::HashMap::<(u8, u8), u64>::new();
     let mut v = Vec::new();
@@ -99,6 +108,7 @@ fn notes(rec: &Recorder) -> (Notes, Vec<String>) {
 /// stuck. The #63 review's probe (chord + Keyboard transpose at one instant) found
 /// thousands of zero-length notes before chords settled in `process`. With the window at 0
 /// (the engine's default), so it is the wake that coalesces them, not the window.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_chord_and_command_in_one_wake_leave_no_blips() {
     let files = tests::corpus();
@@ -188,6 +198,7 @@ fn corpus_chord_and_command_in_one_wake_leave_no_blips() {
 /// 3 ms later (#65: the review counted 188 in 114 styles). With the default window, no
 /// note on a chord part starts in the roll and ends by the time the chord settled, and
 /// none waits longer than the window allows.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_rolled_chords_settle_once() {
     let files = tests::corpus();
@@ -252,6 +263,7 @@ fn corpus_rolled_chords_settle_once() {
 
 /// A chord struck a window or more ahead of the beat costs nothing: the notes the pattern
 /// starts on the beat sound the same pitches, at the same time, with the window as without.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_chord_ahead_of_the_beat_is_not_delayed() {
     let files = tests::corpus();
@@ -289,6 +301,7 @@ fn corpus_chord_ahead_of_the_beat_is_not_delayed() {
 /// exactly as with no window; the chord parts' notes due before the settle start at the
 /// settle, in the chord, with the pitches they have with no window; later ones are
 /// untouched.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_sync_start_under_the_window() {
     let files = tests::corpus();

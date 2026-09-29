@@ -403,7 +403,9 @@ fn chord_mapping_details() {
 // Robustness
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "slow-tests")]
 struct Lcg(u64);
+#[cfg(feature = "slow-tests")]
 impl Lcg {
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -411,6 +413,7 @@ impl Lcg {
     }
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn garbage_never_panics() {
     const ALPHA: &[u8] = b"ABCDEFGWb#^-+ohsuadlt0123456789/|[]{}ZTN*SQfxrnpY U<>(),.alt=%KclLZXyQ   ";

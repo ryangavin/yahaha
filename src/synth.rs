@@ -678,7 +678,7 @@ const BAND_GLIDE_S: f32 = 0.03;
 /// The audio callback: the SoundFont rack, the plugin rack (feature `plugins`), the click,
 /// the master fader and the safety clipper, fed by the MIDI rings. [`AudioCore::process`]
 /// renders one buffer. All memory is allocated in [`AudioCore::new`]; `process` never
-/// allocates, locks or blocks (`tests/synth_no_alloc.rs`).
+/// allocates, locks or blocks (`tests/it/synth_no_alloc.rs`).
 pub struct AudioCore {
     /// The SoundFont synthesizers (None: no SoundFont, e.g. an offline plugin test).
     rack: Option<Box<Rack>>,
@@ -1700,15 +1700,20 @@ mod loudness_probe {
 mod rack_tests {
     use super::*;
 
-    /// The smallest SoundFont in the checkout's soundfonts/ (None: skip).
-    fn font() -> Option<Arc<SoundFont>> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-        let f = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX));
-        let Some(f) = f else {
+    /// The smallest SoundFont in the checkout's soundfonts/ (None: skip). Loaded once per
+    /// test process and shared (the synth, kit and sound tests all use it): the smallest
+    /// real font is still over 100 MB, too slow to load again for every test.
+    pub(super) fn font() -> Option<Arc<SoundFont>> {
+        static FONT: std::sync::OnceLock<Option<Arc<SoundFont>>> = std::sync::OnceLock::new();
+        let font = FONT.get_or_init(|| {
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+            let f = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX));
+            f.map(|f| crate::synth::font::open(&f).unwrap())
+        });
+        if font.is_none() {
             eprintln!("no SoundFont; skipping");
-            return None;
-        };
-        Some(crate::synth::font::open(&f).unwrap())
+        }
+        font.clone()
     }
 
     fn peaks() -> [AtomicU32; 16] {

@@ -2078,7 +2078,7 @@ These are for maintainers.
     the engine thread through a ring; it plays there beside the (stopped) band and goes
     back through another ring to be freed. A style change while playing waits inside the
     engine for the bar line; the style it replaces goes back the same way.
-    `tests/engine_no_alloc.rs` checks both allocate and free nothing on the engine thread.
+    `tests/it/engine_no_alloc.rs` checks both allocate and free nothing on the engine thread.
   - The input thread keeps each key's state (held, side, parts) and each source's held
     keys in atomics for the key strip; the control side reads them.
 - The audio thread measures each part's and the master's peak into atomics (`meters`).

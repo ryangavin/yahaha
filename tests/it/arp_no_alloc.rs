@@ -1,25 +1,8 @@
 //! `Arp::process` and the note/pedal/settings calls must not allocate: the arp runs on
-//! the real-time threads. A counting global allocator (in this test binary only) checks it.
+//! the real-time threads. The crate's counting allocator (`alloc_count`) checks it.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::alloc_count::{count_here, counts};
 use yahaha::arp::{library, Arp, ArpSink, Settings};
-
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
 
 /// A sink that only counts.
 #[derive(Default)]
@@ -41,7 +24,8 @@ impl ArpSink for Count {
 fn process_does_not_allocate() {
     let mut arps: Vec<Arp> = library::PATTERNS.iter().map(|p| Arp::new(1920, p.clone())).collect();
     let mut sink = Count::default();
-    let before = ALLOCS.load(Ordering::Relaxed);
+    let _on = count_here();
+    let before = counts().0;
     for a in arps.iter_mut() {
         for (i, n) in [48u8, 55, 60, 64, 67, 71].into_iter().enumerate() {
             a.note_on(n, 90, i as u64);
@@ -66,7 +50,7 @@ fn process_does_not_allocate() {
         a.note_off(62, 91_000);
         a.all_off(t + 7680, &mut sink);
     }
-    let after = ALLOCS.load(Ordering::Relaxed);
+    let after = counts().0;
     assert_eq!(after - before, 0, "allocated {} times", after - before);
     assert!(sink.on > 1000);
     assert_eq!(sink.on, sink.off);

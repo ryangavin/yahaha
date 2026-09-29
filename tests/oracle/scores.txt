@@ -1,5 +1,5 @@
 # yahaha oracle (docs/oracle.md). Counts only; score lines end in: notes exact pitch-class.
-# Regenerate with UPDATE_GOLDEN=1 cargo test --release oracle.
+# Regenerate with UPDATE_GOLDEN=1 cargo test --release --features slow-tests oracle.
 styles 208
 unreadable 0
 pairs scored 5210
