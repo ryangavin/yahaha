@@ -159,17 +159,24 @@ fn cases(row: &'static Row) -> Vec<Case> {
     out
 }
 
-/// Every (row, root) that can spell this pitch-class set, with or without its optional notes.
-fn readings(mask: u16) -> Vec<(&'static Row, u8)> {
-    let mut v: Vec<(&'static Row, u8)> = Vec::new();
-    for row in TABLE.iter().filter(|r| r.ct != Some(CANCEL)) {
-        for c in cases(row).into_iter().filter(|c| c.mask() == mask) {
-            if !v.iter().any(|(r, root)| r.n == row.n && *root == c.root) {
-                v.push((row, c.root));
+/// Every (row, root) that can spell this pitch-class set, with or without its optional notes,
+/// in table order. Built once for all 4096 masks from every case of every row, so looking a
+/// case up does not enumerate the whole table again.
+fn readings(mask: u16) -> &'static [(&'static Row, u8)] {
+    static READINGS: std::sync::OnceLock<Vec<Vec<(&'static Row, u8)>>> = std::sync::OnceLock::new();
+    let all = READINGS.get_or_init(|| {
+        let mut all = vec![Vec::new(); 4096];
+        for row in TABLE.iter().filter(|r| r.ct != Some(CANCEL)) {
+            for c in cases(row) {
+                let v: &mut Vec<(&'static Row, u8)> = &mut all[c.mask() as usize];
+                if !v.iter().any(|(r, root)| r.n == row.n && *root == c.root) {
+                    v.push((row, c.root));
+                }
             }
         }
-    }
-    v
+        all
+    });
+    &all[mask as usize]
 }
 
 /// The readings a player could mean by this voicing. With exactly one reading, or exactly
@@ -181,7 +188,7 @@ fn intended(c: &Case) -> Vec<(&'static Row, u8)> {
     }
     let all = readings(c.mask());
     let rooted: Vec<_> = all.iter().copied().filter(|(_, root)| *root == c.low()).collect();
-    if rooted.is_empty() { all } else { rooted }
+    if rooted.is_empty() { all.to_vec() } else { rooted }
 }
 
 fn ambiguous(c: &Case) -> bool {
