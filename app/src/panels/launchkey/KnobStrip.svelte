@@ -2,6 +2,7 @@
   The Launchkey's eight encoders and its Knob Assign ▲/▼ buttons, clickable: the page
   steps with ◀ ▶, and each knob is a rotary Knob (drag, wheel or arrow keys). The knobs are relative, so
   this sends the same turnKnob a hardware turn does. Nothing here is hardware-only.
+  Each knob has its label and readout stacked to its right, printed like the fader bank's.
 
   State: knobs. Commands: stepKnobPage, turnKnob, resetKnob (double-click).
 -->
@@ -13,60 +14,109 @@
   const k = $derived(app.state.knobs)
 </script>
 
-<div class="knobs mat-well" role="group" aria-label="Knobs: {k.pageName}">
+<div class="knobs mat-chassis" role="group" aria-label="Knobs: {k.pageName}">
   <div class="page">
     <button type="button" class="mini mat-raised" aria-label="Previous knob page" use:tip={'knobs.page'} onclick={() => app.send({ type: 'stepKnobPage', delta: -1 })}>◀</button>
-    <span class="engraved">Knobs {k.pageNumber}/{k.pageCount} · {k.pageName}</span>
+    <span class="engraved page-name">Knobs {k.pageNumber}/{k.pageCount} · {k.pageName}</span>
     <button type="button" class="mini mat-raised" aria-label="Next knob page" use:tip={'knobs.page'} onclick={() => app.send({ type: 'stepKnobPage', delta: 1 })}>▶</button>
   </div>
   {#each k.knobs as knob, i (i)}
-    <div class="knob" title={knob.name}>
-      <span class="engraved">{knob.short}</span>
+    {@const off = knob.function === 'none'}
+    <div class="cell" class:off title={knob.name}>
       <Knob
         label={knob.name}
         level={knob.level}
-        disabled={knob.function === 'none'}
+        disabled={off}
         tipKey="knobs.knob"
         onturn={(delta) => app.send({ type: 'turnKnob', knob: i, delta })}
         onreset={() => app.send({ type: 'resetKnob', knob: i })}
       />
-      <span class="val">{knob.value}</span>
+      <div class="text">
+        <span class="name engraved">{knob.short}</span>
+        <span class="readout mat-screen"><span class="glow-text">{knob.value}</span></span>
+      </div>
     </div>
   {/each}
 </div>
 
 <style>
+  /* The row keeps the height it had before (App.svelte's --fixed counts on it: 80px plus
+     its 4px margin), and each knob is as tall as fits inside it. */
   .knobs {
+    --knob-size: calc(5rem + 0.109375px - 2px - 2 * 0.3rem);
     display: grid;
     grid-template-columns: auto repeat(8, minmax(0, 1fr));
-    gap: 3px;
-    padding: 3px 6px;
+    column-gap: 0.6rem;
+    height: calc(5rem + 0.109375px);
+    padding: 0.3rem 0.8rem;
     margin-top: 4px;
-    border-radius: 6px;
+    border-radius: var(--r-panel);
     align-items: center;
-    font-size: 0.75rem;
-  }
-  .page,
-  .knob {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    min-width: 0;
   }
   .page {
-    flex-direction: row;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding-right: 0.6rem;
+    border-right: 1px solid var(--seam);
+    box-shadow: 1px 0 0 rgb(255 255 255 / 0.04);
+    align-self: stretch;
   }
-  .val {
-    color: var(--ink);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
+  /* Two lines ("Knobs 1/6 ·" over the page name), so the knobs get the width. */
+  .page-name {
+    width: 4.6rem;
+    text-align: center;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
   }
   .mini {
     min-width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
     border-radius: 4px;
     color: var(--ink);
+    font-size: 0.7rem;
+  }
+  .cell {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+  .text {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.3rem;
+    min-width: 0;
+    flex: 1;
+  }
+  .name,
+  .readout {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .name {
+    line-height: 1.2;
+  }
+  /* The fader bank's readout: a small screen, lit text. */
+  .readout {
+    display: block;
+    height: 1.45rem;
+    padding: 0 0.3rem;
+    border-radius: 4px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.85rem;
+    line-height: calc(1.45rem - 2px);
+    text-align: center;
+  }
+  .off .name,
+  .off .readout {
+    opacity: 0.45;
+  }
+  .off .readout {
+    color: var(--screen-dim);
   }
 </style>

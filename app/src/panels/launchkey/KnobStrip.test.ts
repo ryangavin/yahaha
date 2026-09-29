@@ -32,6 +32,25 @@ describe('knob double-click reset', () => {
   })
 })
 
+describe('knob layout', () => {
+  it('puts each knob first, then its label over its readout, with the full name as tooltip', () => {
+    const m = new MockSession({ demo: true, manual: true })
+    render(App, { props: { session: m } })
+    flushSync()
+    const cells = [...document.querySelectorAll<HTMLElement>('.knobs .cell')]
+    expect(cells).toHaveLength(8)
+    m.state.knobs.knobs.forEach((k, i) => {
+      const [dial, text] = cells[i].children
+      expect(dial.getAttribute('role')).toBe('slider')
+      expect([...text.children].map((c) => [c.className.split(' ')[0], c.textContent])).toEqual([
+        ['name', k.short],
+        ['readout', k.value],
+      ])
+      expect(cells[i].title).toBe(k.name)
+    })
+  })
+})
+
 describe('mock resetKnob', () => {
   it('goes to each function\'s default', () => {
     const m = new MockSession({ manual: true })
