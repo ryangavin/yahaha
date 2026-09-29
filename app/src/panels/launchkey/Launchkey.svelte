@@ -23,6 +23,7 @@
 -->
 <script lang="ts">
   import { PAD_PAGES, type Pad, type PadPage, type Rgb } from '../../lib/api/types'
+  import { toggleLibrary } from '../../lib/nav'
   import { app, clock, ui } from '../../lib/store.svelte'
   import { surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
@@ -62,7 +63,7 @@
         <!-- The drawers that detail what the faders play: your rack, the sounds, the mix. -->
         <nav class="drawers" aria-label="Part panels">
           <DrawerButton tip="drawer.rack" open={ui.rack} onclick={() => ui.toggleDrawer('rack')}>Rack</DrawerButton>
-          <DrawerButton tip="drawer.sound" open={ui.sound} onclick={() => ui.toggleDrawer('sound')}>Sounds</DrawerButton>
+          <DrawerButton tip="drawer.library" open={ui.view === 'library'} onclick={() => toggleLibrary('sounds')}>Library</DrawerButton>
           <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleDrawer('mixer')}>Mixer</DrawerButton>
         </nav>
       </div>

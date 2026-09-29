@@ -50,7 +50,7 @@
   const select = () => {
     if (!part.selected) app.send({ type: 'selectPart', part: index })
   }
-  const openSounds = () => (ui.soundBrowser = index)
+  const openSounds = () => ui.openLibrary('sounds', index)
   function stepVoice(delta: number) {
     app.send({ type: 'selectPart', part: index })
     app.send({ type: 'stepVoice', delta })

@@ -23,6 +23,8 @@ const GROUPS: [string, string][] = [
   ['playlist', 'Playlist'],
   ['part', 'Keyboard parts'],
   ['rack', 'Rack panel'],
+  ['view', 'Stage | Library'],
+  ['library', 'Library'],
   ['sounds', 'Sound Browser'],
   ['harmony', 'Keyboard Harmony / Arpeggio'],
   ['mixer', 'Mixer'],

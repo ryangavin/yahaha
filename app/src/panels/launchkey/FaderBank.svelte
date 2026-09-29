@@ -60,7 +60,7 @@
           class:missing={isMissing(p)}
           aria-label="{p.name} sound: {soundLabel(p)}"
           use:tip={'launchkey.fader_sound'}
-          onclick={() => (ui.soundBrowser = i)}>{soundLabel(p)}</button
+          onclick={() => ui.openLibrary('sounds', i)}>{soundLabel(p)}</button
         >
       {:else}
         <span class="sname blank" aria-hidden="true"></span>

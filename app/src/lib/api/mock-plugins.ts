@@ -4,7 +4,7 @@
 // made-up third-party synth that always fails to load, to show the error path, and one
 // the system refuses to host out of process, so it falls back to loading in process.
 
-import type { AppState, KeyboardPart, MissingPlugin, PluginCmd, PluginEntry, PluginsState } from './types'
+import type { AppState, KeyboardPart, MissingPlugin, PluginCmd, PluginEntry, PluginsState, RackAttention } from './types'
 
 const USES = { new: false, racks: 0, sounds: 0 }
 
@@ -18,7 +18,10 @@ export const MOCK_PLUGINS: PluginEntry[] = [
 ]
 
 /** A plugin that was installed and isn't any more (docs/racks.md, "Plugins coming and going"). */
-export const MOCK_MISSING: MissingPlugin[] = [{ id: 'aumu Str1 Fake', name: 'String Deluxe', manufacturer: 'Fake Instruments', racks: 0, sounds: 0 }]
+export const MOCK_MISSING: MissingPlugin[] = [{ id: 'aumu Str1 Fake', name: 'String Deluxe', manufacturer: 'Fake Instruments', racks: 1, sounds: 0 }]
+
+/** The saved rack that plays it (Library › Racks, Needs attention). */
+export const MOCK_ATTENTION: RackAttention[] = [{ id: 'strings-night', name: 'Strings Night', parts: [1] }]
 
 /** The made-up sampler whose AU presets the mock lists (mock-sounds.ts). */
 export const MOCK_PRESETS_ID = 'aumu Smp7 Fake'
@@ -35,7 +38,7 @@ export function initialPlugins(): PluginsState {
     scanning: false,
     list: MOCK_PLUGINS.map((p) => ({ ...p })),
     missing: MOCK_MISSING.map((p) => ({ ...p })),
-    needsAttention: [],
+    needsAttention: MOCK_ATTENTION.map((r) => ({ ...r, parts: [...r.parts] })),
   }
 }
 

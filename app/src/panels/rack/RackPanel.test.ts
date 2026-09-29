@@ -32,7 +32,8 @@ afterEach(() => {
   cleanup()
   app.detach()
   mirror.panelFader = null
-  ui.soundBrowser = null
+  ui.view = 'stage'
+  ui.libraryPart = 0
   ui.rack = false
 })
 
@@ -139,14 +140,16 @@ describe('Rack panel: the part slots', () => {
     expect(slot('Right 1').classList.contains('focus')).toBe(true)
   })
 
-  it('clicking a slot makes it the part you edit; its sound opens the Sound Browser on it', async () => {
+  it('clicking a slot makes it the part you edit; its sound opens Library › Sounds on it', async () => {
     const { session } = setup()
     await fireEvent.pointerDown(slot('Left'))
     expect(session.state.keyboardParts[3].selected).toBe(true)
     await fireEvent.click(inSlot('Right 2', 'rack.part'))
     expect(session.state.keyboardParts[1].selected).toBe(true)
     await fireEvent.click(inSlot('Right 3', 'rack.sound'))
-    expect(ui.soundBrowser).toBe(2)
+    expect(ui.view).toBe('library')
+    expect(ui.libraryTab).toBe('sounds')
+    expect(ui.libraryPart).toBe(2)
   })
 
   it('sends the part commands: on, level, pan, octave, reverb, chorus, voice', async () => {
@@ -207,13 +210,15 @@ describe('Rack panel: the part slots', () => {
     expect(slot('Right 1').querySelector('.badge')!.textContent).toBe('Mine')
   })
 
-  it('a part whose plugin is missing is marked, and Replace… opens the Sound Browser on it', async () => {
+  it('a part whose plugin is missing is marked, and Replace… opens Library › Sounds on it', async () => {
     const { session } = setup()
     session.missingPlugin(2)
     flushSync()
     expect(slot('Right 3').querySelector('.warn')!.textContent).toContain("String Deluxe isn't installed")
     await fireEvent.click(inSlot('Right 3', 'rack.replace'))
-    expect(ui.soundBrowser).toBe(2)
+    expect(ui.view).toBe('library')
+    expect(ui.libraryTab).toBe('sounds')
+    expect(ui.libraryPart).toBe(2)
   })
 
   it('hovering a part lights its fader on the mirror', async () => {
@@ -288,7 +293,8 @@ describe('Stage: sound names under the part faders', () => {
     expect(names()[1].classList.contains('missing')).toBe(true)
     expect(document.querySelector('.fader-head')!.textContent).toContain('Rack: Untitled rack ●')
     await fireEvent.click(names()[3])
-    expect(ui.soundBrowser).toBe(3)
+    expect(ui.view).toBe('library')
+    expect(ui.libraryPart).toBe(3)
     // The Style page's faders are the band: no part sounds.
     session.send({ type: 'toggleFaderPage' })
     flushSync()

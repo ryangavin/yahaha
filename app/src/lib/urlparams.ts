@@ -4,7 +4,9 @@
 //   ?theme=light   start in the light theme (not remembered)
 //   ?help=1        start in help mode
 //   ?tip=<key>     show the help-footer entry of the first control with that catalog key
-//   ?open=browser|settings|rack|mixer|charts|looper|multipad|harmony|regist|playlist|sound|sounds   open an overlay or drawer (sounds: the Sound Browser for Right 1)
+//   ?open=browser|settings|rack|mixer|charts|looper|multipad|harmony|regist|playlist   open an overlay or drawer
+//   ?open=library&tab=racks|sounds|instruments|map   Library on that tab, loading into Right 1
+//                  (open=sounds: Library › Sounds; open=sound: Library › Style map)
 //   ?shift=1       latch the Launchkey mirror's Shift layer
 //   ?styles=N      mock: add N synthetic styles to the library (e.g. 60000; read in api/session.ts)
 //   ?chart=1       mock: import the demo chart playlist, chart mode on (read in api/session.ts)
@@ -21,9 +23,13 @@ export function applyUrlParams(search = location.search) {
   if (p.get('help') === '1') tips.help = true
   const open = p.get('open')
   if (open === 'browser') ui.browser = true
-  if (open === 'sounds') ui.soundBrowser = 0
+  // Library (the Sounds modal and the Sound Library drawer moved into it).
+  const tab = p.get('tab')
+  if (open === 'library') ui.openLibrary(tab === 'racks' || tab === 'sounds' || tab === 'instruments' || tab === 'map' ? tab : undefined, 0)
+  if (open === 'sounds') ui.openLibrary('sounds', 0)
+  if (open === 'sound') ui.openLibrary('map')
   if (open === 'parts') ui.toggleDrawer('rack') // the Rack panel's old name
-  if (open === 'settings' || open === 'rack' || open === 'mixer' || open === 'charts' || open === 'looper' || open === 'multipad' || open === 'harmony' || open === 'regist' || open === 'sound') ui.toggleDrawer(open)
+  if (open === 'settings' || open === 'rack' || open === 'mixer' || open === 'charts' || open === 'looper' || open === 'multipad' || open === 'harmony' || open === 'regist') ui.toggleDrawer(open)
   if (open === 'playlist') {
     ui.registTab = 'playlist'
     ui.toggleDrawer('regist')
