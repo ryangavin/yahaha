@@ -1238,12 +1238,12 @@ mod tests {
         // Every corpus Cntt style writes its Ctab "Bass" channel's Cntt as plain Melody. The Bass
         // part must still carry Bass On, as 193 of 194 SFF2 corpus styles give their Bass part.
         let (mut found, mut bass_parts) = (0, 0);
-        for p in crate::library::corpus_styles() {
-            let Ok(bytes) = std::fs::read(&p) else { continue };
+        for (p, s) in crate::library::corpus_loaded() {
+            // The raw bytes pick the Cntt styles; the parse comes from the shared cache.
+            let Ok(bytes) = std::fs::read(p) else { continue };
             if !bytes.windows(4).any(|w| w == b"Cntt") {
                 continue;
             }
-            let s = parse(&bytes).unwrap();
             found += 1;
             for r in s.casm.iter().flat_map(|seg| &seg.rules) {
                 if r.dest_ch == 10 && r.zones[1].ntt != Ntt::Bypass {
@@ -1418,8 +1418,7 @@ mod tests {
     #[test]
     fn corpus_ots_voice_settings() {
         let (mut parts, mut tone, mut bend, mut xg, mut xg_max, mut inserts) = (0, [0; crate::tone::TONE], 0, 0, 0, 0);
-        for p in crate::library::corpus_styles() {
-            let s = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
+        for (_, s) in crate::library::corpus_loaded() {
             for q in s.ots.iter().flat_map(|o| &o.parts) {
                 parts += 1;
                 for (n, v) in tone.iter_mut().zip(q.tone) {
@@ -1532,8 +1531,7 @@ mod tests {
     #[test]
     fn sint_structures_every_corpus_style() {
         let (mut styles, mut resets, mut pending) = (0, 0, 0);
-        for p in crate::library::corpus_styles() {
-            let style = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
+        for (p, style) in crate::library::corpus_loaded() {
             styles += 1;
             let s = style.sint();
             let mut last_cc = BTreeMap::new();
@@ -1713,8 +1711,7 @@ mod tests {
     #[test]
     fn corpus_unknown_markers_and_later_timing() {
         let (mut styles, mut opaque, mut tempo_styles, mut tempos, mut sigs) = (0, Vec::new(), 0, 0, 0);
-        for p in crate::library::corpus_styles() {
-            let s = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
+        for (p, s) in crate::library::corpus_loaded() {
             styles += 1;
             opaque.extend(s.opaque_sections.iter().map(|o| o.name.clone()));
             let t = s.timing_changes.iter().filter(|c| matches!(c.change, Timing::Tempo(_))).count();

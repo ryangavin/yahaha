@@ -570,8 +570,10 @@ mod tests {
     use super::*;
     use crate::sff::Style;
 
-    pub(super) fn corpus() -> Vec<std::path::PathBuf> {
-        crate::library::corpus_styles()
+    /// Every corpus style, parsed once per test binary (empty without a corpus).
+    #[cfg(feature = "slow-tests")]
+    pub(super) fn corpus() -> &'static [(std::path::PathBuf, Style)] {
+        crate::library::corpus_loaded()
     }
 
 
@@ -615,22 +617,34 @@ mod tests {
             eprintln!("no corpus; skipping");
             return;
         }
-        for f in files {
-            let style = Style::load(&f).unwrap();
-            let prep = Prepared::new(&style);
+        for (f, style) in files {
+            let prep = Prepared::new(style);
             let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
             let play = |ty: u8| {
                 let script = [(0, Step::Chord(Chord { root: 2, ty, bass: Some(9) }))];
-                run(Box::new(Prepared::new(&style)), &script, bar * 2).1.out
+                run(Box::new(Prepared::new(style)), &script, bar * 2).1.out
             };
+            // Each CASM type runs once; a type that maps to another runs once more itself.
+            let mut casm_runs = std::collections::HashMap::new();
             for ty in 0..TYPE_NAMES.len() as u8 {
-                let out = play(ty);
+                let c = casm_type(ty);
+                casm_runs.entry(c).or_insert_with(|| play(c));
+            }
+            for ty in 0..TYPE_NAMES.len() as u8 {
+                let c = casm_type(ty);
+                let own;
+                let out = if c == ty {
+                    &casm_runs[&ty]
+                } else {
+                    own = play(ty);
+                    &own
+                };
                 // Cancel does not sync-start the style.
                 assert!(ty == CANCEL || out.iter().any(|(_, m)| m[0] & 0xF0 == 0x90), "{}: silent under {ty}", f.display());
                 // Regression guard, not a fidelity check: plays/transpose map through
                 // casm() on entry, so this holds by construction unless that is bypassed.
-                if casm_type(ty) != ty {
-                    assert_eq!(out, play(casm_type(ty)), "{}: type {}", f.display(), TYPE_NAMES[ty as usize]);
+                if c != ty {
+                    assert_eq!(*out, casm_runs[&c], "{}: type {}", f.display(), TYPE_NAMES[ty as usize]);
                 }
             }
         }
@@ -656,8 +670,7 @@ mod tests {
             eprintln!("no corpus; skipping");
             return;
         }
-        for f in files {
-            let style = Style::load(&f).unwrap();
+        for (f, style) in files {
             let name = f.file_name().unwrap().to_string_lossy().to_string();
             let autostart: Vec<u8> =
                 style.casm.iter().flat_map(|s| &s.rules).filter(|r| r.autostart).map(|r| r.dest_ch).collect();
@@ -712,10 +725,9 @@ mod tests {
             return;
         }
         let late = 20_000_000;
-        for f in files {
-            let style = Style::load(&f).unwrap();
+        for (f, style) in files {
             let name = f.file_name().unwrap().to_string_lossy().to_string();
-            let prep = Prepared::new(&style);
+            let prep = Prepared::new(style);
             let bar = bar_ns(&prep);
             let t_f = 4 * bar + late;
             let intros: [Vec<(u64, Step)>; 2] = [
@@ -794,9 +806,8 @@ mod tests {
     #[test]
     fn corpus_late_chord_restores_guitar_strings() {
         let mut styles = 0;
-        for f in corpus() {
-            let style = Style::load(&f).unwrap();
-            let guitar = guitar_channels(&style);
+        for (f, style) in corpus() {
+            let guitar = guitar_channels(style);
             if guitar.is_empty() {
                 continue;
             }
@@ -828,14 +839,13 @@ mod tests {
     #[test]
     fn corpus_guitar_strikes_each_pitch_once() {
         let mut styles = 0;
-        for f in corpus() {
-            let style = Style::load(&f).unwrap();
-            let guitar = guitar_channels(&style);
+        for (f, style) in corpus() {
+            let guitar = guitar_channels(style);
             if guitar.is_empty() {
                 continue;
             }
             styles += 1;
-            let prep = Box::new(Prepared::new(&style));
+            let prep = Box::new(Prepared::new(style));
             let bar = bar_ns(&prep);
             let chords = [Chord::new(0, 0), Chord::new(7, 30), Chord::new(0, 27), Chord::new(7, 31), Chord::new(2, 0),
                           Chord { root: 0, ty: 0, bass: Some(7) }, Chord::new(9, 10), Chord::new(6, 0), Chord::new(4, 30),
@@ -880,8 +890,7 @@ mod tests {
             eprintln!("no corpus; skipping");
             return;
         }
-        for f in files {
-            let style = Style::load(&f).unwrap();
+        for (f, style) in files {
             let name = f.file_name().unwrap().to_string_lossy().to_string();
             // Channels written to play as recorded are exempt.
             let as_written: Vec<u8> = style
@@ -964,9 +973,8 @@ mod tests {
         }
         let chords = [Chord::new(0, 0), Chord::new(9, 10), Chord::new(5, 2), Chord::new(7, 19),
                       Chord::new(2, 8), Chord { root: 0, ty: 0, bass: Some(4) }, Chord::new(10, 22), Chord::new(6, 11)];
-        for f in files {
-            let style = Style::load(&f).unwrap();
-            let prep = Box::new(Prepared::new(&style));
+        for (f, style) in files {
+            let prep = Box::new(Prepared::new(style));
             let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
             let mut script = vec![(0, Step::Button(Button::Intro(0))), (1_000, Step::Chord(chords[0]))];
             let mut t = bar / 3;
@@ -1095,10 +1103,9 @@ mod rtr {
             eprintln!("no corpus; skipping");
             return;
         }
-        for f in files {
-            let style = Style::load(&f).unwrap();
+        for (f, style) in files {
             let name = f.file_name().unwrap().to_string_lossy().to_string();
-            let prep = Box::new(Prepared::new(&style));
+            let prep = Box::new(Prepared::new(style));
             let (script, _, end) = script(bar_ns(&prep), true, 0);
             let (e, rec) = run(prep, &script, end);
             assert!(!e.is_running(), "{name}: still running");
@@ -1166,10 +1173,9 @@ mod rtr {
             return;
         }
         let mut bends = 0;
-        for f in files {
-            let style = Style::load(&f).unwrap();
+        for (f, style) in files {
             let name = f.file_name().unwrap().to_string_lossy().to_string();
-            let mut retrig = Style::load(&f).unwrap();
+            let mut retrig = style.clone();
             for z in retrig.casm.iter_mut().flat_map(|s| s.rules.iter_mut()).flat_map(|r| r.zones.iter_mut()) {
                 z.rtr = match z.rtr {
                     Rtr::PitchShift => Rtr::Retrigger,
@@ -1189,11 +1195,11 @@ mod rtr {
                 .collect();
             let noise = |ch: u8, pitch: u8| noise_parts.contains(&ch) && pitch + 12 >= crate::theory::GUITAR_NOISE;
             let both = |script: &[(u64, Step)], end: u64| {
-                let (_, a) = run(Box::new(Prepared::new(&style)), script, end);
+                let (_, a) = run(Box::new(Prepared::new(style)), script, end);
                 let (_, b) = run(Box::new(Prepared::new(&retrig)), script, end);
                 (a, b)
             };
-            let bar = bar_ns(&Prepared::new(&style));
+            let bar = bar_ns(&Prepared::new(style));
             let (script, changes, end) = script(bar, true, 0);
             let chords: Vec<Chord> = script.iter().filter_map(|s| if let Step::Chord(c) = s.1 { Some(c) } else { None }).collect();
             for (i, pair) in chords.windows(2).enumerate() {
@@ -1240,10 +1246,9 @@ mod rtr {
             return;
         }
         let mut started = 0;
-        for f in files {
-            let style = Style::load(&f).unwrap();
+        for (f, style) in files {
             let name = f.file_name().unwrap().to_string_lossy().to_string();
-            let bar = bar_ns(&Prepared::new(&style));
+            let bar = bar_ns(&Prepared::new(style));
             // Odd offsets, so no pattern event falls on a chord change by chance.
             for early in [1_000_003, 3_000_017, 20_000_029, EARLY_CHORD_NS - 1_000_003] {
                 let (script, changes, end) = script(bar, true, early);
@@ -1309,10 +1314,9 @@ mod rtr {
             return;
         }
         let mut runs = 0;
-        for f in files {
-            let style = Style::load(&f).unwrap();
+        for (f, style) in files {
             let name = f.file_name().unwrap().to_string_lossy().to_string();
-            let bar = bar_ns(&Prepared::new(&style));
+            let bar = bar_ns(&Prepared::new(style));
             for seed in 1..4 {
                 let (script, end) = busy_script(bar, seed);
                 let (e, _) = run(Box::new(Prepared::new(&style)), &script, end);
@@ -1371,7 +1375,7 @@ mod rtr {
             let parted = held.iter().filter(|n| !crate::theory::is_drum_part(n.0) && n.1 % 12 != 0).count();
             assert!(parted >= 2, "{name}: {held:?}");
         }
-        assert!(ran > 0 || tests::corpus().is_empty(), "corpus present but none of the folded-voice styles found");
+        assert!(ran > 0 || crate::library::corpus_styles().is_empty(),"corpus present but none of the folded-voice styles found");
     }
 
     /// Part 6 (ch 14, Root Trans, Pitch Shift) in a one-bar style at 120 bpm. Its SInt sets
@@ -2578,9 +2582,8 @@ mod mixer {
             return;
         }
         let mut changes = 0;
-        for f in files {
-            let style = Style::load(&f).unwrap();
-            let p = Box::new(Prepared::new(&style));
+        for (f, style) in files {
+            let p = Box::new(Prepared::new(style));
             let bar = bar_ns(&p);
             let mut script = vec![(0, Step::Chord(Chord::new(0, 0)))];
             for (i, b) in [Button::Main(0), Button::Main(1), Button::Break, Button::Main(1), Button::Main(0)].into_iter().enumerate() {
@@ -2836,9 +2839,8 @@ mod rtr_chaos {
         let mut fails: Vec<String> = Vec::new();
         let mut notes = 0usize;
         let mut bends = 0usize;
-        for (fi, f) in files.iter().enumerate() {
-            let style = Style::load(f).unwrap();
-            let other = Style::load(&files[(fi + 7) % files.len()]).unwrap();
+        for (fi, (f, style)) in files.iter().enumerate() {
+            let other = &files[(fi + 7) % files.len()].1;
             let name = f.file_name().unwrap().to_string_lossy().to_string();
             let p0 = Prepared::new(&style);
             let p1 = Prepared::new(&other);

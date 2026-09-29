@@ -42,14 +42,14 @@ impl Ev {
 // CASM
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Ntr {
     RootTrans,
     RootFixed,
     Guitar,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Ntt {
     Bypass,
     Melody,
@@ -69,7 +69,7 @@ pub enum Ntt {
     GuitarArpeggio,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Rtr {
     Stop,
     PitchShift,
@@ -79,7 +79,7 @@ pub enum Rtr {
     NoteGenerator,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Zone {
     pub ntr: Ntr,
     pub ntt: Ntt,
@@ -94,7 +94,7 @@ pub struct Zone {
 
 /// Channel rule for one source channel within one or more sections (a Ctab/Ctb2 record).
 #[allow(dead_code)] // editable/sff2 kept for dump/debugging
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChannelRule {
     pub src_ch: u8,
     pub name: String,
