@@ -15,7 +15,7 @@ import { initialSoundLibrary, MockSoundLibrary } from './mock-sound-library'
 import { initialSounds, MockSounds } from './mock-sounds'
 import { padsFor } from './mock-pads'
 import { MockKnobs } from './mock-knobs'
-import { initialPlugins, MockPlugins } from './mock-plugins'
+import { initialPlugins, MockPlugins, mockMeters, pluginInstances } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
 import { mockHome } from './mock-home'
 import { MockQuickRacks, type QuickCtx } from './mock-quick-racks'
@@ -541,9 +541,9 @@ export class MockSession implements Session {
     return Promise.resolve(this.catalogMock.catalog(this.state))
   }
 
-  /** No audio: silent meters with no channels, as the engine without its synth. */
+  /** No audio: silent levels, but a plausible CPU per track (#340, `mockMeters`). */
   meters() {
-    return Promise.resolve({ atMs: this.now, channels: [], master: [0, 0] as [number, number], masterRms: [0, 0] as [number, number], clips: 0 })
+    return Promise.resolve(mockMeters(this.state, this.now))
   }
 
   /** Audio dropouts, as a busy machine or a too-small buffer makes them (the engine counts
@@ -608,6 +608,7 @@ export class MockSession implements Session {
       else this.plugins.cmd({ type: 'clearPartPlugin', part })
     }
     this.state.version++
+    this.state.plugins.instances = pluginInstances(this.state)
     this.state.quickRacks = this.quick.state(this.state)
     this.state.ots.racks = this.styleRacks.racks(this.state)
     this.looper.publish()

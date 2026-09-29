@@ -2,7 +2,7 @@
 
 use crate::engine::Snapshot;
 use crate::launchkey::{self, Led, Page, Panel};
-use crate::parts::FaderPage;
+use crate::parts::{FaderLayer, FaderPage};
 use crate::rt::PacketSink;
 
 /// The Launchkey LEDs: pads, fader buttons, Pad Bank and Track buttons. Sends only what
@@ -12,7 +12,7 @@ pub(super) struct Leds {
     palette: bool,
     last_leds: [(u8, Option<Led>); 16],
     last_rgb: [Option<(u8, u8, u8)>; 16],
-    last_fader_btns: Option<(FaderPage, u8, u8, launchkey::PanelLamps)>,
+    last_fader_btns: Option<(FaderPage, FaderLayer, u8, u8, launchkey::PanelLamps)>,
     last_nav: Option<(Page, bool)>,
     buf: Vec<[u8; 3]>,
 }
@@ -23,7 +23,7 @@ impl Leds {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn update(&mut self, s: &Snapshot, has: &[bool], pnl: &Panel, manual_bass: bool, fader_page: FaderPage, styles: bool, beats: f64) {
+    pub(super) fn update(&mut self, s: &Snapshot, has: &[bool], pnl: &Panel, manual_bass: bool, faders: (FaderPage, FaderLayer), styles: bool, beats: f64) {
         if self.palette {
             for (i, (note, led)) in launchkey::pad_leds(s, has, pnl).into_iter().enumerate() {
                 if self.last_leds[i] != (note, Some(led)) {
@@ -45,10 +45,10 @@ impl Leds {
             }
         }
         let style_on = launchkey::style_lit(s.parts, manual_bass);
-        let fb = (fader_page, pnl.parts_on, style_on, pnl.lamps());
+        let fb = (faders.0, faders.1, pnl.parts_on, style_on, pnl.lamps());
         if self.last_fader_btns != Some(fb) {
             self.buf.clear();
-            launchkey::fader_button_msgs(fb.0, fb.1, fb.2, fb.3, &mut self.buf);
+            launchkey::fader_button_msgs(fb.0, fb.1, fb.2, fb.3, fb.4, &mut self.buf);
             for m in &self.buf {
                 self.out.push(m);
             }
@@ -121,14 +121,32 @@ mod tests {
         let pnl = Panel::default();
         for palette in [false, true] {
             let mut l = Leds::new(PacketSink::new(Target::Null), palette);
-            l.update(&s, &has, &pnl, false, FaderPage::Panel, true, 0.0);
+            l.update(&s, &has, &pnl, false, VOL, true, 0.0);
             let first = l.out.sent;
             assert!(first > 0);
-            l.update(&s, &has, &pnl, false, FaderPage::Panel, true, 0.0);
+            l.update(&s, &has, &pnl, false, VOL, true, 0.0);
             assert_eq!(l.out.sent, first, "nothing changed, nothing sent");
             l.reconnect(PacketSink::new(Target::Null));
-            l.update(&s, &has, &pnl, false, FaderPage::Panel, true, 0.0);
+            l.update(&s, &has, &pnl, false, VOL, true, 0.0);
             assert_eq!(l.out.sent, first, "every LED again, through the new output");
         }
+    }
+
+    const VOL: (FaderPage, FaderLayer) = (FaderPage::Panel, FaderLayer::Volume);
+
+    /// Stepping the fader layer sends the fader buttons again, in the new layer's colour.
+    #[test]
+    fn a_new_fader_layer_relights_the_fader_buttons() {
+        let style = crate::sff::parse(&crate::session::testing::style_bytes()).unwrap();
+        let e = crate::engine::Engine::new(Box::new(crate::engine::Prepared::new(&style)));
+        let s = e.snapshot(0);
+        let has = [true; 17];
+        let pnl = Panel::default();
+        let mut l = Leds::new(PacketSink::new(Target::Null), true);
+        l.update(&s, &has, &pnl, false, VOL, true, 0.0);
+        let first = l.out.sent;
+        l.update(&s, &has, &pnl, false, (FaderPage::Panel, FaderLayer::Reverb), true, 0.0);
+        assert!(l.out.sent > first, "the fader buttons in the Reverb layer's colour");
+        assert_eq!(l.last_fader_btns.map(|f| f.1), Some(FaderLayer::Reverb));
     }
 }

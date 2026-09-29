@@ -976,13 +976,37 @@ export interface Meters {
   /** Every channel: keyboard parts (ch 1–4), Multi Pads (5–8), Style parts (9–16), before
    * the soft clipper. Linear peak and RMS, the loudest since the previous read. Empty
    * without the synth. */
-  channels: { channel: number; peak: number; rms: number }[]
+  channels: ChannelMeter[]
   /** Left, right after the soft clipper. */
   master: [number, number]
   /** Left, right RMS after the soft clipper. */
   masterRms: [number, number]
   /** Audio buffers in which the soft clipper worked, since start. */
   clips: number
+  /** #340: every track's CPU together (each track's is in `channels`). */
+  cpu: CpuMeter
+}
+
+export interface ChannelMeter {
+  /** MIDI channel, 1-based. */
+  channel: number
+  peak: number
+  rms: number
+  /** #340: its render time (SoundFont voices, filter and insert, or its plugin) over the
+   * last second, as a share of the audio buffer's time (1 = the whole buffer). Updated
+   * once a second; a read does not reset it. */
+  cpu: number
+  /** Its worst single buffer in that second, the same way. */
+  cpuPeak: number
+}
+
+/** #340: the tracks' CPU together over the last second, as shares of the buffer's time. */
+export interface CpuMeter {
+  total: number
+  /** The worst single buffer's. */
+  peak: number
+  /** The audio buffer's length in µs (the time budget); 0 before the first buffer. */
+  bufferUs: number
 }
 
 // ── The Launchkey surface (#77, docs/app-api.md "surface") ────────────────────
@@ -1459,6 +1483,9 @@ export interface PluginsState {
   missing: MissingPlugin[]
   /** The user's racks that need attention (Library › Racks, Needs attention). */
   needsAttention: RackAttention[]
+  /** #407: plugin instances loaded now, one per part (keyboard or Style) playing a
+   * plugin, plus one still playing out while its part's next plugin loads. */
+  instances: number
 }
 
 // ── Controllers (docs/controllers.md) ────────────────────────────────────

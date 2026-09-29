@@ -339,8 +339,11 @@ pub struct Rack {
     /// The performance view is on: `render` times each part and `report_profile` hands the
     /// costs to `perf::PERF`.
     profile: bool,
-    /// Each channel's render time in the last `render` (profiling only).
+    /// Each channel's render time in the last `render`: its lanes and filter.
     ch_ns: [u64; 16],
+    /// Each channel's whole cost in the last `render`: `ch_ns` and its insertion effect
+    /// (#340, the Mixer's per-track CPU). Always measured.
+    track_ns: [u64; 16],
     /// Each channel's RMS in the last `render` (after a fade), for the meters: the audio
     /// thread folds it into `SynthControl::rms`.
     pub rms: [f32; 16],
@@ -416,6 +419,7 @@ impl Rack {
             tmp_r: vec![0.0; 8192],
             profile: false,
             ch_ns: [0; 16],
+            track_ns: [0; 16],
             rms: [0.0; 16],
             sources: std::iter::once(main).chain(extras.iter().copied()).map(KitSource::of).collect(),
             sample_rate,
@@ -463,6 +467,12 @@ impl Rack {
         }
         perf.voices.store(total, Relaxed);
         perf.voices_peak.fetch_max(total, Relaxed);
+    }
+
+    /// Each channel's cost in the last `render`, in ns: its voices, filter and insertion
+    /// effect (#340).
+    pub(super) fn track_ns(&self) -> &[u64; 16] {
+        &self.track_ns
     }
 
     /// The notes sounding now, in every part (held or kept by the pedal; see `Part::notes`).
@@ -712,16 +722,15 @@ impl Rack {
                 if lane.quiet >= IDLE_FRAMES && !(is_live && holds) && !part.env.on_lane(i) {
                     continue;
                 }
-                let t0 = if profile { crate::rt::host_now() } else { 0 };
+                // Always timed: each part's cost is the Mixer's CPU readout (#340).
+                let t0 = crate::rt::host_now();
                 // The first lane renders straight into the stem; any other beside it.
                 let (l, r): (&mut [f32], &mut [f32]) = if first { (&mut *sl, &mut *sr) } else { (&mut *tl, &mut *tr) };
                 render_lane(lane, i, &mut part.voicing, &mut part.env, block, l, r);
-                if profile {
-                    let dt = crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
-                    ns += dt;
-                    if lane.slot != 0 && lane.slot != KIT_SLOT {
-                        extra_ns += dt;
-                    }
+                let dt = crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
+                ns += dt;
+                if profile && lane.slot != 0 && lane.slot != KIT_SLOT {
+                    extra_ns += dt;
                 }
                 let peak = l.iter().chain(r.iter()).fold(0f32, |m, x| m.max(x.abs()));
                 lane.quiet = if peak >= IDLE_LEVEL { 0 } else { lane.quiet.saturating_add(n as u32) };
@@ -749,20 +758,21 @@ impl Rack {
             if first {
                 part.tone.filter.clear();
             } else if part.tone.filter.active() {
-                let t0 = if profile { crate::rt::host_now() } else { 0 };
+                let t0 = crate::rt::host_now();
                 part.tone.filter.process(sl, sr);
-                if profile {
-                    ns += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
-                }
+                ns += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
             }
             // The part's channel-strip EQ (#247) after it, still before the insert, meters
-            // and sends. Flat, it is not run at all.
+            // and sends. Flat, it is not run at all. Timed into the part's CPU (#340).
             if first {
                 part.eq.clear();
             } else if part.eq.active() {
+                let t0 = crate::rt::host_now();
                 part.eq.process(sl, sr);
+                ns += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
             }
             self.ch_ns[ch] = ns;
+            self.track_ns[ch] = ns;
             // The part's insert runs on its stem, silent too (the effect may still ring).
             if insert_mask >> ch & 1 == 1
                 && let Some(ins) = inserts.as_deref_mut()
@@ -771,7 +781,9 @@ impl Rack {
                     sl.fill(0.0);
                     sr.fill(0.0);
                 }
+                let t0 = crate::rt::host_now();
                 ins.process(ch, sl, sr, part.level() * self.master);
+                self.track_ns[ch] += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
             } else if first {
                 continue;
             }

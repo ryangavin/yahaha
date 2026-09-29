@@ -5,7 +5,7 @@
 //! - command `library() -> LibraryList`
 //! - command `sounds() -> SoundCatalog` (the Sound Browser's list, #117)
 //! - command `meters() -> Meters` (the latest `meters` event's levels)
-//! - event `meters` (`Meters`): every part's peak and RMS, the pads and the master, at
+//! - event `meters` (`Meters`): every part's peak, RMS and CPU, the pads and the master, at
 //!   about 30 Hz (`METER_PERIOD`)
 //! - commands `open_plugin_editor(part)` / `close_plugin_editor(part)`: a keyboard part's
 //!   instrument plugin window, opened on the main thread (AppKit); closing it keeps the
@@ -115,13 +115,14 @@ const METER_PERIOD: Duration = Duration::from_micros(33_333);
 /// session's meters; the command hands out its latest frame).
 static LAST_METERS: std::sync::Mutex<Option<yahaha::api::Meters>> = std::sync::Mutex::new(None);
 
-/// Output levels: the latest `meters` event's (each part's and the pads' peak and RMS, the
-/// master's, the clip count). The mock has no audio: zero levels, no channels.
+/// Output levels: the latest `meters` event's (each part's and the pads' peak, RMS and CPU,
+/// the master's, the clip count). The mock has no audio: zero levels, and made-up CPU
+/// figures per track (#340).
 #[tauri::command]
 fn meters(backend: State<'_, Shared>) -> Value {
     match &**backend {
         Backend::Live(_) => serde_json::to_value(LAST_METERS.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default()).unwrap_or(Value::Null),
-        Backend::Mock(_) => serde_json::to_value(yahaha::api::Meters::default()).unwrap_or(Value::Null),
+        Backend::Mock(m) => serde_json::to_value(m.lock().unwrap_or_else(|e| e.into_inner()).meters()).unwrap_or(Value::Null),
     }
 }
 

@@ -87,6 +87,17 @@ describe('Launchkey mirror', () => {
     expect(document.querySelectorAll('[data-tip="mixer.style.volume"][role="slider"]')).toHaveLength(8)
   })
 
+  it('the fader buttons light in the fader layer\'s colour, as the hardware does (#341)', () => {
+    const { session } = setup()
+    const led = (sel: string) => document.querySelector<HTMLElement>(sel)!.style.getPropertyValue('--led')
+    const want = { volume: 'rgb(0 0 255 / 1)', pan: 'rgb(255 255 0 / 1)', reverb: 'rgb(0 201 255 / 1)', chorus: 'rgb(255 0 141 / 1)', delay: 'rgb(255 255 255 / 1)' }
+    for (const [layer, rgb] of Object.entries(want)) {
+      session.send({ type: 'setFaderLayer', layer: layer as keyof typeof want })
+      flushSync()
+      expect([layer, led('button[data-tip="mixer.page"]'), led('button[aria-label="RIGHT 1"]')]).toEqual([layer, rgb, rgb])
+    }
+  })
+
   it('a fader moves its level and clears the waiting mark', async () => {
     const { session } = setup()
     session.send({ type: 'toggleFaderPage' })

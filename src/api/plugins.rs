@@ -189,6 +189,10 @@ pub struct PluginsState {
     /// name.
     #[serde(default)]
     pub needs_attention: Vec<RackAttention>,
+    /// Plugin instances loaded now (#407): one per part (keyboard or Style) that plays a
+    /// plugin, plus one still playing out while its part's next plugin loads.
+    #[serde(default)]
+    pub instances: u32,
 }
 
 /// Base64 (standard alphabet, padded): plugin states in JSON.

@@ -43,6 +43,10 @@
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
     built-in synth's click voice, never on the MIDI port. The Style tab adds Style Track
     Mute (a Genos Live Control knob, A/B order).
+  - CPU (#340): each strip shows its track's render time as a share of the audio buffer
+    over the last second, and its worst buffer (pk); the Panel page's Style and M.Pad
+    strips add up their tracks. A line above the strips gives every track together and
+    the plugin instances loaded (#407). Read from the meters twice a second while open.
   - No level meters yet.
 -->
 <script lang="ts">
@@ -62,6 +66,22 @@
   import { FADER_LAYERS, FLAT_EQ, type FaderLayer, type PartEq } from '../../lib/api/types'
   const LAYER_NAMES: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
   import { partVoice, pluginBadge, pluginTip, styleVoice } from './voice'
+  import { CPU_POLL_MS, CPU_WARN, cpuOf, pct } from './cpu'
+  import type { Meters } from '../../lib/api/types'
+
+  // #340: each track's CPU, from the meters, read while the drawer is open.
+  let meters = $state.raw<Meters | null>(null)
+  $effect(() => {
+    let live = true
+    const read = () => app.meters().then((m) => live && (meters = m))
+    read()
+    const t = setInterval(read, CPU_POLL_MS)
+    return () => {
+      live = false
+      clearInterval(t)
+    }
+  })
+  const cpuTotal = $derived(meters && meters.channels.length > 0 ? meters.cpu : null)
 
   const mixer = $derived(app.state.mixer)
   const page = $derived(mixer.faderPage)
@@ -195,6 +215,7 @@
       isSolo: mixer.partSolo === i,
       onclick: () => app.send({ type: 'setPartSolo', part: mixer.partSolo === i ? null : i }),
     },
+    cpu: cpuOf(meters, [p.channel]),
   })
 
   const styleStrip = (p: StylePart, i: number) => ({
@@ -228,7 +249,12 @@
       isSolo: mixer.styleSolo === i,
       onclick: () => app.send({ type: 'setStyleSolo', part: mixer.styleSolo === i ? null : i }),
     },
+    cpu: cpuOf(meters, [p.channel]),
   })
+
+  /** The Panel page's Style and M.Pad strips: their tracks' CPU together. */
+  const STYLE_CHANNELS = [9, 10, 11, 12, 13, 14, 15, 16]
+  const PAD_CHANNELS = [5, 6, 7, 8]
 </script>
 
 <Overlay id="mixer" title="Mixer" closeTip="drawer.close" onclose={() => (ui.mixer = false)}>
@@ -269,6 +295,20 @@
       <div class="out" use:tip={'mixer.channel'}>
         <span class="engraved">MIDI out</span> <b>{outPort || '—'}</b>
       </div>
+    </div>
+
+    <div class="load" data-testid="cpu-total">
+      <span use:tip={'mixer.cpu_total'} class:warn={cpuTotal !== null && cpuTotal.peak > CPU_WARN}>
+        <span class="engraved">CPU</span>
+        {#if cpuTotal}
+          <b>{pct(cpuTotal.total)}</b> · pk {pct(cpuTotal.peak)}{cpuTotal.bufferUs > 0 ? ` of a ${(cpuTotal.bufferUs / 1000).toFixed(1)} ms buffer` : ''}
+        {:else}
+          <b>—</b> (synth off)
+        {/if}
+      </span>
+      <span use:tip={'part.plugin_instances'}>
+        <span class="engraved">Plugin instances</span> <b>{app.state.plugins.instances ?? 0}</b>
+      </span>
     </div>
 
     <div class="extras">
@@ -471,6 +511,7 @@
           onchange={(v) => app.send({ type: 'setStyleVolume', volume: v })}
           fxRow
           button={slotButton(STYLE_SLOT)}
+          cpu={cpuOf(meters, STYLE_CHANNELS)}
         />
         <Strip
           name="M.Pad"
@@ -481,6 +522,7 @@
           onchange={(v) => app.send({ type: 'setMultiPadVolume', volume: v })}
           fxRow
           button={slotButton(PAD_SLOT)}
+          cpu={cpuOf(meters, PAD_CHANNELS)}
         />
         {#each unusedSlots as n (n)}
           <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused fxRow button={slotButton(n)} />
@@ -524,7 +566,7 @@
   }
   .mixer {
     display: grid;
-    grid-template-rows: auto auto auto auto 1fr;
+    grid-template-rows: auto auto auto auto auto 1fr;
     gap: 0.7rem;
     height: 100%;
     min-height: 27rem;
@@ -591,6 +633,18 @@
     font-family: var(--font-display);
     font-size: 0.9rem;
     white-space: nowrap;
+  }
+  /* #340/#407: every track's CPU together and the plugin instances loaded. */
+  .load {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1.4rem;
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .load .warn b {
+    color: var(--danger);
   }
   .extras {
     display: flex;
@@ -762,8 +816,8 @@
     line-height: 1.2;
     color: var(--muted);
     align-content: start;
-    /* The height of a strip's buttons, voice and badge, so the master fader lines up. */
-    min-height: 6.4rem;
+    /* The height of a strip's buttons, voice, badge and CPU, so the master fader lines up. */
+    min-height: 8.35rem;
     padding-top: 0.2rem;
   }
   .layers {

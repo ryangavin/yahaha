@@ -35,7 +35,7 @@
 use crate::engine::{slot_of, Button, FadeState, PadCmd, Snapshot, Transpose};
 use crate::fingering::Fingering;
 use crate::multipad::PadState;
-use crate::parts::{self, FaderPage};
+use crate::parts::{self, FaderLayer, FaderPage};
 use crate::sff::SectionId;
 
 pub const ENTER_DAW: [u8; 3] = [0x9F, 0x0C, 0x7F];
@@ -523,14 +523,27 @@ pub struct PanelLamps {
     pub looper: LooperLamp,
 }
 
-/// Palette colours for the fader buttons. Panel page (blue): Right 1-3 and Left lit while
-/// on (`parts_on`, bit = part), button 5 (purple) lit while HARMONY/ARPEGGIO is on,
-/// button 6 red while the selected part's plugin needs a reload, button 7 (orange) lit
-/// while Left Hold is on, button 8 the Chord Looper (`LooperLamp`). Style page (green): the Style parts lit while they
+/// The Panel fader page's colour (bright, dim) in each fader layer, so the player sees
+/// which layer the faders control: VOL blue, PAN yellow, REV cyan, CHO pink, DLY white.
+pub fn layer_colour(layer: FaderLayer) -> (u8, u8) {
+    match layer {
+        FaderLayer::Volume => (BLUE, DIM_BLUE),
+        FaderLayer::Pan => (YELLOW, DIM_YELLOW),
+        FaderLayer::Reverb => (CYAN, DIM_CYAN),
+        FaderLayer::Chorus => (PINK, DIM_PINK),
+        FaderLayer::Delay => (WHITE, DIM_WHITE),
+    }
+}
+
+/// Palette colours for the fader buttons. Panel page (the fader layer's colour,
+/// `layer_colour`): Right 1-3 and Left lit while on (`parts_on`, bit = part), button 5
+/// (purple) lit while HARMONY/ARPEGGIO is on, button 6 red while the selected part's plugin
+/// needs a reload, button 7 (orange) lit while Left Hold is on, button 8 the Chord Looper
+/// (`LooperLamp`). Style page (green, whatever the layer): the Style parts lit while they
 /// play (`style_on`). The master button shows the page's colour.
-pub fn fader_button_msgs(page: FaderPage, parts_on: u8, style_on: u8, lamps: PanelLamps, out: &mut Vec<[u8; 3]>) {
+pub fn fader_button_msgs(page: FaderPage, layer: FaderLayer, parts_on: u8, style_on: u8, lamps: PanelLamps, out: &mut Vec<[u8; 3]>) {
     let (on, n, (bright, dim)) = match page {
-        FaderPage::Panel => (parts_on, parts::COUNT as u8, (BLUE, DIM_BLUE)),
+        FaderPage::Panel => (parts_on, parts::COUNT as u8, layer_colour(layer)),
         FaderPage::Style => (style_on, 8, (GREEN, DIM_GREEN)),
     };
     for i in 0..8u8 {
@@ -570,10 +583,10 @@ pub fn style_lit(parts: u8, manual_bass: bool) -> u8 {
 
 /// The button LEDs as `nav_button_msgs` and `fader_button_msgs` set them: (CC, palette
 /// colour) for Pad Bank ▲/▼, Track ◀/▶, the fader buttons and the master fader button.
-pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, parts_on: u8, style_on: u8, lamps: PanelLamps) -> Vec<(u8, u8)> {
+pub fn button_colours(page: Page, styles: bool, fader_page: FaderPage, layer: FaderLayer, parts_on: u8, style_on: u8, lamps: PanelLamps) -> Vec<(u8, u8)> {
     let mut msgs = Vec::new();
     nav_button_msgs(page, styles, &mut msgs);
-    fader_button_msgs(fader_page, parts_on, style_on, lamps, &mut msgs);
+    fader_button_msgs(fader_page, layer, parts_on, style_on, lamps, &mut msgs);
     // Channel 1 carries the colour (channel 4 the brightness, for single-colour LEDs).
     msgs.iter().filter(|m| m[0] == 0xB0).map(|m| (m[1], m[2])).collect()
 }
@@ -1218,11 +1231,34 @@ mod tests {
             assert_ne!(palette_colour(c).1, Level::Off, "{c}");
         }
         assert_eq!(palette_colour(OFF).1, Level::Off);
-        let b = button_colours(Page::Sections, true, FaderPage::Panel, 0b0001, 0xFF, PanelLamps::default());
+        let b = button_colours(Page::Sections, true, FaderPage::Panel, FaderLayer::Volume, 0b0001, 0xFF, PanelLamps::default());
         assert!(b.contains(&(PAD_UP_CC, OFF)) && b.contains(&(PAD_DOWN_CC, WHITE)));
         assert!(b.contains(&(TRACK_LEFT_CC, WHITE)));
         assert!(b.contains(&(37, BLUE)) && b.contains(&(38, DIM_BLUE)) && b.contains(&(41, DIM_PURPLE)) && b.contains(&(42, OFF)) && b.contains(&(45, BLUE)));
         assert_eq!(b.len(), 4 + 9);
+    }
+
+    /// Each fader layer lights the Panel page's part buttons and master button in its own
+    /// colour, bright while the part is on and dim while off; the Style page stays green.
+    #[test]
+    fn fader_layers_have_their_own_colour() {
+        let expect = [
+            (FaderLayer::Volume, BLUE, DIM_BLUE),
+            (FaderLayer::Pan, YELLOW, DIM_YELLOW),
+            (FaderLayer::Reverb, CYAN, DIM_CYAN),
+            (FaderLayer::Chorus, PINK, DIM_PINK),
+            (FaderLayer::Delay, WHITE, DIM_WHITE),
+        ];
+        for (layer, bright, dim) in expect {
+            let b = button_colours(Page::Sections, true, FaderPage::Panel, layer, 0b0001, 0xFF, PanelLamps::default());
+            assert!(b.contains(&(37, bright)) && b.contains(&(38, dim)) && b.contains(&(40, dim)) && b.contains(&(45, bright)), "{layer:?}");
+            assert!(b.contains(&(41, DIM_PURPLE)), "{layer:?}: button 5 keeps its own colour");
+            assert_ne!(palette_colour(bright).1, palette_colour(dim).1, "{layer:?}: on and off still read");
+            let s = button_colours(Page::Sections, true, FaderPage::Style, layer, 0, 0xFF, PanelLamps::default());
+            assert!(s.contains(&(37, GREEN)) && s.contains(&(45, GREEN)), "{layer:?}: Style page");
+        }
+        let hues: std::collections::HashSet<_> = expect.iter().map(|e| palette_colour(e.1).0).collect();
+        assert_eq!(hues.len(), 5, "every layer has a different hue");
     }
 
     const PADS: [u8; 16] = [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];
@@ -1537,7 +1573,7 @@ mod tests {
     #[test]
     fn fader_buttons_follow_the_page() {
         let mut out = Vec::new();
-        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, PanelLamps::default(), &mut out);
+        fader_button_msgs(FaderPage::Panel, FaderLayer::Volume, 0b1001, 0xFF, PanelLamps::default(), &mut out);
         assert_eq!(out[..4], [[0xB0, 37, BLUE], [0xB0, 38, DIM_BLUE], [0xB0, 39, DIM_BLUE], [0xB0, 40, BLUE]]);
         assert_eq!(out[4], [0xB0, 41, DIM_PURPLE], "button 5: HARMONY/ARPEGGIO off");
         assert_eq!([out[5][2], out[7][2]], [OFF, OFF], "button 6 dark (no plugin to reload), 8 no loop");
@@ -1545,17 +1581,17 @@ mod tests {
         assert_eq!(out[8], [0xB0, 45, BLUE]);
         out.clear();
         let lit = PanelLamps { harmony_arp: true, plugin_fault: true, left_hold: true, looper: LooperLamp::Looping };
-        fader_button_msgs(FaderPage::Panel, 0b1001, 0xFF, lit, &mut out);
+        fader_button_msgs(FaderPage::Panel, FaderLayer::Volume, 0b1001, 0xFF, lit, &mut out);
         assert_eq!(out[4], [0xB0, 41, PURPLE], "button 5: HARMONY/ARPEGGIO on");
         assert_eq!(out[5], [0xB0, 42, RED], "button 6: the selected part's plugin needs a reload");
         assert_eq!(out[6], [0xB0, 43, ORANGE], "button 7: Left Hold on");
         assert_eq!(out[7], [0xB0, 44, GREEN], "button 8: the Chord Looper loops");
         out.clear();
-        fader_button_msgs(FaderPage::Panel, 0, 0, PanelLamps { looper: LooperLamp::Recording, ..lit }, &mut out);
+        fader_button_msgs(FaderPage::Panel, FaderLayer::Volume, 0, 0, PanelLamps { looper: LooperLamp::Recording, ..lit }, &mut out);
         assert_eq!(out[7], [0xB0, 44, RED], "button 8: recording");
         out.clear();
         // The Style page's button 5 is the Style's fifth part, whatever the switch.
-        fader_button_msgs(FaderPage::Style, 0b1001, !(1 << 5), lit, &mut out);
+        fader_button_msgs(FaderPage::Style, FaderLayer::Volume, 0b1001, !(1 << 5), lit, &mut out);
         assert_eq!(out[5], [0xB0, 42, DIM_GREEN], "Pad muted");
         assert!(out.iter().enumerate().all(|(i, m)| i == 5 || m[2] == GREEN));
     }

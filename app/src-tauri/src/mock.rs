@@ -686,6 +686,50 @@ impl MockSession {
         st
     }
 
+    /// The meters (`Session::meters`). The mock has no audio: every level is 0, but each
+    /// track's CPU (#340) is a plausible one: a playing plugin's own `cpu`, a SoundFont
+    /// keyboard part that is on a little, the Style parts more while the band plays (the
+    /// drums most), the Multi Pads nothing. The worst buffer is a few times the average,
+    /// more so at a small buffer. As the engine's, a reading changes once a second.
+    pub fn meters(&self) -> Meters {
+        const STYLE: [f32; 8] = [0.021, 0.016, 0.011, 0.012, 0.010, 0.014, 0.008, 0.009];
+        let st = &self.state;
+        let frames = st.io.synth.as_ref().and_then(|s| s.buffer_frames).unwrap_or(256) as f32;
+        let rate = st.io.synth.as_ref().map_or(48_000, |s| s.sample_rate.max(1)) as f32;
+        let second = (self.now / 1000.0).floor();
+        let cpu = |ch: u8| -> f32 {
+            let wobble = 1.0 + 0.12 * (second * 0.7 + ch as f64 * 1.3).sin() as f32;
+            let base = if let Some(k) = st.keyboard_parts.iter().find(|k| k.channel == ch) {
+                match &k.plugin {
+                    Some(p) if p.status == PluginStatus::Playing => p.cpu,
+                    Some(_) => 0.0,
+                    None if k.on => 0.012,
+                    None => 0.0,
+                }
+            } else if (9..=16).contains(&ch) {
+                let p = (ch - 9) as usize;
+                if st.transport.running && st.mixer.style_parts.get(p).is_some_and(|s| s.on) { STYLE[p] } else { 0.0 }
+            } else {
+                0.0
+            };
+            base * wobble
+        };
+        let peak_of = |avg: f32| avg * (1.6 + 128.0 / frames);
+        let channels: Vec<ChannelMeter> = (1..=16u8)
+            .map(|ch| {
+                let c = cpu(ch);
+                ChannelMeter { channel: ch, peak: 0.0, rms: 0.0, cpu: c, cpu_peak: peak_of(c) }
+            })
+            .collect();
+        let total: f32 = channels.iter().map(|c| c.cpu).sum();
+        Meters {
+            at_ms: self.now,
+            cpu: CpuMeter { total, peak: peak_of(total) * 0.8, buffer_us: frames / rate * 1e6 },
+            channels,
+            ..Meters::default()
+        }
+    }
+
     /// Move the clock on by `ms` milliseconds; true if anything changed.
     pub fn advance(&mut self, ms: f64) -> bool {
         let before = self.state.clone();
@@ -1257,6 +1301,9 @@ impl MockSession {
     /// The fields the engine computes from the others: names, flags, pads and lamps.
     fn derive(&mut self) {
         self.looper.publish(&mut self.state.looper);
+        // Plugin instances loaded (#407): one per keyboard part playing one.
+        self.state.plugins.instances =
+            self.state.keyboard_parts.iter().filter(|k| k.plugin.as_ref().is_some_and(|p| p.status == PluginStatus::Playing)).count() as u32;
         self.state.knobs = self.knobs.state(&self.knobs_now());
         let st = &mut self.state;
         let c = &mut st.chord;
@@ -1351,7 +1398,7 @@ impl MockSession {
             LooperMode::LoopArmed => lk::LooperLamp::LoopArmed,
             LooperMode::Looping => lk::LooperLamp::Looping,
         };
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, left_hold: st.chord.left_hold, looper });
+        let colours = lk::button_colours(page, styles, fader_page, st.mixer.fader_layer, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, left_hold: st.chord.left_hold, looper });
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -2703,6 +2750,33 @@ mod tests {
         assert!(!entry(&m, "aumu dls  appl").in_process);
     }
 
+    /// The meters' CPU per track (#340): a plugin's on its own channel, a SoundFont keyboard
+    /// part's a little, the Style parts' only while the band plays; plugin instances (#407).
+    #[test]
+    fn the_meters_show_each_tracks_cpu_and_the_instances() {
+        let mut m = MockSession::new();
+        if m.state.transport.running {
+            m.send(TransportCmd::StartStop);
+        }
+        assert!(!m.state.transport.running);
+        let cpu = |m: &MockSession, ch: u8| m.meters().channels.iter().find(|c| c.channel == ch).map(|c| (c.cpu, c.cpu_peak)).unwrap();
+        assert_eq!(m.meters().channels.len(), 16);
+        assert!(cpu(&m, 1).0 > 0.0, "Right 1, a SoundFont part that is on");
+        assert_eq!(cpu(&m, 9).0, 0.0, "the band stopped");
+        assert_eq!(m.state.plugins.instances, 0);
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: MOCK_HEAVY_ID.into(), state: None });
+        assert_eq!(m.state.plugins.instances, 1);
+        m.send(TransportCmd::StartStop);
+        let (avg, peak) = cpu(&m, 3);
+        assert!(avg > 0.25 && peak > avg, "Right 2 (ch 3) plays the heavy plugin: {avg} {peak}");
+        assert!(cpu(&m, 9).0 > 0.0 && cpu(&m, 5).0 == 0.0, "Rhythm 1 plays, no Multi Pad");
+        let meters = m.meters();
+        let sum: f32 = meters.channels.iter().map(|c| c.cpu).sum();
+        assert!((meters.cpu.total - sum).abs() < 1e-6 && meters.cpu.buffer_us > 0.0);
+        m.send(PluginCmd::ClearPartPlugin { part: 1 });
+        assert_eq!(m.state.plugins.instances, 0);
+    }
+
     /// A plugin the system won't host out of process loads in process and says so (#104).
     #[test]
     fn a_plugin_that_falls_back_in_process_says_so() {
@@ -3312,6 +3386,21 @@ mod tests {
         assert_eq!(s.faders[5].set, Some(AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 5, volume: 0 })));
     }
 
+    /// Each fader layer lights the Panel page's part buttons and master button in its own
+    /// colour (src/launchkey.rs `layer_colour`), as the engine's surface does.
+    #[test]
+    fn fader_layers_light_the_fader_buttons_in_their_colour() {
+        let mut m = MockSession::new();
+        let rgb = |m: &MockSession, id: &str| m.state.surface.controls.iter().find(|c| c.id == id).map(|c| (c.rgb, c.level)).unwrap();
+        let want = [[0, 0, 127], [127, 127, 0], [0, 100, 127], [127, 0, 70], [127, 127, 127]];
+        for (layer, want) in yahaha::parts::FaderLayer::ALL.into_iter().zip(want) {
+            m.send(MixerCmd::SetFaderLayer { layer });
+            assert_eq!(rgb(&m, "masterButton"), (want, Level::Bright), "{layer:?}");
+            assert_eq!(rgb(&m, "faderButton1").0, want, "{layer:?}");
+            assert_eq!(rgb(&m, "faderButton5").0, [90, 0, 127], "{layer:?}: HARM/ARP keeps purple");
+        }
+    }
+
     #[test]
     fn track_neighbours_skip_styles_that_do_not_load_and_wrap() {
         let m = MockSession::new();
@@ -3687,5 +3776,7 @@ fn mock_plugins() -> PluginsState {
         missing: vec![MissingPlugin { id: "aumu Str1 Fake".into(), name: "String Deluxe".into(), manufacturer: "Fake Instruments".into(), racks: 1, sounds: 0 }],
         // The saved rack that plays it (Library › Racks, Needs attention).
         needs_attention: vec![RackAttention { id: "strings-night".into(), name: "Strings Night".into(), parts: vec![1] }],
+        // `derive` counts them.
+        instances: 0,
     }
 }

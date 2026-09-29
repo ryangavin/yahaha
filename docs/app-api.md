@@ -886,11 +886,12 @@ Which button LEDs are lit, and in what colour:
 - **Pad Bank ▲/▼:** lit in the page's colour (white, cyan, pink) where there is a page to
   go to.
 - **Track ◀/▶:** white when the library has another style.
-- **Fader buttons on the Panel page:** blue, bright when the part sounds and dim when it
-  is off. Fader buttons 5–8 are dark.
-- **Fader buttons on the Style page:** green, bright when the part plays and dim when it
-  is muted or muted by Manual Bass.
-- **Master button:** the page's colour, bright.
+- **Fader buttons on the Panel page:** the fader layer's colour (`mixer.faderLayer`: VOL
+  blue, PAN yellow, REV cyan, CHO pink, DLY white), bright when the part sounds and dim
+  when it is off. Fader buttons 5–8 keep their own colours.
+- **Fader buttons on the Style page:** green in every layer, bright when the part plays and
+  dim when it is muted or muted by Manual Bass.
+- **Master button:** the page's colour (on the Panel page, the layer's), bright.
 
 #### SurfaceFader
 | Field | Type | Meaning |
@@ -1060,6 +1061,7 @@ The instrument plugin host.
 | `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null), `inProcess` (the player chose to run it in yahaha's process: `setPluginInProcess`), `canRunInProcess` (every AUv2, and an AUv3 that allows it), `new` (a scan found it for the first time and it hasn't been opened or played since: `markPluginSeen`; the first scan ever marks nothing new), `racks` (how many of the user's racks, `<data>/Racks/*.rack.json`, have a part that plays it), `sounds` (how many sound library sounds play it). |
 | `missing` | MissingPlugin[] | Plugins that were installed before and aren't now, and plugins the user's racks or sounds use that aren't installed, by name: `id`, `name` and `manufacturer` (as last installed; the id and `""` if it never was here), `racks`, `sounds`. Empty until the first scan is in. A plugin seen before stays known (`<data>/known-plugins.json`), so reinstalling it doesn't make it `new`. |
 | `needsAttention` | RackAttention[] | The user's racks that need attention, by file name: a part's sound (a plugin, or a library sound) is on a missing plugin. `id`, `name`, `parts` (those parts, 0–3). The racks folder is read after each scan and within 2 s of a change. Nothing is rewritten. |
+| `instances` | number | Plugin instances loaded now (#407): one for every part, keyboard or Style, that plays a plugin (each part has its own instance), plus one still playing out while its part's next plugin loads. The Mixer and Library › Instruments show it. |
 
 ### `multiPad`
 Multi Pads (docs/multipad.md).
@@ -1284,15 +1286,25 @@ this object); the `meters` command returns the latest frame.
 | Field | Type | Meaning |
 |---|---|---|
 | `atMs` | ms | The session clock at the read. |
-| `channels` | `{ channel, peak, rms }[]` | All 16 channels: 1–4 the keyboard parts, 5–8 the Multi Pads, 9–16 the Style parts. `peak`: the highest since the last read; `rms`: the loudest audio buffer's RMS since the last read. Linear (1.0 = full scale), after the master level, before the soft clipper. Empty without the synth. |
+| `channels` | `{ channel, peak, rms, cpu, cpuPeak }[]` | All 16 channels: 1–4 the keyboard parts, 5–8 the Multi Pads, 9–16 the Style parts. `peak`: the highest since the last read; `rms`: the loudest audio buffer's RMS since the last read. Linear (1.0 = full scale), after the master level, before the soft clipper. `cpu` (#340): the track's render time over the last second (its SoundFont voices, part filter and insertion effect, or the plugin that plays it) as a share of the audio buffers' time (1.0 = the whole buffer); `cpuPeak`: its slowest single buffer in that second, the same way. Empty without the synth. |
 | `master` | [l, r] | The peaks after the soft clipper. |
 | `masterRms` | [l, r] | The RMS after the soft clipper, the loudest buffer's since the last read. |
 | `clips` | number | Audio buffers in which the soft clipper worked (above −1 dBFS), since start. |
+| `cpu` | `{ total, peak, bufferUs }` | #340: every track together. `total`: their render time over the last second as a share of the buffers' time; `peak`: the slowest single buffer's; `bufferUs`: the audio buffer's length in µs (0 before the first buffer). The effect bus, the click and the output stage are not in it. |
 
 Each read takes the levels (they restart from 0), so there is one reader (the app shell's
 meter thread); the client does the decay and peak hold. Measuring costs no allocation or
 lock on the audio thread: the rack sums the squares of each part's stem as it mixes it
 (`src/synth/rack.rs`) and the callback folds the result into atomics.
+
+The CPU figures are not reset by a read: the audio callback times each track's render
+(the rack's lanes, filter and insert for the channel, and its plugin's render) and adds
+it, with the buffer's length, to running totals in atomics (`synth::CpuCounters`); the
+worst buffer goes into an atomic maximum. A read at least a second after the last reading
+takes the difference of the totals (`synth::CpuWindow`) off the audio thread, so a reading
+changes once a second and every client polling the meters sees the same one. The app's
+Mixer reads the meters twice a second while it is open. Both mocks make up plausible
+figures (a playing plugin's `cpu`, the Style parts while the band plays).
 
 ## Events
 
@@ -1813,7 +1825,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "needsAttention": [
       { "id": "r5f3a2c1d-0", "name": "Ballad", "parts": [1] }
-    ]
+    ],
+    "instances": 1
   },
   "multiPad": {
     "bank": { "id": 0, "name": "Demo", "path": "/Users/me/Styles/Pads/Demo.pad" },

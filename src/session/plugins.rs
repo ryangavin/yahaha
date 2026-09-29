@@ -822,7 +822,15 @@ mod imp {
                     .collect(),
                 missing: Vec::new(),
                 needs_attention: Vec::new(),
+                instances: self.plugin_instances(),
             }
+        }
+
+        /// Plugin instances loaded now (#407): each channel's playing one, and one still
+        /// playing out while its channel's next plugin loads.
+        pub(crate) fn plugin_instances(&self) -> u32 {
+            let p = &self.plugins;
+            p.channels.iter().chain(&p.playing).flatten().filter(|c| c.status == PluginStatus::Playing).count() as u32
         }
 
         /// The player's "run in process" override for plugin `id`, saved in the scan cache.

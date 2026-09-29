@@ -17,6 +17,7 @@
   import FxKnob from './FxKnob.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import type { VoiceLines } from './voice'
+  import { cpuWarn, pct, type TrackCpu } from './cpu'
 
   let {
     name,
@@ -36,6 +37,7 @@
     fx = null,
     fxRow = false,
     eq = null,
+    cpu = null,
   }: {
     name: string
     /** 1-based MIDI channel at yahaha's output; null for an unused strip. */
@@ -78,6 +80,8 @@
     /** A keyboard part's channel-strip EQ (#247): its low and high shelves, and what
      *  turning a knob sends. Drawn under the send knobs. */
     eq?: { value: PartEq; onchange: (eq: PartEq) => void } | null
+    /** #340: the track's CPU (null: no reading, or an unused strip). */
+    cpu?: TrackCpu | null
   } = $props()
 
   const panText = (v: number) => (v === 64 ? 'C' : v < 64 ? `L${64 - v}` : `R${v - 64}`)
@@ -148,12 +152,21 @@
   <div class="badge">
     {#if badge}<span class="tag" use:tip={badge.tip}>{badge.text}</span>{/if}
   </div>
+
+  <div class="cpu" class:warn={cpuWarn(cpu)} data-testid="cpu">
+    {#if cpu !== null && !unused}
+      <span class="cpu-text" use:tip={cpu.summed ? 'mixer.cpu_group' : 'mixer.cpu'} aria-label="{name} CPU {pct(cpu.avg)}, peak {cpu.summed ? 'at most ' : ''}{pct(cpu.peak)}"
+        >{pct(cpu.avg)} <span class="pk">{cpu.summed ? '≤ ' : ''}pk {pct(cpu.peak)}</span></span
+      >
+      <span class="bar" aria-hidden="true"><span class="fill" style:width="{Math.min(1, cpu.avg) * 100}%"></span><span class="mark" style:left="{Math.min(1, cpu.peak) * 100}%"></span></span>
+    {/if}
+  </div>
 </div>
 
 <style>
   .strip {
     display: grid;
-    grid-template-rows: auto minmax(13rem, 1fr) auto auto auto;
+    grid-template-rows: auto minmax(13rem, 1fr) auto auto auto auto;
     justify-items: center;
     gap: 0.45rem;
     min-width: 0;
@@ -164,7 +177,53 @@
   }
   /* The knob row sits between the channel and the fader. */
   .strip.knobs {
-    grid-template-rows: auto var(--fx-h, 3.4rem) minmax(13rem, 1fr) auto auto auto;
+    grid-template-rows: auto var(--fx-h, 3.4rem) minmax(13rem, 1fr) auto auto auto auto;
+  }
+  /* #340: the track's CPU, a line and a thin bar (the tick is the worst buffer). */
+  .cpu {
+    display: grid;
+    gap: 0.15rem;
+    width: 100%;
+    min-height: 1.5rem;
+    justify-items: center;
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .cpu-text {
+    white-space: nowrap;
+  }
+  .pk {
+    opacity: 0.8;
+  }
+  .cpu.warn .pk {
+    color: var(--danger);
+    opacity: 1;
+  }
+  .bar {
+    position: relative;
+    width: 80%;
+    height: 3px;
+    border-radius: 2px;
+    background: rgb(0 0 0 / 0.3);
+  }
+  .fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+  .cpu.warn .fill {
+    background: var(--danger);
+  }
+  .mark {
+    position: absolute;
+    top: -1px;
+    width: 1px;
+    height: 5px;
+    background: var(--ink);
+    opacity: 0.6;
   }
   /* The knob row: the sends, and on a keyboard part the EQ under them (#247). */
   .fxcell {

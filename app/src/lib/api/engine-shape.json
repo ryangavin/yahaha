@@ -256,6 +256,7 @@
   "paramLocks.splitPoint: boolean",
   "paramLocks: object",
   "plugins.available: boolean",
+  "plugins.instances: number",
   "plugins.list: array",
   "plugins.scanning: boolean",
   "plugins: object",
