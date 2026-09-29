@@ -1016,6 +1016,43 @@ fn an_edit_in_the_open_plugin_window_shows_at_once_and_undoing_it_clears_it() {
     assert!(s.inner.lock().plugins.probes.is_empty() && !s.state().keyboard_parts[0].sound_edited);
 }
 
+/// A fingerprint read that ends without a result (its thread died) still frees the part's
+/// probe: the part keeps being read, so a later edit in the open window still shows.
+#[test]
+fn a_probe_that_ends_without_a_result_does_not_stop_the_reads() {
+    use crate::api::SoundLibraryCmd;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    wait_reads(&s);
+    let ch = crate::parts::CHANNEL[0];
+    let editor = s.inner.lock().plugins.channels[ch as usize].as_ref().unwrap().editor.clone().unwrap();
+    let until = |s: &Session, what: &str, done: &dyn Fn(&Session) -> bool| {
+        let t0 = Instant::now();
+        while !done(s) {
+            assert!(t0.elapsed() < Duration::from_secs(5), "{what}");
+            s.advance(250_000_000);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    let _window = editor.watch();
+    until(&s, "the open window's reads start", &|s| s.inner.lock().plugins.channels[ch as usize].as_ref().unwrap().sound_fp.is_some());
+    until(&s, "no read in flight", &|s| s.inner.lock().plugins.probes.is_empty());
+
+    // A read whose thread dies before it sends anything.
+    {
+        let mut g = s.inner.lock();
+        let (tx, rx) = std::sync::mpsc::channel();
+        drop(tx);
+        g.plugins.channels[ch as usize].as_mut().unwrap().probe.running = true;
+        g.plugins.probes.push((ch, rx));
+    }
+    editor.set_parameter(0, 0, 0, 30.0).unwrap();
+    until(&s, "the edit still shows", &|s| s.state().keyboard_parts[0].sound_edited);
+}
+
 /// D5/O7: a plugin sound in the library exports as an `.aupreset` in its plugin's preset
 /// folder (where Logic reads it), with #307's overwrite rule. The plugin is the made-up
 /// "Sampler Deluxe" from a mock scan cache; no real plugin state is used.

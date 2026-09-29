@@ -193,7 +193,6 @@ mod imp {
     /// A fingerprint read's result ([`Probe`]): the state itself is dropped on the reading
     /// thread, so the control thread never holds (or saves) it.
     pub(crate) struct ProbeRead {
-        ch: u8,
         inst: InstanceRef,
         /// None: the read failed (it is tried again later).
         fp: Option<u64>,
@@ -298,8 +297,9 @@ mod imp {
         /// a sampler's can be MBs, so the control thread never waits for one.
         pub(crate) state_reads: Vec<mpsc::Receiver<StateRead>>,
         /// Fingerprint reads of parts whose plugin window is open ([`Probe`]). Apart from
-        /// `state_reads`, so the autosave and a Save never wait for them.
-        pub(crate) probes: Vec<mpsc::Receiver<ProbeRead>>,
+        /// `state_reads`, so the autosave and a Save never wait for them. Each with its
+        /// channel, so a read that ends without a result still frees the channel's probe.
+        pub(crate) probes: Vec<(u8, mpsc::Receiver<ProbeRead>)>,
         /// Plugins preloaded for the Registration bank's buttons (plugins/pool.rs).
         pub(crate) warm: super::pool::WarmPool,
         /// Preset listings running (`listPluginPresets`).
@@ -542,11 +542,11 @@ mod imp {
                     let inst = e.instance();
                     // As in `read_states`: the unit is never disposed of on the control thread.
                     drop(e);
-                    let _ = tx.send(ProbeRead { ch, inst, fp, took_ns });
+                    let _ = tx.send(ProbeRead { inst, fp, took_ns });
                 });
                 if ok.is_ok() {
                     c.probe.running = true;
-                    self.plugins.probes.push(rx);
+                    self.plugins.probes.push((ch, rx));
                 }
             }
         }
@@ -554,21 +554,35 @@ mod imp {
         /// Fingerprint reads done since the last pump: "edited" for the channels that still
         /// play the instance read, and when each may be read next.
         fn pump_probes(&mut self, now: u64) {
+            // Every read that ended, with its result if it sent one (None: its thread died).
             let mut done = Vec::new();
-            self.plugins.probes.retain(|rx| match rx.try_recv() {
+            self.plugins.probes.retain(|(ch, rx)| match rx.try_recv() {
                 Ok(r) => {
-                    done.push(r);
+                    done.push((*ch, Some(r)));
                     false
                 }
                 Err(mpsc::TryRecvError::Empty) => true,
-                Err(mpsc::TryRecvError::Disconnected) => false,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done.push((*ch, None));
+                    false
+                }
             });
-            for r in done {
-                let Some(c) = self.plugins.channels[r.ch as usize].as_mut() else { continue };
+            for (ch, r) in done {
+                // Whatever the outcome, the channel's probe has ended (unless another is
+                // still in flight for it), so the part keeps being read.
+                let pending = self.plugins.probes.iter().any(|(p, _)| *p == ch);
+                let Some(c) = self.plugins.channels[ch as usize].as_mut() else { continue };
+                if !pending {
+                    c.probe.running = false;
+                }
+                let Some(r) = r else {
+                    c.probe.next_ns = now.saturating_add(PROBE_NS);
+                    continue;
+                };
                 if !c.editor.as_ref().is_some_and(|e| r.inst.is(e)) {
                     continue;
                 }
-                c.probe = Probe { running: false, next_ns: now.saturating_add(PROBE_NS.max(r.took_ns.saturating_mul(4))) };
+                c.probe = Probe { running: pending, next_ns: now.saturating_add(PROBE_NS.max(r.took_ns.saturating_mul(4))) };
                 if let Some(fp) = r.fp
                     && c.status == PluginStatus::Playing
                 {
