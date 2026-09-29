@@ -9,6 +9,8 @@ use std::time::Instant;
 
 #[path = "mock_multipad.rs"]
 mod multipad;
+#[path = "mock_racks.rs"]
+mod racks;
 #[path = "mock_sound.rs"]
 mod sound;
 #[path = "mock_sounds.rs"]
@@ -200,6 +202,8 @@ pub struct MockSession {
     sounds: sounds::MockSounds,
     /// Knob Assign pages (#197): the engine's own model.
     knobs: yahaha::knobs::Knobs,
+    /// The user's racks (mock_racks.rs).
+    racks: racks::MockRacks,
 }
 
 impl Default for MockSession {
@@ -413,7 +417,8 @@ impl MockSession {
                 ..EffectsState::initial()
             },
             home: HomeState::default(),
-            live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default() },
+            live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default(), prompt: None },
+            racks: Vec::new(),
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -447,6 +452,7 @@ impl MockSession {
             sound: sound::MockSound::default(),
             sounds: sounds::MockSounds::default(),
             knobs: Default::default(),
+            racks: Default::default(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -785,9 +791,11 @@ impl MockSession {
         self.derive();
         // The live rack: any change to what it holds sets modified (the session's
         // `pump_live_rack`).
-        if live_rack_view(&self.state) != live_rack_view(before) {
+        if live_rack_view(&self.state) != live_rack_view(before) && !self.racks.clean {
             self.state.live_rack.modified = true;
         }
+        self.racks.clean = false;
+        self.state.racks = self.racks.entries();
         // The clock as read when the state last changed: time passing alone changes nothing.
         let clock = &mut self.state.surface.clock;
         *clock = clock.at(before.surface.clock.at_ms);
@@ -2073,6 +2081,7 @@ impl MockSession {
                 None => self.message(format!("Style part {part} has no insertion effect"), true),
             },
             AppCmd::Fx(FxCmd::SetRotaryFast { on }) => self.state.effects.rotary_fast = on,
+            AppCmd::Rack(c) => self.rack_cmd(c),
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Fx(FxCmd::SetPadSend { block, level }) => self.state.effects.blocks[block.index()].pad_send = level.min(127),
@@ -2528,7 +2537,7 @@ mod tests {
                 m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
                 m.state.live_rack.modified = false;
             }
-            assert_eq!(m.state.live_rack, LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default() });
+            assert_eq!(m.state.live_rack, LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default(), prompt: None });
             m.send(TransportCmd::StartStop);
             m.advance(bar_ms(&m) * 2.0);
             assert!(!m.state.live_rack.modified, "change {i}: not by the band");
@@ -2742,6 +2751,38 @@ mod tests {
         pick(&mut m, 0);
         m.send(OtsCmd::RecallOts { index: i as u8 });
         assert!(m.state.keyboard_parts[0].plugin.is_none(), "OTS");
+    }
+
+    /// The rack commands (docs/racks.md, "Saving"), as the session does them: save as, the
+    /// unsaved-changes guard, load, rename, duplicate, delete (never the loaded rack).
+    #[test]
+    fn rack_commands_and_the_switching_guard() {
+        let mut m = MockSession::new();
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        let id = m.state.racks[0].id.clone();
+        assert_eq!(m.state.live_rack, LiveRackState { name: "Ballad".into(), id: Some(id.clone()), modified: false, controls: Default::default(), prompt: None });
+
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 99 });
+        assert!(m.state.live_rack.modified);
+        m.send(RackCmd::NewRack { discard: false });
+        assert_eq!(m.state.live_rack.prompt, Some(RackPrompt::UnsavedChanges { then: RackSwitch::New }));
+        assert_eq!(m.state.keyboard_parts[0].volume, 99, "nothing changed");
+        m.send(RackCmd::DismissRackPrompt);
+        assert_eq!(m.state.live_rack.prompt, None);
+        m.send(RackCmd::LoadRack { id: id.clone(), discard: true });
+        assert_eq!(m.state.keyboard_parts[0].volume, 30);
+        assert!(!m.state.live_rack.modified);
+
+        m.send(RackCmd::DuplicateRack { id: id.clone() });
+        m.send(RackCmd::RenameRack { id: id.clone(), name: "Slow".into() });
+        assert_eq!(m.state.racks.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["Ballad copy", "Slow"]);
+        assert_eq!(m.state.live_rack.name, "Slow");
+        m.send(RackCmd::DeleteRack { id: id.clone() });
+        assert_eq!(m.state.racks.len(), 2, "not the loaded rack");
+        let copy = m.state.racks[0].id.clone();
+        m.send(RackCmd::DeleteRack { id: copy });
+        assert_eq!(m.state.racks.len(), 1);
     }
 
     /// New and missing plugins (docs/racks.md): a new plugin stops being new once opened or

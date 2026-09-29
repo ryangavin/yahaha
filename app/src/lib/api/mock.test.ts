@@ -21,7 +21,7 @@ describe('mock session', () => {
       { type: 'setHarmonyArpOn', on: true },
     ] as const) {
       const m = new MockSession({ manual: true })
-      expect(m.state.liveRack).toMatchObject({ name: 'New rack', id: null, modified: false })
+      expect(m.state.liveRack).toMatchObject({ name: 'New rack', id: null, modified: false, prompt: null })
       expect(m.state.liveRack.controls.faders).toEqual([0, 1, 2, 3].map((part) => ({ kind: 'partLevel', part })))
       expect(m.state.liveRack.controls.knobs.slice(4)).toEqual(Array(4).fill({ kind: 'none' }))
       m.send({ type: 'startStop' })
@@ -30,6 +30,35 @@ describe('mock session', () => {
       m.send(cmd)
       expect(m.state.liveRack.modified).toBe(true)
     }
+  })
+
+  it('rack commands: save as, the unsaved-changes guard, load, rename, duplicate, delete', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setPartVolume', part: 0, volume: 30 })
+    m.send({ type: 'saveRackAs', name: 'Ballad' })
+    const id = m.state.racks[0].id
+    expect(m.state.racks.map((r) => r.name)).toEqual(['Ballad'])
+    expect(m.state.liveRack).toMatchObject({ name: 'Ballad', id, modified: false, prompt: null })
+
+    m.send({ type: 'setPartVolume', part: 0, volume: 99 })
+    m.send({ type: 'newRack' })
+    expect(m.state.liveRack.prompt).toEqual({ kind: 'unsavedChanges', then: { kind: 'new' } })
+    expect(m.state.keyboardParts[0].volume).toBe(99)
+    m.send({ type: 'dismissRackPrompt' })
+    expect(m.state.liveRack.prompt).toBeNull()
+    m.send({ type: 'loadRack', id, discard: true })
+    expect(m.state.keyboardParts[0].volume).toBe(30)
+    expect(m.state.liveRack.modified).toBe(false)
+
+    m.send({ type: 'duplicateRack', id })
+    m.send({ type: 'renameRack', id, name: 'Slow' })
+    expect(m.state.racks.map((r) => r.name)).toEqual(['Ballad copy', 'Slow'])
+    expect(m.state.liveRack.name).toBe('Slow')
+    m.send({ type: 'deleteRack', id })
+    expect(m.state.racks).toHaveLength(2)
+    expect(m.state.message?.error).toBe(true)
+    m.send({ type: 'deleteRack', id: m.state.racks[0].id })
+    expect(m.state.racks.map((r) => r.name)).toEqual(['Slow'])
   })
 
   it('a queued Main takes over at the next bar', () => {

@@ -173,10 +173,15 @@ pub(super) struct LiveRack {
     /// Where it autosaves. None: it doesn't (an offline session without one, or a file a
     /// newer yahaha wrote).
     path: Option<PathBuf>,
-    name: String,
+    pub(super) name: String,
     /// The saved rack it came from.
-    id: Option<String>,
-    modified: bool,
+    pub(super) id: Option<String>,
+    pub(super) modified: bool,
+    /// A rack command waiting for the player's answer (session/rack_cmds.rs).
+    pub(super) prompt: Option<crate::api::RackPrompt>,
+    /// A switch waiting for a save the player chose first, while the save asks for sound
+    /// names (session/rack_cmds.rs).
+    pub(super) held: Option<crate::api::RackSwitch>,
     /// The rack as the last check saw it, without plugin states. None until the first
     /// pump after the start.
     seen: Option<Rack>,
@@ -266,12 +271,12 @@ impl Control {
         l.changed_ns = now;
     }
 
-    /// Loading or saving a rack: the live rack is that rack, unmodified.
-    #[cfg_attr(not(test), allow(dead_code))] // the rack commands (docs/racks.md, item 5)
+    /// Loading or saving a rack: the live rack is that rack, unmodified (and saved soon).
     pub(super) fn live_rack_clean(&mut self, name: &str, id: Option<String>) {
         self.live_rack.name = name.to_string();
         self.live_rack.id = id;
         self.live_rack.modified = false;
+        self.live_rack.prompt = None;
         self.live_rack.seen = Some(self.capture_rack_with(false));
         self.live_rack_touched(self.clock_ns);
     }
@@ -347,7 +352,7 @@ impl Control {
 
     pub(super) fn live_rack_state(&self) -> LiveRackState {
         let l = &self.live_rack;
-        LiveRackState { name: l.name.clone(), id: l.id.clone(), modified: l.modified, controls: self.rack_controls.clone() }
+        LiveRackState { name: l.name.clone(), id: l.id.clone(), modified: l.modified, controls: self.rack_controls.clone(), prompt: l.prompt.clone() }
     }
 }
 

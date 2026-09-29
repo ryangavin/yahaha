@@ -58,12 +58,15 @@ struct KnownFile {
     plugins: Vec<Known>,
 }
 
-/// What a user rack's parts play.
+/// What a user rack's parts play, and where its file is (the rack commands and the
+/// racks list read it from here).
 #[derive(Debug)]
-struct RackUse {
-    id: String,
-    name: String,
-    sounds: Vec<SoundRef>,
+pub(super) struct RackUse {
+    pub(super) id: String,
+    pub(super) name: String,
+    pub(super) sounds: Vec<SoundRef>,
+    pub(super) on: Vec<bool>,
+    pub(super) path: PathBuf,
 }
 
 /// The control side's record of the plugins seen, and the racks that use them.
@@ -180,9 +183,25 @@ impl Presence {
         // A rack that can't be read (a newer yahaha's, damaged) uses nothing we can tell.
         self.racks = files
             .iter()
-            .filter_map(|f| Rack::load(f).ok())
-            .map(|r| RackUse { id: r.id, name: r.name, sounds: r.parts.into_iter().map(|p| p.sound).collect() })
+            .filter_map(|f| Rack::load(f).ok().map(|r| (f, r)))
+            .map(|(f, r)| RackUse {
+                id: r.id,
+                name: r.name,
+                on: r.parts.iter().map(|p| p.on).collect(),
+                sounds: r.parts.into_iter().map(|p| p.sound).collect(),
+                path: f.clone(),
+            })
             .collect();
+    }
+
+    /// The racks folder (None: no data folder, so racks can't be saved).
+    pub(super) fn racks_dir(&self) -> Option<&Path> {
+        self.racks_dir.as_deref()
+    }
+
+    /// The user's racks as last read.
+    pub(super) fn racks(&self) -> &[RackUse] {
+        &self.racks
     }
 }
 
@@ -205,7 +224,8 @@ impl Control {
 
     /// Now and then: the racks folder read again if it changed.
     pub(super) fn pump_plugin_presence(&mut self, now: u64) {
-        if now.saturating_sub(self.presence.racks_ns) >= RACKS_EVERY_NS {
+        // The first pump reads them at once, so the racks list is there from the start.
+        if self.presence.racks_key.is_none() || now.saturating_sub(self.presence.racks_ns) >= RACKS_EVERY_NS {
             self.presence.racks_ns = now;
             self.presence.refresh_racks(false);
         }

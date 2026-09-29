@@ -602,6 +602,30 @@ The list itself is fetched, not in the state: see [`sounds`](#sounds).
 The program map's rule commands (`setFamilyRule`, `setProgramOverride`, `setDrumRule`) also
 take a catalog id as their `patch`, so the map's pickers pick from the same list.
 
+### Racks
+The user's racks (docs/racks.md, "Saving"): `<data>/Racks/<name>.rack.json`, named by a
+stable `id` (a rename keeps it). The list is [`racks`](#racks); the rack playing now is
+[`liveRack`](#liverack). Loading or saving a rack leaves the live rack that rack
+(`name`, `id`), unmodified, and autosaves it. Every command fails with no data folder,
+except `newRack`.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `newRack` | `discard`? | A new rack: every keyboard part on its default GM voice (Right 1 Grand Piano, Right 2 Strings, Right 3 Brass, Left Strings) with level 100, pan centre and dry sends, only Right 1 on, octave 0, no voice settings, bend range 2; the split F#2, no keyboard transpose, Harmony/Arpeggio off (its settings kept) and the default controller map. `liveRack` becomes `New rack` with no id. With unsaved changes (`liveRack.modified`) and no `discard: true`, nothing changes: it returns `{"kind":"unsavedChanges"}` and `liveRack.prompt` asks. |
+| `loadRack` | `id`, `discard`? | Loads the user's rack `id`: its parts' sounds and mix, split, Harmony/Arpeggio, keyboard transpose and controller map (as `applyRack`). A sound that can't play is reported in `message` and the rest still loads. The same guard as `newRack`. Fails for an unknown id or a rack that can't be read. |
+| `saveRack` | `soundNames`? | Save rack: writes the live rack over its own rack (the one `liveRack.id` names); a live rack with none (`New rack`, `Restored`, or its rack deleted) is saved as a new rack under its name (`Name 2`… if taken). Edited sounds are saved in the same step: a part whose plugin was edited (`soundEdited`) and plays the user's own sound saves over that sound (as `saveSound`); one playing a factory preset, an `.aupreset` file or a sound that isn't the user's becomes a new sound of the user's (as `saveSoundAs`), which needs a name in `soundNames` (`{"1": "Soft Pad"}`, by part). Without one, nothing is saved: it returns `{"kind":"needsSoundNames"}` and `liveRack.prompt` lists the parts. Each sound is one record, and the rack names it with no edit of its own. A plugin picked with no sound (its default) keeps its settings in the rack, with no sound made. Factory sounds are never overwritten. |
+| `saveRackAs` | `name`, `soundNames`? | Save as…: the live rack as a new rack called `name`, with its edited sounds as `saveRack`. Fails for an empty name or one another rack has. |
+| `revertRack` | | Discards the live rack's changes: loads its own rack again, with no question. Fails when it has none. |
+| `renameRack` | `id`, `name` | Renames rack `id` (its file follows; the id stays, so Quick Racks keep it). Renaming the loaded rack renames the live rack too, leaving `modified` as it was. Fails for an empty name or one another rack has. |
+| `duplicateRack` | `id` | Copies rack `id` as `<name> copy` (`<name> copy 2`… if taken), with a new id. |
+| `deleteRack` | `id` | Deletes rack `id`'s file. Refused for the loaded rack (`liveRack.id`): load another first. |
+| `dismissRackPrompt` | | Keep editing: clears `liveRack.prompt`; nothing else changes. |
+
+The Launchkey and pedals, which have no dialog, switch racks with
+`Session::load_rack_from_hardware`: unsaved changes are kept as a rack of the user's,
+`Recovered: <name>` (numbered if taken, edited plugin states kept as the parts' edits, no
+sound saved), and the switch goes ahead. If that rack can't be written, nothing changes.
+
 ### Result: `CmdError`
 
 `send` returns `Ok(())` or one of these errors:
@@ -609,6 +633,10 @@ take a catalog id as their `patch`, so the map's pickers pick from the same list
   again.
 - `{"kind":"failed","message":"…"}`: refused or failed. The same text is in
   `state.message`.
+- `{"kind":"unsavedChanges"}`: `loadRack` or `newRack` would lose the live rack's unsaved
+  changes. Nothing changed; `liveRack.prompt` holds the switch.
+- `{"kind":"needsSoundNames"}`: `saveRack` or `saveRackAs` would make new sounds that
+  need names. Nothing was saved; `liveRack.prompt` lists the parts.
 
 `Ok` means the control side has applied the command, and `state()` straight after
 `send` already shows it. For engine commands (sections, tempo, mute, Style volume), a
@@ -1213,7 +1241,7 @@ Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `
 
 ### `liveRack`
 The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
-plugin states included. `{ name, id, modified, controls }`.
+plugin states included. `{ name, id, modified, controls, prompt }`.
 - `name`: the saved rack's it came from; `Restored` on the first start after racks came in
   (made from the old `plugin-parts.json` and the parts); `New rack` when it came from none.
 - `id`: the saved rack it came from, or null.
@@ -1228,6 +1256,17 @@ plugin states included. `{ name, id, modified, controls }`.
   `splitPoint`; a target a newer build wrote is passed through as it is. A new rack has the
   four parts' levels on faders 1–4 and knobs 1–4, and none on knobs 5–8. The Rack panel
   shows it.
+- `prompt`: a rack command waiting for the player's answer, or null. It is set when a
+  command is refused for it, and cleared by `dismissRackPrompt` or once a rack is loaded
+  or saved.
+  - `{ "kind": "unsavedChanges", "then": { "kind": "load", "id", "name" } }` (or
+    `"then": { "kind": "new" }`): `loadRack` / `newRack` with unsaved changes. The app
+    offers Save first (`saveRack`, then the switch), Discard and switch (the switch with
+    `discard: true`) and Keep editing (`dismissRackPrompt`).
+  - `{ "kind": "soundNames", "parts": [{ "part", "suggested" }], "saveAs" }`: `saveRack`
+    (`saveAs` null) or `saveRackAs` (`saveAs` the rack's name) found edited presets that
+    become new sounds. `suggested` is the preset's name. Send the save again with
+    `soundNames`.
 
 A live session autosaves the live rack to `~/Library/Application Support/yahaha/live-rack.json`
 (atomically, off the control and audio threads: a second after the last change, or at most
@@ -1236,6 +1275,15 @@ and applies it at the next start, so the parts sound and mix as before quitting,
 not. A file that can't be read is moved aside (`live-rack.json.bak`) and the session starts
 on its defaults; one a newer yahaha wrote is left alone and not saved over. An offline
 session keeps no live rack unless `Options::live_rack` names a file.
+
+### `racks`
+The user's racks (`<data>/Racks/*.rack.json`), by file name, for Library › Racks. Each is
+`{ id, name, parts, on, needsAttention }`: `parts` names the sound each keyboard part plays
+(Right 1, Right 2, Right 3, Left: the library sound's name, the SoundFont preset's or GM
+voice's, or the plugin's), `on` says which parts are on, and `needsAttention` is true when a
+part's sound is on a missing plugin (`plugins.needsAttention` names the parts). The folder
+is read at start, after each rack command, after each plugin scan, and within 2 s of a
+change on disk. A rack that can't be read is not listed.
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1989,8 +2037,12 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "controls": {
       "faders": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }],
       "knobs": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }]
-    }
+    },
+    "prompt": null
   },
+  "racks": [
+    { "id": "r5f3a2c1d-0", "name": "Ballad", "parts": ["Grand Piano", "Sampler Deluxe", "Brass Section", "Strings"], "on": [true, true, false, true], "needsAttention": true }
+  ],
   "message": null
 }
 ```

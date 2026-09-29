@@ -2437,6 +2437,26 @@
           "kind": "none"
         }
       ]
+    },
+    "prompt": null
+  },
+  "racks": [
+    {
+      "id": "r5f3a2c1d-0",
+      "name": "Ballad",
+      "parts": [
+        "Grand Piano",
+        "Strings",
+        "Brass Section",
+        "Strings"
+      ],
+      "on": [
+        true,
+        false,
+        false,
+        false
+      ],
+      "needsAttention": false
     }
-  }
+  ]
 }
