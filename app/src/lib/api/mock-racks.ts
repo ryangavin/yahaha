@@ -18,12 +18,19 @@ interface MockRack {
   controls: ControlMap
 }
 
-const TARGET_KINDS = new Set(['none', 'partLevel', 'partPan', 'partReverb', 'partChorus', 'harmonyArp', 'splitPoint', 'harmonyVolume', 'metronomeVolume', 'tempo'])
+const TARGET_KINDS = new Set([
+  'none', 'partLevel', 'partPan', 'partReverb', 'partChorus', 'partDelay', 'partInsertOn', 'partInsertSetting', 'partSend', 'harmonyArp', 'splitPoint', 'harmonyVolume',
+  'metronomeVolume', 'rotaryFast', 'tempo',
+])
+
+/** `v` is a whole number `lo`-`hi`, or absent. */
+const within = (v: number | undefined, lo: number, hi: number) => v === undefined || (Number.isInteger(v) && v >= lo && v <= hi)
 
 /** Why controller `index` can't do `target` (`ControlMap::set`), or null. */
 function refuseControl(m: ControlMap, control: RackControl, index: number, target: ControlTarget): string | null {
-  const part = 'part' in target ? target.part : 0
-  if (!TARGET_KINDS.has(target.kind) || part < 0 || part > 3) return `no controller target ${JSON.stringify(target)}`
+  const t = target as { part?: number; slot?: number; setting?: number; send?: number }
+  const known = TARGET_KINDS.has(target.kind) && within(t.part, 0, 3) && within(t.slot, 0, 1) && within(t.setting, 0, 3) && within(t.send, 0, 5)
+  if (!known) return `no controller target ${JSON.stringify(target)}`
   if (control === 'fader' && target.kind === 'tempo') return "a fader can't set the tempo: put it on a knob"
   const n = control === 'fader' ? m.faders.length : m.knobs.length
   if (index < 0 || index >= n) return `no ${control} ${index + 1} (1-${n})`

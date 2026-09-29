@@ -21,17 +21,20 @@ import { mockHome } from './mock-home'
 import { MockQuickRacks, type QuickCtx } from './mock-quick-racks'
 import { MockRacks } from './mock-racks'
 import { MockStyleRacks } from './mock-style-racks'
+import { FX_PARAMS, fxParams, isStripCmd, MockStrips, stripLegacy } from './mock-strips'
 import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, clampEq, COMP_PRESETS, eqPresetBands, MASTER_EQ_FREQ_RANGE, defaultControlMap, FLAT_EQ, OFF_INSERT, type PartInsert, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
-  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PartEq, type PreviewState, type RackCmd, type StopAcmpMode,
+  BREAK, CHORD_SETTLE_MAX_MS, clampEq, COMP_PRESETS, defaultStrip, eqPresetBands, MASTER_EQ_FREQ_RANGE, defaultControlMap, FLAT_EQ, OFF_INSERT, type PartInsert, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PartEq, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
 import { GM, NOTE_NAMES, noteName } from './constants'
 
 // Moved to ./constants (the app imports them from there, not from the mock).
 export { GM, noteName }
+// Moved to ./mock-strips (the send effects share it).
+export { FX_PARAMS }
 
 interface FixtureStyle {
   id: number
@@ -202,7 +205,7 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0, eq: { ...FLAT_EQ }, insert: { ...OFF_INSERT }, fader: null, patch: null as string | null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0, eq: { ...FLAT_EQ }, insert: { ...OFF_INSERT }, strip: defaultStrip(), fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
@@ -229,7 +232,7 @@ export function initialState(): AppState {
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: true, mutedByManualBass: false,
         volume: [100, 100, 96, 80, 76, 70, 88, 84][i], waiting: false, fader: null,
-        reverb: MOCK_STYLE_SENDS[i][0], chorus: MOCK_STYLE_SENDS[i][1], variation: MOCK_STYLE_SENDS[i][2], sendsSet: [],
+        reverb: MOCK_STYLE_SENDS[i][0], chorus: MOCK_STYLE_SENDS[i][1], variation: MOCK_STYLE_SENDS[i][2], sendsSet: [], strip: defaultStrip(),
         voice: { bankMsb: STYLE_VOICES[i][0], bankLsb: STYLE_VOICES[i][1], program: STYLE_VOICES[i][2], kit: STYLE_VOICES[i][3], label: STYLE_VOICES[i][4] },
       })),
       master: 100,
@@ -286,6 +289,7 @@ export function initialState(): AppState {
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
+  new MockStrips().fill(state)
   return state
 }
 
@@ -445,6 +449,8 @@ export class MockSession implements Session {
   private quick = new MockQuickRacks()
   /** Style racks: OTS buttons that load a user rack, per style (mock-style-racks.ts). */
   private styleRacks = new MockStyleRacks()
+  /** Channel strips and send effects (mock-strips.ts). */
+  private strips = new MockStrips()
   /** A rack was just loaded or saved: the next publish takes what plays as unmodified. */
   private rackClean = false
   /** Multi Pads (mock-multipad.ts). */
@@ -622,6 +628,7 @@ export class MockSession implements Session {
     this.sound.derive(this.state)
     this.catalogMock.derive(this.state)
     this.state.knobs = this.knobs.state(this.state)
+    this.strips.fill(this.state)
     // The live rack: any change to what it holds sets modified (the session's pump_live_rack).
     const rack = liveRackView(this.state)
     if (this.rackSeen !== null && rack !== this.rackSeen && !this.rackClean) this.state.liveRack.modified = true
@@ -1240,6 +1247,15 @@ export class MockSession implements Session {
     }
     if (this.styleRacks.handles(cmd)) {
       this.styleRacks.cmd(cmd, { state: this.state, message: (text, error) => this.message(text, error) })
+      return
+    }
+    if (isStripCmd(cmd)) {
+      // As the session's `strips_cmd`: the older command first, then the strips; what the
+      // older command took, it decided.
+      const old = stripLegacy(cmd)
+      if (old) this.cmd(old)
+      const why = this.strips.apply(cmd)
+      if (why && !old) this.message(why, true)
       return
     }
     const st = this.state
@@ -2124,49 +2140,6 @@ export class MockSession implements Session {
   }
 }
 
-/** Each effect parameter's block, name, range and reading, as the session's (#236). */
-export const FX_PARAMS: Record<FxParam, { block: FxBlock; name: string; min: number; max: number; display: (v: number) => string }> = {
-  reverbTime: { block: 'reverb', name: 'Time', min: 3, max: 100, display: (v) => `${(v / 10).toFixed(1)} s` },
-  preDelay: { block: 'reverb', name: 'Pre-delay', min: 0, max: 200, display: (v) => `${v} ms` },
-  reverbTone: { block: 'reverb', name: 'Tone', min: 10, max: 200, display: (v) => `${(v / 10).toFixed(1)} kHz` },
-  delaySync: { block: 'variation', name: 'Tempo sync', min: 0, max: 1, display: (v) => (v ? 'On' : 'Off') },
-  delayNote: { block: 'variation', name: 'Note', min: 0, max: 7, display: (v) => ['1/16', '1/8T', '1/8', '1/4T', '1/8.', '1/4', '1/4.', '1/2'][v] },
-  delayTime: { block: 'variation', name: 'Time', min: 10, max: 2000, display: (v) => `${v} ms` },
-  delayFeedback: { block: 'variation', name: 'Feedback', min: 0, max: 90, display: (v) => `${v}%` },
-  delayTone: { block: 'variation', name: 'Tone', min: 10, max: 200, display: (v) => `${(v / 10).toFixed(1)} kHz` },
-  pingPong: { block: 'variation', name: 'Ping-pong', min: 0, max: 1, display: (v) => (v ? 'On' : 'Off') },
-  chorusRate: { block: 'chorus', name: 'Rate', min: 5, max: 500, display: (v) => `${(v / 100).toFixed(2)} Hz` },
-  chorusDepth: { block: 'chorus', name: 'Depth', min: 0, max: 50, display: (v) => `${(v / 10).toFixed(1)} ms` },
-}
-const DELAY = { delaySync: 1, delayTime: 375, delayFeedback: 38, delayTone: 50 }
-
-/** Each type's own parameter values (the session's `type_defaults`). */
-const FX_TYPE_PARAMS: Partial<Record<FxType, Partial<Record<FxParam, number>>>> = {
-  hall: { reverbTime: 24, preDelay: 22, reverbTone: 45 },
-  room: { reverbTime: 9, preDelay: 4, reverbTone: 60 },
-  stage: { reverbTime: 17, preDelay: 12, reverbTone: 65 },
-  plate: { reverbTime: 18, preDelay: 1, reverbTone: 90 },
-  chorus: { chorusRate: 55, chorusDepth: 22 },
-  celeste: { chorusRate: 29, chorusDepth: 9 },
-  flanger: { chorusRate: 21, chorusDepth: 18 },
-  eighth: { ...DELAY, delayNote: 2, pingPong: 0 },
-  dottedEighth: { ...DELAY, delayNote: 4, pingPong: 0 },
-  quarter: { ...DELAY, delayNote: 5, pingPong: 0 },
-  pingPong: { ...DELAY, delayNote: 2, pingPong: 1 },
-}
-
-/** A block's parameters at type `effect`'s own values. */
-function fxParams(block: FxBlock, effect: FxType): FxParamState[] {
-  const own = FX_TYPE_PARAMS[effect] ?? {}
-  return (Object.keys(FX_PARAMS) as FxParam[])
-    .filter((p) => FX_PARAMS[p].block === block)
-    .map((param) => {
-      const { name, min, max, display } = FX_PARAMS[param]
-      const value = own[param] ?? min
-      return { param, name, value, min, max, default: value, display: display(value) }
-    })
-}
-
 /** The mock style's own sends per Style part (#268): reverb, chorus, variation (as the Rust mock's). */
 /** The XG part EQ the mock's OTS `n` sets on part `p` (#247), as an SFF's OTS carries it:
  *  only OTS 1's Right 1 has one; the Rust dev mock has the same (`mock_ots_eq`). */
@@ -2215,6 +2188,8 @@ export function initialEffects(): EffectsState {
       compressor: { on: false, preset: 'natural', compression: 30, texture: 50, output: 1, edited: false },
       eq: { on: false, preset: 'flat', bands: eqPresetBands('flat'), edited: false },
     },
+    // Filled in by MockStrips.fill (mock-strips.ts).
+    sends: [],
   }
 }
 

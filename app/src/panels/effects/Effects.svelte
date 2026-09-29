@@ -50,7 +50,7 @@
     chorusRate: 'fx.param.chorus_rate',
     chorusDepth: 'fx.param.chorus_depth',
   }
-  const INSERT_NAMES: Record<InsertEffect, string> = { distortion: 'Distortion', compressor: 'Compressor', autoWah: 'Auto Wah', tremolo: 'Tremolo', rotary: 'Rotary' }
+  const INSERT_NAMES: Record<InsertEffect, string> = { distortion: 'Distortion', compressor: 'Compressor', autoWah: 'Auto Wah', tremolo: 'Tremolo', rotary: 'Rotary', phaser: 'Phaser' }
 
   /** The Variation block is the tempo delay: named for what it plays. */
   const title = (b: EffectBlockState) => (b.block === 'variation' ? 'Delay' : b.name)

@@ -48,6 +48,16 @@ export function targetLabel(t: ControlTarget | undefined): string {
       return `${PART_NAMES[t.part] ?? '?'} reverb`
     case 'partChorus':
       return `${PART_NAMES[t.part] ?? '?'} chorus`
+    case 'partDelay':
+      return `${PART_NAMES[t.part] ?? '?'} delay`
+    case 'partInsertOn':
+      return `${PART_NAMES[t.part] ?? '?'} insert ${t.slot + 1} on/off`
+    case 'partInsertSetting':
+      return `${PART_NAMES[t.part] ?? '?'} insert ${t.slot + 1} setting ${t.setting + 1}`
+    case 'partSend':
+      return `${PART_NAMES[t.part] ?? '?'} send ${t.send + 1}`
+    case 'rotaryFast':
+      return 'Rotary fast/slow'
     case 'harmonyArp':
       return 'Harmony/Arp on/off'
     case 'splitPoint':
@@ -63,15 +73,25 @@ export function targetLabel(t: ControlTarget | undefined): string {
   }
 }
 
-/** A target as a select's option value: "partPan:2", "splitPoint". */
+/** A target as a select's option value: "partPan:2", "partInsertSetting:0:1:2", "splitPoint". */
 export function targetKey(t: ControlTarget | undefined): string {
   if (!t) return 'none'
+  switch (t.kind) {
+    case 'partInsertOn':
+      return `${t.kind}:${t.part}:${t.slot}`
+    case 'partInsertSetting':
+      return `${t.kind}:${t.part}:${t.slot}:${t.setting}`
+    case 'partSend':
+      return `${t.kind}:${t.part}:${t.send}`
+  }
   return 'part' in t ? `${t.kind}:${t.part}` : t.kind
 }
 
 /** The targets a fader or knob can have, in the order the Controller map lists them (the
- * wireframe's `mapTable`): none, each part's level, pan, reverb and chorus, then
- * Harmony/Arp, the split, Harmony and Metronome volume, and (knobs only) Tempo. */
+ * wireframe's `mapTable`): none; each part's level, pan, reverb, chorus and delay, its
+ * inserts' on/off and settings 1-4, and its sends 4-6 (sends 1-3 are its reverb, chorus
+ * and delay); then Harmony/Arp, the rotary speed, the split, Harmony and Metronome
+ * volume, and (knobs only) Tempo. */
 export function targetOptions(control: 'fader' | 'knob'): { key: string; label: string; target: ControlTarget }[] {
   const targets: ControlTarget[] = [
     { kind: 'none' },
@@ -80,8 +100,15 @@ export function targetOptions(control: 'fader' | 'knob'): { key: string; label: 
       { kind: 'partPan', part },
       { kind: 'partReverb', part },
       { kind: 'partChorus', part },
+      { kind: 'partDelay', part },
+      ...[0, 1].flatMap((slot): ControlTarget[] => [
+        { kind: 'partInsertOn', part, slot },
+        ...[0, 1, 2, 3].map((setting): ControlTarget => ({ kind: 'partInsertSetting', part, slot, setting })),
+      ]),
+      ...[3, 4, 5].map((send): ControlTarget => ({ kind: 'partSend', part, send })),
     ]),
     { kind: 'harmonyArp' },
+    { kind: 'rotaryFast' },
     { kind: 'splitPoint' },
     { kind: 'harmonyVolume' },
     { kind: 'metronomeVolume' },

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import { isTipKey } from '../../help/tooltips'
-import { FLAT_EQ, OFF_INSERT } from '../../lib/api/types'
+import { defaultStrip, FLAT_EQ, OFF_INSERT } from '../../lib/api/types'
 import Mixer from './Mixer.svelte'
 import { partVoice, styleVoice } from './voice'
 
@@ -350,7 +350,7 @@ describe('voice lines', () => {
     expect(styleVoice(null)).toEqual({ plays: '—', writtenFor: '' })
   })
   it('a keyboard part under Manual Bass plays the Style Bass', () => {
-    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, eq: FLAT_EQ, insert: OFF_INSERT, fader: null, patch: null }
+    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, eq: FLAT_EQ, insert: OFF_INSERT, strip: defaultStrip(), fader: null, patch: null }
     expect(partVoice(p).writtenFor).toContain('Manual Bass')
     expect(partVoice({ ...p, playsBass: false, voiceName: 'Strings' })).toEqual({ plays: 'Strings', writtenFor: 'GM 49' })
   })

@@ -214,6 +214,138 @@ export type AppCmd =
   | RackCmd
   // Quick Racks (docs/racks.md): see QuickRacksState below.
   | QuickRackCmd
+  // Channel strips and send effects (the mixer rework): see StripState and SendState below.
+  | StripCmd
+
+/**
+ * Channel strips and send effects (the mixer rework; `api::StripCmd`). `strip` 0-11: 0-3
+ * the keyboard parts (Right 1, Right 2, Right 3, Left), 4-11 the Style parts (Rhythm 1 …
+ * Phrase 2). Sends 0-2 are the style's reverb, chorus and delay buses; 3-5 the ones the
+ * player added (`addSend`). What an older command covers goes through it: a keyboard
+ * strip's EQ, sends 0-2 and insert slot 0, a Style strip's sends 0-2 and its style insert's
+ * on/off and amount, sends 0-2's kinds, parameters and returns.
+ */
+export type StripCmd =
+  /** A strip's EQ, clamped as `setPartEq`. */
+  | { type: 'setStripEq'; strip: number; eq: PartEq }
+  | { type: 'setStripCompressorOn'; strip: number; on: boolean }
+  /** The compressor's type: its parameters come with it. */
+  | { type: 'setStripCompressorPreset'; strip: number; preset: CompPreset }
+  /** Clamped: threshold −48..0 dB, ratio 10–200 (tenths), attack 1–100 ms, release 10–1000 ms, makeup 0–24 dB. */
+  | { type: 'setStripCompressorParam'; strip: number; param: PartCompParam; value: number }
+  /** Insert slot `slot` (0-1) plays `kind` ('none' empties it) at the kind's defaults; on/off unchanged. An unknown kind is refused. */
+  | { type: 'setStripInsertKind'; strip: number; slot: number; kind: InsertType }
+  | { type: 'setStripInsertOn'; strip: number; slot: number; on: boolean }
+  /** One of the insert's settings (0-3, by `InsertSlotState.settings`), clamped; a setting its kind hasn't is refused. */
+  | { type: 'setStripInsertSetting'; strip: number; slot: number; setting: number; value: number }
+  /** A strip's level to send `send` (0-5), 0-127. Sends 3-5 must be there. */
+  | { type: 'setStripSend'; strip: number; send: number; level: number }
+  /** Add a send effect (3-5) playing `kind` at its defaults, returning at 0 dB. Refused with six. */
+  | { type: 'addSend'; kind: SendKind }
+  /** Remove an added send (3-5); the later ones move down, with every strip's level to them. */
+  | { type: 'removeSend'; send: number }
+  /** A send's kind, its parameters at the kind's defaults. Sends 0-2 take their own bus's kinds. */
+  | { type: 'setSendKind'; send: number; kind: SendKind }
+  /** One of a send's parameters (by `SendState.params`), clamped. */
+  | { type: 'setSendParam'; send: number; param: number; value: number }
+  /** A send's return level, 0-127 (64 = 0 dB). */
+  | { type: 'setSendReturn'; send: number; level: number }
+  /** The live rack overrides send `send` (0-2)'s kind (keeps it and brings it back on load). */
+  | { type: 'setRackSendOverride'; send: number; on: boolean }
+
+/** What an insert slot plays, by its stable name. A newer build's kind comes through as its own name. */
+export type InsertType = 'none' | 'distortion' | 'compressor' | 'autoWah' | 'tremolo' | 'rotary' | 'phaser' | (string & {})
+
+/** What a send effect plays: the buses' reverb, chorus and delay types, and a phaser. A newer build's kind comes through as its own name. */
+export type SendKind =
+  | 'hall' | 'room' | 'stage' | 'plate'
+  | 'chorus' | 'celeste' | 'flanger'
+  | 'eighth' | 'dottedEighth' | 'quarter' | 'pingPong'
+  | 'phaser'
+  | (string & {})
+
+/** A strip compressor's parameters: threshold dB, ratio tenths, attack and release ms, makeup dB. */
+export type PartCompParam = 'threshold' | 'ratio' | 'attack' | 'release' | 'makeup'
+
+/** A strip compressor as the app shows it. */
+export interface PartCompState {
+  on: boolean
+  preset: CompPreset
+  /** dB, −48..0. */
+  threshold: number
+  /** Tenths, 10–200 (40 = 4:1). */
+  ratio: number
+  /** ms, 1–100. */
+  attack: number
+  /** ms, 10–1000. */
+  release: number
+  /** dB, 0–24. */
+  makeup: number
+  /** The parameters differ from the type's. */
+  edited: boolean
+}
+
+/** One setting of an insert or parameter of a send effect. */
+export interface SettingState {
+  /** "Drive". */
+  name: string
+  value: number
+  min: number
+  max: number
+  /** The kind starts it here. */
+  default: number
+  /** "64", "12 ms", "0.50 Hz". */
+  display: string
+}
+
+/** An insert slot as the app shows it. */
+export interface InsertSlotState {
+  kind: InsertType
+  /** "Auto Wah"; "None" for an empty slot. */
+  name: string
+  on: boolean
+  /** Its kind's settings (2-4), in order; none for an empty slot. */
+  settings: SettingState[]
+}
+
+/** One channel strip: EQ, compressor, two insert slots, and its level to each send effect. */
+export interface StripState {
+  eq: PartEq
+  comp: PartCompState
+  /** Insert 1 and insert 2. */
+  inserts: InsertSlotState[]
+  /** Its level to sends 1-6, 0-127 (a send that isn't there: 0). */
+  sends: number[]
+}
+
+/** One send effect (`EffectsState.sends`). */
+export interface SendState {
+  /** 0-5. */
+  send: number
+  kind: SendKind
+  /** "Hall". */
+  name: string
+  /** Its kind's parameters, in order. */
+  params: SettingState[]
+  /** 0-127, 64 = 0 dB. */
+  returnLevel: number
+  /** Fed by the style's sends (sends 1-3). */
+  fromStyle: boolean
+  /** The rack sets it: an added send (4-6), or send 1-3 with the rack's override on. */
+  setByRack: boolean
+}
+
+/** A strip before anything sets it (`StripState::default`): flat EQ, compressor off at
+ * Natural, both insert slots empty, every send 0. */
+export function defaultStrip(): StripState {
+  const empty = (): InsertSlotState => ({ kind: 'none', name: 'None', on: false, settings: [] })
+  return {
+    eq: { ...FLAT_EQ },
+    comp: { on: false, preset: 'natural', threshold: -18, ratio: 25, attack: 10, release: 200, makeup: 3, edited: false },
+    inserts: [empty(), empty()],
+    sends: [0, 0, 0, 0, 0, 0],
+  }
+}
 
 /** The Quick Racks commands (docs/app-api.md › Quick Racks). `slot` is a button of the bank
  * on view, 0-7. */
@@ -373,10 +505,13 @@ export interface EffectsState {
   rotaryFast: boolean
   /** The Master Compressor and Master EQ (both off by default). */
   master: MasterFxState
+  /** The send effects (the mixer rework), 1-6: sends 1-3 are `blocks` above, fed by the
+   * style; 4-6 the ones the player added (`addSend`). */
+  sends: SendState[]
 }
 
-/** What plays a style's insertion effect here (#269). */
-export type InsertEffect = 'distortion' | 'compressor' | 'autoWah' | 'tremolo' | 'rotary'
+/** What plays a style's insertion effect here (#269). The phaser plays dry until its DSP lands. */
+export type InsertEffect = 'distortion' | 'compressor' | 'autoWah' | 'tremolo' | 'rotary' | 'phaser'
 
 /** A style's insertion effect on one of its parts (#269). */
 export interface InsertState {
@@ -792,6 +927,7 @@ export const INSERT_EFFECTS: { effect: InsertEffect; name: string }[] = [
   { effect: 'autoWah', name: 'Auto Wah' },
   { effect: 'tremolo', name: 'Tremolo' },
   { effect: 'rotary', name: 'Rotary' },
+  { effect: 'phaser', name: 'Phaser' },
 ]
 
 export interface KeyboardPart {
@@ -822,6 +958,10 @@ export interface KeyboardPart {
   eq: PartEq
   /** Its insert slot (`setKeyboardInsertEffect`, `On`, `Amount`); off until something sets it (an OTS's XG insertion type, a rack). */
   insert: PartInsert
+  /** Its channel strip (the mixer rework): EQ, compressor, two insert slots and its level to
+   * each of the six sends. `eq`, `reverb`/`chorus`/`variation` and `insert` above are the
+   * same settings the older way (strip `eq`, `sends[0..3]`, `inserts[0]`). */
+  strip: StripState
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
   /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */
@@ -862,6 +1002,10 @@ export interface StylePart {
   variation: number
   /** The sends the player set (`setStylePartSend`); the others follow the style. */
   sendsSet: PartSend[]
+  /** Its channel strip (the mixer rework): EQ, compressor, two insert slots (the style's
+   * insert in slot 1) and its level to each of the six sends (`sends[0..3]` are `reverb`,
+   * `chorus`, `variation` above). */
+  strip: StripState
 }
 
 /** The mixer's VOL · PAN · REV · CHO · DLY fader layers. */
@@ -1417,7 +1561,15 @@ export interface LiveRackState {
  * A kind this build doesn't know (a newer build's) is passed through as it is. */
 export type ControlTarget =
   | { kind: 'none' }
-  | { kind: 'partLevel' | 'partPan' | 'partReverb' | 'partChorus'; part: number }
+  | { kind: 'partLevel' | 'partPan' | 'partReverb' | 'partChorus' | 'partDelay'; part: number }
+  /** Insert slot `slot` (0-1) of the part's strip on or off. */
+  | { kind: 'partInsertOn'; part: number; slot: number }
+  /** Setting `setting` (0-3) of insert slot `slot` (0-1) of the part's strip. */
+  | { kind: 'partInsertSetting'; part: number; slot: number; setting: number }
+  /** The part's level to send `send` (0-5). */
+  | { kind: 'partSend'; part: number; send: number }
+  /** The rotary speaker's fast/slow switch. */
+  | { kind: 'rotaryFast' }
   | { kind: 'harmonyArp' }
   | { kind: 'splitPoint' }
   | { kind: 'harmonyVolume' }
