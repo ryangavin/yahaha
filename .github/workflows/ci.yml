@@ -13,11 +13,14 @@
 # times faster than at opt-level 2), the dependencies optimised, debug assertions and
 # overflow checks on.
 #
-# Each commit is checked once:
-# - PRs into develop run on the PR.
-# - The develop merge queue runs on each queued group (the PR merged onto develop's tip plus
-#   anything queued ahead of it), so a combination that breaks never lands. Like PR runs,
-#   these restore develop's caches but don't save their own.
+# Each change is checked once, where it counts:
+# - On a PR into develop nothing builds or runs: every job is skipped, so the required
+#   checks pass in seconds. Agents run the AGENTS.md checks that cover their change locally
+#   before opening or updating a PR.
+# - The develop merge queue runs everything on each queued group (the PR merged onto
+#   develop's tip plus anything queued ahead of it), so nothing lands without passing CI on
+#   exactly the code that lands. A group that fails drops out of the queue; fix and re-queue.
+#   Queue runs restore develop's caches but don't save their own.
 # - A push to develop (a merged PR) runs again: it checks the merged result and seeds the
 #   develop caches that PR runs restore from (a PR's own cache is only visible to that PR).
 # - Release PRs (develop into main) don't run: their head is develop's tip, which the push
@@ -66,7 +69,11 @@ jobs:
         run: |
           rust=true
           web=true
-          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # PRs don't build: the merge queue runs CI (see the top of this file).
+            rust=false
+            web=false
+          elif git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             files=$(git diff --name-only "$BASE" HEAD)
             echo "$files"
             if [ -n "$files" ]; then
@@ -89,9 +96,10 @@ jobs:
 
   # docs/app-api.md against the code: EVERY_CMD in tests/api_wire.rs names exactly the
   # commands in its AppCmd tables, and its JSON examples parse into the app API's types
-  # (examples/api_doc_check.rs, which reads the doc at run time). Runs on every PR,
-  # docs-only ones included; the commands are in AGENTS.md.
+  # (examples/api_doc_check.rs, which reads the doc at run time). Runs in every queue run,
+  # docs-only ones included; skipped on PRs. The commands are in AGENTS.md.
   api-doc:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
