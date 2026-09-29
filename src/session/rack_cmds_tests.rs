@@ -222,6 +222,14 @@ fn revert_rename_duplicate_and_delete() {
     assert!(!rack_files(&d).contains(&"Ballad".to_string()));
     assert_eq!(live(&s), LiveRackState { name: "Slow".into(), id: Some(ballad.clone()), modified: false, prompt: None });
     assert!(s.send(RackCmd::RenameRack { id: ballad.clone(), name: "Ballad copy".into() }).is_err(), "taken");
+    // Case only: a rename of itself, even on a case-insensitive filesystem; one file.
+    s.send(RackCmd::RenameRack { id: ballad.clone(), name: "slow".into() }).unwrap();
+    assert_eq!(entry(&s, "slow").id, ballad);
+    assert!(rack_files(&d).contains(&"slow".to_string()));
+    assert!(!rack_files(&d).contains(&"Slow".to_string()));
+    assert_eq!(s.state().racks.iter().filter(|r| r.id == ballad).count(), 1);
+    s.send(RackCmd::RenameRack { id: ballad.clone(), name: "Slow".into() }).unwrap();
+    assert_eq!(entry(&s, "Slow").id, ballad);
 
     // Delete: never the loaded rack.
     assert!(s.send(RackCmd::DeleteRack { id: ballad.clone() }).is_err());
@@ -231,6 +239,20 @@ fn revert_rename_duplicate_and_delete() {
     assert!(s.state().racks.iter().all(|r| r.id != copy.id));
     assert!(s.send(RackCmd::DeleteRack { id: copy.id }).is_err(), "gone");
     drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn a_move_whose_old_file_stays_takes_the_new_file_back() {
+    let d = dir("replace-file");
+    std::fs::create_dir_all(&d).unwrap();
+    let (old, new) = (d.join("gone.rack.json"), d.join("new.rack.json"));
+    // `old` can't be removed (it isn't there): the new file goes again.
+    assert!(super::replace_file(&old, &new, |p| Ok(std::fs::write(p, "{}")?)).is_err());
+    assert!(!new.exists());
+    std::fs::write(&old, "{}").unwrap();
+    super::replace_file(&old, &new, |p| Ok(std::fs::write(p, "{}")?)).unwrap();
+    assert!(new.exists() && !old.exists());
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -353,31 +375,8 @@ mod plugins {
 
     #[test]
     fn save_rack_asks_a_name_for_an_edited_preset_and_makes_one_sound() {
-        use crate::plugin::{presets, LoadConfig, PluginHost, PluginId};
         let d = dir("preset-sound");
-        // An `.aupreset` of DLSMusicDevice's: a file preset, no sound of the user's.
-        let root = d.join("Presets");
-        let host = PluginHost::with_preset_roots(Some(d.join("plugins.json")), vec![root.clone()]);
-        let info = host.info(&PluginId::DLS).unwrap();
-        let state = host.load(&PluginId::DLS, LoadConfig::default()).unwrap().get_state().unwrap();
-        let file = presets::write_user_preset(&root, &info, "Warm Strings", &state, false).unwrap();
-        host.rescan().unwrap();
-        let s = dls_session(&d);
-        s.inner.lock().plugins.host = Some(host);
-        s.inner.lock().start_plugin_scan(false);
-        let t0 = Instant::now();
-        while s.state().plugins.scanning || s.state().plugins.list.is_empty() {
-            assert!(t0.elapsed() < Duration::from_secs(60), "the plugin scan did not finish");
-            s.advance(1_000_000);
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        let preset = format!("au:{DLS}#u:{}", file.path.display());
-        s.send(SoundsCmd::AssignSound { part: 1, id: preset.clone() }).unwrap();
-        wait_playing(&s, 1);
-        wait_reads(&s);
-        assert_eq!(s.state().keyboard_parts[1].sound.clone().map(|t| t.id), Some(preset));
-        let n = records(&s);
-        edit(&s, 1, 20.0);
+        let (s, n) = edited_preset(&d);
 
         // No name: nothing saved; the prompt names the part.
         assert_eq!(s.send(RackCmd::SaveRackAs { name: "Pad".into(), sound_names: BTreeMap::new() }), Err(CmdError::NeedsSoundNames));
@@ -405,5 +404,52 @@ mod plugins {
         assert_eq!(records(&s), n + 1);
         drop(s);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// "Save first" from the unsaved-changes prompt, when the save needs a sound name:
+    /// the switch waits through the name prompt and goes ahead once the save is done.
+    #[test]
+    fn save_first_keeps_the_switch_through_the_sound_name_prompt() {
+        let d = dir("save-first-names");
+        let (s, _) = edited_preset(&d);
+        assert_eq!(s.send(RackCmd::NewRack { discard: false }), Err(CmdError::UnsavedChanges));
+        assert_eq!(s.send(RackCmd::SaveRackAs { name: "Pad".into(), sound_names: BTreeMap::new() }), Err(CmdError::NeedsSoundNames));
+        assert!(matches!(live(&s).prompt, Some(RackPrompt::SoundNames { .. })));
+        let names = BTreeMap::from([(1, "Soft Pad".to_string())]);
+        s.send(RackCmd::SaveRackAs { name: "Pad".into(), sound_names: names }).unwrap();
+        assert!(rack_files(&d).contains(&"Pad".to_string()), "saved first");
+        assert_eq!(live(&s), LiveRackState { name: NEW_NAME.into(), id: None, modified: false, prompt: None }, "then switched");
+        drop(s);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A session whose part 1 plays an edited `.aupreset` (no sound of the user's), and
+    /// the sound library's record count.
+    fn edited_preset(d: &Path) -> (Session, usize) {
+        use crate::plugin::{presets, LoadConfig, PluginHost, PluginId};
+        // An `.aupreset` of DLSMusicDevice's: a file preset, no sound of the user's.
+        let root = d.join("Presets");
+        let host = PluginHost::with_preset_roots(Some(d.join("plugins.json")), vec![root.clone()]);
+        let info = host.info(&PluginId::DLS).unwrap();
+        let state = host.load(&PluginId::DLS, LoadConfig::default()).unwrap().get_state().unwrap();
+        let file = presets::write_user_preset(&root, &info, "Warm Strings", &state, false).unwrap();
+        host.rescan().unwrap();
+        let s = dls_session(&d);
+        s.inner.lock().plugins.host = Some(host);
+        s.inner.lock().start_plugin_scan(false);
+        let t0 = Instant::now();
+        while s.state().plugins.scanning || s.state().plugins.list.is_empty() {
+            assert!(t0.elapsed() < Duration::from_secs(60), "the plugin scan did not finish");
+            s.advance(1_000_000);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let preset = format!("au:{DLS}#u:{}", file.path.display());
+        s.send(SoundsCmd::AssignSound { part: 1, id: preset.clone() }).unwrap();
+        wait_playing(&s, 1);
+        wait_reads(&s);
+        assert_eq!(s.state().keyboard_parts[1].sound.clone().map(|t| t.id), Some(preset));
+        let n = records(&s);
+        edit(&s, 1, 20.0);
+        (s, n)
     }
 }

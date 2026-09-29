@@ -68,6 +68,7 @@ impl Control {
             }
             RackCmd::DismissRackPrompt => {
                 self.live_rack.prompt = None;
+                self.live_rack.held = None;
                 Ok(())
             }
         }
@@ -123,6 +124,7 @@ impl Control {
     /// The live rack becomes `rack` (None: a new one), unmodified, and is saved soon. What
     /// could not be applied (a sound that can't play) is reported; the rest still is.
     fn enter_rack(&mut self, rack: Option<Rack>) {
+        self.live_rack.held = None;
         let (r, id) = match rack {
             Some(r) => {
                 let id = Some(r.id.clone());
@@ -208,6 +210,10 @@ impl Control {
             }
         }
         if !ask.is_empty() {
+            // "Save first" from the unsaved-changes prompt: the switch waits for this save.
+            if let Some(RackPrompt::UnsavedChanges { then }) = self.live_rack.prompt.take() {
+                self.live_rack.held = Some(then);
+            }
             self.live_rack.prompt = Some(RackPrompt::SoundNames { parts: ask, save_as });
             return Err(CmdError::NeedsSoundNames);
         }
@@ -221,7 +227,11 @@ impl Control {
         self.write_rack(&rack, &path)?;
         self.live_rack_clean(&name, Some(id));
         self.say(format!("Saved {name}"), false);
-        Ok(())
+        // The switch that asked to save first now goes ahead.
+        match self.live_rack.held.take() {
+            Some(then) => self.switch_rack(then, false),
+            None => Ok(()),
+        }
     }
 
     fn rename_rack(&mut self, id: &str, name: &str) -> Result<(), CmdError> {
@@ -233,14 +243,30 @@ impl Control {
         let Some(old) = self.rack_file(id) else { return self.fail(format!("no rack {id}")) };
         let mut r = self.read_rack(id)?;
         let path = racks::path_for(&dir, name);
-        if path != old && path.exists() {
+        // A name that differs only in case is this rack's own file on a case-insensitive
+        // filesystem: a rename of itself, not a taken name.
+        let itself = path == old || same_file(&path, &old);
+        if !itself && path.exists() {
             return self.fail(format!("there is a rack called {name} already"));
         }
         r.name = name.to_string();
-        self.write_rack(&r, &path)?;
-        if path != old {
-            let _ = std::fs::remove_file(&old);
+        if path != old && itself {
+            // Case only: move the file to its new spelling, then write it there.
+            if let Err(e) = std::fs::rename(&old, &path) {
+                self.presence.refresh_racks(true);
+                return self.fail(format!("The rack was not renamed: {e}"));
+            }
+            self.write_rack(&r, &path)?;
+        } else if path == old {
+            self.write_rack(&r, &path)?;
+        } else {
+            // Exactly one file per id: write the new one, then remove the old; if the old
+            // one stays, the new one goes again.
+            let moved = replace_file(&old, &path, |p| r.save(p));
             self.presence.refresh_racks(true);
+            if let Err(e) = moved {
+                return self.fail(format!("The rack was not renamed: {e}"));
+            }
         }
         if self.live_rack.id.as_deref() == Some(id) {
             // The loaded rack's new name; its changes (if any) stay unsaved.
@@ -306,6 +332,37 @@ impl Control {
                 .map_or_else(|| component.clone(), |(_, n)| n.clone()),
         }
     }
+}
+
+/// `a` and `b` are the same existing file (as on a case-insensitive filesystem, where
+/// `Ballad` and `ballad` name one file).
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        #[cfg(unix)]
+        (Ok(x), Ok(y)) => {
+            use std::os::unix::fs::MetadataExt;
+            (x.dev(), x.ino()) == (y.dev(), y.ino())
+        }
+        #[cfg(not(unix))]
+        (Ok(_), Ok(_)) => a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase(),
+        _ => false,
+    }
+}
+
+/// Moves a file from `old` to `new` by writing `new` (with `write`) and then removing
+/// `old`. If `old` can't be removed, `new` is removed again and it's an error, so exactly
+/// one of the two is left.
+fn replace_file(
+    old: &std::path::Path,
+    new: &std::path::Path,
+    write: impl FnOnce(&std::path::Path) -> anyhow::Result<()>,
+) -> Result<(), String> {
+    write(new).map_err(|e| format!("{e:#}"))?;
+    if let Err(e) = std::fs::remove_file(old) {
+        let _ = std::fs::remove_file(new);
+        return Err(format!("the old file could not be removed: {e}"));
+    }
+    Ok(())
 }
 
 /// `name`, or `name 2`, `name 3`… : the first no rack file in `dir` has.

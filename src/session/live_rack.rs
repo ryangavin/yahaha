@@ -179,6 +179,9 @@ pub(super) struct LiveRack {
     pub(super) modified: bool,
     /// A rack command waiting for the player's answer (session/rack_cmds.rs).
     pub(super) prompt: Option<crate::api::RackPrompt>,
+    /// A switch waiting for a save the player chose first, while the save asks for sound
+    /// names (session/rack_cmds.rs).
+    pub(super) held: Option<crate::api::RackSwitch>,
     /// The rack as the last check saw it, without plugin states. None until the first
     /// pump after the start.
     seen: Option<Rack>,
