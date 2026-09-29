@@ -1,3 +1,4 @@
+// @vitest-environment node
 // The catalog's shortcuts agree with README's "Terminal keys" list and with the keys the
 // app actually binds, in both directions.
 

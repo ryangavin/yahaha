@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppCmd } from './api/types'
 import { MAX_HOLD_MS, REPEAT_DELAY_MS, TempoHold } from './tempoHold'

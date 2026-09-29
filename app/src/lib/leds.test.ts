@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { tipFor } from '../help/actions'
 import { TIPS } from '../help/tooltips'

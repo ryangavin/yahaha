@@ -1,3 +1,4 @@
+// @vitest-environment node
 // The sound catalog model Library and the sound picker share (panels/sounds/model.ts), and
 // what a part plays, named (moved from the old Sound Browser's tests, racks item 13).
 

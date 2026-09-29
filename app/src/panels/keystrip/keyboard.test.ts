@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { initialState } from '../../lib/api/mock'
 import { RANGES, boundary, detectionArea, heldFill, isBlack, layout, noteAt, noteName, rangeFor } from './keyboard'

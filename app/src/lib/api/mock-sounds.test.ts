@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { MockSession } from './mock'
 import { parsePluginId, parsePresetId, pluginCategory, presetId } from './sounds'
