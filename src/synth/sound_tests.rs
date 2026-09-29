@@ -1,12 +1,12 @@
 //! #246: the built-in synth plays a part's voice settings (the GM2/XG sound controllers,
-//! vibrato, portamento, mono) as a Genos part does. Rendered with a real SoundFont (the
-//! smallest in the checkout's soundfonts/; skipped when there is none).
+//! vibrato, portamento, mono) as a Genos part does. Rendered with the tiny in-memory GM
+//! font (a looped square wave on every program), so they always run.
 
 use super::*;
 
-/// The smallest SoundFont in the checkout's soundfonts/ (None: skip), loaded once.
-fn font() -> Option<Arc<SoundFont>> {
-    super::rack_tests::font()
+/// The tiny GM font, parsed once.
+fn font() -> Arc<SoundFont> {
+    super::rack_tests::tiny_font()
 }
 
 const RATE: i32 = 48_000;
@@ -53,7 +53,7 @@ fn note(s: &mut Synthesizer, key: i32, hold: usize, tail: usize) -> (Vec<f32>, V
 /// and poly mode.
 #[test]
 fn neutral_sound_controllers_change_nothing() {
-    let Some(font) = font() else { return };
+    let font = font();
     // The sound controllers at 64. (Portamento off and poly mode are the rack's:
     // rack.rs, `portamento_off_and_poly_change_nothing`.)
     let all: Vec<[i32; 2]> = (71..=78).map(|cc| [cc, 64]).collect();
@@ -100,7 +100,7 @@ fn rack_note(r: &mut Rack, key: i32, hold: usize) -> Vec<f32> {
 /// the rack (its stem filter out of the signal).
 #[test]
 fn neutral_tone_controls_change_nothing_on_the_stem() {
-    let Some(font) = font() else { return };
+    let font = font();
     let all: Vec<[i32; 2]> = [1, 71, 72, 73, 74, 75, 76, 77, 78].iter().map(|&cc| [cc, if cc == 1 { 0 } else { 64 }]).collect();
     for program in [0, 48, 81] {
         let a = rack_note(&mut rack(&font, program, &[]), 60, 24_000);
@@ -114,8 +114,8 @@ fn neutral_tone_controls_change_nothing_on_the_stem() {
 /// (#346 step 3: the part's stem filter plays them, from 20 kHz down.)
 #[test]
 fn cutoff_and_resonance_shape_new_notes() {
-    let Some(font) = font() else { return };
-    // A saw lead: bright enough to darken.
+    let font = font();
+    // The square: bright enough to darken.
     let play = |setup: &[[i32; 2]]| rack_note(&mut rack(&font, 81, setup), 60, 24_000);
     let open = brightness(&play(&[]));
     let dark = brightness(&play(&[[74, 10]]));
@@ -146,7 +146,7 @@ fn cutoff_and_resonance_shape_new_notes() {
 /// than jumping.
 #[test]
 fn cutoff_moves_a_ringing_note_smoothly() {
-    let Some(font) = font() else { return };
+    let font = font();
     let mut s = rack(&font, 81, &[]);
     s.process(0, 0x90, 72, 100);
     let before = rack_render(&mut s, 12_000);
@@ -170,19 +170,21 @@ fn cutoff_moves_a_ringing_note_smoothly() {
 /// the player's expression, so they are lost: they change nothing.)
 #[test]
 fn envelope_times_scale() {
-    let Some(font) = font() else { return };
-    // Slow strings: an attack of their own to slow down (not speed up). Measured as the
-    // energy of 0.1-0.5 s against the note's own, not as the rise to half of the first
-    // second's peak: with a 7.7 s attack that peak is the slowed note's, and the sample's
-    // own swell sets where half of it falls.
+    // An envelope of its own to scale: a 0.2 s attack, an 8 s decay (still falling at 2 s)
+    // to -40 dB, a 0.3 s release.
+    use super::rack_tests::{tiny_font_with, ATTACK, DECAY, RELEASE, SUSTAIN};
+    let font = tiny_font_with(&[(ATTACK, -2786), (DECAY, 3600), (SUSTAIN, 400), (RELEASE, -2084)]);
+    // The attack slowed down (not sped up). Measured as the energy of 0.1-0.5 s against
+    // the note's own, not as the rise to half of the first second's peak: with a slowed
+    // attack that peak is the slowed note's own.
     let early = |setup: &[[i32; 2]]| energy(&rack_note(&mut rack(&font, 49, setup), 60, 24_000)[4800..]);
     let (own, slow, fast) = (early(&[]), early(&[[73, 127]]), early(&[[73, 0]]));
     assert!(slow < own * 0.1 && fast == own, "attack: {fast} / {own} / {slow}");
-    // An electric piano: its decay while held (shorter, not longer).
+    // The decay while held (shorter, not longer).
     let late = |setup: &[[i32; 2]]| energy(&rack_note(&mut rack(&font, 4, setup), 60, 96_000)[48_000..]);
     let (own, short, long) = (late(&[]), late(&[[75, 0]]), late(&[[75, 127]]));
     assert!(short < own * 0.5 && long == own, "decay: {short} / {own} / {long}");
-    // Strings: the tail after the release.
+    // The tail after the release.
     let tail = |setup: &[[i32; 2]]| {
         let mut r = rack(&font, 48, setup);
         rack_note(&mut r, 60, 24_000);
@@ -208,9 +210,10 @@ fn wobble(p: &[f64]) -> f64 {
 /// on the rack). CC76 isn't played (upstream rustysynth's vibrato keeps the voice's rate).
 #[test]
 fn vibrato_depth_and_delay() {
-    let Some(font) = font() else { return };
-    // A steady tone (recorder) held for 2 s.
-    let pitch = |setup: &[[i32; 2]]| crossings(&rack_note(&mut rack(&font, 74, setup), 72, 96_000)[9600..], 960);
+    let font = font();
+    // A steady tone held for 2 s, high (C7, about 90 crossings a window) so that counting
+    // whole crossings hardly wobbles the steady pitch.
+    let pitch = |setup: &[[i32; 2]]| crossings(&rack_note(&mut rack(&font, 74, setup), 96, 96_000)[9600..], 960);
     let (own, deep) = (wobble(&pitch(&[])), wobble(&pitch(&[[77, 127]])));
     assert!(deep > own * 2.0 && deep > 0.004, "depth: wobble {deep} vs {own}");
     // On top of the player's mod wheel.
@@ -247,8 +250,8 @@ fn render_rack(r: &mut Rack, frames: usize) -> Vec<f32> {
 /// time 0 (or CC65 off) it starts on its own pitch.
 #[test]
 fn portamento_glides_the_pitch() {
-    let Some(font) = font() else { return };
-    // Flute C4, then C5: each 20 ms window's crossings over the first 0.6 s of C5.
+    let font = font();
+    // C4, then C5: each 20 ms window's crossings over the first 0.6 s of C5.
     let glide = |setup: &[[i32; 2]]| {
         let mut s = rack(&font, 73, setup);
         s.process(0, 0x90, 60, 100);
@@ -273,8 +276,8 @@ fn portamento_glides_the_pitch() {
 /// go of it goes back to the key still held. CC127: poly again.
 #[test]
 fn mono_plays_one_note_at_a_time() {
-    let Some(font) = font() else { return };
-    // Flute C4 and G4 held together, then G4 let go: (energy of the last 0.5 s of both
+    let font = font();
+    // C4 and G4 held together, then G4 let go: (energy of the last 0.5 s of both
     // held, the last 0.5 s after G4 is up, and the crossings then).
     let play = |setup: &[[i32; 2]]| {
         let mut s = rack(&font, 73, setup);
@@ -312,7 +315,7 @@ fn mono_plays_one_note_at_a_time() {
 /// as CC74 does.
 #[test]
 fn xg_part_mono_and_filter_reach_the_synth() {
-    let Some(font) = font() else { return };
+    let font = font();
     let xg = |addr: u8, v: u8| super::sysex_msg(&[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x01, addr, v, 0xF7]).unwrap();
     let play = |setup: &[Msg]| -> (f64, f64, Vec<f32>) {
         let rack = Box::new(Rack::with_fonts(&[(0, font.clone())], RATE).unwrap());

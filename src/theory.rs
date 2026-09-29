@@ -1890,20 +1890,26 @@ mod tests {
     #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_every_rule_every_chord() {
-        let files = crate::library::corpus_styles();
+        let files = crate::library::corpus_loaded();
         if files.is_empty() {
             eprintln!("no corpus; skipping");
             return;
         }
-        let mut rules: Vec<ChannelRule> = (8..16).map(ChannelRule::default_for).collect();
-        for f in &files {
-            let s = crate::sff::Style::load(f).unwrap();
+        // Most styles share their rules, so each distinct one is exercised once. The fields
+        // neither `plays` nor `transpose` reads (source channel, name, flags) are left out of
+        // the key.
+        let key = |r: &ChannelRule| ChannelRule { src_ch: 0, name: String::new(), editable: false, autostart: false, sff2: false, ..r.clone() };
+        let mut rules: std::collections::HashSet<ChannelRule> = (8..16).map(|ch| key(&ChannelRule::default_for(ch))).collect();
+        let mut total = 8;
+        for (f, s) in files {
             for r in s.casm.iter().flat_map(|seg| &seg.rules) {
                 assert!((r.src_type as usize) < NUM_TYPES, "{}: src_type {}", f.display(), r.src_type);
-                rules.push(r.clone());
+                rules.insert(key(r));
+                total += 1;
             }
         }
-        eprintln!("{} styles, {} channel rules", files.len(), rules.len());
+        eprintln!("{} styles, {total} channel rules, {} distinct", files.len(), rules.len());
+        assert!(total > 8 && !rules.is_empty(), "no corpus channel rules to exercise");
         for r in &rules {
             exercise(r);
         }
@@ -2107,13 +2113,12 @@ mod tests {
     #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_guitar_parts_play_chord_tones() {
-        let files = crate::library::corpus_styles();
+        let files = crate::library::corpus_loaded();
         let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
         let (mut notes, mut noise, mut records, mut styles) = (0u32, 0u32, 0u32, 0u32);
         // Per top folder of the corpus: strums of 3+ strings, and those written as stacked seconds.
         let mut strums: std::collections::BTreeMap<String, (u32, u32)> = Default::default();
-        for f in &files {
-            let s = crate::sff::Style::load(f).unwrap();
+        for (f, s) in files {
             let folder = f.strip_prefix(&corpus).ok().and_then(|p| p.components().next()).map(|c| c.as_os_str().to_string_lossy().to_string());
             let tally = strums.entry(folder.unwrap_or_default()).or_default();
             let mut any = false;

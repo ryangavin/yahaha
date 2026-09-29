@@ -1700,10 +1700,15 @@ mod loudness_probe {
 mod rack_tests {
     use super::*;
 
-    /// The smallest SoundFont in the checkout's soundfonts/ (None: skip). Loaded once per
-    /// test process and shared (the synth, kit and sound tests all use it): the smallest
-    /// real font is still over 100 MB, too slow to load again for every test.
+    /// The smallest SoundFont in the checkout's soundfonts/, for the tests that need a real
+    /// font's content (its zones, samples, drum kits). None (skip) without the `slow-tests`
+    /// feature, or with no font there: the real fonts are hundreds of MB, too slow to load
+    /// in the core suite. Loaded once per test process and shared.
     pub(super) fn font() -> Option<Arc<SoundFont>> {
+        if !cfg!(feature = "slow-tests") {
+            eprintln!("a real SoundFont needs the slow-tests feature; skipping");
+            return None;
+        }
         static FONT: std::sync::OnceLock<Option<Arc<SoundFont>>> = std::sync::OnceLock::new();
         let font = FONT.get_or_init(|| {
             let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
@@ -1715,6 +1720,52 @@ mod rack_tests {
         }
         font.clone()
     }
+
+    /// The tiny in-memory GM font (`tiny_gm_sound_font`: a looped 480 Hz square on every
+    /// program and a "Kit" on bank 128, no key ranges; no envelope, so a note stops at its
+    /// release). Loaded as a real font is (`font::read_arc`, its preset data kept for the
+    /// kits), once per test process.
+    pub(super) fn tiny_font() -> Arc<SoundFont> {
+        tiny_font_with(&[])
+    }
+
+    /// Generators for `tiny_font_with`: the volume envelope's attack, decay and release
+    /// (timecents) and sustain (centibels down), the filter cutoff (absolute cents) and the
+    /// attenuation (centibels).
+    pub(super) const ATTACK: u16 = 34;
+    pub(super) const DECAY: u16 = 36;
+    pub(super) const SUSTAIN: u16 = 37;
+    pub(super) const RELEASE: u16 = 38;
+    pub(super) const CUTOFF: u16 = 8;
+    pub(super) const ATTENUATION: u16 = 48;
+
+    /// The tiny GM font with these instrument generators (`(generator, value)`) on its one
+    /// instrument, e.g. an envelope for a test that scales it or measures a note's tail.
+    /// Each set is built once per test process.
+    pub(super) fn tiny_font_with(generators: &[(u16, i16)]) -> Arc<SoundFont> {
+        type Fonts = Vec<(Vec<(u16, i16)>, Arc<SoundFont>)>;
+        static FONTS: std::sync::Mutex<Fonts> = std::sync::Mutex::new(Vec::new());
+        let mut fonts = FONTS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, f)) = fonts.iter().find(|(g, _)| g == generators) {
+            return f.clone();
+        }
+        let names: Vec<String> = (0..128).map(|p| format!("Tone {}", p + 1)).collect();
+        let mut presets: Vec<(u16, u8, &str)> = names.iter().enumerate().map(|(p, n)| (0, p as u8, n.as_str())).collect();
+        presets.push((128, 0, "Kit"));
+        let bytes = crate::patches::sf2::tiny_sound_font_with(&presets, generators);
+        let font = crate::synth::font::read_arc(&mut std::io::Cursor::new(bytes)).unwrap();
+        fonts.push((generators.to_vec(), font.clone()));
+        font
+    }
+
+    /// A 0.3 s release: a note's tail rings on after its note-off.
+    const TAIL: &[(u16, i16)] = &[(RELEASE, -2084)];
+
+    /// A cutoff of about 260 Hz: a soft, nearly sine tone at A2 (the bare square is about as
+    /// bright as a distortion can make it) for an insert to brighten; 12 dB louder
+    /// (rustysynth plays 0.4 x a negative attenuation too), near full scale as a real
+    /// organ's sample is, which the distortion's drive and level are set for.
+    const SOFT: &[(u16, i16)] = &[(CUTOFF, 6000), (ATTENUATION, -300)];
 
     fn peaks() -> [AtomicU32; 16] {
         std::array::from_fn(|_| AtomicU32::new(0))
@@ -1730,7 +1781,7 @@ mod rack_tests {
     /// in place of the bus.
     #[test]
     fn sends_feed_the_effect_bus_and_the_soundfonts_own_effects_are_off() {
-        let Some(font) = font() else { return };
+        let font = tiny_font();
         let play = |setup: &[Msg], ret: u8, legacy: bool| -> (f64, f64) {
             // Legacy: a rack that plays the SoundFont's own effects, the bus off.
             let rack = Box::new(if legacy { Rack::new_legacy(&font, 48_000) } else { Rack::new(&font, 48_000) }.unwrap());
@@ -1773,7 +1824,8 @@ mod rack_tests {
     #[test]
     fn a_drum_note_starts_with_its_drum_setup() {
         use drum_setup::encode;
-        let Some(font) = font() else { return };
+        // An envelope of its own, for the decay to shorten: a 2 s decay to -40 dB.
+        let font = tiny_font_with(&[(DECAY, 1200), (SUSTAIN, 400), (RELEASE, -2084)]);
         // Drum Setup 1 (part 10, ch index 9): note `key`, parameter `p` = `v`.
         let ds = |key: u8, p: u8, v: u8| encode(&[0xF0, 0x43, 0x10, 0x4C, 0x30, key, p, v, 0xF7]).unwrap();
         // (left energy, right energy, zero crossings) while the note sounds, and the energy
@@ -1833,8 +1885,10 @@ mod rack_tests {
         // No reverb send for this note, though the part sends fully.
         let (_, _, _, dry) = play(snare, &[ds(snare, 0x05, 0)], &[]);
         assert!(dry < wet * 0.1, "reverb send 0: tail {dry} vs {wet}");
-        // A faster decay: a shorter tail.
-        let (_, _, _, short) = play(snare, &[ds(snare, 0x0E, 0x7F), ds(snare, 0x05, 0)], &[]);
+        // A faster decay: the held note falls away sooner, and no longer tail.
+        let (hl, hr, _, _) = play(snare, &[ds(snare, 0x05, 0)], &[]);
+        let (sl, sr, _, short) = play(snare, &[ds(snare, 0x0E, 0x7F), ds(snare, 0x05, 0)], &[]);
+        assert!(sl + sr < (hl + hr) * 0.5, "decay 1 faster: held {} vs {}", sl + sr, hl + hr);
         assert!(short <= dry, "decay 1 faster: tail {short} vs {dry}");
         // Pitch: the note sounds otherwise (the tuning itself: `note_tune_shifts_the_pitch`).
         let (tl, tr, _, _) = play(snare, &[ds(snare, 0x00, 0x40 + 7), ds(snare, 0x01, 0x40 + 30)], &[]);
@@ -1852,7 +1906,7 @@ mod rack_tests {
     #[test]
     fn a_styles_kits_are_ready_for_its_first_note() {
         use drum_setup::encode;
-        let Some(font) = font() else { return };
+        let font = tiny_font();
         let level = encode(&[0xF0, 0x43, 0x10, 0x4C, 0x30, 38, 0x02, 50, 0xF7]).unwrap();
         let sysex = [0xF0, 0x43, 0x10, 0x4C, 0x30, 38, 0x02, 50, 0xF7];
         // The dry mix only: no hit's reverb rings into the next.
@@ -1913,7 +1967,7 @@ mod rack_tests {
     /// piano C4 tuned an octave up plays its sample twice as fast.
     #[test]
     fn note_tune_shifts_the_pitch() {
-        let Some(font) = font() else { return };
+        let font = tiny_font();
         let crossings = |key: u8, coarse: u8| {
             let mut rack = Rack::new(&font, 48_000).unwrap();
             rack.process(0, 0xC0, 0, 0);
@@ -1989,7 +2043,7 @@ mod rack_tests {
 
     #[test]
     fn the_band_send_scales_only_the_style_parts() {
-        let Some(font) = font() else { return };
+        let font = tiny_font_with(TAIL);
         let play = |ch: u8, band: Option<u8>, send: u8| -> (f64, f64) {
             let e = delay_tail(&font, ch, send, |ctl| {
                 if let Some(b) = band {
@@ -2031,7 +2085,7 @@ mod rack_tests {
     /// echoes as a scale of 100% does; the style's own CC on the part then plays nothing.
     #[test]
     fn a_style_parts_own_send_is_not_scaled() {
-        let Some(font) = font() else { return };
+        let font = tiny_font_with(TAIL);
         let v = crate::fx::VARIATION;
         let dry = delay_tail(&font, 10, 127, |_| {});
         let scaled = delay_tail(&font, 10, 127, |c| c.fx.band_send[v].store(100, Relaxed));
@@ -2042,9 +2096,9 @@ mod rack_tests {
         });
         let other_part = delay_tail(&font, 11, 127, |c| c.fx.part_send[2][v].store(127, Relaxed));
         assert!(scaled > dry * 2.0);
-        // As loud as the style's 127 at 100% (a little more: the band scale glides up from
-        // 0% at the start, under the note's attack; the own send is there at once).
-        assert!(own >= scaled * 0.95 && own <= scaled * 1.5, "own 127 unscaled = style 127 at 100%: {own} vs {scaled}");
+        // As loud as the style's 127 at 100% (more: the band scale glides up from 0% at the
+        // start, under the note's first 0.1 s at full level; the own send is there at once).
+        assert!(own >= scaled * 0.95 && own <= scaled * 2.0, "own 127 unscaled = style 127 at 100%: {own} vs {scaled}");
         assert!((own_zero - dry).abs() <= dry * 1e-6, "an own 0 silences the style's 127");
         let dry11 = delay_tail(&font, 11, 0, |_| {});
         assert!((other_part - dry11).abs() <= dry11 * 1e-6, "only that part");
@@ -2055,7 +2109,7 @@ mod rack_tests {
     /// The band's scale doesn't touch the pads, nor the pads' scale the band.
     #[test]
     fn the_pad_send_scales_only_the_pads() {
-        let Some(font) = font() else { return };
+        let font = tiny_font_with(TAIL);
         let v = crate::fx::VARIATION;
         let dry = delay_tail(&font, 5, 0, |_| {});
         let pad_default = delay_tail(&font, 5, 127, |_| {});
@@ -2108,7 +2162,7 @@ mod rack_tests {
         let plain = render(None, &click, &|_| {});
         assert!(plain.iter().any(|x| *x != 0.0), "the click sounds");
         assert_eq!(render(None, &click, &both_on), plain, "not on the click");
-        let Some(font) = font() else { return };
+        let font = tiny_font();
         let chord: Vec<Msg> = [60u8, 64, 67, 72].iter().flat_map(|&k| [[0x90, k, 127], [0x91, k, 127]]).collect();
         let dry = render(Some(&font), &chord, &|_| {});
         assert_eq!(render(Some(&font), &chord, &off_behind), dry, "off: bit-identical");
@@ -2124,7 +2178,7 @@ mod rack_tests {
     /// untouched; the insert off again plays exactly the dry part.
     #[test]
     fn a_style_parts_insert_runs_on_that_part_only() {
-        let Some(font) = font() else { return };
+        let font = tiny_font_with(SOFT);
         let play = |ch: u8, kind: crate::fx::InsertKind, reverb: bool| -> (Vec<f32>, f32) {
             let rack = Box::new(Rack::new(&font, 48_000).unwrap());
             let (mut tx, rx) = RingBuffer::<Msg>::new(64);
@@ -2154,7 +2208,7 @@ mod rack_tests {
         let (dry, dry_rms) = play(11, crate::fx::InsertKind::None, false);
         let (dist, dist_rms) = play(11, crate::fx::InsertKind::Distortion, false);
         assert!(dry_rms > 1e-3);
-        assert!(bright(&dist, dist_rms) > 1.5 * bright(&dry, dry_rms), "distorted: {} vs {}", bright(&dist, dist_rms), bright(&dry, dry_rms));
+        assert!(bright(&dist, dist_rms) > 1.5 * bright(&dry, dry_rms), "distorted: {} vs {} (rms {dist_rms} vs {dry_rms})", bright(&dist, dist_rms), bright(&dry, dry_rms));
         assert!(dist_rms > dry_rms * 0.3 && dist_rms < dry_rms * 3.0, "a similar level: {dist_rms} vs {dry_rms}");
         // Another part: untouched.
         let (other, _) = play(12, crate::fx::InsertKind::None, false);
@@ -2178,7 +2232,7 @@ mod rack_tests {
     #[test]
     fn a_keyboard_parts_insert_slot_runs_on_that_part_only() {
         use crate::fx::{InsertEffect, PartInsert};
-        let Some(font) = font() else { return };
+        let font = tiny_font_with(SOFT);
         let play = |ch: u8, slot: Option<PartInsert>| -> (Vec<f32>, u64) {
             let rack = Box::new(Rack::new(&font, 48_000).unwrap());
             let (mut tx, rx) = RingBuffer::<Msg>::new(64);
@@ -2218,7 +2272,7 @@ mod rack_tests {
 
     #[test]
     fn each_part_is_metered_on_its_own_channel() {
-        let Some(font) = font() else { return };
+        let font = tiny_font();
         let mut rack = Rack::new(&font, 48_000).unwrap();
         let mut bank = [0u8; 16];
         let p = peaks();
@@ -2235,11 +2289,16 @@ mod rack_tests {
             assert_eq!(level(&p, ch), 0.0, "ch {} is silent", ch + 1);
         }
         // CC7 is the part's level: the meter follows it.
+        // (Past the first buffer after the change: rustysynth ramps the gain down across
+        // its first block, and the peak there is still the old level's.)
         apply_rack(&mut rack, &[0xBA, 7, 30], &mut bank);
+        rack.render_dry(&mut l, &mut r, &p, None);
+        level(&p, 10);
         for _ in 0..8 {
             rack.render_dry(&mut l, &mut r, &p, None);
         }
-        assert!(level(&p, 10) < bass * 0.5);
+        let quiet = level(&p, 10);
+        assert!(quiet < bass * 0.5, "CC7 30: {quiet} vs {bass}");
         // RMS is measured where the peak is: a part that sounds has one below its peak,
         // a silent one none.
         rack.render_dry(&mut l, &mut r, &p, None);
@@ -2310,7 +2369,7 @@ mod rack_tests {
 
     #[test]
     fn a_new_rack_takes_over_the_channels_voices_and_levels() {
-        let Some(font) = font() else { return };
+        let font = tiny_font();
         let parts = Parts::new();
         let p = peaks();
         let (mut l, mut r) = (vec![0f32; 4800], vec![0f32; 4800]);
@@ -2346,7 +2405,7 @@ mod rack_tests {
     /// would lose it.
     #[test]
     fn a_new_rack_keeps_the_bend_range_and_tuning() {
-        let Some(font) = font() else { return };
+        let font = tiny_font();
         let parts = Parts::new();
         let p = peaks();
         // As the engine sends a style's setup: bend range 12, fine tune, coarse tune -2,

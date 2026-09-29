@@ -611,29 +611,40 @@ fn a_bad_soundfont_does_not_loop_or_block_the_others() {
     }
     let mut loads = 0;
     let mut was_loading = false;
-    for _ in 0..300 {
+    let mut pump = || {
         s.advance(10 * MS);
         let loading = s.inner.lock().sound.loading.is_some();
         if loading && !was_loading {
             loads += 1;
         }
         was_loading = loading;
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        loading
+    };
+    // Until the loader settles with the good extra SoundFont in (a loop never settles)...
+    let t0 = std::time::Instant::now();
+    while (pump() || s.inner.lock().sound.rack_fonts != [SF2, OTHER]) && t0.elapsed() < std::time::Duration::from_secs(10) {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    // ...then a pump would start it again at once if the bad one were retried.
+    for _ in 0..20 {
+        pump();
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
     let fonts = s.inner.lock().sound.rack_fonts.clone();
     assert_eq!(fonts, [SF2, OTHER], "the good extra SoundFont plays");
     assert!(loads <= 2, "the loader is not started again and again ({loads})");
     let msg = s.state().message.clone().unwrap();
     assert!(msg.error && msg.text.contains("bad.sf2"), "{msg:?}");
-    // The file changes (fixed): it is tried again, and loads.
-    std::thread::sleep(std::time::Duration::from_millis(20));
+    // The file changes (fixed; its size differs, so no wait for a new modification time):
+    // it is tried again, and loads.
     std::fs::write(data.join("sf").join("bad.sf2"), patches::sf2::tiny_gm_sound_font()).unwrap();
-    for _ in 0..300 {
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_secs(10) {
         s.advance(10 * MS);
         if s.inner.lock().sound.rack_fonts.len() == 3 {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
     assert_eq!(s.inner.lock().sound.rack_fonts.len(), 3, "the fixed SoundFont loads");
     let _ = std::fs::remove_dir_all(&data);

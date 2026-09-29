@@ -41,12 +41,11 @@ fn corpus_sections_play_the_voices_they_route() {
     }
     let (mut checked, mut rerouted, mut styles) = (0, 0, 0);
     let mut fails = Vec::new();
-    for f in &files {
-        let style = Style::load(f).unwrap();
+    for (f, style) in files {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
-        let p = Prepared::new(&style);
+        let p = Prepared::new(style);
         let bar = bar_ns(&p);
-        styles += (p.setups.len() > 1) as usize;
+        styles +=(p.setups.len() > 1) as usize;
         for slot in (0..NUM_SLOTS).filter(|&s| p.sections[s].is_some()) {
             let own = p.sections[slot].as_ref().unwrap().own_programs();
             let want = p.setups[p.setup_of[slot] as usize].voices;
@@ -108,7 +107,8 @@ fn section_span(style: &Style, script: &[(u64, Step)], slot: usize, end: u64) ->
 /// Main A's routing is the first setup, and every section has one.
 #[test]
 fn one_setup_per_routing() {
-    let files = tests::corpus();
+    // Paths, not the parsed corpus: this test runs without slow-tests and parses only 40.
+    let files = crate::library::corpus_styles();
     for f in files.iter().take(40) {
         let p = Prepared::new(&Style::load(f).unwrap());
         assert!(!p.setups.is_empty());
@@ -168,10 +168,9 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
         return;
     }
     let (mut endings, mut rerouting, mut fails) = (0, 0, Vec::new());
-    for f in &files {
-        let style = Style::load(f).unwrap();
+    for (f, style) in files {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
-        let p = Prepared::new(&style);
+        let p = Prepared::new(style);
         let bar = bar_ns(&p);
         let main_a = p.setup_of[slot_of(SectionId::Main(0))];
         let home = p.setups[main_a as usize].voices;
@@ -282,10 +281,9 @@ fn corpus_sections_play_the_levels_they_route() {
         return;
     }
     let (mut checked, mut rerouted, mut fails) = (0, 0, Vec::new());
-    for f in &files {
-        let style = Style::load(f).unwrap();
+    for (f, style) in files {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
-        let p = Prepared::new(&style);
+        let p = Prepared::new(style);
         if p.setups.len() < 2 {
             continue;
         }
