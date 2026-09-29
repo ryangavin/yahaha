@@ -211,8 +211,8 @@ fn synchro_restart_after_an_ending_has_main_a_levels() {
 fn corpus_main_after_an_ending_has_the_main_levels() {
     let mut paths = Vec::new();
     for dir in ["corpus/MOX_v2", "corpus/SX900Style for Genos", "corpus/T5Style"] {
-        let Ok(rd) = std::fs::read_dir(corpus(dir)) else { continue };
-        paths.extend(rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sty"))));
+        let styles = yahaha_sff::library::style_files(&corpus(dir));
+        paths.extend(styles.into_iter().filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sty"))));
     }
     if paths.is_empty() {
         eprintln!("corpus missing; skipping");

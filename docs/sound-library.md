@@ -7,8 +7,8 @@ same patches, the way a Genos player has favourite voices, instead of the 128 GM
 a style asks for. This phase covers SoundFont patches. Plugin patches play through #91's
 plugin rack once that is merged; until then they play the SoundFont fallback.
 
-- Code: `src/patches/` (model, map, store, route table, `.sf2` presets, port mapping),
-  `src/synth/routing.rs` (the synth's side), `src/session/sound_library.rs` (commands,
+- Code: `crates/yahaha-synth/src/patches/` (model, map, store, route table, `.sf2` presets, port mapping),
+  `crates/yahaha-synth/src/synth/routing.rs` (the synth's side), `src/session/sound_library.rs` (commands,
   state, style hand-off, SoundFont loading, auditions).
 - API: `SoundLibraryCmd` and `state.soundLibrary` (docs/app-api.md, "Sound library").
 - App: the Sound Browser's Sounds tab (My Sounds: rename, recategorise, tags,
@@ -68,7 +68,7 @@ Bank variations collapse onto their program: the bank select is ignored, so one 
 covers every XG/GS variation. A Yamaha voice outside the GM banks first becomes the GM
 program the synth already plays for it (`synth::gm_fallback`). Genos bank 8 voices
 (MegaVoice, S.Art!) map to their instrument's GM program through the Data List's table
-(`src/voice_gm.rs`, #228): NylonGuitar (8/0/PC#1) is Nylon Guitar, in the Guitar family, not
+(`crates/yahaha-core/src/voice_gm.rs`, #228): NylonGuitar (8/0/PC#1) is Nylon Guitar, in the Guitar family, not
 Acoustic Grand Piano. Bank 9 (the Ensemble parts' S.Art! voices) keeps bank 8's numbering
 and has its own table (#270): TenorSax (9/66/PC#81) is Tenor Sax. Bank 10's Organ Flutes
 voices (PC#1-3) are Drawbar Organ (#272). Banks 104 and 109 are GM numbered and play their

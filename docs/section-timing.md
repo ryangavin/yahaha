@@ -9,17 +9,17 @@ and which parts are guesses because the manuals leave them open. Spec:
 
 | What | Where |
 |---|---|
-| The settings (`StyleSettings`), Next Bar / next beat points | `src/engine/timing.rs` |
-| Section Change Timing policy | `Engine::change_point` in `src/engine/sections.rs` (`Change::Main`, `Change::IntroEnding`, `Change::Style`) |
-| Fade In/Out | `src/engine/fade.rs`; the synth side in `src/synth.rs` (`master_volume_msg`), routed by `live::Out::push` |
-| Ending ritardando | `src/engine/ritardando.rs` |
-| Section Reset, Retrigger | `src/engine/retrigger.rs` |
-| Synchro Stop Window | `src/engine/sync_stop.rs` |
+| The settings (`StyleSettings`), Next Bar / next beat points | `crates/yahaha-engine/src/engine/timing.rs` |
+| Section Change Timing policy | `Engine::change_point` in `crates/yahaha-engine/src/engine/sections.rs` (`Change::Main`, `Change::IntroEnding`, `Change::Style`) |
+| Fade In/Out | `crates/yahaha-engine/src/engine/fade.rs`; the synth side in `crates/yahaha-synth/src/synth.rs` (`master_volume_msg`), routed by `live::Out::push` |
+| Ending ritardando | `crates/yahaha-engine/src/engine/ritardando.rs` |
+| Section Reset, Retrigger | `crates/yahaha-engine/src/engine/retrigger.rs` |
+| Synchro Stop Window | `crates/yahaha-engine/src/engine/sync_stop.rs` |
 | Engine state | `hooks::Features` (`settings`, `fade`, `rit`, `retrigger`, `sync_window`); `on_start`, `on_stop`, `after_section_change`, the new `on_wake` hook and `hook_wake_ns` deadline |
 | Commands | `live::Cmd::StyleSettings`; `Button::{Fade, SectionReset, Retrigger}` |
 | API | `src/api/style_settings.rs`, `TransportCmd::{ToggleFade, SectionReset, ToggleRetrigger}`, `TransportState::{fade, retrigger, ritardando}` |
 | Session | `src/session/style_settings.rs` (keeps the settings, sends the whole set) |
-| Tests | `src/engine/perform_tests.rs`, `tests/it/perform_no_alloc.rs`, `session_tests.rs` |
+| Tests | `crates/yahaha-engine/src/engine/perform_tests.rs`, `tests/it/perform_no_alloc.rs`, `session_tests.rs` |
 
 ## Section Change Timing (#22)
 
