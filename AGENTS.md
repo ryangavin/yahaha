@@ -40,7 +40,7 @@ It builds and runs the libraries' unit tests, with debug assertions and overflow
 When an orchestrator splits work across agents, each lane owns its files and no two lanes edit the same file.
 
 - **Contract files** (the app API): `src/api/*`, `docs/app-api.md`, `tests/api_wire.rs` (`EVERY_CMD`), `tests/fixtures/state.json`, `app/src/lib/api/types.ts`, `app/src/lib/api/mock.ts` and `mock.test.ts`, `app/src-tauri/src/mock.rs`, `app/src/help/tooltips.ts`, `app/src/help/actions.ts`, `app/docs/controls.md`. A change to the contract lands first, as its own small PR; the lanes that build on it merge `develop` once it lands.
-- **Hotspots** (one owner per feature at a time): `app/src/panels/mixer/Mixer.svelte` and `Mixer.test.ts`, `Strip.svelte`, `src/synth.rs`, `src/synth/rack.rs`, `src/fx.rs`, `tests/synth_no_alloc.rs`.
+- **Hotspots** (one owner per feature at a time): `app/src/panels/mixer/Mixer.svelte` and `Mixer.test.ts`, `Strip.svelte`, `crates/yahaha-synth/src/synth.rs`, `crates/yahaha-synth/src/synth/rack.rs`, `crates/yahaha-fx/src/fx.rs`, `tests/it/synth_no_alloc.rs`.
 
 ## Feedback loop
 
@@ -104,7 +104,7 @@ Every control has a tooltip in `app/src/help/tooltips.ts`. Every command is in b
 
 ## rustysynth
 
-rustysynth is an unmodified dependency from crates.io (`rustysynth = "1.3.6"`). Never vendor or patch it. Build what it lacks in yahaha, on its public API (see `src/synth/`).
+rustysynth is an unmodified dependency from crates.io (`rustysynth = "1.3.6"`). Never vendor or patch it. Build what it lacks in yahaha, on its public API (see `crates/yahaha-synth/src/synth/`).
 
 ## Layering
 

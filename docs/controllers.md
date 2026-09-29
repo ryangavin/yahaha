@@ -1,6 +1,6 @@
 # Controllers: pedals, wheels, assignable functions
 
-Issue #34. Code: `src/controllers.rs` (the model and the assignable-function table),
+Issue #34. Code: `crates/yahaha-engine/src/controllers.rs` (the model and the assignable-function table),
 `src/api/controllers.rs`, `src/session/controllers.rs`, the input thread in `src/live.rs`
 (`Input::key_msg_from`), the engine loop's sync (`EngineLoop::step`). The app's page is
 Settings → Pedals (`app/src/panels/settings/PedalsPage.svelte`).

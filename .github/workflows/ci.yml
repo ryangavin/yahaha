@@ -160,9 +160,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # A new key, not the old `linux`: that develop cache holds test-fast builds, and
-      # rust-cache never re-saves a key it restored exactly, so the test-quick dependencies
-      # would be rebuilt on every run until Cargo.lock changed.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: linux-rust

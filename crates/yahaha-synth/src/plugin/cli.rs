@@ -448,8 +448,8 @@ fn swap_bench(a: PluginInstance, b: PluginInstance, ch: u8, rate: f64) -> Result
 fn play(host: &PluginHost, info: &PluginInfo, swap_info: Option<&PluginInfo>, o: Opts) -> Result<()> {
     let mut sf2 = o.sf2.clone();
     if sf2.is_none() && !o.no_sf2 {
-        sf2 = std::fs::read_dir("soundfonts").into_iter().flatten().flatten().map(|e| e.path())
-            .find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sf2")));
+        let dir = std::path::Path::new("soundfonts");
+        sf2 = yahaha_sff::library::sound_font_files(dir).first().map(|n| dir.join(n));
     }
     let device = cpal::default_host().default_output_device().ok_or_else(|| anyhow!("no audio output device"))?;
     let device_name = device.description().map(|d| d.to_string()).unwrap_or_else(|_| "default output".into());

@@ -1,8 +1,8 @@
-# iReal Pro charts (`src/ireal`)
+# iReal Pro charts (`crates/yahaha-core/src/ireal`)
 
 `yahaha::ireal` reads iReal Pro playlist links and turns a chart into a linear list of bars,
 with yahaha chords on beats. It is a pure library module. The **chart player** (below) is
-built on it: `src/engine/chart.rs` plays the bars, `src/session/chart.rs` imports and chooses
+built on it: `crates/yahaha-engine/src/engine/chart.rs` plays the bars, `src/session/chart.rs` imports and chooses
 charts, and the app shows them.
 
 ```rust
@@ -183,12 +183,12 @@ A quality that isn't in the table gets `Fit::Fallback`. This covers custom `*...
 
 For example, `7#9b13` becomes 7#9.
 
-Tests are in `src/ireal/tests.rs`. They use synthetic charts only; no real songs or playlists are committed.
+Tests are in `crates/yahaha-core/src/ireal/tests.rs`. They use synthetic charts only; no real songs or playlists are committed.
 
 ## Chart player
 
 In chart mode the band takes its chords and Main sections from the chosen chart instead of
-from your left hand. The engine side is `src/engine/chart.rs`; the control side (import,
+from your left hand. The engine side is `crates/yahaha-engine/src/engine/chart.rs`; the control side (import,
 choosing a song, settings, style suggestion) is `src/session/chart.rs`; the commands and
 state are `chart` in [app-api.md](app-api.md).
 
@@ -240,7 +240,7 @@ state are `chart` in [app-api.md](app-api.md).
   line, where the chart takes over again (`chart.overridden` shows it). A chord played in
   the last half beat before a bar line is taken as an anticipation of the next bar: it holds
   through that bar as well, and the chart takes over at the line after it
-  (`ANTICIPATE_BEATS` in `src/engine/chart.rs`). A Sync Start chord only starts the band:
+  (`ANTICIPATE_BEATS` in `crates/yahaha-engine/src/engine/chart.rs`). A Sync Start chord only starts the band:
   the chart's own chord plays from the first beat.
 - **Transpose.** Keyboard transpose moves the chart's chords just as it moves the chords you
   play (the chart is "played" in its written key). Master transpose moves everything, as
@@ -255,7 +255,7 @@ state are `chart` in [app-api.md](app-api.md).
 
 The chart's style label (`Song::style`, e.g. "Medium Swing") and iReal's playback groove
 (`Song::groove`, e.g. "Latin-Brazil: Bossa Acoustic") pick words (`STYLE_WORDS` in
-`src/ireal/styles.rs`). A library style scores by those words: in its name they count three
+`crates/yahaha-core/src/ireal/styles.rs`). A library style scores by those words: in its name they count three
 times as much as in its folder (the category), and earlier words count more. A style in
 the chart's metre gets a point; ties go to the style nearest the chart's tempo.
 
@@ -314,6 +314,6 @@ good once Auto Style is off.
 - **Launchkey:** no pad for chart mode. Every pad page is already full, and chart mode is
   something you set up before playing, not during. The terminal UI has `M` (shift+m) and `( )`.
 
-Tests are synthetic charts only: `src/engine/chart.rs` (the engine, on a corpus style),
-`src/session_tests.rs` (`chart_player_*`), `src/ireal/styles.rs`, and
+Tests are synthetic charts only: `crates/yahaha-engine/src/engine/chart.rs` (the engine, on a corpus style),
+`src/session_tests.rs` (`chart_player_*`), `crates/yahaha-core/src/ireal/styles.rs`, and
 `tests/it/chart_no_alloc.rs`.

@@ -12,8 +12,8 @@ The Sound Browser rethink. This page is the model the whole sprint builds on: wh
 Sound is, how things name one, the GM map's layers, and how old files migrate. The
 owner's decisions D1–D6 are binding and listed at the end.
 
-- Code: `src/patches/sound.rs` (the model), `src/patches/gm.rs` (the map's layers,
-  auto-fill and provenance), `src/patches/store.rs` (the library file and its
+- Code: `crates/yahaha-synth/src/patches/sound.rs` (the model), `crates/yahaha-synth/src/patches/gm.rs` (the map's layers,
+  auto-fill and provenance), `crates/yahaha-synth/src/patches/store.rs` (the library file and its
   migration), `src/session/sound_library.rs` (`capture_sound_state`,
   `link_voice_sound`, `sound_tag_for_state`).
 - Related: docs/sound-library.md (the library and program map as first built),
@@ -246,7 +246,7 @@ wire is unchanged.
 
 ## Migration
 
-Each migration has a test in `src/patches/sound_tests.rs`.
+Each migration has a test in `crates/yahaha-synth/src/patches/sound_tests.rs`.
 
 - **Library file.** Format 2 adds `origin` to plugin sources. A format 1 file reads
   unchanged: its plugin patches are `user` sounds, and its family, override and drum
