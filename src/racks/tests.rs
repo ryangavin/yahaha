@@ -131,7 +131,16 @@ fn the_default_controller_map_is_the_parts_page() {
     let level = |part| ControlTarget::PartLevel { part };
     assert_eq!(m.faders, [level(0), level(1), level(2), level(3)]);
     assert_eq!(m.knobs[..4], [level(0), level(1), level(2), level(3)]);
-    assert!(m.knobs[4..].iter().all(|t| *t == ControlTarget::None));
+    assert_eq!(m.knobs[4..], [ControlTarget::HarmonyVolume, ControlTarget::MetronomeVolume, ControlTarget::None, ControlTarget::Tempo]);
+    // A map saved before it could be edited (none on knobs 5-8) reads as today's default;
+    // any other is kept as saved.
+    let mut v = serde_json::to_value(&m).unwrap();
+    for k in 4..8 {
+        v["knobs"][k] = json!({ "kind": "none" });
+    }
+    assert_eq!(serde_json::from_value::<ControlMap>(v.clone()).unwrap(), m, "the first default reads as today's");
+    v["knobs"][6] = json!({ "kind": "tempo" });
+    assert_eq!(serde_json::from_value::<ControlMap>(v).unwrap().knobs[4..], [ControlTarget::None, ControlTarget::None, ControlTarget::Tempo, ControlTarget::None]);
     // A rack without a map gets it; a short list is padded with none.
     let mut v = serde_json::to_value(sample()).unwrap();
     v.as_object_mut().unwrap().remove("controls");

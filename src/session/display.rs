@@ -262,7 +262,7 @@ mod tests {
         assert_eq!(shown(&s), text("Fader buttons", "RIGHT 3", "On"));
         // The encoder page button.
         s.midi_in(Port::Pads, &[0xB0, launchkey::KNOB_DOWN_CC, 127]);
-        assert_eq!(shown(&s), text("Knobs", "KNOB ASSIGN", "Parts"));
+        assert_eq!(shown(&s), text("Knobs", "KNOB ASSIGN", "Rack"));
         // A pad page button, then a Chord/Setup pad.
         s.midi_in(Port::Pads, &[0xB0, launchkey::PAD_DOWN_CC, 127]);
         assert_eq!(shown(&s), text("Buttons", "PAGE ▼", "Chord/Setup"));

@@ -92,6 +92,30 @@ impl FaderLayer {
     }
 }
 
+/// What a Panel fader 1-4 does in the Volume layer, from the live rack's controller map
+/// (docs/racks.md): the input thread reads it from `Parts::rack_fader`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[repr(u8)]
+pub enum FaderRoute {
+    /// Its own part's level, with soft takeover on the input thread (the default map).
+    #[default]
+    Own,
+    /// Nothing.
+    Off,
+    /// Something else: the control side runs it (`moveRackFader`).
+    Control,
+}
+
+impl FaderRoute {
+    pub(crate) fn from_u8(v: u8) -> FaderRoute {
+        match v {
+            1 => FaderRoute::Off,
+            2 => FaderRoute::Control,
+            _ => FaderRoute::Own,
+        }
+    }
+}
+
 /// The XG default of multi part parameter (hh, nn) (Data List, MIDI Parameter Change table
 /// (MULTI PART)), for the parameters a voice change puts back; None for the others (bank,
 /// program, channel, part mode, levels and sends: not voice settings).

@@ -279,6 +279,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'saveRackAs': return 'rack.save_as'
     case 'revertRack': return 'rack.revert'
     case 'dismissRackPrompt': return 'rack.keep_editing'
+    case 'setRackControl': return 'rack.map_target'
+    case 'moveRackFader': return 'launchkey.fader_rack'
     case 'newRack':
     case 'loadRack':
     case 'renameRack':

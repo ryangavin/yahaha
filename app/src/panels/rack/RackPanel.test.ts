@@ -262,19 +262,30 @@ describe('Rack panel: your hands', () => {
     expect(session.state.harmonyArp.on).toBe(true)
   })
 
-  it('the controller map shows what each fader and knob does for this rack', async () => {
+  it('the controller map shows and sets what each fader and knob does for this rack', async () => {
     const { session } = setup()
     expect(document.querySelector('table.map')).toBeNull()
     await fireEvent.click(tipped('rack.map'))
-    const rows = () => [...document.querySelectorAll('table.map tbody tr')].map((r) => r.textContent)
-    expect(rows()).toHaveLength(12)
-    expect(rows()[0]).toBe('Fader 1Right 1 level')
-    expect(rows()[7]).toBe('Knob 4Left level')
-    expect(rows()[8]).toBe('Knob 5—')
+    const selects = () => [...document.querySelectorAll<HTMLSelectElement>('table.map tbody select')]
+    const shown = (s: HTMLSelectElement) => s.selectedOptions[0]?.textContent
+    expect(selects()).toHaveLength(12)
+    expect(selects()[0].getAttribute('aria-label')).toBe('Fader 1 target')
+    expect(shown(selects()[0])).toBe('Right 1 level')
+    expect(shown(selects()[7])).toBe('Left level')
+    expect(shown(selects()[8])).toBe('Harmony volume')
+    expect(shown(selects()[11])).toBe('Tempo')
+    expect([...selects()[0].options].some((o) => o.value === 'tempo')).toBe(false)
     session.state.liveRack.controls.knobs[6] = { kind: 'splitPoint' }
     session.advance(16)
     flushSync()
-    expect(rows()[10]).toBe('Knob 7Split point')
+    expect(shown(selects()[10])).toBe('Split point')
+    // Picking a target sends setRackControl: the rack is modified, the knob follows.
+    const k2 = selects()[5]
+    k2.value = 'partPan:2'
+    await fireEvent.change(k2)
+    expect(session.state.liveRack.controls.knobs[1]).toEqual({ kind: 'partPan', part: 2 })
+    expect(session.state.liveRack.modified).toBe(true)
+    expect(shown(selects()[5])).toBe('Right 3 pan')
     expect(tipped('rack.map').getAttribute('aria-expanded')).toBe('true')
   })
 

@@ -2,9 +2,12 @@
 // save, save as, revert, rename, duplicate, delete, the unsaved-changes guard and the
 // sound-names prompt, as the session does them.
 
-import type { AppCmd, AppState, KeyboardPart, RackCmd, RackEntry, RackSwitch } from './types'
+import type { AppCmd, AppState, ControlMap, ControlTarget, KeyboardPart, RackCmd, RackControl, RackEntry, RackSwitch } from './types'
+import { defaultControlMap } from './types'
+import { faderCommand } from './mock-knobs'
 
-/** What a mock rack holds: each part's switch, voice, own patch and mix, the split, the transpose. */
+/** What a mock rack holds: each part's switch, voice, own patch and mix, the split, the
+ * transpose, the controller map. */
 interface MockRack {
   id: string
   name: string
@@ -12,6 +15,19 @@ interface MockRack {
   names: string[]
   split: number
   transpose: number
+  controls: ControlMap
+}
+
+const TARGET_KINDS = new Set(['none', 'partLevel', 'partPan', 'partReverb', 'partChorus', 'harmonyArp', 'splitPoint', 'harmonyVolume', 'metronomeVolume', 'tempo'])
+
+/** Why controller `index` can't do `target` (`ControlMap::set`), or null. */
+function refuseControl(m: ControlMap, control: RackControl, index: number, target: ControlTarget): string | null {
+  const part = 'part' in target ? target.part : 0
+  if (!TARGET_KINDS.has(target.kind) || part < 0 || part > 3) return `no controller target ${JSON.stringify(target)}`
+  if (control === 'fader' && target.kind === 'tempo') return "a fader can't set the tempo: put it on a knob"
+  const n = control === 'fader' ? m.faders.length : m.knobs.length
+  if (index < 0 || index >= n) return `no ${control} ${index + 1} (1-${n})`
+  return null
 }
 
 export interface RackCtx {
@@ -22,7 +38,7 @@ export interface RackCtx {
   clean: () => void
 }
 
-const RACK_TYPES = new Set<string>(['newRack', 'loadRack', 'saveRack', 'saveRackAs', 'revertRack', 'renameRack', 'duplicateRack', 'deleteRack', 'dismissRackPrompt'])
+const RACK_TYPES = new Set<string>(['newRack', 'loadRack', 'saveRack', 'saveRackAs', 'revertRack', 'renameRack', 'duplicateRack', 'deleteRack', 'dismissRackPrompt', 'setRackControl', 'moveRackFader'])
 const NEW_NAME = 'New rack'
 const DEFAULT_PROGRAMS = [0, 48, 61, 48]
 
@@ -148,6 +164,21 @@ export class MockRacks {
         live.prompt = null
         this.held = null
         return true
+      case 'setRackControl': {
+        const why = refuseControl(live.controls, cmd.control, cmd.index, cmd.target)
+        if (why) return fail(why)
+        const m = structuredClone(live.controls)
+        ;(cmd.control === 'fader' ? m.faders : m.knobs)[cmd.index] = cmd.target
+        live.controls = m
+        return true
+      }
+      case 'moveRackFader': {
+        const t = live.controls.faders[cmd.fader]
+        if (!t) return fail(`no fader ${cmd.fader + 1}`)
+        const c = faderCommand(t, cmd.volume, ctx.state)
+        if (c) ctx.command(c)
+        return true
+      }
     }
   }
 
@@ -162,7 +193,13 @@ export class MockRacks {
     })
     st.chord.split = rack?.split ?? 54
     st.chord.transposeKeyboard = rack?.transpose ?? 0
-    Object.assign(st.liveRack, { name: rack?.name ?? NEW_NAME, id: rack?.id ?? null, modified: false, prompt: null })
+    Object.assign(st.liveRack, {
+      name: rack?.name ?? NEW_NAME,
+      id: rack?.id ?? null,
+      modified: false,
+      controls: rack ? structuredClone(rack.controls) : defaultControlMap(),
+      prompt: null,
+    })
     ctx.clean()
     ctx.message(`Loaded ${rack?.name ?? NEW_NAME}`)
   }
@@ -175,6 +212,7 @@ export class MockRacks {
       names: st.keyboardParts.map((p) => p.sound?.name ?? p.voiceName),
       split: st.chord.split,
       transpose: st.chord.transposeKeyboard,
+      controls: structuredClone(st.liveRack.controls),
     }
   }
 

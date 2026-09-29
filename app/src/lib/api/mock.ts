@@ -2087,10 +2087,10 @@ const MOCK_STYLE_SENDS: [number, number, number][] = [[30, 0, 0], [30, 0, 0], [2
  * Pads (#267).
  */
 /** What the live rack holds, as the state shows it (docs/racks.md): the keyboard parts'
- *  sounds and mix, the split, the keyboard transpose and Harmony/Arp. */
+ *  sounds and mix, the split, the keyboard transpose, Harmony/Arp and the controller map. */
 export function liveRackView(st: AppState): string {
   const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false])
-  return JSON.stringify([parts, st.chord.split, st.chord.transposeKeyboard, st.harmonyArp])
+  return JSON.stringify([parts, st.chord.split, st.chord.transposeKeyboard, st.harmonyArp, st.liveRack.controls])
 }
 
 export function initialEffects(): EffectsState {

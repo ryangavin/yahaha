@@ -138,29 +138,107 @@ pub enum ControlTarget {
     HarmonyArp,
     /// The split point.
     SplitPoint,
+    /// The Keyboard Harmony volume.
+    HarmonyVolume,
+    /// The metronome's volume.
+    MetronomeVolume,
+    /// The tempo (knobs only: a fader has no tempo range).
+    Tempo,
     /// A target this build doesn't know (a newer build's), kept verbatim so it is written
     /// back unchanged. It does nothing here.
     #[serde(untagged)]
     Unknown(Value),
 }
 
+impl ControlTarget {
+    /// A target this build knows, with a part (if any) of 0-3.
+    pub fn is_known(&self) -> bool {
+        match self {
+            ControlTarget::Unknown(_) => false,
+            ControlTarget::PartLevel { part } | ControlTarget::PartPan { part } | ControlTarget::PartReverb { part } | ControlTarget::PartChorus { part } => {
+                (*part as usize) < PARTS
+            }
+            _ => true,
+        }
+    }
+}
+
 /// The rack's controller map: faders 1-4 and knobs 1-8.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "SavedMap")]
 pub struct ControlMap {
-    #[serde(deserialize_with = "targets")]
     pub faders: [ControlTarget; 4],
-    #[serde(deserialize_with = "targets")]
     pub knobs: [ControlTarget; 8],
 }
 
 impl Default for ControlMap {
     /// Today's Parts knob page and Panel faders: the four keyboard parts' levels on faders
-    /// 1-4 and on knobs 1-4. The page's other knobs (Harmony volume, the metronome, tempo)
-    /// are no rack targets: none.
+    /// 1-4 and on knobs 1-4; Harmony volume, the metronome's volume, none and the tempo on
+    /// knobs 5-8.
     fn default() -> ControlMap {
         let level = |p: u8| ControlTarget::PartLevel { part: p };
-        let knobs = std::array::from_fn(|k| if k < 4 { level(k as u8) } else { ControlTarget::None });
+        let rest = [ControlTarget::HarmonyVolume, ControlTarget::MetronomeVolume, ControlTarget::None, ControlTarget::Tempo];
+        let knobs = std::array::from_fn(|k| if k < 4 { level(k as u8) } else { rest[k - 4].clone() });
         ControlMap { faders: std::array::from_fn(|p| level(p as u8)), knobs }
+    }
+}
+
+/// A controller in the controller map.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RackControl {
+    Fader,
+    Knob,
+}
+
+impl ControlMap {
+    /// Controller `index` (0-based) now does `target`. Err: why not (a target this build
+    /// doesn't know, the tempo on a fader, no such controller); the map is unchanged.
+    pub fn set(&mut self, control: RackControl, index: u8, target: ControlTarget) -> Result<(), String> {
+        if !target.is_known() {
+            return Err(format!("no controller target {}", serde_json::to_string(&target).unwrap_or_default()));
+        }
+        if control == RackControl::Fader && target == ControlTarget::Tempo {
+            return Err("a fader can't set the tempo: put it on a knob".into());
+        }
+        let (slots, name) = match control {
+            RackControl::Fader => (&mut self.faders[..], "fader"),
+            RackControl::Knob => (&mut self.knobs[..], "knob"),
+        };
+        let n = slots.len();
+        let slot = slots.get_mut(index as usize).ok_or_else(|| format!("no {name} {} (1-{n})", index as usize + 1))?;
+        *slot = target;
+        Ok(())
+    }
+
+    /// The map every rack had before the map could be edited (and before Harmony volume,
+    /// the metronome and the tempo were targets): the default, with none on knobs 5-8.
+    fn first_default() -> ControlMap {
+        let mut m = ControlMap::default();
+        for k in &mut m.knobs[4..] {
+            *k = ControlTarget::None;
+        }
+        m
+    }
+}
+
+/// A controller map as a file has it.
+#[derive(Deserialize)]
+struct SavedMap {
+    #[serde(deserialize_with = "targets")]
+    faders: [ControlTarget; 4],
+    #[serde(deserialize_with = "targets")]
+    knobs: [ControlTarget; 8],
+}
+
+impl From<SavedMap> for ControlMap {
+    /// A map saved before it could be edited is that build's default, whose knobs 5-8 did
+    /// nothing only because Harmony volume, the metronome and the tempo were no targets
+    /// yet: it reads as today's default, so the Rack page keeps doing what the Parts page
+    /// did.
+    fn from(s: SavedMap) -> ControlMap {
+        let m = ControlMap { faders: s.faders, knobs: s.knobs };
+        if m == ControlMap::first_default() { ControlMap::default() } else { m }
     }
 }
 

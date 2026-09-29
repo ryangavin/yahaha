@@ -52,9 +52,42 @@ export function targetLabel(t: ControlTarget | undefined): string {
       return 'Harmony/Arp on/off'
     case 'splitPoint':
       return 'Split point'
+    case 'harmonyVolume':
+      return 'Harmony volume'
+    case 'metronomeVolume':
+      return 'Metronome volume'
+    case 'tempo':
+      return 'Tempo'
     default:
       return 'Set by a newer yahaha'
   }
+}
+
+/** A target as a select's option value: "partPan:2", "splitPoint". */
+export function targetKey(t: ControlTarget | undefined): string {
+  if (!t) return 'none'
+  return 'part' in t ? `${t.kind}:${t.part}` : t.kind
+}
+
+/** The targets a fader or knob can have, in the order the Controller map lists them (the
+ * wireframe's `mapTable`): none, each part's level, pan, reverb and chorus, then
+ * Harmony/Arp, the split, Harmony and Metronome volume, and (knobs only) Tempo. */
+export function targetOptions(control: 'fader' | 'knob'): { key: string; label: string; target: ControlTarget }[] {
+  const targets: ControlTarget[] = [
+    { kind: 'none' },
+    ...[0, 1, 2, 3].flatMap((part): ControlTarget[] => [
+      { kind: 'partLevel', part },
+      { kind: 'partPan', part },
+      { kind: 'partReverb', part },
+      { kind: 'partChorus', part },
+    ]),
+    { kind: 'harmonyArp' },
+    { kind: 'splitPoint' },
+    { kind: 'harmonyVolume' },
+    { kind: 'metronomeVolume' },
+    ...(control === 'knob' ? [{ kind: 'tempo' } as ControlTarget] : []),
+  ]
+  return targets.map((target) => ({ key: targetKey(target), label: targetLabel(target), target }))
 }
 
 /** A pan position as the slot shows it: "C", "L20", "R12". */

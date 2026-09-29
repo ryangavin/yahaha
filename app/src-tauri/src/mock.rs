@@ -70,7 +70,7 @@ fn live_rack_view(s: &AppState) -> serde_json::Value {
             serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, plugin, p.sound, p.sound_edited])
         })
         .collect();
-    serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp])
+    serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp, s.live_rack.controls])
 }
 
 const INTROS: [&str; 3] = ["Intro A", "Intro B", "Intro C"];
@@ -774,6 +774,8 @@ impl MockSession {
                 }
                 d
             },
+            harmony_arp: s.harmony_arp.on,
+            split: s.chord.split,
         }
     }
 
@@ -1413,11 +1415,26 @@ impl MockSession {
         push("masterButton".into(), *lk::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
+        // Panel faders 1-4 in the Volume layer follow the live rack's controller map.
+        let routes = yahaha::knobs::fader_routes(&st.live_rack.controls);
+        let knobs_now = self.knobs_now();
         let mut faders: Vec<SurfaceFader> = (0..8u8)
             .map(|i| {
                 let p = i as usize;
                 let position = Some(self.hw_faders[p]);
+                let remapped = layer == yahaha::parts::FaderLayer::Volume && p < parts::COUNT && routes[p] != yahaha::parts::FaderRoute::Own;
                 match fader_page {
+                    FaderPage::Panel if remapped && routes[p] == yahaha::parts::FaderRoute::Off => SurfaceFader { position, ..SurfaceFader::default() },
+                    FaderPage::Panel if remapped => {
+                        let f = yahaha::knobs::rack_function(&st.live_rack.controls.faders[p]);
+                        SurfaceFader {
+                            label: f.short().to_uppercase(),
+                            value: self.knobs.read(f, &knobs_now).level,
+                            waiting: false,
+                            position,
+                            set: Some(AppCmd::Rack(RackCmd::MoveRackFader { fader: i, volume: 0 })),
+                        }
+                    }
                     FaderPage::Panel if p < parts::COUNT => SurfaceFader {
                         label: lk::PART_LABELS[p].to_string(),
                         value: Some(st.keyboard_parts[p].volume),
@@ -2730,6 +2747,36 @@ mod tests {
         pick(&mut m, 0);
         m.send(OtsCmd::RecallOts { index: i as u8 });
         assert!(m.state.keyboard_parts[0].plugin.is_none(), "OTS");
+    }
+
+    /// The controller map, as the session does it: `setRackControl` edits it (modified),
+    /// the Rack knob page and the Panel faders follow it, and it is saved with the rack.
+    #[test]
+    fn the_controller_map_drives_the_rack_page_and_faders() {
+        let mut m = MockSession::new();
+        m.send(KnobsCmd::SetKnobPage { page: yahaha::knobs::KnobPage::Rack });
+        assert_eq!(m.state.knobs.knobs[4].short, "HarmVol", "the default map is the Parts page");
+        m.send(RackCmd::SetRackControl { control: RackControl::Knob, index: 4, target: ControlTarget::PartPan { part: 1 } });
+        assert!(m.state.live_rack.modified);
+        assert_eq!(m.state.knobs.knobs[4].short, "PanR2");
+        let pan = m.state.keyboard_parts[1].pan;
+        m.send(KnobsCmd::TurnKnob { knob: 4, delta: -1 });
+        assert_eq!(m.state.keyboard_parts[1].pan, pan - 2);
+        m.send(RackCmd::SetRackControl { control: RackControl::Fader, index: 2, target: ControlTarget::SplitPoint });
+        let f = &m.state.surface.faders[2];
+        assert_eq!((f.label.as_str(), f.set.clone()), ("SPLIT", Some(AppCmd::Rack(RackCmd::MoveRackFader { fader: 2, volume: 0 }))));
+        m.send(RackCmd::MoveRackFader { fader: 2, volume: 127 });
+        assert_eq!(m.state.chord.split, 96);
+        m.send(RackCmd::SetRackControl { control: RackControl::Fader, index: 0, target: ControlTarget::Tempo });
+        assert_eq!(m.state.live_rack.controls.faders[0], ControlTarget::PartLevel { part: 0 }, "no tempo on a fader");
+        let map = m.state.live_rack.controls.clone();
+        m.send(RackCmd::SaveRackAs { name: "Mapped".into(), sound_names: Default::default() });
+        let id = m.state.live_rack.id.clone().unwrap();
+        m.send(RackCmd::NewRack { discard: true });
+        assert_eq!(m.state.live_rack.controls, ControlMap::default());
+        m.send(RackCmd::LoadRack { id, discard: false });
+        assert_eq!(m.state.live_rack.controls, map);
+        assert_eq!(m.state.knobs.knobs[4].short, "PanR2");
     }
 
     /// The rack commands (docs/racks.md, "Saving"), as the session does them: save as, the

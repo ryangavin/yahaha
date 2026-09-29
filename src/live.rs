@@ -19,7 +19,7 @@ use crate::harmony::{self, HarmonySettings};
 use crate::launchkey::{self, Action, Control, Page, Touch};
 use crate::looper::ChordSeq;
 use crate::midi::{for_each_message, InputHandler};
-use crate::parts::{self, FaderLayer, FaderPage, Parts};
+use crate::parts::{self, FaderLayer, FaderPage, FaderRoute, Parts};
 use crate::rt::{self, Histogram, PacketSink, Wakeup};
 use crate::theory::{Chord, Recognizer, CANCEL, ONE_PLUS_EIGHT, ONE_PLUS_FIVE};
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -949,6 +949,14 @@ impl Input {
                         FaderPage::Panel if f < parts::COUNT && layer != FaderLayer::Volume => {
                             if self.send_fader(f, layer, prev, v) {
                                 self.signal = true;
+                            }
+                        }
+                        // Faders 1-4 follow the live rack's controller map (docs/racks.md):
+                        // their own part's level stays here (below, with soft takeover);
+                        // anything else the control side runs as its command.
+                        FaderPage::Panel if f < parts::COUNT && parts.rack_fader(f) != FaderRoute::Own => {
+                            if parts.rack_fader(f) == FaderRoute::Control {
+                                self.act(Action::RackFader(f as u8, v));
                             }
                         }
                         // The engine thread sends the new volume as the part's CC7. Faders
