@@ -5,8 +5,8 @@
 //! A part's sound is captured by reference: its own library patch, else the library sound
 //! its plugin plays (with the plugin's state as `editedState` when it differs from the
 //! sound's), else a plugin with no sound (its state kept), else its GM voice as a preset
-//! of the main SoundFont. Applying sets the sound first and the mix after it, so the
-//! rack's level, pan, sends and octave win over any sound's CC defaults. A sound that
+//! of the main SoundFont. Applying sets the sound first and the mix after it (a sound
+//! carries no mix, so the part's level, pan, sends and octave are the rack's). A sound that
 //! can't play (a plugin not installed, a sound no longer in the library) is reported and
 //! the rest of the rack is still applied, that part's mix included.
 
@@ -175,8 +175,8 @@ impl Control {
         self.sf_file.as_deref().unwrap_or_default() == file || !self.sound_fonts.iter().any(|f| f == file)
     }
 
-    /// Part `p`'s mix, after its sound: the rack's level, octave, pan and sends win over
-    /// the sound's defaults, and its voice settings over the sound's neutral ones.
+    /// Part `p`'s mix, after its sound: the rack's level, octave, pan and sends, and its
+    /// voice settings over the sound's neutral ones.
     fn apply_rack_mix(&mut self, p: usize, part: &RackPart) -> Result<(), String> {
         let kp = self.shared.parts.clone();
         kp.set_volume(p, part.volume.min(127));

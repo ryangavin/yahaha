@@ -11,28 +11,46 @@ plugin rack once that is merged; until then they play the SoundFont fallback.
   `src/synth/routing.rs` (the synth's side), `src/session/sound_library.rs` (commands,
   state, style hand-off, SoundFont loading, auditions).
 - API: `SoundLibraryCmd` and `state.soundLibrary` (docs/app-api.md, "Sound library").
-- App: the Sound Browser's Sounds tab (My Sounds: rename, recategorise, tags, defaults,
+- App: the Sound Browser's Sounds tab (My Sounds: rename, recategorise, tags,
   duplicate, delete; docs/sound-browser.md "The Sounds tab"), and the Sound Library drawer
   (the map, this style, adding from a SoundFont, the library file). The drawer's old
   Patches tab folded into the Sounds tab.
 
 ## Patches
 
-A patch has a name, a category, tags, a favourite flag, a source and defaults.
+A patch is the raw instrument (docs/racks.md): a name, a category, tags, a favourite flag
+and a source. It has no mix settings: a keyboard part's level, pan, sends and octave are
+the part's (a rack's), and a Style part's level comes from the style or the map rule
+(below).
 
 - **Categories** follow the Genos Voice Selection tabs: Piano, E.Piano, Organ, Guitar,
   Bass, Strings, Brass, Sax/Woodwind, Synth Lead, Pad, Choir, Drums/Perc and SFX.
 - **Source**: a SoundFont preset (a file in the SoundFont folder, its bank and program;
   bank 128 holds drum kits), or a plugin (the Audio Unit id and its saved state, as #91
   stores them).
-- **Defaults** are MIDI settings sent as CCs, so the mixer shows them and there is no
-  hidden gain: volume (CC7), pan (CC10), reverb (CC91), chorus (CC93) and octave.
 
-The library is saved as versioned JSON (format 2 since plugin sounds gained an origin; a
-format 1 file reads unchanged), `sound-library.json` in the data folder
+Until format 3 a patch also had **defaults** (volume, pan, reverb, chorus, octave) that a
+keyboard part took when it picked the patch; they are gone (see "Format 3" below).
+
+The library is saved as versioned JSON (format 3 since sounds lost their defaults; format
+2 added plugin sounds' origin), `sound-library.json` in the data folder
 (`~/Documents/yahaha`, the folder Registration (#99) uses; `--data-dir` changes it). It is
 saved after every change. Export writes the same format, and import accepts it or a bare
 list of patches. A file written by a newer yahaha is not read and never saved over.
+
+### Format 3
+
+A format 1 or 2 file (or a bare list) still reads. Each sound's `defaults.volume` moves
+onto every map rule, global or per style, that names the sound, as that rule's level
+(`familyVolumes`, an override's `volume`, `drumsVolume`), so no Style part's level
+changes. Pan, reverb, chorus and octave defaults only ever applied to keyboard parts and
+are dropped. Before the first save over an older file, it is copied to
+`sound-library.v<N>.json` beside it (`sound-library.v2.json` for a format 2 file), once:
+a copy already there is kept.
+
+A rule's level is the rule's, not the sound's: a rule given another patch loses it, and
+the same patch set again keeps it. There is no control to edit a level yet (the Library's
+Style map tab, docs/racks.md, is where it goes).
 
 ## The program map
 
@@ -62,7 +80,7 @@ through to the global map. It is stored in the library file, keyed by the style'
 name, and never in the style file.
 
 Keyboard parts use the map too. A part can pick a library patch of its own
-(`setPartPatch`, the voice picker's Library tab), which then applies its defaults. A
+(`setPartPatch`, the voice picker's Library tab); the part keeps its mix. A
 plugin patch picked there plays its plugin with the patch's state, through #91's
 `assign_channel_plugin` (the `setPartPlugin` path); leaving the patch takes the plugin
 away again (`sync_part_plugins`).
@@ -127,10 +145,11 @@ value as it is.
 - **Decision: the `yahaha` port mirrors the style by default.** Program changes go out
   unchanged, so a DAW recording is faithful. An option (`setPortSendsMapped`) sends the
   mapped bank and program instead: SoundFont bank as MSB (127 for drum kits), LSB 0.
-- **Decision: a patch's volume sets a Style part's level only when the style sets no
+- **Decision: a map rule's level sets a Style part's level only when the style sets no
   CC7 for that part.** It fills the style's level before the style loads, so the mixer
-  shows it and it goes out as CC7. Pan, sends and octave apply to keyboard parts only,
-  because a style's own pan and sends are part of its arrangement.
+  shows it and it goes out as CC7. (Until format 3 this was the patch's default volume;
+  docs/racks.md moved it onto the rules.) A style's own pan and sends are part of its
+  arrangement, so rules carry none.
 - **Decision: plugin routes are per channel, from the setup voice, and made at style
   load.** A program change inside a section cannot move a channel between a plugin and
   the SoundFont, because plugins load asynchronously and must never load on the audio

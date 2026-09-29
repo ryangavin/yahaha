@@ -387,11 +387,11 @@ describe('your sounds: rename, recategorise, delete (O6)', () => {
     expect(document.activeElement).toBe(input())
     await fireEvent.change(tipped('sound.edit_category')[0], { target: { value: 'organ' } })
     expect(s.state.soundLibrary.patches.find((p) => p.id === 'keys-au')!.category).toBe('organ')
-    // Details: the defaults a part takes.
+    // Details: tags, and no mix (a sound has none).
     await fireEvent.click(tipped('sounds.more')[0])
     flushSync()
-    await fireEvent.change(tipped('sound.default_volume')[0], { target: { value: '90' } })
-    expect(s.state.soundLibrary.patches.find((p) => p.id === 'keys-au')!.defaults.volume).toBe(90)
+    expect(tipped('sound.tags')).toHaveLength(1)
+    expect(document.querySelectorAll('.edit input[type="number"]')).toHaveLength(0)
     // Delete asks first; Keep keeps it.
     await key('Delete', { ctrlKey: true })
     await tick()
@@ -447,7 +447,7 @@ describe('sound browser picking for a map rule', () => {
 describe('sound browser model', () => {
   const e = (id: string, category: 'piano' | 'bass', favourite = false, detail = 'A.sf2') => ({ id, name: id, category, source: id.startsWith('saved:') ? ('saved' as const) : ('soundFont' as const), detail, favourite, recent: false, plugin: null })
   const catalog = { revision: 1, entries: [e('sf:A.sf2:0:0', 'piano', true), e('sf:A.sf2:0:1', 'bass'), e('sf:B.sf2:0:0', 'piano', false, 'B.sf2'), e('saved:x', 'piano')], recents: ['sf:B.sf2:0:0', 'sf:A.sf2:0:0'] }
-  const patch = { id: 'x', name: 'X', category: 'piano' as const, tags: [], favourite: false, source: { kind: 'soundFont' as const, file: 'B.sf2', bank: 0, program: 3 }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 }, available: true, note: null }
+  const patch = { id: 'x', name: 'X', category: 'piano' as const, tags: [], favourite: false, source: { kind: 'soundFont' as const, file: 'B.sf2', bank: 0, program: 3 }, available: true, note: null }
   const gmMap = [{ program: 0, family: 0, overrideRule: null, familyRule: null, resolved: { sound: 'sf:A.sf2:0:0', layer: 'auto' as const, fromStyle: false, font: null } }]
   const ctx = { patches: [patch], gmMap }
 

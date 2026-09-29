@@ -157,7 +157,7 @@ impl MockSounds {
                 }
                 if let Some(patch) = id.strip_prefix("saved:") {
                     let p = st.sound_library.patches.iter().find(|p| p.patch.id == patch).map(|p| p.patch.clone()).ok_or_else(|| no(&id))?;
-                    let fields = PatchFields { name: p.name, category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults };
+                    let fields = PatchFields { name: p.name, category, tags: p.tags, favourite: p.favourite, source: p.source };
                     return Ok(Then::Run(vec![SoundLibraryCmd::UpdatePatch { id: p.id, patch: fields }.into()]));
                 }
                 if !id.starts_with("au:") {
@@ -279,7 +279,7 @@ impl MockSounds {
                     category = self.prefs.preset_category(id, &q.name, q.folder.as_deref(), category);
                     name = format!("{} · {}", e.name, q.name);
                 }
-                let patch = PatchFields { name, category, tags: vec![], favourite: false, source, defaults: Default::default() };
+                let patch = PatchFields { name, category, tags: vec![], favourite: false, source };
                 SoundLibraryCmd::CreatePatch { patch }.into()
             }
         }))

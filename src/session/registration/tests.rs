@@ -1134,14 +1134,13 @@ fn patch_session(test: &str) -> Option<(Session, PathBuf)> {
     Some((s, dir))
 }
 
-fn add_patch(s: &Session, name: &str, program: u8, volume: u8) -> String {
+fn add_patch(s: &Session, name: &str, program: u8) -> String {
     let patch = PatchFields {
         name: name.into(),
         category: crate::patches::Category::guess(0, program),
         tags: vec![],
         favourite: false,
         source: PatchSource::SoundFont { file: "Test.sf2".into(), bank: 0, program },
-        defaults: PatchDefaults { volume: Some(volume), octave: 1, ..PatchDefaults::default() },
     };
     s.send(SoundLibraryCmd::CreatePatch { patch }).unwrap();
     s.state().sound_library.last_added.clone().unwrap()
@@ -1156,10 +1155,10 @@ fn part_sound(s: &Session, p: usize) -> (Option<String>, u8, u8, i8) {
 #[test]
 fn a_parts_library_patch_is_registered() {
     let Some((s, dir)) = patch_session("patch") else { return };
-    let piano = add_patch(&s, "Stage Piano", 1, 80);
-    let strings = add_patch(&s, "Warm Strings", 48, 70);
-    // Button 1: Right 1 on its own patch (the registration's level and octave, not the
-    // patch's defaults); button 2: Right 1 on a GM voice.
+    let piano = add_patch(&s, "Stage Piano", 1);
+    let strings = add_patch(&s, "Warm Strings", 48);
+    // Button 1: Right 1 on its own patch, with the registration's level and octave;
+    // button 2: Right 1 on a GM voice.
     s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(piano.clone()) }).unwrap();
     s.send(PartsCmd::SetPartVolume { part: 0, volume: 99 }).unwrap();
     s.send(PartsCmd::SetPartOctave { part: 0, octave: 0 }).unwrap();
@@ -1207,7 +1206,7 @@ fn a_parts_library_patch_is_registered() {
 #[test]
 fn a_bank_without_patches_recalls_the_gm_voice() {
     let Some((s, dir)) = patch_session("oldpatch") else { return };
-    let piano = add_patch(&s, "Stage Piano", 1, 80);
+    let piano = add_patch(&s, "Stage Piano", 1);
     s.send(PartsCmd::SetPartVoice { part: 0, program: 24 }).unwrap();
     s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
     save(&s, "Old");

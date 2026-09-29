@@ -1,7 +1,7 @@
 //! Racks and the session: capture, write, read and apply, through offline sessions.
 
 use crate::api::*;
-use crate::patches::{PatchDefaults, PatchSource};
+use crate::patches::PatchSource;
 use crate::racks::{self, ControlTarget, Rack, SoundRef};
 use crate::session::{Options, Session};
 use std::path::{Path, PathBuf};
@@ -37,11 +37,10 @@ fn session(data: &Path) -> Session {
     Session::offline(Options { paths: vec![style], data_dir: Some(data.to_path_buf()), ..Options::default() }).unwrap()
 }
 
-/// A SoundFont library patch whose defaults would move the part's mix, if they won.
+/// A SoundFont library patch (a sound carries no mix).
 fn add_bass_patch(s: &Session) -> String {
-    let defaults = PatchDefaults { volume: Some(20), pan: Some(10), reverb: Some(5), chorus: Some(6), octave: 2 };
     let source = PatchSource::SoundFont { file: "Other.sf2".into(), bank: 0, program: 33 };
-    let patch = PatchFields { name: "My Bass".into(), category: Default::default(), tags: Vec::new(), favourite: false, source, defaults };
+    let patch = PatchFields { name: "My Bass".into(), category: Default::default(), tags: Vec::new(), favourite: false, source };
     s.send(SoundLibraryCmd::CreatePatch { patch }).unwrap();
     let st = s.state();
     st.sound_library.patches.iter().find(|p| p.patch.name == "My Bass").unwrap().patch.id.clone()
@@ -75,7 +74,7 @@ fn capture_write_read_apply_round_trips() {
     a.send(PartsCmd::SetPartOn { part: 1, on: true }).unwrap();
     a.send(PartsCmd::SetPartVoice { part: 1, program: 48 }).unwrap();
     a.send(PartsCmd::SetPartVolume { part: 1, volume: 50 }).unwrap();
-    // Left plays the library patch, with the rack's own mix over the patch's defaults.
+    // Left plays the library patch, with the rack's own mix.
     a.send(SoundLibraryCmd::SetPartPatch { part: 3, id: Some(bass.clone()) }).unwrap();
     a.send(PartsCmd::SetPartVolume { part: 3, volume: 99 }).unwrap();
     a.send(PartsCmd::SetPartPan { part: 3, pan: 70 }).unwrap();
@@ -107,7 +106,7 @@ fn capture_write_read_apply_round_trips() {
     assert!(problems.is_empty(), "{problems:?}");
     assert_eq!(parts(&b), parts(&a), "the parts sound and mix as captured");
     let bl = &b.state().keyboard_parts[3];
-    assert_eq!((bl.volume, bl.pan, bl.octave), (99, 70, -1), "the rack's mix, not the patch's defaults");
+    assert_eq!((bl.volume, bl.pan, bl.octave), (99, 70, -1), "the rack's mix");
     let (sa, sb) = (a.state(), b.state());
     assert_eq!((sb.chord.split, sb.chord.transpose_keyboard), (60, 3));
     assert_eq!(sb.harmony_arp, sa.harmony_arp);

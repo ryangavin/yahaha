@@ -539,7 +539,7 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
             }
             None => err = Some(format!("{}: voice not available", parts::NAMES[p])),
         }
-        // After the patch: its defaults give way to the registration's level, octave, pan
+        // After the patch (which carries no mix): the registration's level, octave, pan
         // and sends (the engine thread sends the CCs).
         kp.set_volume(p, part.volume.min(127));
         kp.octave[p].store(part.octave.clamp(-2, 2), Relaxed);

@@ -26,7 +26,8 @@ A part plays a **Sound**, which is one of two things.
   bank (128 = drum kits) and program (`FontPreset`). It needs no library entry.
 - **Plugin sound**: a library patch whose source is a plugin
   (`PatchSource::Plugin { component_id, state, origin }`). It holds the instrument, its
-  captured state, and the patch's name, category, CC defaults and favourite flag.
+  captured state, and the patch's name, category, tags and favourite flag. It has no mix
+  settings (docs/racks.md: a sound is the raw instrument).
 
 There is exactly **one** kind of plugin sound. Where it came from is its origin
 (`PluginOrigin`):
@@ -42,7 +43,7 @@ of the same preset from adding a duplicate (`SoundLibrary::plugin_sound`,
 `add_plugin_preset`).
 
 A library patch whose source is a SoundFont preset is a font preset the user added to
-their sounds, with a name, category and defaults of its own.
+their sounds, with a name, category and tags of its own.
 
 ### First-play capture
 
@@ -110,8 +111,8 @@ state no longer matches the sound it was loaded from:
   edit, so it stays edited until Save, Save as… or another sound.
 - Save, Save as… or another sound clears the mark.
 
-**Save** (`saveSound`) writes the part's state (read afresh), volume and octave over the
-sound, but only over the user's own sound. A factory preset, an `.aupreset` file, a
+**Save** (`saveSound`) writes the part's state (read afresh) over the sound, never the
+part's mix, and only over the user's own sound. A factory preset, an `.aupreset` file, a
 sound of another plugin or no sound at all goes to **Save as…** (`saveSoundAs`), which
 adds a new `user` sound that the part then plays. A part playing a library plugin patch
 keeps its instance through both (`refresh_part_plugin_voices`). `savePartAsPatch` is
@@ -222,7 +223,7 @@ wire is unchanged.
   (`savePartAsPluginPreset`, asking before it replaces a file of that name). The new sound
   shows selected in My Sounds.
 - **Your sounds:** selecting a library sound shows its strip under the list: rename,
-  category, Details (tags and the defaults a part takes), Duplicate and Delete… (asked
+  category, Details (tags and where it comes from), Duplicate and Delete… (asked
   first). A plugin's category is set on the Instruments tab. A library sound made with a
   plugin can also be exported as an `.aupreset` from the strip (`exportSoundPreset`).
 - **Keys** (the filter keeps focus): ↑/↓ PgUp/PgDn Home/End, Enter plays, Shift+Enter
@@ -298,8 +299,11 @@ Sounds tab only, because Play now needs a part.
 ## Decisions (binding, from the owner)
 
 - **D1.** The library is the canonical store. `sound-library.json` holds every plugin
-  sound (state, name, category, CC defaults, favourite). `.aupreset` files are imported
-  on scan and remembered by path; they are not the store.
+  sound (state, name, category, tags, favourite). `.aupreset` files are imported
+  on scan and remembered by path; they are not the store. *Superseded in part by
+  docs/racks.md (sound library format 3): a sound no longer has CC defaults; mix belongs
+  to the rack part, and the Style part level a sound's volume gave moved onto the map
+  rules.*
 - **D2.** The browser has two tabs, Sounds and Instruments. Instruments lists SoundFont
   files and plugins, and SoundFonts get special handling only where they really differ.
 - **D3.** There is no default sound set. There are only scanned folders, the library's
@@ -368,9 +372,10 @@ Sounds tab only, because Play now needs a part.
   Instruments group under Categories, rather than a wrapping chip bar above the list.
 - **Decision: the `.aupreset` export is an option of Save as…**, so there is one save
   flow; it keeps #307's replace question.
-- **Decision: the Patches tab's editor moved whole into the strip** (tags and defaults
-  under Details), and its "move up/down" and "play on R1–L" went: the browser is per part
-  and sorts by the catalog. The library file (export, import, "port sends mapped") moved
+- **Decision: the Patches tab's editor moved whole into the strip** (tags under Details;
+  the defaults that were there went with sound library format 3, docs/racks.md), and
+  its "move up/down" and "play on R1–L" went: the browser is per part and sorts by the
+  catalog. The library file (export, import, "port sends mapped") moved
   under the drawer's pages.
 - **Decision: Edit… and Rescan stay in the footer for now**; the Instruments tab (PR 5)
   takes them.

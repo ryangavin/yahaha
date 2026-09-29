@@ -1,10 +1,11 @@
 //! The sound library (#103): patches, the program map, and what the current style uses.
 
 pub use crate::patches::sf2::Preset;
-pub use crate::patches::{Category as PatchCategory, Patch, PatchDefaults, PatchSource, ProgramMap, ProgramOverride, RuleKind};
+pub use crate::patches::{Category as PatchCategory, Patch, PatchSource, ProgramMap, ProgramOverride, RuleKind};
 use serde::{Deserialize, Serialize};
 
-/// A patch's editable fields (all but its id).
+/// A patch's editable fields (all but its id). A sound is the raw instrument: it has no
+/// mix (docs/racks.md). An older client's `defaults` is ignored.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchFields {
@@ -16,8 +17,6 @@ pub struct PatchFields {
     #[serde(default)]
     pub favourite: bool,
     pub source: PatchSource,
-    #[serde(default)]
-    pub defaults: PatchDefaults,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -25,7 +24,7 @@ pub struct PatchFields {
 pub enum SoundLibraryCmd {
     /// Add a patch at the end of the list (its id: `soundLibrary.lastAdded`).
     CreatePatch { patch: PatchFields },
-    /// Change a patch: rename, recategorise, tags, favourite, source, defaults.
+    /// Change a patch: rename, recategorise, tags, favourite, source.
     UpdatePatch { id: String, patch: PatchFields },
     /// Delete a patch. Rules naming it go; parts playing it go back to their GM voice.
     DeletePatch { id: String },
@@ -35,8 +34,8 @@ pub enum SoundLibraryCmd {
     MovePatch { id: String, to: u32 },
     /// Mark or unmark a favourite.
     SetPatchFavourite { id: String, favourite: bool },
-    /// Save: keyboard part `part`'s sound as it plays now (its plugin's state, volume and
-    /// octave) over the Sound it plays. A sound that isn't the user's own (a factory
+    /// Save: keyboard part `part`'s sound as it plays now (its plugin's state; never the
+    /// part's mix) over the Sound it plays. A sound that isn't the user's own (a factory
     /// preset, an `.aupreset` file) or none at all is saved as a new one (`saveSoundAs`).
     SaveSound { part: u8 },
     /// Save as…: keyboard part `part`'s sound as a new Sound (named `name`, else after what

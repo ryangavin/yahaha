@@ -10,7 +10,6 @@ fn sf(id: &str, program: u8) -> Patch {
         tags: vec![],
         favourite: false,
         source: PatchSource::SoundFont { file: "GeneralUser-GS.sf2".into(), bank: 0, program },
-        defaults: PatchDefaults::default(),
     }
 }
 
@@ -169,7 +168,6 @@ fn ids_are_readable_and_unique() {
 pub(super) fn library() -> SoundLibrary {
     let mut lib = SoundLibrary { patches: vec![sf("bass", 33), sf("piano", 0), sf("rhodes", 4), sf("kit", 0)], ..SoundLibrary::default() };
     lib.patches[3].source = PatchSource::SoundFont { file: "GeneralUser-GS.sf2".into(), bank: 128, program: 25 };
-    lib.patches[0].defaults = PatchDefaults { volume: Some(90), pan: Some(64), reverb: Some(20), chorus: None, octave: -1 };
     lib.patches.push(Patch {
         id: "keys".into(),
         name: "Keys (AU)".into(),
@@ -177,11 +175,12 @@ pub(super) fn library() -> SoundLibrary {
         tags: vec!["plugin".into()],
         favourite: true,
         source: PatchSource::plugin("aumu:abcd:manu", "00ff"),
-        defaults: PatchDefaults::default(),
     });
     lib.map = global();
+    lib.map.set_volume_of("bass", 90);
     let mut s = ProgramMap::default();
     s.set_override(33, Some("keys".into()));
+    s.set_volume_of("keys", 70);
     lib.style_maps.insert("Cool8Beat.S910.sty".into(), s);
     lib
 }
@@ -199,7 +198,11 @@ fn a_library_round_trips_through_its_file() {
     assert_eq!(json["patches"][4]["source"], serde_json::json!({"kind": "plugin", "componentId": "aumu:abcd:manu", "state": "00ff"}));
     assert_eq!(json["patches"][0]["source"], serde_json::json!({"kind": "soundFont", "file": "GeneralUser-GS.sf2", "bank": 0, "program": 33}));
     assert_eq!(json["patches"][2]["category"], "ePiano");
+    assert!(json["patches"][0].get("defaults").is_none(), "a sound has no mix");
     assert_eq!(json["map"]["families"].as_array().unwrap().len(), 16);
+    assert_eq!(json["map"]["familyVolumes"][4], 90);
+    assert_eq!(json["styleMaps"]["Cool8Beat.S910.sty"]["overrides"][0]["volume"], 70);
+    assert!(json["map"].get("drumsVolume").is_none(), "no level: not written");
     // No file yet: an empty library.
     assert_eq!(SoundLibrary::load(&dir.join("none.json")).unwrap(), SoundLibrary::default());
     let _ = std::fs::remove_dir_all(&dir);
@@ -231,15 +234,116 @@ fn old_and_future_versions() {
 #[test]
 fn normalize_fixes_duplicate_ids_and_ranges() {
     let mut lib = SoundLibrary { patches: vec![sf("a", 1), sf("a", 2), sf("", 3)], ..SoundLibrary::default() };
-    lib.patches[0].defaults.octave = 7;
-    lib.patches[0].defaults.volume = Some(200);
+    lib.map.set_family(0, Some("a".into()));
+    lib.map.family_volumes[0] = Some(200);
+    lib.map.family_volumes[1] = Some(90);
+    lib.map.drums_volume = Some(90);
     lib.normalize();
     let ids: Vec<&str> = lib.patches.iter().map(|p| p.id.as_str()).collect();
     assert_eq!(ids[0], "a");
     assert_ne!(ids[1], "a");
     assert!(!ids[2].is_empty() && ids[2] != ids[1]);
-    assert_eq!(lib.patches[0].defaults.octave, 2);
-    assert_eq!(lib.patches[0].defaults.volume, Some(127));
+    assert_eq!(lib.map.family_volumes[0], Some(127), "a level in range");
+    assert_eq!((lib.map.family_volumes[1], lib.map.drums_volume), (None, None), "a level only on a rule");
+}
+
+#[test]
+fn a_rule_keeps_its_level_for_its_patch_only() {
+    let mut m = global();
+    m.set_volume_of("bass", 90);
+    m.set_volume_of("rhodes", 80);
+    m.set_volume_of("kit", 70);
+    let level = |m: &ProgramMap, drum: bool, program: u8| resolve(m, None, drum, program).volume;
+    assert_eq!((level(&m, false, 33), level(&m, false, 4), level(&m, false, 5), level(&m, true, 0), level(&m, false, 0)), (Some(90), Some(80), Some(80), Some(70), None));
+    // The same patch again keeps the level; another patch drops it.
+    m.set_family(4, Some("bass".into()));
+    m.set_override(4, Some("rhodes".into()));
+    m.set_drums(Some("kit".into()));
+    assert_eq!((level(&m, false, 33), level(&m, false, 4), level(&m, true, 0)), (Some(90), Some(80), Some(70)));
+    m.set_family(4, Some("piano".into()));
+    m.set_override(4, Some("piano".into()));
+    m.set_drums(Some("piano".into()));
+    assert_eq!((level(&m, false, 33), level(&m, false, 4), level(&m, true, 0)), (None, None, None));
+    // A style's rule brings its own level (none here), not the global one's.
+    let mut style = ProgramMap::default();
+    style.set_override(5, Some("piano".into()));
+    assert_eq!(resolve(&m, Some(&style), false, 5).volume, None);
+    assert_eq!(resolve(&m, None, false, 5).volume, Some(80));
+}
+
+/// A version 2 file (sounds with `defaults`): version 3 keeps every sound and puts each
+/// sound's volume on every rule naming it, global and per style, and nowhere else.
+#[test]
+fn a_version_2_library_moves_sound_volumes_onto_its_rules() {
+    let src = |p: u8| format!(r#"{{"kind": "soundFont", "file": "x.sf2", "bank": 0, "program": {p}}}"#);
+    let v2 = format!(
+        r#"{{"version": 2,
+            "patches": [
+              {{"id": "bass", "name": "Bass", "source": {b}, "defaults": {{"volume": 77, "pan": 10, "reverb": 5, "chorus": 6, "octave": -1}}}},
+              {{"id": "keys", "name": "Keys", "source": {k}, "defaults": {{"volume": 200, "octave": 0}}}},
+              {{"id": "pad", "name": "Pad", "source": {p}, "defaults": {{"volume": null, "octave": 1}}}},
+              {{"id": "kit", "name": "Kit", "source": {d}, "defaults": {{"volume": 90}}}},
+              {{"id": "plain", "name": "Plain", "source": {p}}}
+            ],
+            "map": {{"families": [null,null,null,null,"bass",null,null,null,null,null,null,"pad",null,null,null,null],
+                     "overrides": [{{"program": 4, "patch": "keys"}}, {{"program": 90, "patch": "plain"}}], "drums": "kit"}},
+            "styleMaps": {{"Cool8Beat.S910.sty": {{"families": [null,null,null,null,null,null,null,null,null,null,null,"bass",null,null,null,null],
+                                                   "overrides": [{{"program": 33, "patch": "keys"}}]}}}}}}"#,
+        b = src(33),
+        k = src(4),
+        p = src(89),
+        d = r#"{"kind": "soundFont", "file": "x.sf2", "bank": 128, "program": 0}"#
+    );
+    let lib = SoundLibrary::from_json(&v2).unwrap();
+    assert_eq!(lib.version, 3);
+    assert_eq!(lib.patches.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["bass", "keys", "pad", "kit", "plain"], "every sound kept");
+    let g = &lib.map;
+    assert_eq!(g.family_volumes[4], Some(77), "the bass family rule takes the bass's volume");
+    assert_eq!(g.family_volumes[11], None, "a sound with no volume gives its rule none");
+    assert_eq!(g.overrides.iter().map(|o| (o.program, o.volume)).collect::<Vec<_>>(), [(4, Some(127)), (90, None)], "capped at 127");
+    assert_eq!(g.drums_volume, Some(90));
+    assert_eq!(g.family_volumes.iter().flatten().count(), 1, "nowhere else");
+    let s = &lib.style_maps["Cool8Beat.S910.sty"];
+    assert_eq!(s.family_volumes[11], Some(77), "a style's rule too");
+    assert_eq!(s.overrides[0].volume, Some(127));
+    // What a Style part resolves to plays at the level its sound had.
+    assert_eq!(resolve(g, Some(s), false, 89).volume, Some(77));
+    assert_eq!(resolve(g, None, false, 89).volume, None);
+    // Written back as version 3, with no sound defaults, and read again unchanged.
+    let json: serde_json::Value = serde_json::from_str(&lib.to_json()).unwrap();
+    assert_eq!(json["version"], 3);
+    assert!(json["patches"].as_array().unwrap().iter().all(|p| p.get("defaults").is_none()));
+    assert_eq!(SoundLibrary::from_json(&lib.to_json()).unwrap(), lib);
+    // A version 3 file's rules are its own: a stray `defaults` moves nothing.
+    let v3 = v2.replacen(r#""version": 2"#, r#""version": 3"#, 1);
+    assert!(SoundLibrary::from_json(&v3).unwrap().map.family_volumes.iter().all(Option::is_none));
+    // Version 1 migrates the same way; a bare list (no maps) keeps its sounds.
+    let v1 = v2.replacen(r#""version": 2"#, r#""version": 1"#, 1);
+    assert_eq!(SoundLibrary::from_json(&v1).unwrap(), lib);
+    let bare = serde_json::to_string(&json_patches(&v2)).unwrap();
+    assert_eq!(SoundLibrary::from_json(&bare).unwrap().patches, lib.patches);
+    assert_eq!(file_version(&v2), Some(2));
+    assert_eq!(file_version(&bare), Some(1));
+}
+
+fn json_patches(text: &str) -> serde_json::Value {
+    serde_json::from_str::<serde_json::Value>(text).unwrap()["patches"].clone()
+}
+
+/// The older file is copied aside once: a second backup keeps the first copy.
+#[test]
+fn an_older_file_is_backed_up_once() {
+    let dir = std::env::temp_dir().join(format!("yahaha-patches-bak-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(FILE_NAME);
+    std::fs::write(&path, "first").unwrap();
+    let bak = backup_older(&path, 2).unwrap();
+    assert_eq!(bak, dir.join("sound-library.v2.json"));
+    std::fs::write(&path, "second").unwrap();
+    backup_older(&path, 2).unwrap();
+    assert_eq!(std::fs::read_to_string(&bak).unwrap(), "first");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

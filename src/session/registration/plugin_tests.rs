@@ -126,7 +126,6 @@ fn a_plugin_button_after_a_gm_button_with_a_style_and_a_patch_sounds() {
         tags: vec![],
         favourite: false,
         source: crate::patches::PatchSource::SoundFont { file: sf2.file_name().unwrap().to_string_lossy().into(), bank: 0, program: 48 },
-        defaults: crate::patches::PatchDefaults::default(),
     };
     s.send(crate::api::SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
     let patch = s.state().sound_library.last_added.clone().unwrap();
@@ -215,7 +214,7 @@ fn a_registration_stores_and_recalls_a_parts_plugin() {
 #[test]
 fn a_plugin_patch_is_stored_as_the_patch() {
     use crate::api::{PatchFields, SoundLibraryCmd};
-    use crate::patches::{PatchDefaults, PatchSource};
+    use crate::patches::PatchSource;
     let Some((s, dir)) = session("plugin-patch", None) else { return };
     let fields = PatchFields {
         name: "DLS Keys".into(),
@@ -223,7 +222,6 @@ fn a_plugin_patch_is_stored_as_the_patch() {
         tags: vec![],
         favourite: false,
         source: PatchSource::plugin(DLS, String::new()),
-        defaults: PatchDefaults::default(),
     };
     s.send(SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
     let id = s.state().sound_library.last_added.clone().unwrap();

@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use yahaha::api::*;
-use yahaha::patches::{self, AutoFill, Category, Patch, PatchDefaults, PatchSource, PluginOrigin, ProgramMap, SoundLibrary, SoundTag};
+use yahaha::patches::{self, AutoFill, Category, Patch, PatchSource, PluginOrigin, ProgramMap, SoundLibrary, SoundTag};
 
 const SF2: &str = "GeneralUser-GS.sf2";
 const FONTS: [&str; 2] = [SF2, "FluidR3_GM.sf2"];
@@ -17,7 +17,6 @@ fn sf(id: &str, name: &str, bank: u16, program: u8) -> Patch {
         tags: vec![],
         favourite: false,
         source: PatchSource::SoundFont { file: SF2.into(), bank, program },
-        defaults: PatchDefaults::default(),
     }
 }
 
@@ -63,8 +62,6 @@ impl Default for MockSound {
         patches[0].favourite = true;
         patches[0].tags = vec!["bright".into()];
         patches[1].favourite = true;
-        patches[1].defaults = PatchDefaults { volume: Some(96), pan: None, reverb: Some(40), chorus: Some(30), octave: 0 };
-        patches[2].defaults = PatchDefaults { volume: Some(100), pan: Some(64), reverb: Some(10), chorus: None, octave: 0 };
         patches[4].tags = vec!["warm".into()];
         let mut map = ProgramMap::default();
         for (f, id) in [(0, "stage-grand"), (4, "finger-bass"), (5, "silk-strings"), (6, "silk-strings"), (7, "brass-section"), (11, "soft-pad")] {
@@ -72,7 +69,10 @@ impl Default for MockSound {
         }
         map.set_override(4, Some("warm-rhodes".into()));
         map.set_override(5, Some("warm-rhodes".into()));
-        map.drums = Some("studio-kit".into());
+        map.set_drums(Some("studio-kit".into()));
+        // Rule levels, as a version 2 library's sound volumes migrate (patches/store.rs).
+        map.set_volume_of("warm-rhodes", 96);
+        map.set_volume_of("finger-bass", 100);
         MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None, plugin_sound: Default::default(), knob: [0; 4], saved_knob: [0; 4], exported: Vec::new() }
     }
 }
@@ -191,7 +191,7 @@ impl MockSound {
         let nope = |id: &str| Some(format!("no patch {id} in the sound library"));
         let key = st.sound_library.style_key.clone();
         let save_as = matches!(c, SoundLibraryCmd::SaveSoundAs { .. });
-        let fields =|id: String, f: PatchFields| Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source, defaults: f.defaults.clamped() };
+        let fields =|id: String, f: PatchFields| Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source };
         match c {
             SoundLibraryCmd::CreatePatch { patch } => self.add(fields(String::new(), patch)),
             SoundLibraryCmd::UpdatePatch { id, patch } => {
@@ -239,11 +239,10 @@ impl MockSound {
                     PatchSource::Plugin { component_id, origin, .. } => origin.is_user() && kp.plugin.as_ref().is_some_and(|q| q.id == *component_id),
                     PatchSource::SoundFont { .. } => kp.plugin.is_none(),
                 });
-                let Some(i) = own else { return self.cmd(st, SoundLibraryCmd::SaveSoundAs { part, name: None }) };
-                let (volume, octave) = (kp.volume, kp.octave);
-                let q = &mut self.patches[i];
-                q.defaults.volume = Some(volume);
-                q.defaults.octave = octave;
+                // The sound takes the plugin's state (the knob), never the part's mix.
+                if own.is_none() {
+                    return self.cmd(st, SoundLibraryCmd::SaveSoundAs { part, name: None });
+                }
                 self.saved_knob[p] = self.knob[p];
             }
             SoundLibraryCmd::SaveSoundAs { part, name } | SoundLibraryCmd::SavePartAsPatch { part, name } => {
@@ -269,7 +268,6 @@ impl MockSound {
                             tags: vec![],
                             favourite: false,
                             source,
-                            defaults: PatchDefaults::default(),
                         },
                     }
                 });
@@ -280,10 +278,7 @@ impl MockSound {
                     tags: vec![],
                     favourite: false,
                     source: PatchSource::SoundFont { file: SF2.into(), bank: 0, program: kp.program },
-                    defaults: PatchDefaults::default(),
                 });
-                p.defaults.volume = Some(kp.volume);
-                p.defaults.octave = kp.octave;
                 if let Some(n) = name.filter(|n| !n.trim().is_empty()) {
                     p.name = n;
                 }
@@ -314,7 +309,7 @@ impl MockSound {
                 let name = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
                     presets(&file).into_iter().find(|p| p.bank == bank && p.program == program).map_or_else(|| format!("{file} {bank}:{}", program + 1), |p| p.name)
                 });
-                self.add(Patch { id: String::new(), name, category: Category::guess(bank, program), tags: vec![], favourite: false, source: PatchSource::SoundFont { file, bank, program }, defaults: PatchDefaults::default() });
+                self.add(Patch { id: String::new(), name, category: Category::guess(bank, program), tags: vec![], favourite: false, source: PatchSource::SoundFont { file, bank, program } });
             }
             SoundLibraryCmd::AuditionPatch { id } => {
                 if st.transport.running {
@@ -352,7 +347,7 @@ impl MockSound {
                 if !self.has(&patch) {
                     return nope(patch.as_deref().unwrap_or(""));
                 }
-                self.map_mut(style, &key).drums = patch;
+                self.map_mut(style, &key).set_drums(patch);
             }
             SoundLibraryCmd::ClearStyleMap => {
                 self.style_maps.remove(&key);
@@ -361,15 +356,8 @@ impl MockSound {
                 if !self.has(&id) {
                     return nope(id.as_deref().unwrap_or(""));
                 }
-                let p = (part & 3) as usize;
-                if let Some(d) = id.as_ref().and_then(|i| self.at(i)).map(|i| self.patches[i].defaults) {
-                    let kp = &mut st.keyboard_parts[p];
-                    if let Some(v) = d.volume {
-                        kp.volume = v;
-                    }
-                    kp.octave = d.octave;
-                }
-                self.parts[p] = id;
+                // The part keeps its mix: a sound has none.
+                self.parts[(part & 3) as usize] = id;
             }
             SoundLibraryCmd::SetPortSendsMapped { on } => self.port = on,
             SoundLibraryCmd::BrowseSoundFont { file } => {

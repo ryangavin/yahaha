@@ -411,7 +411,7 @@ fn section_setups_never_reach_a_keyboard_parts_plugin() {
 #[test]
 fn a_plugin_patch_plays_on_a_keyboard_part() {
     use crate::api::{PatchFields, SoundLibraryCmd};
-    use crate::patches::{PatchDefaults, PatchSource};
+    use crate::patches::PatchSource;
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
     // A state to store in the patch: DLS's own, read back from a part.
@@ -426,15 +426,16 @@ fn a_plugin_patch_plays_on_a_keyboard_part() {
         tags: vec![],
         favourite: false,
         source: PatchSource::plugin(DLS, state.clone()),
-        defaults: PatchDefaults { volume: Some(90), ..PatchDefaults::default() },
     };
     s.send(SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
     let id = s.state().sound_library.last_added.clone().unwrap();
     assert!(s.state().sound_library.patches.iter().any(|p| p.patch.id == id && p.available));
 
+    // The part keeps its own level: a sound carries no mix.
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 64 }).unwrap();
     s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(id.clone()) }).unwrap();
     let r1 = |s: &Session| s.state().keyboard_parts[0].clone();
-    assert_eq!((r1(&s).patch.as_deref(), r1(&s).voice_name.as_str(), r1(&s).volume), (Some(id.as_str()), "DLS Keys", 90));
+    assert_eq!((r1(&s).patch.as_deref(), r1(&s).voice_name.as_str(), r1(&s).volume), (Some(id.as_str()), "DLS Keys", 64));
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
     assert_eq!(s.inner.lock().part_plugin_voice(0), Some((DLS.to_string(), Some(state.clone()))), "the patch's state");
     s.midi_in(Port::Keys, &[0x90, 72, 110]);
@@ -514,7 +515,7 @@ fn saving_a_part_saves_its_plugin_and_its_state_now() {
 #[test]
 fn a_plugin_patch_auditions_on_channel_16() {
     use crate::api::{PatchFields, SoundLibraryCmd, TransportCmd};
-    use crate::patches::{PatchDefaults, PatchSource};
+    use crate::patches::PatchSource;
     let Some(s) = session() else { return };
     s.offline_audio(None, 48_000).unwrap();
     let fields = PatchFields {
@@ -523,7 +524,6 @@ fn a_plugin_patch_auditions_on_channel_16() {
         tags: vec![],
         favourite: false,
         source: PatchSource::plugin(DLS, String::new()),
-        defaults: PatchDefaults::default(),
     };
     s.send(SoundLibraryCmd::CreatePatch { patch: fields }).unwrap();
     let id = s.state().sound_library.last_added.clone().unwrap();
@@ -1172,7 +1172,6 @@ fn a_plugin_sound_exports_as_an_aupreset() {
         tags: Vec::new(),
         favourite: false,
         source: PatchSource::plugin(id.to_string(), base64_encode(st.as_bytes())),
-        defaults: Default::default(),
     };
     let mut font = sound("font", "Font", "");
     font.source = PatchSource::SoundFont { file: "Test.sf2".into(), bank: 0, program: 0 };

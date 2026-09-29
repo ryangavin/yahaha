@@ -2,7 +2,9 @@
 //! program map that sends every style part to one of them.
 //!
 //! - [`Patch`]: a name, a Genos voice [`Category`], tags, a favourite flag, a [`PatchSource`]
-//!   (a SoundFont preset, or a plugin with its saved state) and [`PatchDefaults`].
+//!   (a SoundFont preset, or a plugin with its saved state). A patch is the raw instrument:
+//!   it has no mix (docs/racks.md). A Style part's level where the style sets none comes
+//!   from the map rule that picks the patch ([`ProgramMap`]'s rule volumes).
 //! - [`ProgramMap`] (map.rs): GM family rules, per-program overrides and a drum rule. One
 //!   global map, and optionally one per style (stored here, keyed by the style's file
 //!   name, never in the style file). [`resolve`] decides which patch a program plays.
@@ -168,37 +170,7 @@ impl PatchSource {
     }
 }
 
-/// What a patch brings with it when it is picked: plain MIDI settings, sent as CCs so the
-/// mixer shows them (the mixer principle: no hidden gain).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PatchDefaults {
-    /// CC7. A keyboard part picking the patch takes it as its volume; a Style part only
-    /// when the style sets no CC7 of its own for it.
-    pub volume: Option<u8>,
-    /// CC10 (64 = centre). Keyboard parts only.
-    pub pan: Option<u8>,
-    /// CC91. Keyboard parts only.
-    pub reverb: Option<u8>,
-    /// CC93. Keyboard parts only.
-    pub chorus: Option<u8>,
-    /// Octave shift (-2..=2). Keyboard parts only.
-    pub octave: i8,
-}
-
-impl PatchDefaults {
-    pub fn clamped(self) -> PatchDefaults {
-        PatchDefaults {
-            volume: self.volume.map(|v| v.min(127)),
-            pan: self.pan.map(|v| v.min(127)),
-            reverb: self.reverb.map(|v| v.min(127)),
-            chorus: self.chorus.map(|v| v.min(127)),
-            octave: self.octave.clamp(-2, 2),
-        }
-    }
-}
-
-/// One sound in the library.
+/// One sound in the library: the raw instrument, with no mix settings (docs/racks.md).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Patch {
@@ -212,8 +184,6 @@ pub struct Patch {
     #[serde(default)]
     pub favourite: bool,
     pub source: PatchSource,
-    #[serde(default)]
-    pub defaults: PatchDefaults,
 }
 
 impl Patch {
