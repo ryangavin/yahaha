@@ -27,15 +27,22 @@ pub(super) struct FxSettings {
     /// player (None: the style's); both until the next style (`clear_part_inserts`).
     pub(super) insert_off: [bool; 8],
     pub(super) insert_amount: [Option<u8>; 8],
+    /// Each Style part's insert 1 kind chosen by the player (`setStripInsertKind`; None:
+    /// the style's), until the next style (`clear_part_inserts`).
+    pub(super) insert_kind: [Option<crate::fx::InsertKind>; 8],
     /// The rotary inserts fast.
     pub(super) rotary_fast: bool,
+    /// Sends 1-3 (the blocks) set by the live rack's override (`setRackSendOverride`,
+    /// `Rack::sends`): a style change leaves them, and an edit doesn't take the block off
+    /// Follow Style.
+    pub(super) rack_override: [bool; 3],
 }
 
 impl Default for FxSettings {
     /// The Genos defaults: Hall, Chorus, and here the dotted 1/8 delay; every return 0 dB.
     /// The band's reverb as the style wrote it, and no band chorus or delay (#236).
     fn default() -> FxSettings {
-        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, pad: crate::fx::PAD_SEND_DEFAULT, params: crate::fx::default_params(), follow: [true; 3], inserts_on: true, insert_off: [false; 8], insert_amount: [None; 8], rotary_fast: false }
+        FxSettings { effect: FxBlock::DEFAULT_TYPES, returns: [crate::fx::RETURN_UNITY; 3], band: crate::fx::BAND_SEND_DEFAULT, pad: crate::fx::PAD_SEND_DEFAULT, params: crate::fx::default_params(), follow: [true; 3], inserts_on: true, insert_off: [false; 8], insert_amount: [None; 8], insert_kind: [None; 8], rotary_fast: false, rack_override: [false; 3] }
     }
 }
 
@@ -44,6 +51,7 @@ impl FxSettings {
     pub(super) fn clear_part_inserts(&mut self) {
         self.insert_off = [false; 8];
         self.insert_amount = [None; 8];
+        self.insert_kind = [None; 8];
     }
 
     /// The type's number within its block (`crate::fx::ReverbType` etc.).
@@ -68,9 +76,10 @@ impl FxSettings {
     /// parameters it sets; a block the style sets nothing near takes its default type.
     /// The type's own parameters come back either way, as a Genos style load does, and
     /// its return level is the style's, or 0 dB (64) where the style sets none (#269).
+    /// A block the live rack overrides (`rack_override`) keeps the rack's.
     pub(super) fn apply_style(&mut self, style: &StyleFx, only: Option<FxBlock>) {
         for b in FxBlock::ALL {
-            if !self.follow[b.index()] || only.is_some_and(|o| o != b) {
+            if !self.follow[b.index()] || self.rack_override[b.index()] || only.is_some_and(|o| o != b) {
                 continue;
             }
             let choice = style.blocks[b.index()].as_ref();
@@ -107,8 +116,12 @@ impl Control {
                 if self.fx.effect[block.index()] != effect {
                     self.fx.set_type(block, effect);
                 }
-                // The player's own choice: style changes leave it (#237).
-                self.fx.follow[block.index()] = false;
+                // The player's own choice: style changes leave it (#237). Under the rack's
+                // override the rack owns the block, and dropping the override brings the
+                // style back, so it still follows.
+                if !self.fx.rack_override[block.index()] {
+                    self.fx.follow[block.index()] = false;
+                }
             }
             FxCmd::SetFollowStyle { block, on } => {
                 self.fx.follow[block.index()] = on;
@@ -124,7 +137,8 @@ impl Control {
                 self.fx.insert_off[part as usize] = !on;
             }
             FxCmd::SetPartInsertAmount { part, amount } => {
-                if part > 7 || !self.info.inserts.iter().any(|i| i.channel == part + 8 && i.kind.is_some()) {
+                // The style's insert, or a kind the player chose.
+                if part > 7 || self.style_insert_kind(part as usize) == crate::fx::InsertKind::None {
                     return self.fail(format!("Style part {part} has no insertion effect"));
                 }
                 self.fx.insert_amount[part as usize] = Some(amount.min(127));
@@ -147,8 +161,10 @@ impl Control {
                 self.fx.params[param.index()] = param.clamp(value);
                 // The player's own setting (the editor's or a knob's): the block no longer
                 // follows the style (#237), so the next style change keeps it, as after a
-                // type change.
-                self.fx.follow[block.index()] = false;
+                // type change. Not under the rack's override (as `SetEffectType`).
+                if !self.fx.rack_override[block.index()] {
+                    self.fx.follow[block.index()] = false;
+                }
             }
         }
         self.pump_fx();
@@ -177,20 +193,13 @@ impl Control {
         for (a, &v) in fx.params.iter().zip(&s.params) {
             a.store(v, Relaxed);
         }
-        // The style's insertion effects (#269), on the Style parts they are on.
-        let mut kinds = [(0u8, 64u8); 8];
-        if s.inserts_on {
-            for i in &self.info.inserts {
-                if let (Some((k, a)), Some(p)) = (i.kind, (i.channel as usize).checked_sub(8).filter(|&p| p < 8)) {
-                    if !s.insert_off[p] {
-                        kinds[p] = (k as u8, s.insert_amount[p].unwrap_or(a));
-                    }
-                }
-            }
-        }
-        for (p, (k, a)) in kinds.into_iter().enumerate() {
-            fx.insert[p].store(k, Relaxed);
-            fx.insert_amount[p].store(a, Relaxed);
+        // The style's insertion effects (#269), or the kind the player chose, on the Style
+        // parts they are on (as the strips' insert 1, `pump_strips`).
+        for p in 0..8 {
+            let slot = self.style_insert1(p);
+            let kind = if slot.on { slot.kind.kind() as u8 } else { 0 };
+            fx.insert[p].store(kind, Relaxed);
+            fx.insert_amount[p].store(slot.values[0].min(127) as u8, Relaxed);
         }
         fx.rotary_fast.store(s.rotary_fast, Relaxed);
         self.pump_master_fx();
@@ -200,6 +209,43 @@ impl Control {
                 a.store(v, Relaxed);
             }
         }
+        self.pump_strips();
+    }
+
+    /// The style's insertion effect on Style part `p` (0-7): what plays it and its amount
+    /// (None: the style has none there, or nothing plays it).
+    fn style_insert(&self, p: usize) -> Option<(crate::fx::InsertKind, u8)> {
+        self.info.inserts.iter().find(|i| i.channel as usize == 8 + p).and_then(|i| i.kind)
+    }
+
+    /// What Style part `p`'s insert 1 plays, on or off: the kind the player chose, else the
+    /// style's (`InsertKind::None`: nothing).
+    pub(super) fn style_insert_kind(&self, p: usize) -> crate::fx::InsertKind {
+        self.fx.insert_kind[p].or(self.style_insert(p).map(|s| s.0)).unwrap_or_default()
+    }
+
+    /// Style part `p`'s (0-7) insert 1 as it plays: its kind (`style_insert_kind`), on
+    /// while the inserts are and the player hasn't switched it off, its amount the
+    /// player's, else the style's (when it is the style's kind), else the kind's default;
+    /// its other settings the strip's while the strip has the same kind (else the kind's
+    /// defaults).
+    pub(super) fn style_insert1(&self, p: usize) -> crate::fx::InsertSlot {
+        use crate::fx::{InsertKind, InsertType};
+        let kind = self.style_insert_kind(p);
+        let t = InsertType::from(kind);
+        let mut values = t.defaults();
+        let cell = &self.strips.borrow().strips[crate::api::KEYBOARD_STRIPS + p].inserts[0];
+        if cell.kind == t {
+            values[1..].copy_from_slice(&cell.values[1..]);
+        }
+        if kind != InsertKind::None {
+            let style = self.style_insert(p).filter(|s| s.0 == kind).map(|s| s.1);
+            if let Some(a) = self.fx.insert_amount[p].or(style) {
+                values[0] = a.min(127) as u16;
+            }
+        }
+        let on = kind != InsertKind::None && self.fx.inserts_on && !self.fx.insert_off[p];
+        crate::fx::InsertSlot { kind: t, on, values }
     }
 
     pub(super) fn effects_state(&self) -> EffectsState {
@@ -207,19 +253,32 @@ impl Control {
         s.inserts_on = self.fx.inserts_on;
         s.rotary_fast = self.fx.rotary_fast;
         s.master = self.master.settings.state();
-        s.inserts = self
-            .info
-            .inserts
-            .iter()
-            .map(|i| InsertState {
-                part: i.channel - 8,
-                part_name: crate::api::STYLE_PART_NAMES[(i.channel - 8) as usize & 7].to_string(),
-                name: i.name.clone(),
-                effect: i.kind.map(|k| InsertEffect::from(k.0)),
-                on: !self.fx.insert_off[(i.channel - 8) as usize & 7],
-                amount: self.fx.insert_amount[(i.channel - 8) as usize & 7].or(i.kind.map(|k| k.1)).unwrap_or(64),
-            })
-            .collect();
+        // Each Style part's insert 1 where the style has one or the player chose a kind:
+        // the style's type by name, or the player's kind.
+        let insert = |p: usize, style_name: Option<&str>| {
+            let slot = self.style_insert1(p);
+            let kind = slot.kind.kind();
+            let name = match (self.fx.insert_kind[p], style_name) {
+                (None, Some(n)) => n.to_string(),
+                _ => kind.name().to_string(),
+            };
+            InsertState {
+                part: p as u8,
+                part_name: crate::api::STYLE_PART_NAMES[p].to_string(),
+                name,
+                effect: (kind != crate::fx::InsertKind::None).then(|| InsertEffect::from(kind)),
+                on: !self.fx.insert_off[p],
+                amount: if slot.kind.settings().is_empty() { 64 } else { slot.values[0].min(127) as u8 },
+            }
+        };
+        s.inserts = self.info.inserts.iter().filter(|i| (8..16).contains(&i.channel)).map(|i| insert(i.channel as usize - 8, Some(&i.name))).collect();
+        for p in 0..8 {
+            let chosen = self.fx.insert_kind[p].is_some_and(|k| k != crate::fx::InsertKind::None);
+            if chosen && !s.inserts.iter().any(|i| i.part as usize == p) {
+                s.inserts.push(insert(p, None));
+            }
+        }
+        s.inserts.sort_by_key(|i| i.part);
         for (b, st) in s.blocks.iter_mut().enumerate() {
             st.pad_send = self.fx.pad[b];
             st.follow_style = self.fx.follow[b];

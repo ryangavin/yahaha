@@ -187,8 +187,13 @@ impl Control {
         self.info = info;
         // The blocks that follow the style take its effect types (#237).
         self.fx.apply_style(&self.info.effects, None);
-        // A part's insert switched or turned by the player lasts until the next style.
+        // A part's insert switched, turned or chosen by the player lasts until the next
+        // style; the style brings its own insert 1 (the strips' slot 2 and compressor are
+        // the player's and stay).
         self.fx.clear_part_inserts();
+        for s in &mut self.strips.get_mut().strips[crate::api::KEYBOARD_STRIPS..] {
+            s.inserts[0] = Default::default();
+        }
         self.pump_fx();
         // After `info`: the per-channel routes follow the new style's voices.
         self.sound_library_promoted(tag);

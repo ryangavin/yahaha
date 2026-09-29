@@ -305,6 +305,56 @@ fn the_racks_list_names_library_sounds() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// The rack's override of send 1: a rack with one sets it over the style's (a style change
+/// keeps it), a rack without one gives it back to the style, editing it changes the live
+/// rack, and switching the override off drops it.
+#[test]
+fn a_racks_send_override_wins_over_the_style_until_dropped() {
+    use crate::racks::SendSlot;
+    let d = dir("override");
+    let s = session(&d);
+    let send1 = |s: &Session| {
+        let st = s.state();
+        (st.effects.blocks[0].effect, st.effects.sends[0].set_by_rack, st.effects.blocks[0].follow_style)
+    };
+    assert_eq!(send1(&s), (FxType::Hall, false, true), "the synthetic style's (the default)");
+    let mut plate = s.capture_rack("Plate");
+    plate.sends.override_[0] = Some(SendSlot::of(SendKind::Plate));
+    let mut none = plate.clone();
+    none.sends.override_[0] = None;
+
+    assert!(s.apply_rack(&plate).is_empty());
+    assert_eq!(send1(&s), (FxType::Plate, true, true));
+    let other = write_style(&dir("override-other"));
+    s.send(LibraryCmd::LoadStylePath { path: other.display().to_string() }).unwrap();
+    s.advance(50_000_000);
+    assert_eq!(send1(&s), (FxType::Plate, true, true), "a style change keeps the rack's");
+
+    assert!(s.apply_rack(&none).is_empty());
+    assert_eq!(send1(&s), (FxType::Hall, false, true), "a rack without one: the style's again");
+    assert_eq!(s.capture_rack("").sends.override_[0], None);
+
+    // Edits of the overridden send are the rack's.
+    assert!(s.apply_rack(&plate).is_empty());
+    s.live_rack_clean("Plate", Some("p1".into()));
+    s.advance(QUIET_NS);
+    assert!(!live(&s).modified);
+    assert_ne!(SendSlot::of(SendKind::Plate).params[0], 50);
+    s.send(StripCmd::SetSendParam { send: 0, param: 0, value: 50 }).unwrap();
+    assert!(live(&s).modified, "an edit of the overridden send changes the rack");
+    s.send(StripCmd::SetSendReturn { send: 0, level: 100 }).unwrap();
+    let over = s.capture_rack("").sends.override_[0].clone().expect("still overridden");
+    assert_eq!((over.kind, over.params[0], over.return_level), (SendKind::Plate, 50, 100));
+    assert_eq!(send1(&s), (FxType::Plate, true, true), "still following the style underneath");
+
+    s.send(StripCmd::SetRackSendOverride { send: 0, on: false }).unwrap();
+    assert_eq!(s.capture_rack("").sends.override_[0], None);
+    assert_eq!(send1(&s), (FxType::Hall, false, true), "dropped: the style's again");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+    let _ = std::fs::remove_dir_all(dir("override-other"));
+}
+
 /// Saving edited plugin sounds with the rack, on DLSMusicDevice.
 #[cfg(all(feature = "plugins", feature = "slow-tests"))]
 mod plugins {

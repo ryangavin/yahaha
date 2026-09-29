@@ -2,12 +2,18 @@
 //! command covers goes through it (`StripCmd::legacy`); everything is also kept in
 //! `Control::strips`, which the state shows (`Strips::fill`).
 //!
-//! Stub: nothing new reaches the synth yet (a strip's compressor, insert 2, insert
-//! settings past the first, sends 4-6 and their levels, the rack send override). The
-//! mixer rework's session lane pumps them.
+//! `pump_strips` (at the end of every `pump_fx`) stores every strip into
+//! `SynthControl::fx.strips` (`crate::fx::StripControl`), by MIDI channel: its compressor,
+//! both insert slots (insert 1 as it plays: a keyboard part's own slot, a Style part's
+//! style insert or the kind the player chose), its levels to sends 4-6, sends 4-6
+//! themselves, and the Style parts' EQ. The synth must call
+//! `fx.strips.set_sample_rate` when it starts, for the Style parts' EQ coefficients.
+//! The rack send override (`setRackSendOverride`) keeps a style change off sends 1-3.
 
 use super::Control;
-use crate::api::{CmdError, StripCmd};
+use crate::api::{CmdError, FxBlock, KEYBOARD_STRIPS, STYLE_SENDS, StripCmd};
+use crate::fx::{ADDED_SENDS, InsertSlot, SEND_NONE, SendKind, SendSlot, StripControl};
+use std::sync::atomic::Ordering::Relaxed;
 
 impl Control {
     pub(super) fn strips_cmd(&mut self, c: StripCmd) -> Result<(), CmdError> {
@@ -18,12 +24,131 @@ impl Control {
         }
         match self.strips.get_mut().apply(&c) {
             // What the older command took, it decided.
-            Err(_) if covered => Ok(()),
-            Err(e) => self.fail(e),
-            Ok(()) => Ok(()),
+            Err(_) if covered => return Ok(()),
+            Err(e) => return self.fail(e),
+            Ok(()) => {}
+        }
+        match c {
+            // A Style part's insert 1: the player's kind over the style's, its amount the
+            // kind's own again.
+            StripCmd::SetStripInsertKind { strip, slot: 0, ref kind } if (KEYBOARD_STRIPS..KEYBOARD_STRIPS + 8).contains(&(strip as usize)) => {
+                let p = strip as usize - KEYBOARD_STRIPS;
+                self.fx.insert_kind[p] = Some(kind.kind());
+                self.fx.insert_amount[p] = None;
+            }
+            StripCmd::SetRackSendOverride { send, on } => self.set_send_override(send as usize, on),
+            _ => {}
+        }
+        self.pump_fx();
+        Ok(())
+    }
+
+    /// Store every strip's settings for the synth (`StripControl`, by MIDI channel). Runs
+    /// on every pump: plain stores, no allocation.
+    pub(super) fn pump_strips(&self) {
+        let Some(synth) = self.synth.as_ref() else { return };
+        let sc = &synth.control.fx.strips;
+        let cell = self.strips.borrow();
+        let sends = cell.sends();
+        for (i, s) in cell.strips.iter().enumerate() {
+            let (ch, slot1) = if i < KEYBOARD_STRIPS {
+                (crate::parts::CHANNEL[i] as usize, self.keyboard_insert1(i))
+            } else {
+                (8 + i - KEYBOARD_STRIPS, self.style_insert1(i - KEYBOARD_STRIPS))
+            };
+            sc.comp[ch].set(&s.comp);
+            store_insert(sc, ch, 0, &slot1);
+            store_insert(sc, ch, 1, &s.inserts[1]);
+            for (j, a) in sc.send[ch].iter().enumerate() {
+                let send = STYLE_SENDS + j;
+                a.store(if send < sends { s.sends[send].min(127) } else { 0 }, Relaxed);
+            }
+        }
+        for i in 0..ADDED_SENDS {
+            let (kind, params, ret) = match cell.added.get(i) {
+                Some(s) => (SendKind::ALL.iter().position(|k| *k == s.kind).map_or(SEND_NONE, |k| k as u8), s.params, s.return_level.min(127)),
+                None => (SEND_NONE, [0; crate::fx::SEND_PARAMS], 0),
+            };
+            sc.added_kind[i].store(kind, Relaxed);
+            for (a, v) in sc.added_params[i].iter().zip(params) {
+                a.store(v, Relaxed);
+            }
+            sc.added_return[i].store(ret, Relaxed);
+        }
+        for (p, s) in cell.strips[KEYBOARD_STRIPS..].iter().enumerate() {
+            sc.set_eq(p, s.eq);
         }
     }
+
+    /// Send effect `i` (0-2, a bus) as it plays now: its block's type, parameters and
+    /// return level.
+    pub(super) fn style_send_slot(&self, i: usize) -> SendSlot {
+        let block = FxBlock::ALL[i];
+        let kind = crate::fx::SendKind::of_bus(i, block.type_index(self.fx.effect[i])).expect("every bus type is a send kind");
+        let mut params = [0; crate::fx::SEND_PARAMS];
+        for (o, p) in params.iter_mut().zip(crate::fx::Param::of_block(i)) {
+            *o = self.fx.params[p.index()];
+        }
+        SendSlot { kind, params, return_level: self.fx.returns[i] }
+    }
+
+    /// Send effect `i` (0-2) plays `s` (the rack's override): its block's type, parameters
+    /// and return level, without taking the block off Follow Style. Err: `s` is not one of
+    /// that block's kinds (nothing changed).
+    pub(super) fn set_style_send(&mut self, i: usize, s: &SendSlot) -> Result<(), String> {
+        let Some((b, index)) = s.kind.bus().filter(|(b, _)| *b == i) else {
+            return Err(format!("send {} can't play {}", i + 1, s.kind.name()));
+        };
+        let Some(&effect) = FxBlock::ALL[b].types().get(index as usize) else {
+            return Err(format!("send {} can't play {}", i + 1, s.kind.name()));
+        };
+        self.fx.effect[i] = effect;
+        for (p, &v) in crate::fx::Param::of_block(i).zip(&s.params) {
+            self.fx.params[p.index()] = p.clamp(v);
+        }
+        self.fx.returns[i] = s.return_level.min(127);
+        Ok(())
+    }
+
+    /// The live rack's override of send effect `i` (0-2) on or off, in both places that
+    /// keep it. Turned off, the block goes back to the style's type and parameters when it
+    /// follows the style (a block the player took off Follow Style keeps what it has).
+    pub(super) fn set_send_override(&mut self, i: usize, on: bool) {
+        let was = self.fx.rack_override[i];
+        self.fx.rack_override[i] = on;
+        self.strips.get_mut().overrides[i] = on;
+        if was && !on && self.fx.follow[i] {
+            let effects = self.info.effects.clone();
+            self.fx.apply_style(&effects, Some(FxBlock::ALL[i]));
+        }
+    }
+
+    /// Keyboard part `p`'s insert 1 as it plays: the part's own slot (kind, on/off,
+    /// amount), with the strip's other settings while the strip has the same kind (else
+    /// that kind's defaults).
+    pub(super) fn keyboard_insert1(&self, p: usize) -> InsertSlot {
+        let mut slot = InsertSlot::from_part_insert(self.shared.parts.insert(p));
+        let cell = &self.strips.borrow().strips[p].inserts[0];
+        if cell.kind == slot.kind {
+            slot.values[1..].copy_from_slice(&cell.values[1..]);
+        }
+        slot
+    }
 }
+
+/// Insert slot `slot` of channel `ch` plays `s`: its kind when on (else nothing; an unknown
+/// kind plays nothing), and its values.
+fn store_insert(sc: &StripControl, ch: usize, slot: usize, s: &InsertSlot) {
+    let kind = if s.on { s.kind.kind() as u8 } else { 0 };
+    sc.insert_kind[ch][slot].store(kind, Relaxed);
+    for (a, &v) in sc.insert_values[ch][slot].iter().zip(&s.values) {
+        a.store(v, Relaxed);
+    }
+}
+
+#[cfg(test)]
+#[path = "strips_tests.rs"]
+mod strips_tests;
 
 #[cfg(test)]
 mod tests {

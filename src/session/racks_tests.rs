@@ -173,3 +173,118 @@ fn a_missing_sound_leaves_the_part_failed_with_its_mix() {
     }
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// Every keyboard part's strip (EQ, compressor, both inserts, sends 4-6), the added sends
+/// and an override of send 1, set through the strip commands.
+fn set_strips(s: &Session) {
+    use crate::fx::{InsertType, SendKind};
+    let cmds = [
+        StripCmd::SetStripEq { strip: 1, eq: PartEq { low_gain: -4, low_freq: 150, high_gain: 5, high_freq: 8_000 } },
+        StripCmd::SetStripCompressorOn { strip: 0, on: true },
+        StripCmd::SetStripCompressorPreset { strip: 0, preset: CompPreset::Loud },
+        StripCmd::SetStripCompressorParam { strip: 0, param: PartCompParam::Makeup, value: 12 },
+        StripCmd::SetStripCompressorOn { strip: 3, on: true },
+        StripCmd::SetStripInsertKind { strip: 2, slot: 0, kind: InsertType::Rotary },
+        StripCmd::SetStripInsertOn { strip: 2, slot: 0, on: true },
+        StripCmd::SetStripInsertSetting { strip: 2, slot: 0, setting: 0, value: 100 },
+        StripCmd::SetStripInsertSetting { strip: 2, slot: 0, setting: 2, value: 30 },
+        StripCmd::SetStripInsertKind { strip: 1, slot: 1, kind: InsertType::Phaser },
+        StripCmd::SetStripInsertOn { strip: 1, slot: 1, on: true },
+        StripCmd::SetStripInsertSetting { strip: 1, slot: 1, setting: 1, value: 300 },
+        StripCmd::AddSend { kind: SendKind::Phaser },
+        StripCmd::AddSend { kind: SendKind::Stage },
+        StripCmd::SetSendReturn { send: 4, level: 80 },
+        StripCmd::SetStripSend { strip: 0, send: 3, level: 70 },
+        StripCmd::SetStripSend { strip: 3, send: 4, level: 20 },
+        StripCmd::SetRackSendOverride { send: 0, on: true },
+        StripCmd::SetSendKind { send: 0, kind: SendKind::Room },
+        StripCmd::SetSendReturn { send: 0, level: 90 },
+    ];
+    for c in cmds {
+        s.send(c.clone()).unwrap_or_else(|e| panic!("{c:?}: {e:?}"));
+    }
+}
+
+/// Capture then apply into another session: each keyboard part's strip, the added sends
+/// and the override come back exactly.
+#[test]
+fn a_rack_carries_the_strips_and_send_effects() {
+    let (d1, d2) = (data_dir("strips-from"), data_dir("strips-to"));
+    let a = session(&d1);
+    let b = session(&d2);
+    set_strips(&a);
+    let rack = a.capture_rack("Strips");
+    assert_eq!(rack.parts[0].strip.comp.map(|c| (c.on, c.preset, c.makeup)), Some((true, CompPreset::Loud, 12)));
+    assert_eq!(rack.parts[1].strip.comp, None, "a default compressor isn't saved");
+    assert_eq!(rack.parts[2].strip.inserts[0].values[..3], [100, crate::fx::InsertType::Rotary.defaults()[1], 30]);
+    assert_eq!(rack.parts[1].strip.inserts[1].values[1], 300);
+    assert_eq!((rack.parts[0].strip.sends[3], rack.parts[3].strip.sends[4]), (70, 20));
+    assert_eq!(rack.sends.added.len(), 2);
+    let over = rack.sends.override_[0].as_ref().expect("send 1 overridden");
+    assert_eq!((over.kind.clone(), over.return_level), (crate::fx::SendKind::Room, 90));
+    assert_eq!(rack.sends.override_[1..], [None, None]);
+
+    let problems = b.apply_rack(&rack);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(contents(&b.capture_rack("Strips")), contents(&rack), "captured again: the same rack");
+    let (sa, sb) = (a.state(), b.state());
+    for p in 0..4 {
+        assert_eq!(sb.keyboard_parts[p].strip, sa.keyboard_parts[p].strip, "part {p}");
+    }
+    assert_eq!(sb.effects.sends, sa.effects.sends);
+    assert!(sb.effects.sends[0].set_by_rack);
+    let _ = std::fs::remove_dir_all(&d1);
+    let _ = std::fs::remove_dir_all(&d2);
+}
+
+/// A rack saved before the strips (no `strip`, no `sends`) plays the keyboard parts flat
+/// and drops the added sends and the override; the Style parts' strips stay.
+#[test]
+fn a_rack_from_before_the_strips_loads_flat() {
+    use crate::fx::InsertType;
+    let d = data_dir("strips-v1");
+    let s = session(&d);
+    set_strips(&s);
+    s.send(StripCmd::SetStripInsertKind { strip: 7, slot: 1, kind: InsertType::Rotary }).unwrap();
+    s.send(StripCmd::SetStripCompressorOn { strip: 7, on: true }).unwrap();
+    let rack = s.capture_rack("Strips");
+
+    // As a file saved before them: no `strip` on any part, no `sends`.
+    let mut v: serde_json::Value = serde_json::from_str(&rack.to_json()).unwrap();
+    assert!(v["sends"].is_object() && v["parts"][0]["strip"].is_object(), "the new rack writes them");
+    v.as_object_mut().unwrap().remove("sends");
+    for p in v["parts"].as_array_mut().unwrap() {
+        p.as_object_mut().unwrap().remove("strip");
+    }
+    let old = Rack::from_json(&v.to_string()).unwrap();
+    assert!(old.sends.is_empty());
+
+    let problems = s.apply_rack(&old);
+    assert!(problems.is_empty(), "{problems:?}");
+    let st = s.state();
+    for (p, kp) in st.keyboard_parts.iter().enumerate() {
+        let strip = &kp.strip;
+        assert!(!strip.comp.on, "part {p}: compressor off");
+        assert_eq!(strip.inserts[1].kind, InsertType::None, "part {p}: insert 2 empty");
+        assert_eq!(strip.sends[3..], [0, 0, 0], "part {p}: no sends 4-6");
+    }
+    assert_eq!(st.keyboard_parts[2].strip.inserts[0].kind, InsertType::Rotary, "insert 1 is the part's insert");
+    assert_eq!(st.keyboard_parts[2].strip.inserts[0].settings[2].value, InsertType::Rotary.defaults()[2], "its later settings at their defaults");
+    assert_eq!(st.effects.sends.len(), 3, "no added sends");
+    assert!(st.effects.sends.iter().all(|s| !s.set_by_rack), "no override");
+    assert_eq!(st.effects.blocks[0].effect, FxType::Hall, "send 1 back to the style's");
+    let style = &st.mixer.style_parts[3].strip;
+    assert_eq!((style.inserts[1].kind.clone(), style.comp.on), (InsertType::Rotary, true), "the Style strip stays");
+
+    // The same rack as a value (strip and sends at their defaults) loads the same way.
+    set_strips(&s);
+    let mut flat = rack.clone();
+    for p in &mut flat.parts {
+        p.strip = Default::default();
+    }
+    flat.sends = Default::default();
+    assert!(s.apply_rack(&flat).is_empty());
+    assert_eq!(s.state().keyboard_parts, st.keyboard_parts);
+    assert_eq!(s.state().effects.sends, st.effects.sends);
+    let _ = std::fs::remove_dir_all(&d);
+}
