@@ -140,7 +140,7 @@
   /* ── The stage: sizes in em of --u, the largest that fits both ways ──────────────────
      --w: the stack's width in em (the mirror's design width).
      --h: its least height in em: lead band min + mirror + strip min + 2 gaps.
-     --fixed: what doesn't scale: the mirror's knob row, sized in rem (80px + its 4px margin).
+     --fixed: what doesn't scale: the mirror's knob row, sized in rem (--knob-bar-h + its 4px margin).
      --top: the Quick Racks bar's row in the strip, with its gap (one row wide, two stacked).
      Measured from the rendered mirror without its knob row: 26.00em tall wide, 46.17em
      stacked; the bar's row 4.0em wide, 6.7em stacked. Leaving --fixed out lets the stack
@@ -156,7 +156,7 @@
   .stack {
     --w: 96;
     --h: 44.5;
-    --fixed: 5.25rem;
+    --fixed: calc(var(--knob-bar-h) + 4px);
     /* The Quick Racks bar's row at the top of the keyboard strip (+ its gap). */
     --top: 4.6em;
     --u: min(100cqw / var(--w), (100cqh - var(--fixed)) / var(--h));

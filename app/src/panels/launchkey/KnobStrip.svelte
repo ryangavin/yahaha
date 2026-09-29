@@ -40,15 +40,17 @@
 </div>
 
 <style>
-  /* The row keeps the height it had before (App.svelte's --fixed counts on it: 80px plus
-     its 4px margin), and each knob is as tall as fits inside it. */
+  /* Each knob is as tall as its label + readout stack, and the bar is that row plus
+     padding (app.css's --knob-size-bar and --knob-bar-h; App.svelte's --fixed counts on
+     the bar's height plus its 4px margin). */
   .knobs {
-    --knob-size: calc(5rem + 0.109375px - 2px - 2 * 0.3rem);
+    --knob-size: var(--knob-size-bar);
     display: grid;
     grid-template-columns: auto repeat(8, minmax(0, 1fr));
     column-gap: 0.6rem;
-    height: calc(5rem + 0.109375px);
-    padding: 0.3rem 0.8rem;
+    box-sizing: border-box;
+    height: var(--knob-bar-h);
+    padding: 0.5rem 0.8rem;
     margin-top: 4px;
     border-radius: var(--r-panel);
     align-items: center;
@@ -97,6 +99,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Line height and the readout's height add up to --knob-size-bar in app.css. */
   .name {
     line-height: 1.2;
   }
