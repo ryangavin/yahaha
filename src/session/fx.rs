@@ -4,7 +4,7 @@
 //! The audio thread reads them from `SynthControl::fx`, which `pump_fx` keeps up to date.
 
 use super::Control;
-use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxType, InsertEffect, InsertState, StyleEffectState};
+use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxType, InsertEffect, InsertState, MasterSettingsExt, StyleEffectState};
 use crate::fx::xg::StyleFx;
 use std::sync::atomic::Ordering::Relaxed;
 

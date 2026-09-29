@@ -66,11 +66,21 @@ pub enum CompParam {
     Output,
 }
 
-impl MasterSettings {
+/// The app API's view of [`MasterSettings`]. A trait, not an inherent impl, because
+/// `MasterSettings` lives in yahaha-fx, which knows nothing of the API types.
+pub trait MasterSettingsExt {
     /// A Master Compressor or Master EQ command applied here: None if `c` is another
     /// effects command, else whether it was taken (an error for a band out of range).
     /// The session and the dev mock both play the commands through it.
-    pub fn apply(&mut self, c: &FxCmd) -> Option<Result<(), String>> {
+    fn apply(&mut self, c: &FxCmd) -> Option<Result<(), String>>;
+    /// As the state shows them.
+    fn state(&self) -> MasterFxState;
+    /// The settings a state shows (the dev mock keeps only the state).
+    fn from_state(s: &MasterFxState) -> MasterSettings;
+}
+
+impl MasterSettingsExt for MasterSettings {
+    fn apply(&mut self, c: &FxCmd) -> Option<Result<(), String>> {
         let comp = &mut self.compressor;
         let eq = &mut self.eq;
         match *c {
@@ -101,8 +111,7 @@ impl MasterSettings {
         Some(Ok(()))
     }
 
-    /// As the state shows them.
-    pub fn state(&self) -> MasterFxState {
+    fn state(&self) -> MasterFxState {
         let (c, e) = (self.compressor.clamped(), self.eq.clamped());
         MasterFxState {
             compressor: MasterCompState { on: c.on, preset: c.preset, compression: c.compression, texture: c.texture, output: c.output, edited: c.edited() },
@@ -110,8 +119,7 @@ impl MasterSettings {
         }
     }
 
-    /// The settings a state shows (the dev mock keeps only the state).
-    pub fn from_state(s: &MasterFxState) -> MasterSettings {
+    fn from_state(s: &MasterFxState) -> MasterSettings {
         let c = &s.compressor;
         let mut eq = MasterEq { on: s.eq.on, preset: s.eq.preset, ..MasterEq::default() };
         for (i, b) in s.eq.bands.iter().take(crate::fx::master::EQ_BANDS).enumerate() {
