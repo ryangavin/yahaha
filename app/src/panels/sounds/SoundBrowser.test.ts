@@ -3,7 +3,9 @@ import { flushSync, tick } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
+import fixture from '../../lib/api/mock-fixture.json'
 import { partSound, type PartSoundOf } from '../../lib/api/part-sound'
+import partSoundCases from '../../../../tests/fixtures/part_sound_cases.json'
 import type { FontPreset, GmMapRow, Patch, PluginOrigin } from '../../lib/api/sound-library'
 import type { PluginStatus } from '../../lib/api/types'
 import { allSoundIds, categoryCounts, instrumentName, instruments, nowPlaying, playingId, visibleSounds } from './model'
@@ -450,35 +452,19 @@ describe('what a part plays, named (api::part_sound)', () => {
     if (p === 2) return row(2, 'saved:mine', null)
     return p < 10 ? row(p, `sf:A.sf2:0:${p}`, { file: 'A.sf2', bank: 0, program: p }) : row(p, null, null)
   })
-  const names = { font: (f: FontPreset) => `A${f.program}`, gm: (p: number) => `GM${p}` }
-  const named = (of: PartSoundOf) => {
-    const r = partSound(of, patches, gmMap, names)
-    return [r.sound?.id ?? null, r.sound?.name ?? null, r.voiceName]
-  }
-  const sampler = (status: PluginStatus, preset?: [string, string]) => ({ id: SMP, name: 'Sampler Deluxe', status, presetKey: preset?.[0] ?? null, preset: preset?.[1] ?? null })
-  const tag = (id: string, name: string) => ({ id: `saved:${id}`, name })
+  const names = { font: (f: FontPreset) => `A${f.program}`, gm: (p: number) => fixture.gm[p] }
 
-  it('a plugin part: its preset, the sound the user saved (named now), or the plugin', () => {
-    const pl = sampler('playing', ['f:3', 'Warm Keys'])
-    const preset = [`au:${SMP}#f:3`, 'Warm Keys', 'Sampler Deluxe · Warm Keys']
-    expect(named({ plugin: pl, program: 7 })).toEqual(preset)
-    expect(named({ plugin: pl, pluginSound: tag('warm', 'Warm Keys'), program: 7 })).toEqual(preset)
-    expect(named({ plugin: pl, pluginSound: tag('mine', 'Old name'), program: 7 })).toEqual(['saved:mine', 'My Keys', 'My Keys'])
-    const bare = sampler('playing')
-    expect(named({ plugin: bare, pluginSound: tag('warm', 'Warm Keys'), program: 7 })).toEqual(['saved:warm', 'Warm Keys', 'Sampler Deluxe · Warm Keys'])
-    const plain = [`au:${SMP}`, 'Sampler Deluxe', 'Sampler Deluxe']
-    expect(named({ plugin: bare, pluginSound: tag('gone', 'Gone'), program: 7 })).toEqual(plain)
-    expect(named({ plugin: bare, program: 7 })).toEqual(plain)
-    for (const status of ['muted', 'loading'] as const) expect(named({ plugin: sampler(status, ['f:3', 'Warm Keys']), program: 7 })[2]).toBe('Sampler Deluxe · Warm Keys')
-  })
-
-  it('a SoundFont part (or a failed plugin): its own patch, the map, the auto-fill', () => {
-    expect(named({ program: 7 })).toEqual(['sf:A.sf2:0:7', 'A7', 'A7'])
-    expect(named({ program: 1 })).toEqual(['saved:grand', 'Stage Grand', 'Stage Grand'])
-    expect(named({ own: 'grand', program: 7 })).toEqual(['saved:grand', 'Stage Grand', 'Stage Grand'])
-    expect(named({ plugin: sampler('failed', ['f:3', 'Warm Keys']), pluginSound: tag('warm', 'Warm Keys'), own: 'warm', program: 7 })).toEqual(['sf:A.sf2:0:7', 'A7', 'A7'])
-    expect(named({ program: 40 })).toEqual([null, null, 'GM40'])
-    expect(named({ program: 2 })).toEqual([null, null, 'GM2'])
+  // The engine's test reads the same table (tests/fixtures/part_sound_cases.json).
+  it.each(partSoundCases.cases)('$name', ({ of, want }) => {
+    const c = of as { plugin?: { status: string; preset: string[] | null }; pluginSound?: { id: string; name: string }; own?: string; program: number }
+    const input: PartSoundOf = {
+      plugin: c.plugin && { id: SMP, name: 'Sampler Deluxe', status: c.plugin.status as PluginStatus, presetKey: c.plugin.preset?.[0] ?? null, preset: c.plugin.preset?.[1] ?? null },
+      pluginSound: c.pluginSound,
+      own: c.own,
+      program: c.program,
+    }
+    const r = partSound(input, patches, gmMap, names)
+    expect([r.sound?.id ?? null, r.sound?.name ?? null, r.voiceName]).toEqual([want[0], want[1], want[2] ?? fixture.gm[c.program]])
   })
 })
 

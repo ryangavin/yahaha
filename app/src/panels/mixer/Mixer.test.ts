@@ -362,7 +362,13 @@ describe('voice lines', () => {
     s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
     s.advance(5000)
     expect(partVoice(s.state.keyboardParts[0])).toEqual({ plays: 'Sampler Deluxe · Bright Grand', writtenFor: s.state.keyboardParts[0].plugin!.manufacturer })
-    const failed = { ...s.state.keyboardParts[0], plugin: { ...s.state.keyboardParts[0].plugin!, status: 'failed' as const }, voiceName: 'Stage Grand' }
-    expect(partVoice(failed)).toEqual({ plays: 'Stage Grand', writtenFor: `GM ${failed.program + 1}` })
+    // A plugin that fails to load: the part is named by the SoundFont voice it had before.
+    const before = partVoice(s.state.keyboardParts[1])
+    s.send({ type: 'setPartPlugin', part: 1, id: 'aumu Mock Demo', state: null })
+    s.advance(5000)
+    const failed = s.state.keyboardParts[1]
+    expect(failed.plugin?.status).toBe('failed')
+    expect(partVoice(failed)).toEqual(before)
+    expect(before.writtenFor).toBe(`GM ${failed.program + 1}`)
   })
 })

@@ -218,71 +218,34 @@ mod tests {
         AutoFill { programs: (0..128u8).map(|p| (p < 10).then(|| FontPreset::new("A.sf2", 0, p))).collect(), drums: None }
     }
 
-    fn named(lib: &SoundLibrary, of: PartSoundOf) -> (Option<String>, Option<String>, String) {
-        let r = part_sound(lib, None, &auto(), of, &|f| Some(format!("A{}", f.program)));
-        (r.sound.as_ref().map(|t| t.id.clone()), r.sound.map(|t| t.name), r.voice_name)
-    }
-
-    fn sampler(status: PluginStatus, preset: Option<(&str, &str)>) -> PartPlugin {
-        PartPlugin {
-            id: SMP.into(),
-            name: "Sampler Deluxe".into(),
-            status,
-            preset: preset.map(|p| p.1.into()),
-            preset_key: preset.map(|p| p.0.into()),
-            ..PartPlugin::default()
-        }
-    }
-
-    fn some(id: &str, name: &str, voice: &str) -> (Option<String>, Option<String>, String) {
-        (Some(id.into()), Some(name.into()), voice.into())
-    }
+    /// The cases the web's `partSound` test reads too, so the twins can't drift apart.
+    const CASES: &str = include_str!("../../tests/fixtures/part_sound_cases.json");
 
     #[test]
-    fn a_plugin_part_is_named_by_its_preset_sound_or_plugin() {
+    fn part_sound_matches_the_shared_cases() {
+        use serde_json::Value;
         let lib = lib();
-        let tag = |id: &str, name: &str| SoundTag { id: format!("saved:{id}"), name: name.into() };
-        let pl = sampler(PluginStatus::Playing, Some(("f:3", "Warm Keys")));
-        // A preset with no library record, or with its own (factory) record: the preset's row.
-        let want = some(&format!("au:{SMP}#f:3"), "Warm Keys", "Sampler Deluxe · Warm Keys");
-        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&pl), program: 7, ..Default::default() }), want);
-        let warm = tag("warm", "Warm Keys");
-        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&pl), plugin_sound: Some(&warm), program: 7, ..Default::default() }), want);
-        // A sound the user saved from it: that sound, as the library names it now.
-        let stale = tag("mine", "Old name");
-        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&pl), plugin_sound: Some(&stale), program: 7, ..Default::default() }), some("saved:mine", "My Keys", "My Keys"));
-        // A factory preset's sound picked from the library (its state captured, no preset).
-        let bare = sampler(PluginStatus::Playing, None);
-        assert_eq!(
-            named(&lib, PartSoundOf { plugin: Some(&bare), plugin_sound: Some(&warm), program: 7, ..Default::default() }),
-            some("saved:warm", "Warm Keys", "Sampler Deluxe · Warm Keys")
-        );
-        // A deleted sound, and no sound: the bare plugin.
-        let gone = tag("gone", "Gone");
-        let want = some(&format!("au:{SMP}"), "Sampler Deluxe", "Sampler Deluxe");
-        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&bare), plugin_sound: Some(&gone), program: 7, ..Default::default() }), want);
-        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&bare), program: 7, ..Default::default() }), want);
-        // Muted and loading keep the plugin's name (the status says why it is silent).
-        for status in [PluginStatus::Muted, PluginStatus::Loading] {
-            let pl = sampler(status, Some(("f:3", "Warm Keys")));
-            assert_eq!(named(&lib, PartSoundOf { plugin: Some(&pl), program: 7, ..Default::default() }).2, "Sampler Deluxe · Warm Keys");
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let s = |v: &Value| v.as_str().map(str::to_string);
+        for case in cases["cases"].as_array().unwrap() {
+            let of = &case["of"];
+            let plugin = of.get("plugin").filter(|p| !p.is_null()).map(|p| PartPlugin {
+                id: SMP.into(),
+                name: "Sampler Deluxe".into(),
+                status: serde_json::from_value::<PluginStatus>(p["status"].clone()).unwrap(),
+                preset: s(&p["preset"][1]),
+                preset_key: s(&p["preset"][0]),
+                ..PartPlugin::default()
+            });
+            let plugin_sound = of.get("pluginSound").filter(|t| !t.is_null()).map(|t| SoundTag { id: s(&t["id"]).unwrap(), name: s(&t["name"]).unwrap() });
+            let own = s(&of["own"]);
+            let program = of["program"].as_u64().unwrap() as u8;
+            let part = PartSoundOf { plugin: plugin.as_ref(), plugin_sound: plugin_sound.as_ref(), own: own.as_deref(), program };
+            let r = part_sound(&lib, None, &auto(), part, &|f| Some(format!("A{}", f.program)));
+            let want = &case["want"];
+            let voice = s(&want[2]).unwrap_or_else(|| crate::api::gm_name(program).to_string());
+            let got = (r.sound.as_ref().map(|t| t.id.clone()), r.sound.map(|t| t.name), r.voice_name);
+            assert_eq!(got, (s(&want[0]), s(&want[1]), voice), "{}", case["name"]);
         }
-    }
-
-    #[test]
-    fn a_soundfont_part_is_named_by_what_the_synth_plays() {
-        let lib = lib();
-        // The GM map's auto-fill, a rule, its own SoundFont patch.
-        assert_eq!(named(&lib, PartSoundOf { program: 7, ..Default::default() }), some("sf:A.sf2:0:7", "A7", "A7"));
-        assert_eq!(named(&lib, PartSoundOf { program: 1, ..Default::default() }), some("saved:grand", "Stage Grand", "Stage Grand"));
-        assert_eq!(named(&lib, PartSoundOf { own: Some("grand"), program: 7, ..Default::default() }), some("saved:grand", "Stage Grand", "Stage Grand"));
-        // A failed plugin plays the SoundFont voice, its own plugin patch too.
-        let failed = sampler(PluginStatus::Failed, Some(("f:3", "Warm Keys")));
-        let warm = SoundTag { id: "saved:warm".into(), name: "Warm Keys".into() };
-        let of = PartSoundOf { plugin: Some(&failed), plugin_sound: Some(&warm), own: Some("warm"), program: 7 };
-        assert_eq!(named(&lib, of), some("sf:A.sf2:0:7", "A7", "A7"));
-        // Nothing covers it, or the map gives a plugin sound no plugin plays: its GM name.
-        assert_eq!(named(&lib, PartSoundOf { program: 40, ..Default::default() }), (None, None, "Violin".into()));
-        assert_eq!(named(&lib, PartSoundOf { program: 2, ..Default::default() }), (None, None, crate::api::gm_name(2).into()));
     }
 }
