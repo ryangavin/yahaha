@@ -626,6 +626,88 @@ fn a_plugin_part_plays_its_insert() {
     assert!(diff > 0.1 * e(&plain.0), "distorted: {diff} vs {}", e(&plain.0));
 }
 
+/// The strip's compressor and insert 2 (`set_strip`) run on a plugin part's output after
+/// insert 1; set off, they leave it bit-identical to never setting them.
+#[test]
+fn a_plugin_part_plays_its_strip_compressor_and_second_insert() {
+    use yahaha_fx::fx::master::CompPreset;
+    use yahaha_fx::fx::{InsertKind, InsertSettings, PartComp};
+    // `None` never calls `set_strip`: the rack as it was before the strip chain.
+    let play = |strip: Option<(PartComp, InsertKind)>| {
+        let (mut rack, mut ctl) = rack(512, RATE);
+        ctl.assign(0, dls(512), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        let (mut l, mut r, mut ns) = (Vec::new(), Vec::new(), 0);
+        for b in 0..9 {
+            if let Some((comp, kind)) = strip {
+                // Every buffer, as the synth sets it.
+                rack.set_strip(0, comp, InsertSettings { kind, amount: 110, ..InsertSettings::NONE });
+            }
+            let msgs: &[[u8; 3]] = if b == 0 { &[[0x90, 48, 127], [0x90, 55, 127], [0x90, 60, 127]] } else { &[] };
+            let (a, c) = block(&mut rack, msgs, 512);
+            l.extend(a);
+            r.extend(c);
+            ns = ns.max(rack.insert_ns(0));
+        }
+        (l, r, ns)
+    };
+    let plain = play(None);
+    let off = play(Some((PartComp::default(), InsertKind::None)));
+    assert_eq!(off.2, 0, "not run");
+    assert_eq!(off, plain, "a strip off is bit-identical to no strip");
+    let e = |x: &[f32]| x.iter().map(|v| v * v).sum::<f32>();
+    let diff = |x: &[f32]| x.iter().zip(&plain.0).map(|(a, b)| (a - b).powi(2)).sum::<f32>();
+    let comp = play(Some((PartComp::of(true, CompPreset::Punchy), InsertKind::None)));
+    assert!(comp.2 > 0, "timed");
+    assert!(diff(&comp.0) > 1e-3 * e(&plain.0), "compressed: {} vs {}", diff(&comp.0), e(&plain.0));
+    let second = play(Some((PartComp::default(), InsertKind::Distortion)));
+    assert!(second.2 > 0, "timed");
+    assert!(diff(&second.0) > 0.1 * e(&plain.0), "insert 2 distorts: {} vs {}", diff(&second.0), e(&plain.0));
+}
+
+/// A plugin part's output (after its gain and pan) goes into the added send 4 only at a
+/// gain above 0, and sends 1-3 are the same whatever send 4's gain.
+#[test]
+fn a_plugin_part_feeds_send_four_at_its_gain() {
+    use yahaha_fx::fx::SENDS;
+    const N: usize = 512;
+    let play = |g4: f32| {
+        let (mut rack, mut ctl) = rack(N, RATE);
+        ctl.assign(0, dls(N as u32), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        let mut gains = [[0f32; SENDS]; SLOTS];
+        gains[0][0] = 0.5;
+        gains[0][3] = g4;
+        let (mut l, mut r, mut sends) = (Vec::new(), Vec::new(), vec![Vec::new(); 2 * SENDS]);
+        for b in 0..4 {
+            rack.begin_block();
+            if b == 0 {
+                rack.midi([0x90, 60, 110], 0);
+            }
+            let (mut bl, mut br, mut s) = (vec![0f32; N], vec![0f32; N], vec![0f32; 2 * SENDS * N]);
+            rack.render_add_sends(&mut bl, &mut br, Some((&mut s, &gains)));
+            l.extend(bl);
+            r.extend(br);
+            for (k, side) in sends.iter_mut().enumerate() {
+                side.extend_from_slice(&s[k * N..(k + 1) * N]);
+            }
+        }
+        (l, r, sends)
+    };
+    let (l0, r0, s0) = play(0.0);
+    let (l1, r1, s1) = play(0.7);
+    assert_eq!((&l0, &r0), (&l1, &r1), "the sends don't change the part");
+    assert!(energy(&l1, &r1) > 1e-3, "it plays");
+    assert!(s0[6].iter().chain(&s0[7]).all(|&x| x == 0.0), "send 4 at gain 0 gets nothing");
+    for (i, (a, b)) in s1[6].iter().zip(&l1).enumerate() {
+        assert!((a - b * 0.7).abs() < 1e-6, "send 4 left at {i}: {a} vs {}", b * 0.7);
+    }
+    for (a, b) in s1[7].iter().zip(&r1) {
+        assert!((a - b * 0.7).abs() < 1e-6);
+    }
+    assert_eq!(s0[..6], s1[..6], "sends 1-3 unchanged by send 4");
+    assert!(s1[0].iter().zip(&l1).all(|(a, b)| (a - b * 0.5).abs() < 1e-6), "send 1 at its gain");
+    assert!(s1[2..6].iter().chain(&s1[8..]).all(|v| v.iter().all(|&x| x == 0.0)), "sends at gain 0 get nothing");
+}
+
 /// Only a typed "the system won't host this out of process" status allows an in-process
 /// retry: never a timeout, a crash of the hosting process, a later stage, or an error that
 /// merely mentions the code (#105 review B3).
