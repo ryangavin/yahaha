@@ -35,6 +35,7 @@
     solo = null,
     fx = null,
     fxRow = false,
+    eq = null,
   }: {
     name: string
     /** 1-based MIDI channel at yahaha's output; null for an unused strip. */

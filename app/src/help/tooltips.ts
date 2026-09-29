@@ -1091,7 +1091,7 @@ const catalog = {
   },
   'mixer.part.eq_low_gain': {
     title: 'EQ Low',
-    body: 'Boosts or cuts this part\'s lows, below the Low frequency: −12 to +12 dB, a shelf yahaha plays on the part\'s audio, whether a SoundFont voice or a plugin plays it. At 0 dB the band is out of the signal. It is tone, not level: the fader stays the part\'s only level. Drag up or down; double-click for 0 dB. A One Touch Setting with an EQ sets it, and a rack saves it.',
+    body: 'Boosts or cuts this part\'s lows, below the Low frequency, by −12 to +12 dB: a shelf yahaha plays on the part\'s audio, SoundFont voice or plugin, and at 0 dB out of the signal (tone, not level: the fader stays the part\'s only level). Drag up or down; double-click for 0 dB. A One Touch Setting with an EQ sets it, and a rack saves it.',
     genos: 'Mixer › Panel › EQ › Low',
     keys: [],
     launchkey: null,
@@ -1105,7 +1105,7 @@ const catalog = {
   },
   'mixer.part.eq_high_gain': {
     title: 'EQ High',
-    body: 'Boosts or cuts this part\'s highs, above the High frequency: −12 to +12 dB, a shelf yahaha plays on the part\'s audio, whether a SoundFont voice or a plugin plays it. At 0 dB the band is out of the signal. It is tone, not level: the fader stays the part\'s only level. Drag up or down; double-click for 0 dB. A One Touch Setting with an EQ sets it, and a rack saves it.',
+    body: 'Boosts or cuts this part\'s highs, above the High frequency, by −12 to +12 dB: a shelf yahaha plays on the part\'s audio, SoundFont voice or plugin, and at 0 dB out of the signal (tone, not level: the fader stays the part\'s only level). Drag up or down; double-click for 0 dB. A One Touch Setting with an EQ sets it, and a rack saves it.',
     genos: 'Mixer › Panel › EQ › High',
     keys: [],
     launchkey: null,
