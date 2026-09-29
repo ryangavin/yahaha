@@ -254,7 +254,7 @@ describe('savePartAsPatch (#109)', () => {
     m.send({ type: 'setFamilyRule', family: 0, patch: `${id}#f:1`, style: false })
     expect(m.state.message?.error ?? false).toBe(false)
     const p = m.state.soundLibrary.patches.at(-1)!
-    expect(p.source).toEqual({ kind: 'plugin', componentId: 'aumu Smp7 Fake', state: '', origin: { kind: 'factory', number: 1 } })
+    expect(p.source).toEqual({ kind: 'plugin', componentId: 'aumu Smp7 Fake', hasState: false, origin: { kind: 'factory', number: 1 } })
     expect(m.state.soundLibrary.map.families[0]).toBe(p.id)
     // The same preset again is the same sound, not a copy.
     const n = m.state.soundLibrary.patches.length

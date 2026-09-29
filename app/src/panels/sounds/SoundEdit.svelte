@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
   import { tick } from 'svelte'
-  import { CATEGORY_LABELS, type PatchCategory, type PatchFields, type PatchInfo } from '../../lib/api/sound-library'
+  import { CATEGORY_LABELS, commandSource, type PatchCategory, type PatchFields, type PatchInfo } from '../../lib/api/sound-library'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -42,7 +42,7 @@
     deleteEl?.querySelector('button')?.focus()
   }
 
-  const fields = (p: PatchInfo): PatchFields => ({ name: p.name, category: p.category, tags: p.tags, favourite: p.favourite, source: p.source })
+  const fields = (p: PatchInfo): PatchFields => ({ name: p.name, category: p.category, tags: p.tags, favourite: p.favourite, source: commandSource(p.source) })
   const update = (change: Partial<PatchFields>) => app.send({ type: 'updatePatch', id: patch.id, patch: { ...fields(patch), ...change } })
   function commitName(el: HTMLInputElement) {
     const n = el.value.trim()

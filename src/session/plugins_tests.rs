@@ -523,7 +523,7 @@ fn saving_a_part_saves_its_plugin_and_its_state_now() {
     assert_eq!(s.inner.lock().part_plugin_voice(0).unwrap().1, None, "no state saved yet");
     s.send(SoundLibraryCmd::SavePartAsPatch { part: 0, name: None }).unwrap();
     let id = s.state().sound_library.last_added.clone().unwrap();
-    let source = |s: &Session| s.state().sound_library.patches.iter().find(|p| p.patch.id == id).unwrap().patch.source.clone();
+    let source = |s: &Session| s.inner.lock().sound.lib.patch(&id).unwrap().source.clone();
     let state = |src: PatchSource| match src {
         PatchSource::Plugin { component_id, state, .. } => (component_id, state),
         other => panic!("not a plugin patch: {other:?}"),
@@ -549,7 +549,7 @@ fn saving_a_part_saves_its_plugin_and_its_state_now() {
     let copy = &st.sound_library.patches.last().unwrap().patch;
     assert_ne!(copy.id, id);
     assert_eq!(copy.name, "DLS Copy");
-    assert!(matches!(&copy.source, PatchSource::Plugin { component_id, .. } if component_id == DLS));
+    assert!(matches!(&copy.source, crate::api::PatchSourceView::Plugin { component_id, .. } if component_id == DLS));
 }
 
 /// A plugin patch auditions like a SoundFont one (#109): with the band stopped, its plugin
@@ -994,7 +994,7 @@ fn a_part_shows_its_sound_and_when_it_was_edited() {
     let p0 = s.state().keyboard_parts[0].clone();
     let tag = p0.sound.clone().expect("the part plays the new sound");
     assert_eq!((tag.id.as_str(), tag.name.as_str(), p0.sound_edited), (format!("saved:{id}").as_str(), "DLSMusicDevice", false));
-    let state = |s: &Session| match s.state().sound_library.patches.iter().find(|p| p.patch.id == id).unwrap().patch.source.clone() {
+    let state = |s: &Session| match s.inner.lock().sound.lib.patch(&id).unwrap().source.clone() {
         PatchSource::Plugin { state, .. } => state,
         other => panic!("not a plugin sound: {other:?}"),
     };
@@ -1013,7 +1013,7 @@ fn a_part_shows_its_sound_and_when_it_was_edited() {
     wait_reads(&s);
     let p0 = s.state().keyboard_parts[0].clone();
     assert_eq!((p0.sound, p0.sound_edited), (Some(tag.clone()), false));
-    assert_eq!(s.state().sound_library.patches.iter().filter(|p| matches!(&p.patch.source, PatchSource::Plugin { .. })).count(), 1, "overwritten, not added");
+    assert_eq!(s.state().sound_library.patches.iter().filter(|p| matches!(&p.patch.source, crate::api::PatchSourceView::Plugin { .. })).count(), 1, "overwritten, not added");
     assert!(before.is(&editor(&s)), "Save doesn't reload the plugin");
 
     // Save as… on a part playing it as its own patch: the copy plays, on the same instance.

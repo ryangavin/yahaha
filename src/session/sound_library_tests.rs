@@ -225,7 +225,7 @@ fn a_keyboard_part_takes_its_patch_and_keeps_its_mix() {
     let st = s.state();
     let p = st.sound_library.patches.last().unwrap();
     assert_eq!(p.patch.name, "My Strings");
-    assert_eq!(p.patch.source, PatchSource::SoundFont { file: SF2.into(), bank: 0, program: 48 });
+    assert_eq!(p.patch.source, PatchSourceView::SoundFont { file: SF2.into(), bank: 0, program: 48 });
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -244,7 +244,7 @@ fn saving_a_part_again_and_again_makes_one_record() {
     let st = s.state();
     assert_eq!(st.sound_library.patches.len(), n + 1, "one record for three saves");
     let p = &st.sound_library.patches.last().unwrap().patch;
-    assert_eq!((p.name.as_str(), &p.source), (gm_name(program), &PatchSource::SoundFont { file: SF2.into(), bank: 0, program }));
+    assert_eq!((p.name.as_str(), &p.source), (gm_name(program), &PatchSourceView::SoundFont { file: SF2.into(), bank: 0, program }));
     assert_eq!(st.keyboard_parts[1].patch.as_deref(), Some(p.id.as_str()), "the part plays the new sound");
     assert_eq!(s.inner.shared.routes.part(1).map(|r| r.program), Some(program));
 
@@ -281,7 +281,7 @@ fn saving_a_part_saves_the_patch_the_map_plays() {
     let p = &st.sound_library.patches.last().unwrap().patch;
     assert_ne!(p.id, id);
     assert_eq!((p.name.as_str(), &p.tags), ("Lush Strings", &vec!["warm".to_string()]));
-    assert_eq!(p.source, PatchSource::SoundFont { file: OTHER.into(), bank: 0, program: 50 }, "the mapped patch's sound");
+    assert_eq!(p.source, PatchSourceView::SoundFont { file: OTHER.into(), bank: 0, program: 50 }, "the mapped patch's sound");
     let _ = std::fs::remove_dir_all(&data);
 }
 

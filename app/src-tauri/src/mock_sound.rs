@@ -92,6 +92,11 @@ fn auto_fill() -> AutoFill {
 }
 
 impl MockSound {
+    /// The library's patches, plugin states and all (the state shows only `hasState`).
+    pub fn patches(&self) -> &[Patch] {
+        &self.patches
+    }
+
     fn has(&self, id: &Option<String>) -> bool {
         id.as_ref().is_none_or(|id| self.patches.iter().any(|p| &p.id == id))
     }
@@ -197,7 +202,9 @@ impl MockSound {
             SoundLibraryCmd::UpdatePatch { id, patch } => {
                 let Some(i) = self.at(&id) else { return nope(&id) };
                 let name = if patch.name.trim().is_empty() { self.patches[i].name.clone() } else { patch.name.clone() };
-                self.patches[i] = Patch { name, ..fields(id, patch) };
+                let mut p = Patch { name, ..fields(id, patch) };
+                keep_plugin_state(&mut p.source, &self.patches[i].source);
+                self.patches[i] = p;
             }
             SoundLibraryCmd::DeletePatch { id } => {
                 let Some(i) = self.at(&id) else { return nope(&id) };
@@ -460,7 +467,7 @@ impl MockSound {
                 .iter()
                 .map(|p| {
                     let note = patches::unavailable_reason(p, &fonts);
-                    PatchInfo { patch: p.clone(), available: note.is_none(), note }
+                    PatchInfo { patch: p.into(), available: note.is_none(), note }
                 })
                 .collect(),
             categories: Category::ALL.iter().map(|&c| CategoryInfo { id: c, label: c.label().into() }).collect(),
