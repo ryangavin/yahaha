@@ -67,7 +67,9 @@ A later read never overwrites a captured state. Edits are the user's to save
 `SoundId::parse` reads both forms. A bare patch id, which is what map rules and part
 patches have always stored, reads as `saved:`. The browser's plugin rows
 (`au:<component>`, `au:<component>#f:<n>`, `au:<component>#u:<path>`) are not Sounds.
-They are instruments and their presets, and picking one gives you its Sound.
+They are instruments and their presets. A part playing a picked preset names it by its
+catalog id in its `sound` tag; picking adds no library record, and Save makes one
+(docs/racks.md "Saving": one save makes one record).
 
 Records that name a Sound keep a `SoundTag { id, name }`: the id, plus the name it had
 when stored, so recall can show the name even if the sound has since been deleted. It
@@ -358,8 +360,8 @@ Sounds tab only, because Play now needs a part.
 ## Decisions made in PR 4 (the Sounds tab)
 
 - **Decision: "every plugin sound" is the library's plugin sounds.** A factory preset or
-  `.aupreset` file becomes one when first played; until then it is under its plugin's
-  chip, like a font's unmapped presets.
+  `.aupreset` file becomes one when it is saved (not when it is played); until then it is
+  under its plugin's chip, like a font's unmapped presets.
 - **Decision: a category chip narrows All sounds**, not the whole catalog, so it stays
   short; Favourites and Recent hold whatever you starred or picked, from any chip.
 - **Decision: the chips stay in the side column** (as the Genos category tabs), with an

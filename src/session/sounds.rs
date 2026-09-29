@@ -254,8 +254,13 @@ impl Control {
             return Ok(id.to_string());
         };
         self.need_sound(id)?;
+        // The library's sound for that preset, or one with exactly the preset's settings:
+        // an `.aupreset` written by Save as… is the sound saved with it, not a second one.
         let same = |p: &&crate::patches::Patch| match &source {
-            PatchSource::Plugin { component_id, origin, .. } if !origin.is_user() => p.source.same_plugin_origin(component_id, origin),
+            PatchSource::Plugin { component_id, origin, state } if !origin.is_user() => {
+                p.source.same_plugin_origin(component_id, origin)
+                    || matches!(&p.source, PatchSource::Plugin { component_id: c, state: s, .. } if c == component_id && same_settings(s, state))
+            }
             _ => p.source == source,
         };
         if let Some(p) = self.sound_patches().iter().find(same) {
@@ -327,6 +332,23 @@ impl Control {
             self.say(format!("The sound browser settings were not saved: {e:#}"), true);
         }
     }
+}
+
+/// Whether two plugin states (base64) are the same settings: the same bytes, or the same
+/// property list in another form (an `.aupreset` is the XML form of the state it saved).
+/// An empty state (the plugin's default, or a factory preset not captured yet) is none.
+fn same_settings(a: &str, b: &str) -> bool {
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    if a == b {
+        return true;
+    }
+    #[cfg(feature = "plugins")]
+    if let (Some(a), Some(b)) = (crate::api::base64_decode(a), crate::api::base64_decode(b)) {
+        return crate::plugin::presets::same_settings(&a, &b);
+    }
+    false
 }
 
 #[cfg(test)]
