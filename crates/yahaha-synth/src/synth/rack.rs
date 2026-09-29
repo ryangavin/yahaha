@@ -43,7 +43,7 @@ use super::kit::{Kit, KitKey, KitSource};
 use super::part_tone::PartTone;
 use super::voicing::{To, Voicing};
 use super::*;
-use yahaha_fx::fx::BUSES;
+use yahaha_fx::fx::{BUSES, SENDS};
 use yahaha_fx::fx::part_eq::{EqCoeffs, EqDsp};
 
 /// Voices per part on the main SoundFont: as many as the band's and your playing's shared
@@ -325,8 +325,9 @@ pub struct Rack {
     pub(super) ch_slot: [u8; 16],
     /// Channels routed to a library patch (bit = channel).
     pub(super) mapped: u16,
-    /// Each channel's gains into the effect bus's send buses (#204), taken on its stem.
-    send_gains: [[f32; BUSES]; 16],
+    /// Each channel's gains into the effect bus's sends (#204): buses 1-3, then sends 4-6,
+    /// taken on its stem.
+    send_gains: [[f32; SENDS]; 16],
     /// The synthesizers' block, in frames.
     block: usize,
     /// The master volume every lane renders at (it is in the stems).
@@ -410,7 +411,7 @@ impl Rack {
             slot_of: [routing::NO_SLOT; crate::patches::route::MAX_FONTS],
             ch_slot: [0; 16],
             mapped: 0,
-            send_gains: [[0.0; BUSES]; 16],
+            send_gains: [[0.0; SENDS]; 16],
             block,
             master: 0.5,
             stem_l: vec![0.0; 8192],
@@ -486,8 +487,9 @@ impl Rack {
         self.parts.iter().map(|p| p.notes() as usize).sum()
     }
 
-    /// Each channel's gains into the effect bus's send buses (#204).
-    pub(super) fn set_sends(&mut self, gains: &[[f32; BUSES]; 16]) {
+    /// Each channel's gains into the effect bus's sends (#204): buses 1-3 (reverb, chorus,
+    /// variation), then sends 4-6 (`FxControl::strip_send`).
+    pub(super) fn set_sends(&mut self, gains: &[[f32; SENDS]; 16]) {
         self.send_gains = *gains;
     }
 
@@ -675,12 +677,13 @@ impl Rack {
         }
     }
 
-    /// Render `left.len()` frames of the mix into `left`/`right` and the effect bus's send
-    /// buses into `sends` (all overwritten; bus b's left side at `2 * b * n`, its right at
-    /// `(2 * b + 1) * n`), noting each channel's peak in `peaks`. `fade` ramps the whole
-    /// from one gain to another over the buffer. `inserts`: the parts' insertion effects
-    /// (#269: the Style parts' and the keyboard parts' own), each on its part's stem before
-    /// the meters, the sends and the mix, its time counted in the part's (`track_ns`).
+    /// Render `left.len()` frames of the mix into `left`/`right` and the effect bus's
+    /// [`SENDS`] sends into `sends` (all overwritten, `2 * SENDS * n` long; send s's left
+    /// side at `2 * s * n`, its right at `(2 * s + 1) * n`: buses 1-3, then sends 4-6),
+    /// noting each channel's peak in `peaks`. `fade` ramps the whole from one gain to
+    /// another over the buffer. `inserts`: each part's strip (#269: compressor, insert 1,
+    /// insert 2), on its stem after its tone filter and EQ and before the meters, the
+    /// sends and the mix, its time counted in the part's (`track_ns`).
     pub(super) fn render(
         &mut self,
         left: &mut [f32],
@@ -690,9 +693,9 @@ impl Rack {
         fade: Option<(f32, f32)>,
         mut inserts: Option<&mut yahaha_fx::fx::ChannelInserts>,
     ) {
-        let n = left.len().min(self.tmp_l.len()).min(sends.len() / (2 * BUSES));
+        let n = left.len().min(self.tmp_l.len()).min(sends.len() / (2 * SENDS));
         let (left, right) = (&mut left[..n], &mut right[..n]);
-        let sends = &mut sends[..2 * BUSES * n];
+        let sends = &mut sends[..2 * SENDS * n];
         left.fill(0.0);
         right.fill(0.0);
         sends.fill(0.0);
@@ -742,9 +745,10 @@ impl Rack {
                 let peak = l.iter().chain(r.iter()).fold(0f32, |m, x| m.max(x.abs()));
                 lane.quiet = if peak >= IDLE_LEVEL { 0 } else { lane.quiet.saturating_add(n as u32) };
                 // A note lane's own sends: the stem below sends it at the part's gains; add
-                // the difference (before the insert, as the part's own voices were).
+                // the difference (before the insert, as the part's own voices were). Buses
+                // 1-3 only: sends 4-6 take the part's gains for every note.
                 if lane.sends != PART_SENDS && peak > 0.0 {
-                    for (b, &g) in self.send_gains[ch].iter().enumerate() {
+                    for (b, &g) in self.send_gains[ch][..BUSES].iter().enumerate() {
                         let k = g * (lane.sends[b] - 1.0);
                         if g <= 0.0 || k == 0.0 {
                             continue;
@@ -841,7 +845,7 @@ impl Rack {
     /// `render`, the send buses left out (tests).
     #[cfg(test)]
     pub(super) fn render_dry(&mut self, left: &mut [f32], right: &mut [f32], peaks: &[AtomicU32; 16], fade: Option<(f32, f32)>) {
-        let mut sends = vec![0f32; 2 * BUSES * left.len()];
+        let mut sends = vec![0f32; 2 * SENDS * left.len()];
         self.render(left, right, &mut sends, peaks, fade, None);
     }
 }
