@@ -779,12 +779,11 @@ mod tests {
     #[test]
     fn real_fonts_bake_within_the_limits() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../soundfonts");
-        let Ok(entries) = std::fs::read_dir(&dir) else {
+        let fonts: Vec<_> = yahaha_sff::library::sound_font_files(&dir).into_iter().map(|n| dir.join(n)).collect();
+        if fonts.is_empty() {
             eprintln!("no soundfonts; skipping");
             return;
-        };
-        let mut fonts: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "sf2")).collect();
-        fonts.sort();
+        }
         for path in fonts {
             let mut f = BufReader::new(std::fs::File::open(&path).unwrap());
             let (_, pdta) = find_pdta(&mut f).unwrap();

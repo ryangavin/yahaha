@@ -1268,8 +1268,8 @@ export interface SurfaceFader {
   waiting: boolean
   /** Where the hardware fader physically is (0–127), if known. */
   position: number | null
-  /** What moving it sends: `set` with `volume` filled in (setPartVolume, setStylePartVolume, setMasterVolume). */
-  set: Extract<AppCmd, { volume: number }> | null
+  /** What moving it sends: `set` with its value filled in (`volume`; `pan` / `value` for the send layers' setPartPan, setPartSend, setStylePartSend). */
+  set: Extract<AppCmd, { volume: number }> | Extract<AppCmd, { type: 'setPartPan' | 'setPartSend' | 'setStylePartSend' }> | null
 }
 
 /** A library entry next to the loaded style. */

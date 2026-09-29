@@ -1890,6 +1890,20 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'mixer.strip.select': {
+    title: 'Mixer strip',
+    body: 'Selects this part: its strip lights up. A keyboard part (Right 1–3, Left) also becomes the part you edit, as the Launchkey\'s part buttons do.',
+    genos: 'Mixer › channel',
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.strip.voice': {
+    title: 'Voice',
+    body: 'The sound this part plays. On a keyboard part, click to choose another in Library › Sounds, loading into this part. A Style part plays the voice the style names; the name is cut short on a narrow strip, so hover it for the whole name.',
+    genos: 'Mixer › Voice',
+    keys: [],
+    launchkey: null,
+  },
   'mixer.voice': {
     title: 'Voice',
     body: 'Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it.',
@@ -2729,8 +2743,8 @@ const catalog = {
     launchkey: null,
   },
   'nav.mixer': {
-    title: 'Mixer',
-    body: 'Opens the full mixer. Press again to close.',
+    title: 'Mixer details',
+    body: 'Shows the mixer row\'s details: its bar (fader page and layer, metronome, Track Mute, Style and Multi Pad volume, CPU) and, on every strip, its Chorus send, EQ, insert and CPU. Press again to hide them.',
     genos: 'Mixer',
     keys: [],
     app_keys: ['alt+m'],
@@ -2961,8 +2975,8 @@ const catalog = {
     launchkey: null,
   },
   'drawer.mixer': {
-    title: 'Mixer',
-    body: 'Opens the full mixer: both fader pages side by side, with each band part\'s voice.',
+    title: 'Mixer details',
+    body: 'Shows the mixer row\'s details: its bar (fader page and layer, metronome, Track Mute, Style and Multi Pad volume, CPU) and, on every strip, its Chorus send, EQ, insert and CPU. Press again to hide them.',
     genos: 'Mixer (Panel / Style tabs)',
     keys: [],
     launchkey: 'The faders and the buttons under them',

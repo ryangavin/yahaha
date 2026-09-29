@@ -33,6 +33,13 @@ export function partVoice(p: KeyboardPart): VoiceLines {
   return { plays: p.voiceName, writtenFor: `GM ${p.program + 1}` }
 }
 
+/** A mixer row strip's voice name: what plays (cut short on a narrow strip). */
+export const voiceName = (v: VoiceLines): string => v.plays
+
+/** Its full name, for the strip's `title`: what plays and what it is, e.g.
+ * "≈ Strings (104/0/49)". */
+export const voiceTitle = (v: VoiceLines): string => (v.writtenFor ? `${v.plays} (${v.writtenFor})` : v.plays)
+
 /** The mixer strip's plugin badge: the plugin is what the fader controls, with its state. */
 export function pluginBadge(p: PartPlugin): string {
   switch (p.status) {

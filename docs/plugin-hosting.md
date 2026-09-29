@@ -2,13 +2,13 @@
 
 Goal: Genos-class sounds for the keyboard parts (Right 1-3, Left), and optionally for the
 Style parts, played through the user's own instrument plugins instead of the built-in
-SoundFont synth (rustysynth, `src/synth.rs`).
+SoundFont synth (rustysynth, `crates/yahaha-synth/src/synth.rs`).
 
 Status:
 
 - **Spike** (PR #79): options report (below) and an Audio Unit prototype. Recommendation:
   Audio Units first, through the objc2 bindings.
-- **Phase 1** (this document's first half): the library layer in `src/plugin/`, behind
+- **Phase 1** (this document's first half): the library layer in `crates/yahaha-synth/src/plugin/`, behind
   the `plugins` cargo feature, off by default. Scan (cached), async load with timeout
   (AUv2 and AUv3, in or out of process), instances with sample-accurate MIDI and state as
   bytes, a real-time rack that applies the part's CC7/CC11 and swaps instances glitch-free,
@@ -257,7 +257,7 @@ Bitwig, Reaper (optional) and Logic (for AUv3) all work this way.
 | | |
 |---|---|
 | Pros | A crashing or hanging plugin cannot take down the arranger, which on stage matters more than anywhere. Formats can be mixed behind one protocol. The main binary's build and licensing stay clean. |
-| Cons | Every audio cycle becomes an IPC round trip on the RT path: one extra buffer of latency, or a tight synchronous hand-off with a real-time-priority helper thread (Mach time-constraint policy, as `src/rt.rs` already does). Editors live in the other process, so the desktop app cannot embed them. Plugin state has to be marshalled across. Harder to debug. |
+| Cons | Every audio cycle becomes an IPC round trip on the RT path: one extra buffer of latency, or a tight synchronous hand-off with a real-time-priority helper thread (Mach time-constraint policy, as `crates/yahaha-core/src/rt.rs` already does). Editors live in the other process, so the desktop app cannot embed them. Plugin state has to be marshalled across. Harder to debug. |
 | Effort | **About 4-6 weeks** before plugin-specific work: the protocol, shared memory, watchdog and restart logic, plus everything in options 1-3 inside the helper. |
 | Verdict | Defer. AUv3 already gives out-of-process isolation for free. Revisit if in-process AUv2 crashes turn out to be a real problem in practice. The in-process `Instrument` API (`midi` / `render` / `save_state`) is the interface such a helper would implement, so nothing built now is wasted. |
 
@@ -265,7 +265,7 @@ Bitwig, Reaper (optional) and Logic (for AUv3) all work this way.
 
 (#91. The wiring plan below is the original design; this section is what the code does.)
 
-### The route table (`src/route.rs`)
+### The route table (`crates/yahaha-core/src/route.rs`)
 
 Each of the 16 MIDI channels renders from one **source**: the built-in SoundFont synth or
 the plugin rack's slot for that channel. The keyboard parts are channels 0-3
@@ -356,7 +356,7 @@ ctl.channel_plugin(ch) -> Option<api::PartPlugin> // loading | playing | failed 
   map a part to its channel. Style channels (#103's program map) call the same functions
   with channels 8-15.
 
-### AU presets (`src/plugin/presets.rs`)
+### AU presets (`crates/yahaha-synth/src/plugin/presets.rs`)
 
 A plugin is not one sound: Kontakt can be a piano on Right 1 and strings on Right 2. The
 Sound Browser lists each plugin's AU presets under its instrument chip, as Logic and
@@ -403,11 +403,11 @@ MainStage list them, and each preset is a sound of its own.
 
 ## Phase 2: wiring plan
 
-Phase 1 touched nothing outside `src/plugin/`. Phase 2 needs the hotspot files (`synth.rs`,
+Phase 1 touched nothing outside `crates/yahaha-synth/src/plugin/`. Phase 2 needs the hotspot files (`synth.rs`,
 `session`, `api`, `live`, the app), so it starts after the hotspot refactor lands and CLAIMs
 each file on the board. In order:
 
-### 1. The synth callback (`src/synth.rs`)
+### 1. The synth callback (`crates/yahaha-synth/src/synth.rs`)
 
 - `synth::start` builds a `plugin::rack(8192, rate)` next to the SoundFont `Rack` and moves
   the `PluginRack` into the callback; the `RackControl` goes to the Session (a new field on
