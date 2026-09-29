@@ -19,7 +19,7 @@ This document is about the inside.
 | `src/live.rs`, `src/live/*` | The real-time threads' code: MIDI input (`Input`, the key pipeline) and the engine loop (`EngineLoop`). |
 | `src/synth.rs`, `src/synth/` | The built-in SoundFont synth (cpal audio thread), on upstream rustysynth. |
 | `crates/yahaha-core/src/midi.rs`, `crates/yahaha-core/src/rt.rs` | CoreMIDI, real-time helpers (clock, wakeups, packet sink, histograms). |
-| `src/sff.rs`, `src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
+| `crates/yahaha-sff/src/sff.rs`, `crates/yahaha-sff/src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
 | `crates/yahaha-core/src/theory.rs`, `crates/yahaha-core/src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
 | `src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
@@ -30,7 +30,7 @@ This document is about the inside.
 | `crates/yahaha-core/src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
 | `crates/yahaha-core/src/looper.rs`, `crates/yahaha-core/src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
-| `crates/` | The layer crates of the planned crate split (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). `yahaha-core` holds its modules; the others are empty for now. |
+| `crates/` | The layer crates of the planned crate split (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). `yahaha-core` and `yahaha-sff` hold their modules; the others are empty for now. |
 
 The modules above are moving, lane by lane, out of the one `yahaha` crate into layer
 crates under `crates/`: core → sff, fx → engine → synth → the `yahaha` facade (session,

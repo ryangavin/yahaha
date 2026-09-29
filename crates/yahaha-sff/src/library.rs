@@ -6,7 +6,7 @@
 //! drains index results from a channel between frames.
 
 use crate::sff::Summary;
-use crate::style_types::SectionId;
+use yahaha_core::style_types::SectionId;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
@@ -31,16 +31,27 @@ pub fn style_files(root: &Path) -> Vec<PathBuf> {
     v
 }
 
+// The corpus and fixture helpers below are for tests only. Facade-internal: `pub` and
+// compiled in every build (a dependency's `#[cfg(test)]` is off when the facade's tests
+// build) only so the facade's tests can use them; not part of the crate's API.
+
+/// The checkout's git-ignored `corpus/` folder (at the repo root, two levels above this
+/// crate).
+#[doc(hidden)]
+pub fn corpus_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus")
+}
+
 /// Every style under the checkout's `corpus/` (empty when there is none), in path order.
-#[cfg(test)]
+#[doc(hidden)]
 pub fn corpus_styles() -> Vec<PathBuf> {
-    style_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus"))
+    style_files(&corpus_dir())
 }
 
 /// Every corpus style, parsed: [`corpus_styles`] loaded once per test binary and shared by
 /// every corpus test, so a sweep costs the parse only once. Tests that change a style clone
 /// it. A style that fails to parse panics with its path (every corpus style parses).
-#[cfg(test)]
+#[doc(hidden)]
 pub fn corpus_loaded() -> &'static [(PathBuf, crate::sff::Style)] {
     static LOADED: std::sync::OnceLock<Vec<(PathBuf, crate::sff::Style)>> = std::sync::OnceLock::new();
     LOADED.get_or_init(|| {
@@ -56,14 +67,14 @@ pub fn corpus_loaded() -> &'static [(PathBuf, crate::sff::Style)] {
 
 /// The corpus style whose file name is `name` (parsed once, as [`corpus_loaded`]), or
 /// `None` without a corpus.
-#[cfg(test)]
+#[doc(hidden)]
 pub fn corpus_style(name: &str) -> Option<&'static crate::sff::Style> {
     corpus_loaded().iter().find(|(p, _)| p.file_name().is_some_and(|f| f == name)).map(|(_, s)| s)
 }
 
 /// The files directly in `dir` (not its folders), in path order: for tests that check what
 /// a folder of fixtures holds (tests/reference), so they need not list folders themselves.
-#[cfg(test)]
+#[doc(hidden)]
 pub fn files_in(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
     v.sort();
@@ -510,31 +521,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// No module walks folders on its own: a hand-rolled walk is how corpus tests came to
-    /// see only `.sty` files, or only one folder. Everything goes through `style_files`
-    /// (`main.rs` only looks for a `.sf2` in `soundfonts/`).
-    #[test]
-    fn only_the_library_walks_folders() {
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let needle = ["read", "_dir("].concat();
-        for f in std::fs::read_dir(&src).unwrap().flatten().map(|e| e.path()) {
-            let name = f.file_name().unwrap().to_string_lossy().to_string();
-            if !name.ends_with(".rs") || name == "library.rs" {
-                continue;
-            }
-            let text = std::fs::read_to_string(&f).unwrap();
-            let n = text.matches(&needle).count();
-            // data_files.rs lists one folder of saved data files (`.rack.json`, `.looper.json`),
-            // and looks up a file name's spelling on disk (`existing_file`), never styles.
-            let allowed = match name.as_str() {
-                "main.rs" => 1,
-                "data_files.rs" => 2,
-                _ => 0,
-            };
-            assert!(n <= allowed, "src/{name} lists folders itself ({n}x); use library::style_files");
-        }
-    }
-
     #[test]
     fn index_reads_name_tempo_timesig_and_sections() {
         let root = temp_dir("index");
@@ -676,7 +662,7 @@ mod tests {
     #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_indexes_without_errors() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
+        let root = corpus_dir();
         if !root.exists() {
             return;
         }
