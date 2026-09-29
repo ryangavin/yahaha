@@ -359,6 +359,8 @@ The engine, the runtime and the app API are the `yahaha` library. A `Session` ow
 
 Tests: [AGENTS.md](AGENTS.md) lists the commands that must pass, and when to run each one. Run the ones that cover your change before opening a pull request; CI runs them all in `develop`'s merge queue. Locally, the engine's check is the core suite, `cargo test --workspace --exclude yahaha-app --profile test-quick --features plugins --lib` (add a test name to filter): the tests of the `yahaha` library and its layer crates under `crates/` without the slow ones, which are behind the `slow-tests` feature and run in CI (`--features slow-tests`). The `test-quick` profile builds everything unoptimised with debug assertions except rustysynth, which is optimised, so it compiles quickly and the audio tests still run fast; `cargo test --release` (release semantics) still works and runs the same tests. The suite covers the spec's transposition examples, chord recognition, and a full performance of every style in `corpus/`, checking for stuck notes. The oracle scores in `tests/oracle/scores.txt` are pinned too: a change to note conversion fails `oracle::tests::corpus_scores` (`cargo test --profile test-quick --features slow-tests corpus_scores`, with the corpus) with the score delta until you regenerate them with `UPDATE_GOLDEN=1`.
 
+`cargo tauri dev` watches the whole workspace; the `.taurignore` files (repo root and `app/src-tauri`) keep its watcher off agent worktrees, `node_modules`, Vite caches and build output.
+
 ## Developing on Linux
 
 yahaha runs on macOS only, but it builds and tests on Linux so that development (mostly agents) can happen there. On Linux there is no MIDI (a no-op backend) and no plugin hosting, so leave out `--features plugins`.
