@@ -36,7 +36,9 @@ export const NAV: NavItem[] = [
   { tip: 'nav.rack', label: 'Rack', key: 'alt+o', open: () => ui.rack, toggle: () => ui.toggleDrawer('rack') },
   { tip: 'nav.multipad', label: 'Multi Pads', key: 'alt+p', open: () => ui.multipad, toggle: () => ui.toggleDrawer('multipad') },
   { tip: 'nav.effects', label: 'Effects', key: 'alt+e', open: () => ui.effects, toggle: () => ui.toggleDrawer('effects') },
-  { tip: 'nav.mixer', label: 'Mixer', key: 'alt+m', open: () => ui.mixer, toggle: () => ui.toggleDrawer('mixer') },
+  // The mixer row is always on the stage; Alt+M shows or hides its details. No strip
+  // button: the mirror's fader-head Mixer button does the same.
+  { tip: 'nav.mixer', label: 'Mixer', key: 'alt+m', open: () => ui.mixer, toggle: () => (ui.mixer = !ui.mixer), hidden: true },
   { tip: 'nav.looper', label: 'Looper', key: 'alt+l', open: () => ui.looper, toggle: () => ui.toggleDrawer('looper') },
   { tip: 'nav.charts', label: 'Charts', key: 'alt+c', open: () => ui.charts, toggle: () => ui.toggleDrawer('charts') },
   { tip: 'nav.harmony', label: 'Harmony/Arp', key: 'alt+h', open: () => ui.harmony, toggle: () => ui.toggleDrawer('harmony') },

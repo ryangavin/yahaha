@@ -24,11 +24,11 @@ describe('mock strips', () => {
   })
 
   it('older commands cover what they did, both ways', () => {
-    expect(stripLegacy({ type: 'setStripSend', strip: 1, send: 0, level: 90 })).toEqual({ type: 'setPartSend', part: 1, send: 'reverb', value: 90 })
-    expect(stripLegacy({ type: 'setStripInsertOn', strip: 6, slot: 0, on: false })).toEqual({ type: 'setPartInsertOn', part: 2, on: false })
-    expect(stripLegacy({ type: 'setSendKind', send: 0, kind: 'plate' })).toEqual({ type: 'setEffectType', block: 'reverb', effect: 'plate' })
-    expect(stripLegacy({ type: 'setStripInsertOn', strip: 6, slot: 1, on: true })).toBeNull()
-    expect(stripLegacy({ type: 'setStripSend', strip: 1, send: 3, level: 9 })).toBeNull()
+    expect(stripLegacy({ type: 'setStripSend', strip: 1, send: 0, level: 90 })).toEqual([{ type: 'setPartSend', part: 1, send: 'reverb', value: 90 }])
+    expect(stripLegacy({ type: 'setStripInsertOn', strip: 6, slot: 0, on: false })).toEqual([{ type: 'setPartInsertOn', part: 2, on: false }])
+    expect(stripLegacy({ type: 'setSendKind', send: 0, kind: 'plate' })).toEqual([{ type: 'setEffectType', block: 'reverb', effect: 'plate' }])
+    expect(stripLegacy({ type: 'setStripInsertOn', strip: 6, slot: 1, on: true })).toEqual([])
+    expect(stripLegacy({ type: 'setStripSend', strip: 1, send: 3, level: 9 })).toEqual([])
 
     const m = new MockSession({ manual: true })
     m.send({ type: 'setStripSend', strip: 1, send: 1, level: 70 })
@@ -123,5 +123,22 @@ describe('mock strips', () => {
     m.send({ type: 'setStripInsertKind', strip: 11, slot: 1, kind: 'tremolo' })
     expect(m.state.mixer.styleParts[7].strip.inserts[1]).toMatchObject({ kind: 'tremolo', name: 'Tremolo' })
     expect(m.state.mixer.styleParts[7].strip.inserts[1].settings.map((x) => x.display)).toEqual(['64', '1/8', '0'])
+  })
+
+  it('none empties a keyboard insert 1, and a setting on an empty one is refused', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setStripInsertKind', strip: 0, slot: 0, kind: 'rotary' })
+    m.send({ type: 'setStripInsertKind', strip: 0, slot: 0, kind: 'none' })
+    expect(m.state.keyboardParts[0].strip.inserts[0].kind).toBe('none')
+    m.send({ type: 'setStripInsertSetting', strip: 1, slot: 0, setting: 0, value: 10 })
+    expect(m.state.message?.error).toBe(true)
+  })
+
+  it('an insert 2 change marks the live rack modified', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setPartOn', part: 0, on: true })
+    m.state.liveRack.modified = false
+    m.send({ type: 'setStripInsertKind', strip: 0, slot: 1, kind: 'phaser' })
+    expect(m.state.liveRack.modified).toBe(true)
   })
 })
