@@ -1004,12 +1004,20 @@ impl Control {
                     // Remembered even when it can't start, so an edit elsewhere doesn't retry
                     // (and report) it again; leaving the patch clears the channel as usual.
                     self.sound.part_plugin[p] = Some((id.clone(), voice.clone()));
-                    if let Err(e) = self.assign_channel_plugin(ch, voice) {
-                        if had {
+                    let missing = self.plugin_is_missing(&voice.id);
+                    if let Err(e) = self.assign_channel_plugin(ch, voice.clone()) {
+                        if had || missing {
                             self.clear_channel_plugin(ch);
                         }
                         let name = self.sound.lib.patch(&id).map_or(id.clone(), |q| q.name.clone());
-                        self.say(format!("{name} plays the fallback: {e}"), true);
+                        if missing {
+                            // Its plugin isn't installed: the part is silent and shows it,
+                            // and plays the sound again once the plugin is back.
+                            self.keep_failed_channel_plugin(ch, voice, e);
+                            self.say(format!("{name}: its plugin is not installed; {} is silent until it is back", parts::NAMES[p]), true);
+                        } else {
+                            self.say(format!("{name} plays the fallback: {e}"), true);
+                        }
                     }
                 }
                 None => self.clear_channel_plugin(ch),

@@ -6,7 +6,9 @@
 //! - [`Source::SoundFont`]`(n)`: the built-in SoundFont synth, font `n` (0 = the synth's
 //!   SoundFont; 1-14 are reserved for per-channel SoundFonts, #103), or
 //! - [`Source::Plugin`]: the plugin rack's slot for that channel (an Audio Unit
-//!   instrument, `src/plugin/`).
+//!   instrument, `src/plugin/`), or
+//! - [`Source::Silent`]: nothing. A keyboard part whose plugin isn't installed any more
+//!   is silent (docs/racks.md, "Plugins coming and going"), not played by the SoundFont.
 //!
 //! The whole table is one `u64` (16 channels x 4 bits), so a change is a single atomic
 //! store and the audio thread reads a consistent table with a single atomic load per
@@ -20,7 +22,8 @@
 //! bend) still does, so the SoundFont side stays in step and takes the channel back at
 //! the right level. A plugin route whose slot has no instance yet (still loading, or the
 //! assign not yet applied) keeps playing the SoundFont, so a part is never silent while a
-//! plugin loads.
+//! plugin loads. A silent channel's note-ons reach nothing; everything else still reaches
+//! the SoundFont side, as for a plugin channel, so it can take the channel back in step.
 
 use std::sync::atomic::{AtomicU64, Ordering::{Acquire, Relaxed, Release}};
 
@@ -32,10 +35,13 @@ pub enum Source {
     SoundFont(u8),
     /// The plugin rack's slot for this channel.
     Plugin,
+    /// Nothing plays the channel's notes.
+    Silent,
 }
 
 /// The highest SoundFont index a route can name.
-pub const MAX_FONT: u8 = 14;
+pub const MAX_FONT: u8 = 13;
+const SILENT: u64 = 0xE;
 const PLUGIN: u64 = 0xF;
 
 impl Source {
@@ -44,12 +50,17 @@ impl Source {
         match self {
             Source::SoundFont(n) => (if n > MAX_FONT { MAX_FONT } else { n }) as u64,
             Source::Plugin => PLUGIN,
+            Source::Silent => SILENT,
         }
     }
 
     #[inline]
     const fn from_code(c: u64) -> Source {
-        if c == PLUGIN { Source::Plugin } else { Source::SoundFont(c as u8) }
+        match c {
+            PLUGIN => Source::Plugin,
+            SILENT => Source::Silent,
+            _ => Source::SoundFont(c as u8),
+        }
     }
 }
 
@@ -78,10 +89,21 @@ impl RouteTable {
     /// Bit `ch` set for each channel routed to a plugin.
     #[inline]
     pub const fn plugin_mask(self) -> u16 {
+        self.mask(PLUGIN)
+    }
+
+    /// Bit `ch` set for each silent channel.
+    #[inline]
+    pub const fn silent_mask(self) -> u16 {
+        self.mask(SILENT)
+    }
+
+    #[inline]
+    const fn mask(self, code: u64) -> u16 {
         let mut m = 0u16;
         let mut ch = 0;
         while ch < 16 {
-            if (self.0 >> (ch * 4)) & 0xF == PLUGIN {
+            if (self.0 >> (ch * 4)) & 0xF == code {
                 m |= 1 << ch;
             }
             ch += 1;
@@ -154,6 +176,9 @@ mod tests {
         // Out-of-range fonts clamp, never alias the plugin code.
         assert_eq!(t.with(2, Source::SoundFont(200)).source(2), Source::SoundFont(MAX_FONT));
         assert_eq!(t.with(0, Source::SoundFont(0)).plugin_mask(), 1 << 15);
+        assert_eq!(t.with(2, Source::SoundFont(200)).silent_mask(), 0, "nor the silent code");
+        let t = t.with(3, Source::Silent);
+        assert_eq!((t.source(3), t.silent_mask(), t.plugin_mask()), (Source::Silent, 1 << 3, 1 | 1 << 15));
     }
 
     #[test]

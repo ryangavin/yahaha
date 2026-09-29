@@ -8,7 +8,9 @@
 //! of the main SoundFont. Applying sets the sound first and the mix after it, so the
 //! rack's level, pan, sends and octave win over any sound's CC defaults. A sound that
 //! can't play (a plugin not installed, a sound no longer in the library) is reported and
-//! the rest of the rack is still applied, that part's mix included.
+//! the rest of the rack is still applied, that part's mix included. A part whose plugin
+//! isn't installed is silent (not on its GM voice) and keeps the rack's reference, so the
+//! plugin plays it again once it is back (session/plugins.rs, `mark_missing`).
 
 use super::part_sound::OnFail;
 use super::{Control, Session};
@@ -60,7 +62,7 @@ impl Control {
         }
     }
 
-    fn capture_rack_part(&self, p: usize) -> RackPart {
+    pub(super) fn capture_rack_part(&self, p: usize) -> RackPart {
         let kp = &self.shared.parts;
         let ch = parts::CHANNEL[p];
         let program = kp.program[p].load(Relaxed) & 127;
@@ -99,8 +101,14 @@ impl Control {
     pub(super) fn apply_rack(&mut self, r: &Rack) -> Vec<String> {
         let mut problems = Vec::new();
         for (p, part) in r.parts.iter().enumerate() {
-            if let Err(e) = self.apply_rack_sound(p, part) {
-                problems.push(e);
+            match self.apply_rack_sound(p, part) {
+                Err(e) => problems.push(e),
+                // A library sound whose plugin isn't installed: the part is silent.
+                Ok(()) if self.channel_plugin_state(parts::CHANNEL[p]).is_some_and(|s| s.missing) => {
+                    let name = self.channel_plugin_state(parts::CHANNEL[p]).map(|s| s.name).unwrap_or_default();
+                    problems.push(format!("{}: {name} is not installed; the part is silent until it is back", parts::NAMES[p]));
+                }
+                Ok(()) => {}
             }
             if let Err(e) = self.apply_rack_mix(p, part) {
                 problems.push(e);
@@ -177,7 +185,7 @@ impl Control {
 
     /// Part `p`'s mix, after its sound: the rack's level, octave, pan and sends win over
     /// the sound's defaults, and its voice settings over the sound's neutral ones.
-    fn apply_rack_mix(&mut self, p: usize, part: &RackPart) -> Result<(), String> {
+    pub(super) fn apply_rack_mix(&mut self, p: usize, part: &RackPart) -> Result<(), String> {
         let kp = self.shared.parts.clone();
         kp.set_volume(p, part.volume.min(127));
         kp.octave[p].store(part.octave.clamp(-2, 2), Relaxed);
