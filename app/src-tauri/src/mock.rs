@@ -840,6 +840,33 @@ impl MockSession {
         }
     }
 
+    /// The keyboard strips and the rotary speed as the knobs and faders read them (the
+    /// session's `strip_now`): insert 1 from the part's older insert slot, as
+    /// `Strips::fill` takes it, the rest from `strips`.
+    pub(crate) fn strip_now(&self) -> yahaha::knobs::StripNow {
+        use yahaha::fx::InsertSlot;
+        use yahaha::knobs::{InsertNow, StripNow};
+        let insert = |i: &InsertSlot| InsertNow { on: i.on, values: i.values, specs: i.kind.settings() };
+        StripNow {
+            inserts: [0, 1, 2, 3].map(|p| {
+                let s = &self.strips.strips[p];
+                let old = InsertSlot::from_part_insert(self.state.keyboard_parts[p].insert);
+                let mut first = s.inserts[0].clone();
+                if first.kind != old.kind {
+                    first.set_kind(old.kind);
+                }
+                first.on = old.on;
+                if !first.kind.settings().is_empty() {
+                    first.values[0] = old.values[0];
+                }
+                [insert(&first), insert(&s.inserts[1])]
+            }),
+            sends: [0, 1, 2, 3].map(|p| self.strips.strips[p].sends),
+            send_count: self.strips.sends() as u8,
+            rotary_fast: self.state.effects.rotary_fast,
+        }
+    }
+
     /// A keyboard part's own plugin patch plays its plugin (the session's
     /// `sync_part_plugins`).
     fn sync_part_plugins(&mut self) {
@@ -1324,7 +1351,7 @@ impl MockSession {
         // Plugin instances loaded (#407): one per keyboard part playing one.
         self.state.plugins.instances =
             self.state.keyboard_parts.iter().filter(|k| k.plugin.as_ref().is_some_and(|p| p.status == PluginStatus::Playing)).count() as u32;
-        self.state.knobs = self.knobs.state(&self.knobs_now());
+        self.state.knobs = self.knobs.state_at(&self.knobs_now(), &self.strip_now());
         let st = &mut self.state;
         let c = &mut st.chord;
         c.fingering_name = if c.upper { "Fingered*".into() } else { c.fingering.name().into() };
@@ -1510,7 +1537,7 @@ impl MockSession {
         // src/session/surface.rs): Panel faders 1-4 the part's pan or send, the Style
         // faders the Style part's own send (nothing in PAN).
         let routes = yahaha::knobs::fader_routes(&st.live_rack.controls);
-        let knobs_now = self.knobs_now();
+        let (knobs_now, strip_now) = (self.knobs_now(), self.strip_now());
         let send = match layer {
             yahaha::parts::FaderLayer::Reverb => Some(PartSend::Reverb),
             yahaha::parts::FaderLayer::Chorus => Some(PartSend::Chorus),
@@ -1557,7 +1584,7 @@ impl MockSession {
                         let f = yahaha::knobs::rack_function(&st.live_rack.controls.faders[p]);
                         SurfaceFader {
                             label: f.short().to_uppercase(),
-                            value: self.knobs.read(f, &knobs_now).level,
+                            value: self.knobs.read_at(f, &knobs_now, &strip_now).level,
                             waiting: false,
                             position,
                             set: Some(AppCmd::Rack(RackCmd::MoveRackFader { fader: i, volume: 0 })),
@@ -2199,14 +2226,14 @@ impl MockSession {
                 KnobsCmd::SetKnobPage { page } => self.knobs.set_page(page),
                 KnobsCmd::StepKnobPage { delta } => self.knobs.set_page(self.knobs.page.step(delta)),
                 KnobsCmd::TurnKnob { knob, delta } => {
-                    let now = self.knobs_now();
-                    if let Some(cmd) = self.knobs.turn(knob, delta, &now) {
+                    let (now, strips) = (self.knobs_now(), self.strip_now());
+                    if let Some(cmd) = self.knobs.turn_at(knob, delta, &now, &strips) {
                         self.cmd(cmd);
                     }
                 }
                 KnobsCmd::ResetKnob { knob } => {
-                    let now = self.knobs_now();
-                    if let Some(cmd) = self.knobs.reset(knob, &now) {
+                    let (now, strips) = (self.knobs_now(), self.strip_now());
+                    if let Some(cmd) = self.knobs.reset_at(knob, &now, &strips) {
                         self.cmd(cmd);
                     }
                 }
@@ -3057,6 +3084,33 @@ mod tests {
         m.send(RackCmd::LoadRack { id, discard: false });
         assert_eq!(m.state.live_rack.controls, map);
         assert_eq!(m.state.knobs.knobs[4].short, "PanR2");
+    }
+
+    /// Strip targets read and set the mock's own strips and rotary speed (`StripNow`), as
+    /// the session's do, instead of reading "---".
+    #[test]
+    fn strip_targets_read_the_strips() {
+        let mut m = MockSession::new();
+        m.send(KnobsCmd::SetKnobPage { page: yahaha::knobs::KnobPage::Rack });
+        m.send(RackCmd::SetRackControl { control: RackControl::Knob, index: 4, target: ControlTarget::RotaryFast });
+        assert_eq!(m.state.knobs.knobs[4].value, "Slow");
+        m.send(KnobsCmd::TurnKnob { knob: 4, delta: 3 }); // a switch moves every 3 detents
+        assert!(m.state.effects.rotary_fast);
+        assert_eq!(m.state.knobs.knobs[4].value, "Fast");
+        m.send(KnobsCmd::ResetKnob { knob: 4 });
+        assert!(!m.state.effects.rotary_fast, "reset: slow");
+        m.send(RackCmd::SetRackControl { control: RackControl::Knob, index: 5, target: ControlTarget::PartSend { part: 0, send: 3 } });
+        assert_eq!(m.state.knobs.knobs[5].value, "---", "no send 4 yet");
+        m.send(StripCmd::AddSend { kind: SendKind::Hall });
+        assert_eq!(m.state.knobs.knobs[5].level, Some(0));
+        m.send(KnobsCmd::TurnKnob { knob: 5, delta: 5 });
+        let level = m.state.keyboard_parts[0].strip.sends[3];
+        assert!(level > 0, "the turn set send 4");
+        assert_eq!(m.state.knobs.knobs[5].level, Some(level));
+        m.send(RackCmd::SetRackControl { control: RackControl::Fader, index: 1, target: ControlTarget::RotaryFast });
+        m.send(RackCmd::MoveRackFader { fader: 1, volume: 127 });
+        assert!(m.state.effects.rotary_fast, "a Panel fader switches it from 64");
+        assert_eq!(m.state.surface.faders[1].value, Some(127));
     }
 
     /// The rack commands (docs/racks.md, "Saving"), as the session does them: save as, the

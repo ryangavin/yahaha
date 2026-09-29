@@ -165,6 +165,36 @@ mod tests {
         assert!(!hold(&s));
     }
 
+    /// Organ Rotary Slow/Fast (RM p.140) from a pedal: Toggle flips it on each press and
+    /// leaves it on release; Hold A keeps it fast while the pedal is down.
+    #[test]
+    fn a_rotary_pedal_toggles_or_holds_fast() {
+        let s = offline();
+        let fast = |s: &Session| s.state().effects.rotary_fast;
+        let step = |s: &Session, v: u8| {
+            s.midi_in(Port::Keys, &[0xB0, 66, v]);
+            s.advance(1_000_000);
+        };
+        let toggle = ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::RotaryFast, control_type: ControlType::Toggle, reverse: false, range: Default::default() };
+        s.send(toggle).unwrap();
+        step(&s, 127);
+        assert!(fast(&s), "Toggle: a press, fast");
+        step(&s, 0);
+        assert!(fast(&s), "stays fast when let go");
+        step(&s, 127);
+        assert!(!fast(&s), "the next press: slow");
+        step(&s, 0);
+        assert!(!fast(&s));
+        s.send(pedal(1, 66, Function::RotaryFast)).unwrap();
+        assert_eq!(s.state().controllers.pedals[1].control_type, ControlType::HoldA);
+        step(&s, 127);
+        assert!(fast(&s), "Hold A: fast while down");
+        step(&s, 127);
+        assert!(fast(&s));
+        step(&s, 0);
+        assert!(!fast(&s), "and slow when let go");
+    }
+
     #[test]
     fn chord_looper_is_assignable() {
         use crate::api::LooperMode;

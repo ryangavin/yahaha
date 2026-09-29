@@ -595,6 +595,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Shift** | Hold for the second functions: Pad Bank ▲ = Left on/off, Pad Bank ▼ = OTS Link, the buttons under faders 1–4 on the Panel page = edit that part. On screen, click it to latch the Shift layer, or hold Shift on your computer keyboard. | — | — | Shift button |
+| **Rotary Fast** | The rotary speaker's Fast/Slow switch: lit while every rotary insert spins fast, dark while slow; each click switches it. The horn and drum change speed gradually, as a real rotary speaker does. An assignable pedal set to "Organ Rotary Slow/Fast" does the same. | Organ Rotary Slow/Fast | — | Shift + encoder page ▲ |
 | **Launchkey** | Whether the Launchkey is connected in DAW mode, so its pads and buttons are arranger controls. | — | — | — |
 | **Rack fader** | The loaded rack's controller map gives this Panel fader something other than its part's level: moving it sets what its label says (a pan or send, Harmony/Arp on from halfway up, the split point, a volume). Set it in the Rack panel's Controller map. | — | — | Panel fader page: faders 1–4 |
 | **Unused fader** | On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under faders 6–8 |

@@ -48,6 +48,22 @@ describe('Launchkey mirror', () => {
     expect(pad(96).dataset.tip).toBe('ots.1')
   })
 
+  it('the Rotary button (Shift + encoder ▲ on the hardware) toggles the rotary speed and lights while fast', async () => {
+    const { session } = setup()
+    const rotary = () => document.querySelector<HTMLButtonElement>('[data-tip="launchkey.rotary_fast"]')!
+    expect(rotary().getAttribute('aria-label')).toBe('Rotary Fast')
+    expect(session.state.effects.rotaryFast).toBe(false)
+    expect(rotary().getAttribute('aria-pressed')).toBe('false')
+    await fireEvent.click(rotary())
+    expect(session.state.effects.rotaryFast).toBe(true)
+    flushSync()
+    expect(rotary().getAttribute('aria-pressed')).toBe('true')
+    await fireEvent.click(rotary())
+    expect(session.state.effects.rotaryFast).toBe(false)
+    flushSync()
+    expect(rotary().getAttribute('aria-pressed')).toBe('false')
+  })
+
   it('clicking a pad sends its action', async () => {
     const { session } = setup()
     await fireEvent.click(pad(114))
