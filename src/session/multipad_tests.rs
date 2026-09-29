@@ -151,30 +151,22 @@ fn a_rescan_finds_new_banks_and_keeps_ids() {
     let id = s.state().multi_pad.banks[0].id;
     std::fs::write(dir.join("Added.pad"), synthetic::demo_bank()).unwrap();
     s.send(LibraryCmd::RescanLibrary).unwrap();
-    for _ in 0..200 {
-        s.advance(10 * MS);
-        if s.state().multi_pad.banks.len() == 2 {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
+    s.finish_rescan();
     let st = s.state();
     assert_eq!(st.multi_pad.banks.len(), 2);
     assert_eq!(st.multi_pad.banks.iter().find(|b| b.name == "Demo").map(|b| b.id), Some(id));
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// Rescan, and wait until the bank list names `marker` (a file just added under the root).
+/// Rescan, and wait for it: the bank list, with `marker` (a file just added under the root).
+/// Both scans (styles and banks) finish before the next rescan: a `RescanLibrary` sent
+/// while the style scan still runs starts nothing, which made this test flaky.
 fn rescan_until(s: &Session, marker: &str) -> Vec<(usize, String)> {
     s.send(LibraryCmd::RescanLibrary).unwrap();
-    for _ in 0..400 {
-        s.advance(10 * MS);
-        if s.state().multi_pad.banks.iter().any(|b| b.name == marker) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    s.state().multi_pad.banks.iter().map(|b| (b.id, b.name.clone())).collect()
+    s.finish_rescan();
+    let banks: Vec<(usize, String)> = s.state().multi_pad.banks.iter().map(|b| (b.id, b.name.clone())).collect();
+    assert!(banks.iter().any(|b| b.1 == marker), "{marker} is listed: {banks:?}");
+    banks
 }
 
 #[test]

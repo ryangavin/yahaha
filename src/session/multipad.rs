@@ -190,6 +190,15 @@ impl Control {
         }
     }
 
+    /// Wait for a running bank rescan, and merge it (`Control::finish_rescan`).
+    pub(super) fn finish_pad_scan(&mut self) {
+        if let Some(rx) = self.multipad.scan_rx.take()
+            && let Ok(scan) = rx.recv()
+        {
+            self.multipad.merge(scan);
+        }
+    }
+
     /// Replaced players back from the engine are freed here; the bank the engine now plays
     /// becomes the loaded one; a finished bank rescan is merged in.
     pub(super) fn pump_multipad(&mut self) {

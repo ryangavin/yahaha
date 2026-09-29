@@ -211,19 +211,32 @@ impl Control {
     pub(super) fn pump_rescan(&mut self) {
         let Some(rx) = &self.scan_rx else { return };
         match rx.try_recv() {
-            Ok(scanned) => {
-                self.scan_rx = None;
-                let added = self.lib.merge(scanned, &self.roots);
-                // Every entry still pending (new, or not reached by the first index).
-                self.index_rx = Some(self.lib.spawn_pending_indexer());
-                self.lib_rev += 1;
-                self.lib_urgent = true;
-                let n = self.lib.count();
-                self.say(format!("Style folders rescanned: {n} styles, {} new", added.len()), false);
-            }
+            Ok(scanned) => self.merge_rescan(scanned),
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => self.scan_rx = None,
         }
+    }
+
+    fn merge_rescan(&mut self, scanned: Library) {
+        self.scan_rx = None;
+        let added = self.lib.merge(scanned, &self.roots);
+        // Every entry still pending (new, or not reached by the first index).
+        self.index_rx = Some(self.lib.spawn_pending_indexer());
+        self.lib_rev += 1;
+        self.lib_urgent = true;
+        let n = self.lib.count();
+        self.say(format!("Style folders rescanned: {n} styles, {} new", added.len()), false);
+    }
+
+    /// Offline only (`Session::finish_rescan`): wait for a running rescan, the style
+    /// folders' and the Multi Pad banks', and merge it.
+    pub(super) fn finish_rescan(&mut self) {
+        if let Some(rx) = self.scan_rx.take()
+            && let Ok(scanned) = rx.recv()
+        {
+            self.merge_rescan(scanned);
+        }
+        self.finish_pad_scan();
     }
 
     /// Index results that came in.
