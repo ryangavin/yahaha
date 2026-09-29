@@ -25,7 +25,7 @@ import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
   BREAK, CHORD_SETTLE_MAX_MS, clampEq, defaultControlMap, FLAT_EQ, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
-  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type RackCmd, type StopAcmpMode,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PartEq, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
 
@@ -1118,6 +1118,11 @@ export class MockSession implements Session {
         p.program = o.program
         this.gmVoice(i)
       }
+      // The part EQ, as the engine's apply_ots sets it (#247): the OTS's XG part EQ; a part
+      // it gives a voice but no EQ goes flat; others keep theirs.
+      const eq = mockOtsEq(n, i)
+      if (eq) p.eq = { ...eq }
+      else if (o.program !== null) p.eq = { ...FLAT_EQ }
       p.on = o.on
       p.octave = o.octave
       if (p.volume !== o.volume) p.waiting = panel
@@ -2100,7 +2105,13 @@ function fxParams(block: FxBlock, effect: FxType): FxParamState[] {
 }
 
 /** The mock style's own sends per Style part (#268): reverb, chorus, variation (as the Rust mock's). */
-const MOCK_STYLE_SENDS: [number, number, number][] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]]
+/** The XG part EQ the mock's OTS `n` sets on part `p` (#247), as an SFF's OTS carries it:
+ *  only OTS 1's Right 1 has one; the Rust dev mock has the same (`mock_ots_eq`). */
+export function mockOtsEq(n: number, p: number): PartEq | null {
+  return n === 0 && p === 0 ? { ...FLAT_EQ, lowGain: 3, highGain: 2 } : null
+}
+
+const MOCK_STYLE_SENDS:[number, number, number][] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]]
 
 /**
  * The effect bus as a session starts it: Hall, Chorus, the dotted 1/8 delay, every return 64;

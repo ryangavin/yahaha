@@ -1101,6 +1101,13 @@ impl MockSession {
                 }
                 self.sound.part_voice(i);
             }
+            // The part EQ, as `PartState::apply_ots` sets it (#247): the OTS's XG part EQ;
+            // a part it gives a voice but no EQ goes flat; others keep theirs.
+            match mock_ots_eq(n, i) {
+                Some(eq) => p.eq = eq,
+                None if o.program.is_some() => p.eq = PartEq::FLAT,
+                None => {}
+            }
             p.on = o.on;
             p.octave = o.octave;
             if p.volume != o.volume {
@@ -2480,9 +2487,32 @@ fn harmony_arp_cmd(h: &mut HarmonyArpState, c: HarmonyArpCmd) -> Result<(), Stri
     Ok(())
 }
 
+/// The XG part EQ the mock's OTS `n` sets on part `p` (#247), as an SFF's OTS carries it:
+/// only OTS 1's Right 1 has one; the TS mock has the same (`mockOtsEq`).
+fn mock_ots_eq(n: usize, p: usize) -> Option<PartEq> {
+    (n == 0 && p == 0).then_some(PartEq { low_gain: 3, high_gain: 2, ..PartEq::FLAT })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #247: an OTS recall sets the part EQ as the engine does: its XG part EQ (OTS 1's
+    /// Right 1 in the mock), flat for a part it gives a voice but no EQ.
+    #[test]
+    fn ots_recall_sets_the_part_eq() {
+        let mut m = MockSession::new();
+        let mine = PartEq { low_gain: -4, ..PartEq::FLAT };
+        for p in 0..4u8 {
+            m.send(PartsCmd::SetPartEq { part: p, eq: mine });
+        }
+        m.send(OtsCmd::RecallOts { index: 0 });
+        let voiced = |i: usize| m.state.ots.settings[0].parts[i].program.is_some();
+        assert_eq!(m.state.keyboard_parts[0].eq, mock_ots_eq(0, 0).unwrap());
+        for i in 1..4 {
+            assert_eq!(m.state.keyboard_parts[i].eq, if voiced(i) { PartEq::FLAT } else { mine }, "part {i}");
+        }
+    }
 
     fn bar_ms(m: &MockSession) -> f64 {
         60000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64

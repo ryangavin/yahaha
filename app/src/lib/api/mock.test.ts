@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MockSession, noteName, transposeChord } from './mock'
+import { MockSession, mockOtsEq, noteName, transposeChord } from './mock'
+import { FLAT_EQ } from './types'
 
 /** Milliseconds per bar at the mock's current tempo. */
 const bar = (m: MockSession) => (60000 / m.state.transport.tempo) * m.state.transport.beatsPerBar
@@ -81,6 +82,17 @@ describe('mock session', () => {
     const styles = (m as unknown as { styles: { id: number; ots: number; sections: string[]; error?: string }[] }).styles
     return styles.find((s) => s.id !== m.state.style.id && s.ots > 0 && !s.error && s.sections.includes('Fill In BA') && s.sections.includes('Ending A') && s.sections.includes('Main A'))!
   }
+
+  it('an OTS recall sets the part EQ as the engine does (#247)', () => {
+    const m = new MockSession({ manual: true })
+    const mine = { ...FLAT_EQ, lowGain: -4 }
+    for (let p = 0; p < 4; p++) m.send({ type: 'setPartEq', part: p, eq: mine })
+    m.send({ type: 'recallOts', index: 0 })
+    expect(m.state.keyboardParts[0].eq).toEqual(mockOtsEq(0, 0))
+    m.state.ots.settings[0].parts.slice(1).forEach((o, j) => {
+      expect(m.state.keyboardParts[j + 1].eq).toEqual(o.program !== null ? FLAT_EQ : mine)
+    })
+  })
 
   it('a queued style recalls its OTS as it takes over in a Main', () => {
     const m = new MockSession({ manual: true })
