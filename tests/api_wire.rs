@@ -124,6 +124,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setSectionTempo","on":false}"#,
     // One Touch Settings and styles
     r#"{"type":"recallOts","index":3}"#,
+    r#"{"type":"setOtsRack","index":1,"id":"3f2a9c1e"}"#,
+    r#"{"type":"clearOtsRack","index":1}"#,
     r#"{"type":"setOtsLink","on":true}"#,
     r#"{"type":"toggleOtsLink"}"#,
     r#"{"type":"setOtsLinkTiming","timing":"mainChange"}"#,

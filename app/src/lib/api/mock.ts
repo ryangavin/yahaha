@@ -20,6 +20,7 @@ import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from '.
 import { mockHome } from './mock-home'
 import { MockQuickRacks, type QuickCtx } from './mock-quick-racks'
 import { MockRacks } from './mock-racks'
+import { MockStyleRacks } from './mock-style-racks'
 import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
@@ -246,7 +247,7 @@ export function initialState(): AppState {
       partSolo: null,
     },
     pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: PAD_PAGES.length, pads: [], connected: true, paletteLeds: false },
-    ots: { settings: otsSettings(s.ots), applied: 0, link: false, linkTiming: 'mainChange' },
+    ots: { settings: otsSettings(s.ots), applied: 0, link: false, linkTiming: 'mainChange', racks: [], racksReadOnly: false },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
       outputPort: 'yahaha',
@@ -447,6 +448,8 @@ export class MockSession implements Session {
   private racks = new MockRacks()
   /** Quick Racks (mock-quick-racks.ts). */
   private quick = new MockQuickRacks()
+  /** Style racks: OTS buttons that load a user rack, per style (mock-style-racks.ts). */
+  private styleRacks = new MockStyleRacks()
   /** A rack was just loaded or saved: the next publish takes what plays as unmodified. */
   private rackClean = false
   /** Multi Pads (mock-multipad.ts). */
@@ -606,6 +609,7 @@ export class MockSession implements Session {
     }
     this.state.version++
     this.state.quickRacks = this.quick.state(this.state)
+    this.state.ots.racks = this.styleRacks.racks(this.state)
     this.looper.publish()
     this.state.home = mockHome(this.state)
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
@@ -1094,7 +1098,18 @@ export class MockSession implements Session {
     this.sound.partVoice(part)
   }
 
-  private recallOts(n: number) {
+  /** Recall OTS `n`. `unattended` (OTS Link): a style rack switches without the guard
+   * (the session keeps a Recovered rack; the mock just switches). */
+  private recallOts(n: number, unattended = true) {
+    const rack = this.styleRacks.rackFor(this.state, n)
+    if (rack !== null) {
+      // The OTS loads the user's rack chosen for it (docs/racks.md "Styles and OTS").
+      if (!this.rackCmd({ type: 'loadRack', id: rack, ...(unattended ? { discard: true } : {}) })) return
+      this.state.transport.acmp = true
+      this.state.ots.applied = n + 1
+      if (!this.state.transport.running) this.state.transport.syncStart = true
+      return
+    }
     // An OTS recall turns [ACMP] on.
     this.state.transport.acmp = true
     const panel = this.state.mixer.faderPage === 'panel'
@@ -1156,7 +1171,8 @@ export class MockSession implements Session {
     const set = st.styleChange.sectionSet
     if (!t.running && set !== null) t.main = [0, 1, 2, 3].map((d) => [set - d, set + d]).flat().find((j) => j >= 0 && j < 4 && s.sections.includes(MAINS[j])) ?? set
     t.beatsPerBar = beatsPerBar(st.style.timeSignature)
-    st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link, linkTiming: st.ots.linkTiming }
+    st.ots = { settings: otsSettings(s.ots), applied: 0, link: st.ots.link, linkTiming: st.ots.linkTiming, racks: [], racksReadOnly: false }
+    st.ots.racks = this.styleRacks.racks(st)
     this.otsDue = false
     if (st.ots.link && t.main < s.ots) {
       // Taking over while the band plays: the new style's OTS comes with a Main (#111).
@@ -1190,6 +1206,7 @@ export class MockSession implements Session {
     })
     this.state.racks = this.racks.entries()
     this.quick.afterRack(cmd, ok, this.quickCtx())
+    this.styleRacks.afterRack(cmd, ok)
     return ok
   }
 
@@ -1204,6 +1221,10 @@ export class MockSession implements Session {
     }
     if (this.quick.handles(cmd)) {
       this.quick.cmd(cmd, this.quickCtx())
+      return
+    }
+    if (this.styleRacks.handles(cmd)) {
+      this.styleRacks.cmd(cmd, { state: this.state, message: (text, error) => this.message(text, error) })
       return
     }
     const st = this.state
@@ -1583,7 +1604,7 @@ export class MockSession implements Session {
         st.mixer.masterWaiting = false
         break
       case 'recallOts':
-        if (cmd.index < st.ots.settings.length) this.recallOts(cmd.index)
+        if (cmd.index < st.ots.settings.length) this.recallOts(cmd.index, false)
         break
       case 'setOtsLink':
       case 'toggleOtsLink':

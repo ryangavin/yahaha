@@ -138,10 +138,11 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **OTS 1** | A sound setup for your own hands that the style's author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. Dark if the style has none. | ONE TOUCH SETTING 1 | `Shift+1` | Pad page 3 (OTS/Parts), top row, pad 1 |
-| **OTS 2** | The style's second suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 2 | `Shift+2` | Pad page 3 (OTS/Parts), top row, pad 2 |
-| **OTS 3** | The style's third suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 3 | `Shift+3` | Pad page 3 (OTS/Parts), top row, pad 3 |
-| **OTS 4** | The style's fourth suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. | ONE TOUCH SETTING 4 | `Shift+4` | Pad page 3 (OTS/Parts), top row, pad 4 |
+| **OTS 1** | A sound setup for your own hands that the style's author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds (or loads the rack of yours chosen for it), and the band doesn't change. Dark if the style has none. | ONE TOUCH SETTING 1 | `Shift+1` | Pad page 3 (OTS/Parts), top row, pad 1 |
+| **OTS 2** | The style's second suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. If you chose one of your racks for it (OTS rack), that rack loads instead. | ONE TOUCH SETTING 2 | `Shift+2` | Pad page 3 (OTS/Parts), top row, pad 2 |
+| **OTS 3** | The style's third suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. If you chose one of your racks for it (OTS rack), that rack loads instead. | ONE TOUCH SETTING 3 | `Shift+3` | Pad page 3 (OTS/Parts), top row, pad 3 |
+| **OTS 4** | The style's fourth suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn't change. If you chose one of your racks for it (OTS rack), that rack loads instead. | ONE TOUCH SETTING 4 | `Shift+4` | Pad page 3 (OTS/Parts), top row, pad 4 |
+| **OTS rack** | What this OTS button loads while this style is loaded: the style's own setup, or one of your racks instead. The choice is kept for this style in your data folder (the style file isn't touched), and pad page 3, the pedals and OTS Link follow it. Style's own puts it back. | — | — | — |
 | **OTS Link** | When on, your hands' sounds follow the band: pressing Main A, B, C or D also recalls OTS 1, 2, 3 or 4. Changing style recalls the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
 | **OTS Link timing** | When OTS Link swaps the setting while the band plays: when the band reaches the Main you pressed (At Main Section Change, the default), or as soon as you press it (Immediate). Change it in Settings, Style. | OTS Link Timing | — | — |
 
@@ -258,8 +259,9 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Rack** | One of your racks: click to see its details below, double-click to load it (with unsaved changes it asks first, in the Rack panel). Its label, such as A1, is the Quick Rack button in the bank on view that holds it. | Registration Memory | — | — |
 | **Rack name** | Type a new name and press Enter to rename the rack; Esc puts the old one back. Quick Rack buttons keep it under its new name. | — | — | — |
 | **Load** | Loads this rack: all four parts, the split and Harmony/Arp. With unsaved changes it asks first, in the Rack panel. | — | — | — |
+| **Load OTS** | Recalls this OTS button, as pad page 3 does: the rack of yours chosen for it, or the style's own setup. Loading a rack asks first if the live rack has unsaved changes. | ONE TOUCH SETTING 1–4 | — | — |
 | **Duplicate** | Copies this rack as a new rack of yours named “… copy”, and selects the copy. | — | — | — |
-| **Delete…** | Deletes this rack after you confirm, emptying the Quick Rack buttons that hold it. The loaded rack can’t be deleted: load another first. | — | — | — |
+| **Delete…** | Deletes this rack after you confirm, emptying the Quick Rack buttons that hold it and giving any OTS button that loaded it back to its style. The loaded rack can’t be deleted: load another first. | — | — | — |
 | **Delete** | Deletes the rack for good and empties the Quick Rack buttons named above. | — | — | — |
 | **Cancel** | Keeps the rack. | — | — | — |
 

@@ -93,6 +93,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setOtsLink':
     case 'toggleOtsLink': return 'ots.link'
     case 'setOtsLinkTiming': return 'settings.ots_link_timing'
+    case 'setOtsRack':
+    case 'clearOtsRack': return 'ots.rack'
     case 'setTempoChange':
     case 'toggleStyleTempoLock':
     case 'toggleStyleTempoHold': return 'settings.tempo_change'

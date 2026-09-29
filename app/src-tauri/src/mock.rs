@@ -15,6 +15,8 @@ mod quick;
 mod racks;
 #[path = "mock_sound.rs"]
 mod sound;
+#[path = "mock_style_racks.rs"]
+mod style_racks;
 #[path = "mock_sounds.rs"]
 mod sounds;
 
@@ -190,6 +192,8 @@ pub struct MockSession {
     unison_held: bool,
     /// Quick Racks (mock_quick.rs).
     quick: quick::MockQuick,
+    /// Style racks: OTS buttons that load a user rack, per style (mock_style_racks.rs).
+    style_racks: style_racks::MockStyleRacks,
     /// The Chord Looper, as the engine runs it (mock_looper.rs).
     looper: MockLooper,
     /// Multi Pads (mock_multipad.rs).
@@ -343,7 +347,7 @@ impl MockSession {
                 part_solo: None,
             },
             pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: Page::ALL.len() as u8, pads: vec![], connected: true, palette_leds: false },
-            ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::MainChange },
+            ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::MainChange, racks: vec![], racks_read_only: false },
             library: LibraryStatus {
                 revision: 1,
                 count: library.entries.len(),
@@ -447,6 +451,7 @@ impl MockSession {
             fade_left: 0.0,
             unison_held: false,
             quick: Default::default(),
+            style_racks: Default::default(),
             looper: MockLooper::default(),
             pads: multipad::MockPads::default(),
             controllers: Controllers::new(),
@@ -1074,7 +1079,17 @@ impl MockSession {
         self.sound.part_voice(part);
     }
 
+    /// OTS Link recalls OTS `n`: a style rack switches without the guard.
     fn recall_ots(&mut self, n: usize) {
+        self.recall_ots_as(n, true)
+    }
+
+    /// Recall OTS `n`, or load the rack of the user's chosen for it (mock_style_racks.rs):
+    /// `unattended` switches without the guard (the session keeps a Recovered rack).
+    fn recall_ots_as(&mut self, n: usize, unattended: bool) {
+        if let Some(id) = self.style_rack_for(n) {
+            return self.recall_style_rack(n, id, unattended);
+        }
         // An OTS recall turns [ACMP] on.
         self.state.transport.acmp = true;
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
@@ -1288,6 +1303,7 @@ impl MockSession {
         st.home = crate::mock_home::home(st);
         st.pads.pads = pads_for(st, st.pads.page);
         self.quick.fill(st, &self.racks.entries());
+        self.style_racks.fill(st, &self.racks.entries());
         self.anchor_clocks();
         self.state.surface = self.surface();
     }
@@ -1942,9 +1958,11 @@ impl MockSession {
             }
             AppCmd::Ots(OtsCmd::RecallOts { index }) => {
                 if (index as usize) < self.state.ots.settings.len() {
-                    self.recall_ots(index as usize);
+                    self.recall_ots_as(index as usize, false);
                 }
             }
+            AppCmd::Ots(OtsCmd::SetOtsRack { index, id }) => self.set_ots_rack(index, Some(id)),
+            AppCmd::Ots(OtsCmd::ClearOtsRack { index }) => self.set_ots_rack(index, None),
             AppCmd::Ots(OtsCmd::SetOtsLink { on }) => self.state.ots.link = on,
             AppCmd::Ots(OtsCmd::ToggleOtsLink) => self.state.ots.link = !self.state.ots.link,
             AppCmd::Ots(OtsCmd::SetOtsLinkTiming { timing }) => self.state.ots.link_timing = timing,
@@ -2102,6 +2120,7 @@ impl MockSession {
             AppCmd::Rack(c) => {
                 self.rack_cmd(c.clone());
                 self.quick_after_rack_cmd(&c);
+                self.style_racks_after_rack_cmd(&c);
             }
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
@@ -2822,6 +2841,29 @@ mod tests {
         let copy = m.state.racks[0].id.clone();
         m.send(RackCmd::DeleteRack { id: copy });
         assert_eq!(m.state.racks.len(), 1);
+    }
+
+    /// Style racks (docs/racks.md "Styles and OTS"): an OTS button loads a rack of the
+    /// user's for this style; "Style's own" and deleting the rack put it back.
+    #[test]
+    fn style_racks_load_a_rack_for_an_ots() {
+        let mut m = MockSession::new();
+        assert!(m.state.ots.settings.len() >= 2);
+        assert_eq!(m.state.ots.racks, vec![OtsRack::default(); m.state.ots.settings.len().min(4)]);
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        let id = m.state.live_rack.id.clone().unwrap();
+        m.send(RackCmd::NewRack { discard: false });
+        m.send(OtsCmd::SetOtsRack { index: 1, id: id.clone() });
+        assert_eq!(m.state.ots.racks[1], OtsRack { rack: Some(id.clone()), name: "Ballad".into(), missing: false });
+        m.send(OtsCmd::RecallOts { index: 1 });
+        assert_eq!((m.state.live_rack.id.as_deref(), m.state.ots.applied, m.state.keyboard_parts[0].volume), (Some(id.as_str()), 2, 30));
+        m.send(OtsCmd::ClearOtsRack { index: 1 });
+        assert_eq!(m.state.ots.racks[1], OtsRack::default());
+        m.send(OtsCmd::SetOtsRack { index: 1, id: id.clone() });
+        m.send(RackCmd::NewRack { discard: true });
+        m.send(RackCmd::DeleteRack { id });
+        assert_eq!(m.state.ots.racks[1], OtsRack::default(), "deleting the rack gives OTS 2 back to the style");
     }
 
     /// New and missing plugins (docs/racks.md): a new plugin stops being new once opened or

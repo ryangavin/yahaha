@@ -18,6 +18,7 @@
 
 pub mod quick;
 mod settings;
+pub mod style_racks;
 #[cfg(test)]
 mod tests;
 
