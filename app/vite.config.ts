@@ -12,5 +12,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
+    // Test files in one worker share their compiled modules (App.svelte and its tree are
+    // compiled once per worker, not once per file): 8 App-mounting files on 2 workers took
+    // 4.6 s instead of 6.9 s. A test must not rely on module state left by another file.
+    isolate: false,
   },
 })

@@ -1,10 +1,14 @@
 # The checks in AGENTS.md, run directly. CI on the pull request is the final check before merge.
 # The jobs run in parallel:
 # - api-doc: docs/app-api.md against the code. Every PR.
-# - linux-rust: the Rust checks and tests without plugins.
+# - linux-rust: the Rust checks and tests without plugins, slow tests included.
 # - linux-app: the app shell's (app/src-tauri) no-plugins compile check.
-# - macos-rust: the Rust tests with plugins.
+# - macos-rust: the Rust tests with plugins, slow tests included.
 # - macos-app: the app shell's tests, with plugins.
+#
+# The slow tests (`#[cfg(feature = "slow-tests")]`) are left out of the local core suite
+# (AGENTS.md) and run only here. The app shell is a member of the root workspace (one
+# Cargo.lock, one target directory); cargo at the root builds only the engine.
 # - web: the web app's `npm ci` and `npm run verify`, on Linux (it has nothing macOS-only).
 # - linux and macos: the checks the branch rulesets require. linux passes when linux-rust and
 #   linux-app passed or were skipped; macos when macos-rust, macos-app and web did.
@@ -199,7 +203,6 @@ jobs:
           shared-key: linux-app
           cache-on-failure: true
           save-if: false
-          workspaces: app/src-tauri -> target
 
       - name: cargo check --all-targets (app/src-tauri)
         working-directory: app/src-tauri
@@ -238,11 +241,12 @@ jobs:
           shared-key: macos-app
           cache-on-failure: true
           save-if: false
-          workspaces: app/src-tauri -> target
 
-      - name: cargo test (app/src-tauri)
+      # test-quick, as the engine's tests: locally the app's tests then reuse the engine's
+      # dependency builds in the workspace's one target directory.
+      - name: cargo test --profile test-quick (app/src-tauri)
         working-directory: app/src-tauri
-        run: cargo test
+        run: cargo test --profile test-quick
 
   web:
     needs: changes

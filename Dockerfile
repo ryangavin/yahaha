@@ -42,5 +42,6 @@ RUN cd app && npm ci
 
 COPY . .
 
-# The Linux checks from AGENTS.md, in order, stopping at the first failure.
-CMD ["bash", "-ec", "cargo check --no-default-features --lib; cargo test --profile test-quick; (cd app/src-tauri && cargo test); (cd app && npm run verify)"]
+# What CI's merge queue runs on Linux (AGENTS.md), in order, stopping at the first failure,
+# slow tests included; plus the app shell's tests.
+CMD ["bash", "-ec", "cargo check --no-default-features --lib; cargo test --profile test-quick --features slow-tests; (cd app/src-tauri && cargo test --profile test-quick); (cd app && npm run verify)"]

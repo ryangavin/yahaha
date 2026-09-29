@@ -146,6 +146,13 @@ impl Session {
         self.settle();
     }
 
+    /// Offline only: wait for a rescan (`RescanLibrary`) to finish, the style folders' and
+    /// the Multi Pad banks' (each runs on a thread), and merge it.
+    pub fn finish_rescan(&self) {
+        self.inner.lock().finish_rescan();
+        self.settle();
+    }
+
     /// Offline only: show this engine snapshot, as if the engine had sent it (the
     /// `yahaha screen` layout check).
     pub fn show_snapshot(&self, snap: Snapshot) {

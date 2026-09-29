@@ -105,9 +105,9 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: cargo check --no-default-features --lib
 
-      - name: cargo test --profile test-quick --no-run
+      - name: cargo test --profile test-quick --features slow-tests --no-run
         if: steps.cache.outputs.cache-hit != 'true'
-        run: cargo test --profile test-quick --no-run
+        run: cargo test --profile test-quick --features slow-tests --no-run
 
   linux-app:
     if: >-
@@ -129,7 +129,6 @@ jobs:
         with:
           shared-key: linux-app
           cache-on-failure: true
-          workspaces: app/src-tauri -> target
 
       - name: System packages (same as the Dockerfile)
         if: steps.cache.outputs.cache-hit != 'true'
@@ -172,9 +171,9 @@ jobs:
           shared-key: macos-rust
           cache-on-failure: true
 
-      - name: cargo test --profile test-quick --features plugins --no-run
+      - name: cargo test --profile test-quick --features plugins,slow-tests --no-run
         if: steps.cache.outputs.cache-hit != 'true'
-        run: cargo test --profile test-quick --features plugins --no-run
+        run: cargo test --profile test-quick --features plugins,slow-tests --no-run
 
   macos-app:
     if: >-
@@ -196,12 +195,11 @@ jobs:
         with:
           shared-key: macos-app
           cache-on-failure: true
-          workspaces: app/src-tauri -> target
 
-      - name: cargo test --no-run (app/src-tauri)
+      - name: cargo test --profile test-quick --no-run (app/src-tauri)
         if: steps.cache.outputs.cache-hit != 'true'
         working-directory: app/src-tauri
-        run: cargo test --no-run
+        run: cargo test --profile test-quick --no-run
 
   # setup-node's npm cache (~/.npm) is keyed on the OS, the architecture and
   # app/package-lock.json, as in ci.yml's web job. setup-node saves it only on a miss.
