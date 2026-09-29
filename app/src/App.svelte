@@ -15,7 +15,8 @@
   └──────────────────────────────────────────────────────────────────────────┘
   Each drawer opens from a small button on the stage by what it details (lib/ui/DrawerButton):
   Rack, Library, Mixer on the fader head; Multi Pads by the pad-page tabs; Charts by
-  the lead-sheet lane; Harmony/Arp and Chord Looper on the keyboard strip's cheek; the style
+  the lead-sheet lane; Harmony/Arp and Chord Looper on the keyboard strip's cheek; Effects
+  from the quick nav and the Mixer; the style
   name on the display opens the browser (as touching it does on the Genos).
   Library (panels/library, `ui.view`): a page in place of the stage, from the header's
   Stage | Library switch (Alt+B); drawers open over it too.
@@ -49,6 +50,7 @@
   import LeadSheet from './panels/leadsheet/LeadSheet.svelte'
   import Harmony from './panels/harmony/Harmony.svelte'
   import Mixer from './panels/mixer/Mixer.svelte'
+  import Effects from './panels/effects/Effects.svelte'
   import Looper from './panels/looper/Looper.svelte'
   import MultiPad from './panels/multipad/MultiPad.svelte'
   import RackPanel from './panels/rack/RackPanel.svelte'
@@ -115,6 +117,7 @@
 
 {#if ui.rack}<RackPanel />{/if}
 {#if ui.mixer}<Mixer />{/if}
+{#if ui.effects}<Effects />{/if}
 {#if ui.looper}<Looper />{/if}
 {#if ui.multipad}<MultiPad />{/if}
 {#if ui.settings}<Settings />{/if}
