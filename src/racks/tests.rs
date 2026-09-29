@@ -135,9 +135,23 @@ fn the_default_controller_map_is_the_parts_page() {
     // A map saved before it could be edited (none on knobs 5-8) reads as today's default;
     // any other is kept as saved.
     let mut v = serde_json::to_value(&m).unwrap();
+    assert_eq!(v["version"], json!(1), "a map is written with its version");
     for k in 4..8 {
         v["knobs"][k] = json!({ "kind": "none" });
     }
+    // Written by this build (marked): set that way on purpose, so kept, through a rack
+    // file's save and load too.
+    let edited: ControlMap = serde_json::from_value(v.clone()).unwrap();
+    assert_eq!(edited.knobs[4..], [ControlTarget::None, ControlTarget::None, ControlTarget::None, ControlTarget::None]);
+    let dir = temp_dir("map-none");
+    let path = path_for(&dir, "Edited");
+    let mut r = sample();
+    r.controls = edited.clone();
+    r.save(&path).unwrap();
+    assert_eq!(Rack::load(&path).unwrap().controls, edited, "an edited map survives save and load");
+    let _ = std::fs::remove_dir_all(&dir);
+    // Unmarked (an older build's): migrated.
+    v.as_object_mut().unwrap().remove("version");
     assert_eq!(serde_json::from_value::<ControlMap>(v.clone()).unwrap(), m, "the first default reads as today's");
     v["knobs"][6] = json!({ "kind": "tempo" });
     assert_eq!(serde_json::from_value::<ControlMap>(v).unwrap().knobs[4..], [ControlTarget::None, ControlTarget::None, ControlTarget::Tempo, ControlTarget::None]);

@@ -2295,6 +2295,7 @@
     "id": null,
     "modified": false,
     "controls": {
+      "version": 1,
       "faders": [
         {
           "kind": "partLevel",

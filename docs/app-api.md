@@ -1214,14 +1214,16 @@ plugin states included. `{ name, id, modified, controls, prompt }`.
   keyboard transpose, Harmony/Arp, the controller map, or a plugin edit (`soundEdited`).
   It shows at once (a Launchkey fader within the control thread's next 10 ms). Loading or
   saving a rack clears it (the rack commands, docs/racks.md).
-- `controls`: its controller map, `{ faders, knobs }`: four and eight targets for
+- `controls`: its controller map, `{ version, faders, knobs }`: `version` is 1 (written
+  with every map; the app ignores it), then four and eight targets for
   Launchkey faders 1–4 and knobs 1–8 on the Rack knob page. A target is `{ "kind": "none" }`,
   `partLevel`, `partPan`, `partReverb` or `partChorus` with `part` 0–3, `harmonyArp`,
   `splitPoint`, `harmonyVolume`, `metronomeVolume` or `tempo` (knobs only); a target a
   newer build wrote is passed through as it is. A new rack has the four parts' levels on
   faders 1–4 and knobs 1–4, then Harmony volume, Metronome volume, none and Tempo on
-  knobs 5–8 (the Parts knob page before racks). A rack saved before the map could be edited,
-  with none on knobs 5–8, reads as that. The Rack panel edits it (`setRackControl`).
+  knobs 5–8 (the Parts knob page before racks). A map saved before the map could be edited
+  (no `version`), with none on knobs 5–8, reads as that; a map with a `version` is kept
+  as saved. The Rack panel edits it (`setRackControl`).
 - `prompt`: a rack command waiting for the player's answer, or null. It is set when a
   command is refused for it, and cleared by `dismissRackPrompt` or once a rack is loaded
   or saved.
@@ -1960,6 +1962,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   "liveRack": {
     "name": "Restored", "id": null, "modified": true,
     "controls": {
+      "version": 1,
       "faders": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }],
       "knobs": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }, { "kind": "harmonyVolume" }, { "kind": "metronomeVolume" }, { "kind": "none" }, { "kind": "tempo" }]
     },

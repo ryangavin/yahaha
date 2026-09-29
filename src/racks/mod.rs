@@ -166,7 +166,7 @@ impl ControlTarget {
 
 /// The rack's controller map: faders 1-4 and knobs 1-8.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(from = "SavedMap")]
+#[serde(from = "SavedMap", into = "MapOut")]
 pub struct ControlMap {
     pub faders: [ControlTarget; 4],
     pub knobs: [ControlTarget; 8],
@@ -226,6 +226,9 @@ impl ControlMap {
 /// A controller map as a file has it.
 #[derive(Deserialize)]
 struct SavedMap {
+    /// [`MAP_VERSION`] when this build (or a newer one) wrote it; missing (0) before.
+    #[serde(default)]
+    version: u32,
     #[serde(deserialize_with = "targets")]
     faders: [ControlTarget; 4],
     #[serde(deserialize_with = "targets")]
@@ -237,9 +240,29 @@ impl From<SavedMap> for ControlMap {
     /// nothing only because Harmony volume, the metronome and the tempo were no targets
     /// yet: it reads as today's default, so the Rack page keeps doing what the Parts page
     /// did.
+    /// Only an unmarked map (written before the map had a version) is migrated: a marked
+    /// one with none on knobs 5-8 was set that way on purpose.
     fn from(s: SavedMap) -> ControlMap {
         let m = ControlMap { faders: s.faders, knobs: s.knobs };
-        if m == ControlMap::first_default() { ControlMap::default() } else { m }
+        if s.version == 0 && m == ControlMap::first_default() { ControlMap::default() } else { m }
+    }
+}
+
+/// The controller map's version, written with every map so a later load knows it needs
+/// no migration.
+const MAP_VERSION: u32 = 1;
+
+/// A controller map as it's written.
+#[derive(Serialize)]
+struct MapOut {
+    version: u32,
+    faders: [ControlTarget; 4],
+    knobs: [ControlTarget; 8],
+}
+
+impl From<ControlMap> for MapOut {
+    fn from(m: ControlMap) -> MapOut {
+        MapOut { version: MAP_VERSION, faders: m.faders, knobs: m.knobs }
     }
 }
 
