@@ -3,22 +3,19 @@
 
 use crate::api::{ChordCmd, LockItem, OtsCmd, ParamLockCmd, ParamLockState, PlaylistCmd, RegistrationCmd};
 use crate::fingering::Fingering;
+use crate::session::testing;
 use crate::session::{Options, Session};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const MS: u64 = 1_000_000;
 
-fn session(test: &str) -> Option<(Session, PathBuf)> {
-    let style = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !style.exists() {
-        eprintln!("corpus missing; skipping");
-        return None;
-    }
+fn session(test: &str) -> (Session, PathBuf) {
+    let style = testing::style_path();
     let dir = std::env::temp_dir().join(format!("yahaha-plock-{test}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let s = Session::offline(Options { paths: vec![style], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
     s.finish_indexing();
-    Some((s, dir))
+    (s, dir)
 }
 
 /// Split, fingering, Upper, and an item outside every lock group (Keyboard transpose).
@@ -41,7 +38,7 @@ fn set_panel(s: &Session, split: u8, fingering: Fingering, upper: bool, transpos
 
 #[test]
 fn locked_groups_survive_registration_ots_and_playlist_recalls() {
-    let Some((s, dir)) = session("recalls") else { return };
+    let (s, dir) = session("recalls");
     // Button 1 stores split 60, Fingered, Upper, transpose +2; it goes in a playlist.
     set_panel(&s, 60, Fingering::Fingered, true, 2);
     s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
@@ -90,7 +87,7 @@ fn locked_groups_survive_registration_ots_and_playlist_recalls() {
 
 #[test]
 fn locks_are_a_setup_setting_not_part_of_a_bank() {
-    let Some((s, dir)) = session("setup") else { return };
+    let (s, dir) = session("setup");
     lock(&s, LockItem::FingeringType, true);
     s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
     s.send(RegistrationCmd::SaveRegistBank { name: Some("A".into()), overwrite: false }).unwrap();
@@ -101,7 +98,7 @@ fn locks_are_a_setup_setting_not_part_of_a_bank() {
     assert!(s.state().param_locks.fingering_type);
     drop(s);
     // So does the next session (the Genos's Setup/Backup), with Sequence On/Off beside it.
-    let style = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+    let style = testing::style_path();
     let s = Session::offline(Options { paths: vec![style], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
     assert_eq!(s.state().param_locks, ParamLockState { split_point: false, fingering_type: true });
     s.send(RegistrationCmd::SetRegistSequenceOn { on: true }).unwrap();

@@ -63,6 +63,8 @@ mod sounds;
 mod style_settings;
 mod surface;
 mod system;
+#[cfg(test)]
+pub(crate) mod testing;
 mod transport;
 
 pub use chart::chart_song;

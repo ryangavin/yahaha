@@ -1,21 +1,12 @@
 //! Plugin parts through an offline session, with Apple's DLSMusicDevice (every Mac has
 //! it) and the real audio callback (`Session::offline_audio` / `render`).
 
+use super::super::testing::{self, session};
 use super::super::{Options, Port, Session};
 use crate::api::{PluginCmd, PluginStatus, PartsCmd};
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 const DLS: &str = "aumu dls  appl";
-
-fn session() -> Option<Session> {
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !p.exists() {
-        eprintln!("corpus missing; skipping");
-        return None;
-    }
-    Some(Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap())
-}
 
 fn energy(l: &[f32], r: &[f32]) -> f64 {
     l.iter().chain(r).map(|x| (*x as f64).powi(2)).sum()
@@ -39,7 +30,7 @@ fn wait_scanned(s: &Session) {
 /// in, an unknown id is refused at once from it.
 #[test]
 fn a_plugin_is_looked_up_off_the_control_thread() {
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     assert!(s.inner.lock().plugins.list.is_empty(), "no scan yet");
     s.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu nope nope".into(), state: None }).unwrap();
@@ -78,7 +69,7 @@ fn wait_playing(s: &Session, part: usize) -> PluginStatus {
 
 #[test]
 fn plugins_need_the_synth() {
-    let Some(s) = session() else { return };
+    let s = session();
     assert!(!s.state().plugins.available);
     assert!(s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).is_err());
     assert!(s.state().keyboard_parts[0].plugin.is_none());
@@ -89,7 +80,7 @@ fn plugins_need_the_synth() {
 /// clearing it gives the part back to the (here absent) SoundFont.
 #[test]
 fn a_keyboard_part_plays_an_audio_unit() {
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     // Checks for silence below: no reverb tail.
     s.fx_returns_off();
@@ -145,8 +136,8 @@ fn a_keyboard_part_plays_an_audio_unit() {
 /// only the plugin plays the notes after that (the SoundFont no longer gets note-ons).
 #[test]
 fn the_soundfont_voice_hands_over_to_the_plugin() {
-    let Some(s) = session() else { return };
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+    let s = session();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
     let Some(sf2) = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)) else {
         eprintln!("no SoundFont; skipping");
         return;
@@ -188,7 +179,7 @@ fn wait_saved(s: &Session, part: usize) -> (String, Option<String>) {
 /// no longer plays is not saved as the new one's.
 #[test]
 fn a_plugin_state_is_read_off_the_control_thread() {
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
@@ -225,7 +216,7 @@ fn saved_id(s: &Session, part: usize) -> Option<String> {
 /// (saved, retryable); only `clearPartPlugin` forgets it (#105 review B2, nonblocking 1).
 #[test]
 fn a_failed_load_never_loses_the_parts_plugin() {
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
@@ -260,7 +251,7 @@ fn a_failed_load_never_loses_the_parts_plugin() {
 /// A restore of a plugin that isn't installed shows its id as the name, not a blank.
 #[test]
 fn a_missing_plugin_is_named_by_its_id() {
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     let mut saved = super::Saved::default();
     saved.parts[2] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: None, preset: None, sound: None });
@@ -276,7 +267,7 @@ fn a_missing_plugin_is_named_by_its_id() {
 /// (#105 review B2, B3).
 #[test]
 fn a_restore_keeps_a_missing_plugin_and_never_falls_back_in_process() {
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     let mut saved = super::Saved::default();
     saved.parts[0] = Some(super::PluginVoice { id: "aumu Nope Gone".into(), state: Some(vec![1, 2, 3]), preset: None, sound: None });
@@ -322,7 +313,7 @@ fn play(s: &Session, ms: usize) -> Vec<f32> {
 #[test]
 fn harmony_and_arpeggio_notes_reach_the_parts_plugin() {
     use crate::api::HarmonyArpCmd;
-    let Some(s) = session() else { return };
+    let s = session();
     s.finish_indexing();
     s.offline_audio(None, 48_000).unwrap();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
@@ -368,7 +359,7 @@ fn harmony_and_arpeggio_notes_reach_the_parts_plugin() {
 #[test]
 fn section_setups_never_reach_a_keyboard_parts_plugin() {
     use crate::api::TransportCmd;
-    let Some(s) = session() else { return };
+    let s = session();
     s.finish_indexing();
     s.offline_audio(None, 48_000).unwrap();
     // The plugin's own sound only: the effect bus's chorus (Right 1's default send, #204)
@@ -412,7 +403,7 @@ fn section_setups_never_reach_a_keyboard_parts_plugin() {
 fn a_plugin_patch_plays_on_a_keyboard_part() {
     use crate::api::{PatchFields, SoundLibraryCmd};
     use crate::patches::{PatchDefaults, PatchSource};
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     // A state to store in the patch: DLS's own, read back from a part.
     s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: None }).unwrap();
@@ -472,7 +463,7 @@ fn a_plugin_patch_plays_on_a_keyboard_part() {
 fn saving_a_part_saves_its_plugin_and_its_state_now() {
     use crate::api::SoundLibraryCmd;
     use crate::patches::PatchSource;
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
@@ -515,7 +506,7 @@ fn saving_a_part_saves_its_plugin_and_its_state_now() {
 fn a_plugin_patch_auditions_on_channel_16() {
     use crate::api::{PatchFields, SoundLibraryCmd, TransportCmd};
     use crate::patches::{PatchDefaults, PatchSource};
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     let fields = PatchFields {
         name: "DLS Keys".into(),
@@ -610,7 +601,7 @@ fn the_in_process_override_picks_the_load_mode() {
 /// `setPluginInProcess` shows in the plugin list; an unknown id is an error.
 #[test]
 fn set_plugin_in_process_shows_in_the_list() {
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     assert!(s.send(PluginCmd::SetPluginInProcess { id: "aumu nope nope".into(), in_process: true }).is_err());
     // An offline session has no plugin list until a scan runs.
@@ -636,7 +627,7 @@ fn set_plugin_in_process_shows_in_the_list() {
 #[test]
 fn the_in_process_override_refills_the_warm_pool() {
     use crate::session::PluginVoice;
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     wait_scanned(&s);
     let info = || s.inner.lock().plugins.list.iter().find(|p| p.id.to_string() == DLS).cloned().unwrap();
@@ -669,7 +660,7 @@ fn the_in_process_override_refills_the_warm_pool() {
 #[test]
 fn reload_part_plugin_retries_a_failed_plugin() {
     use crate::api::PartsCmd;
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     let fault = |s: &Session| s.inner.lock().selected_plugin_fault();
     assert!(s.send(PluginCmd::ReloadPartPlugin { part: None }).is_err(), "Right 1 plays its SoundFont");
@@ -700,11 +691,7 @@ fn reload_part_plugin_retries_a_failed_plugin() {
 #[test]
 fn a_soundfont_sound_from_the_browser_ends_a_picked_plugin() {
     use crate::api::{SoundLibraryCmd, SoundsCmd};
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !p.exists() {
-        eprintln!("corpus missing; skipping");
-        return;
-    }
+    let p = testing::style_path();
     let data = std::env::temp_dir().join(format!("yahaha-browser-plugin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
     let sf = data.join("sf");
@@ -751,7 +738,7 @@ fn a_soundfont_sound_from_the_browser_ends_a_picked_plugin() {
 #[test]
 fn a_gm_voice_selection_ends_a_picked_plugin() {
     use crate::api::OtsCmd;
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     wait_scanned(&s);
     let pick = |part: usize| {
@@ -789,7 +776,7 @@ fn a_gm_voice_selection_ends_a_picked_plugin() {
 #[test]
 fn a_plugin_part_feeds_the_effect_bus() {
     let tail = |returns: bool| {
-        let s = session()?;
+        let s = session();
         s.offline_audio(None, 48_000).unwrap();
         if !returns {
             s.fx_returns_off();
@@ -803,9 +790,9 @@ fn a_plugin_part_feeds_the_effect_bus() {
         s.midi_in(Port::Keys, &[0x80, 72, 0]);
         s.render(24_000);
         let (l, r) = s.render(24_000);
-        Some(energy(&l, &r))
+        energy(&l, &r)
     };
-    let (Some(wet), Some(dry)) = (tail(true), tail(false)) else { return };
+    let (wet, dry) = (tail(true), tail(false));
     assert!(wet > dry * 4.0 + 1e-6, "the reverb rings on: {wet} vs {dry}");
 }
 
@@ -819,11 +806,7 @@ fn a_plugin_part_feeds_the_effect_bus() {
 fn a_plugin_preset_is_a_sound_of_its_own() {
     use crate::api::{PatchCategory, SoundsCmd};
     use crate::plugin::{presets, LoadConfig, PluginHost, PluginId};
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !p.exists() {
-        eprintln!("corpus missing; skipping");
-        return;
-    }
+    let p = testing::style_path();
     let data = std::env::temp_dir().join(format!("yahaha-au-presets-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
     let root = data.join("Presets");
@@ -905,7 +888,7 @@ fn wait_reads(s: &Session) {
 fn a_part_shows_its_sound_and_when_it_was_edited() {
     use crate::api::SoundLibraryCmd;
     use crate::patches::PatchSource;
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
@@ -960,7 +943,7 @@ fn a_plugin_sound_exports_as_an_aupreset() {
     use crate::api::{base64_encode, SoundLibraryCmd};
     use crate::patches::{Category, Patch, PatchSource};
     use crate::plugin::{presets, PluginFormat, PluginId, PluginInfo};
-    let Some(s) = session() else { return };
+    let s = session();
     let dir = std::env::temp_dir().join(format!("yahaha-sound-aupreset-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();

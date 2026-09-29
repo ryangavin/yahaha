@@ -38,14 +38,10 @@ fn folder(tag: &str) -> PathBuf {
     data
 }
 
-fn offline(data: &Path) -> Option<Session> {
-    let style = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !style.exists() {
-        eprintln!("corpus missing; skipping");
-        return None;
-    }
+fn offline(data: &Path) -> Session {
+    let style = crate::session::testing::style_path();
     let opts = Options { paths: vec![style], data_dir: Some(data.to_path_buf()), sound_font_dir: Some(data.join("sf")), ..Options::default() };
-    Some(Session::offline(opts).unwrap())
+    Session::offline(opts).unwrap()
 }
 
 fn ids(s: &Session) -> Vec<String> {
@@ -55,7 +51,7 @@ fn ids(s: &Session) -> Vec<String> {
 #[test]
 fn the_catalog_lists_every_preset_and_saved_sound() {
     let data = folder("list");
-    let Some(s) = offline(&data) else { return };
+    let s = offline(&data);
     let st: Arc<AppState> = s.state();
     assert_eq!(st.sounds.count, 4);
     let cat = s.sound_catalog();
@@ -79,7 +75,7 @@ fn the_catalog_lists_every_preset_and_saved_sound() {
 #[test]
 fn assigning_a_sound_picks_the_route_its_source_has() {
     let data = folder("assign");
-    let Some(s) = offline(&data) else { return };
+    let s = offline(&data);
     // The main font's preset: the part's GM voice.
     s.send(SoundsCmd::AssignSound { part: 1, id: "sf:A.sf2:0:33".into() }).unwrap();
     let st = s.state();
@@ -109,7 +105,7 @@ fn assigning_a_sound_picks_the_route_its_source_has() {
 #[test]
 fn the_instruments_tab_gets_font_summaries_and_adds_to_my_sounds() {
     let data = folder("instruments");
-    let Some(s) = offline(&data) else { return };
+    let s = offline(&data);
     let cat = s.sound_catalog();
     let f: Vec<_> = cat.fonts.iter().map(|f| (f.file.as_str(), f.presets, f.kits, f.gm_programs, f.gm_kit)).collect();
     assert_eq!(f, [("A.sf2", 2, 1, 2, true), ("B.sf2", 1, 0, 1, false)]);
@@ -130,7 +126,7 @@ fn the_instruments_tab_gets_font_summaries_and_adds_to_my_sounds() {
 #[test]
 fn favourites_and_recents_are_saved() {
     let data = folder("saved");
-    let Some(s) = offline(&data) else { return };
+    let s = offline(&data);
     let rev = s.state().sounds.revision;
     s.send(SoundsCmd::SetSoundFavourite { id: "sf:A.sf2:0:0".into(), on: true }).unwrap();
     assert!(s.state().sounds.revision > rev);
@@ -138,7 +134,7 @@ fn favourites_and_recents_are_saved() {
     s.send(SoundsCmd::AssignSound { part: 0, id: "sf:A.sf2:0:0".into() }).unwrap();
     assert!(s.send(SoundsCmd::SetSoundCategory { id: "sf:A.sf2:0:0".into(), category: Category::Organ }).is_err());
     drop(s);
-    let s = offline(&data).unwrap();
+    let s = offline(&data);
     let cat = s.sound_catalog();
     let piano = cat.entries.iter().find(|e| e.id == "sf:A.sf2:0:0").unwrap();
     assert!(piano.favourite && piano.recent);
@@ -156,7 +152,7 @@ fn favourites_and_recents_are_saved() {
 #[test]
 fn a_preset_auditions_and_an_unknown_plugin_is_refused() {
     let data = folder("audition");
-    let Some(s) = offline(&data) else { return };
+    let s = offline(&data);
     s.send(SoundsCmd::AuditionSound { id: "sf:B.sf2:0:88".into() }).unwrap();
     assert_eq!(s.state().sounds.auditioning.as_deref(), Some("sf:B.sf2:0:88"));
     s.send(SoundsCmd::StopSoundAudition).unwrap();
@@ -168,7 +164,7 @@ fn a_preset_auditions_and_an_unknown_plugin_is_refused() {
 #[test]
 fn program_map_rules_take_catalog_ids() {
     let data = folder("rules");
-    let Some(s) = offline(&data) else { return };
+    let s = offline(&data);
     // A preset of another font: added to the library once, and the rules name it.
     s.send(SoundLibraryCmd::SetFamilyRule { family: 11, patch: Some("sf:B.sf2:0:88".into()), style: false }).unwrap();
     s.send(SoundLibraryCmd::SetProgramOverride { program: 89, patch: Some("sf:B.sf2:0:88".into()), style: true }).unwrap();
