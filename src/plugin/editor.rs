@@ -23,20 +23,24 @@
 
 use anyhow::{Result, anyhow};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Sel};
+use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSEventMask, NSView,
-    NSViewController, NSWindow, NSWindowStyleMask,
+    NSViewController, NSWindow, NSWindowStyleMask, NSWindowWillCloseNotification,
 };
 use objc2_audio_toolbox::{kAudioUnitProperty_CocoaUI, kAudioUnitProperty_RequestViewController};
 use objc2_core_audio_kit::AUGenericView;
-use objc2_foundation::{NSBundle, NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSRunLoop, NSSize, NSString, NSURL};
+use objc2_foundation::{
+    NSBundle, NSDate, NSDefaultRunLoopMode, NSNotification, NSNotificationCenter, NSPoint, NSRect, NSRunLoop, NSSize,
+    NSString, NSURL,
+};
 use std::ffi::c_void;
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::instance::EditorTarget;
+use super::instance::{EditorTarget, EditorWatch};
 use super::sys::AudioUnit;
 
 /// Which kind of view the editor shows.
@@ -58,6 +62,11 @@ pub struct Editor {
     _target: EditorTarget,
     kind: EditorKind,
     size: (f64, f64),
+    /// Counts this window as open on the unit ([`EditorTarget::editor_open`]) until it
+    /// closes, by the user's close button (`closed`) or by dropping the editor.
+    watch: Arc<EditorWatch>,
+    /// The `NSWindowWillCloseNotification` observer that releases `watch`.
+    closed: Retained<ProtocolObject<dyn NSObjectProtocol>>,
 }
 
 impl Editor {
@@ -91,6 +100,10 @@ impl Editor {
 
 impl Drop for Editor {
     fn drop(&mut self) {
+        // SAFETY: `closed` is the token `addObserverForName:…` returned.
+        let observer: &AnyObject = (*self.closed).as_ref();
+        unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer) };
+        self.watch.release();
         self.window.close();
     }
 }
@@ -130,7 +143,17 @@ fn open_editor_inner(mtm: MainThreadMarker, target: &EditorTarget) -> Result<Edi
     }
     window.center();
     window.makeKeyAndOrderFront(None);
-    Ok(Editor { window, _controller: controller, _target: target.clone(), kind, size: (size.width, size.height) })
+    // Open until the user closes it (or the editor drops): while it is, the Session reads
+    // the plugin's state now and then to show an edit made here as "edited".
+    let watch = Arc::new(target.watch());
+    let w = watch.clone();
+    let block = block2::RcBlock::new(move |_: NonNull<NSNotification>| w.release());
+    // SAFETY: the object is our window; no queue (the posting thread, here the main one);
+    // the block only touches atomics. Removed in `Drop`.
+    let closed = unsafe {
+        NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(Some(NSWindowWillCloseNotification), Some(&window), None, &block)
+    };
+    Ok(Editor { window, _controller: controller, _target: target.clone(), kind, size: (size.width, size.height), watch, closed })
 }
 
 /// Close an editor (for symmetry with [`open_editor`]; dropping it does the same).

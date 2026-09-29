@@ -952,6 +952,70 @@ fn a_part_shows_its_sound_and_when_it_was_edited() {
     assert_eq!(p1.plugin.map(|p| p.status), Some(PluginStatus::Playing));
 }
 
+/// docs/racks.md, "Saving": with the part's plugin window open, a knob turned there shows
+/// as "edited" within about a second (not at the 30-second autosave, which an offline
+/// session never runs), and turning it back clears it. With the window closed, nothing
+/// reads the state.
+#[test]
+fn an_edit_in_the_open_plugin_window_shows_at_once_and_undoing_it_clears_it() {
+    use crate::api::SoundLibraryCmd;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    wait_reads(&s);
+    assert!(s.state().keyboard_parts[0].sound.is_some() && !s.state().keyboard_parts[0].sound_edited);
+    let ch = crate::parts::CHANNEL[0] as usize;
+    let editor = s.inner.lock().plugins.channels[ch].as_ref().unwrap().editor.clone().unwrap();
+    // DLSMusicDevice's tuning (kMusicDeviceParam_Tuning, global), in cents.
+    let tune = |cents: f32| editor.set_parameter(0, 0, 0, cents).unwrap();
+    // Pump (half a second of session time a step) until `done`, for at most 5 s of wall time.
+    let until = |s: &Session, what: &str, done: &dyn Fn(&Session) -> bool| {
+        let t0 = Instant::now();
+        while !done(s) {
+            assert!(t0.elapsed() < Duration::from_secs(5), "{what}");
+            s.advance(250_000_000);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+
+    // Window closed: an edit isn't seen until something reads the state.
+    tune(30.0);
+    for _ in 0..8 {
+        s.advance(250_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!s.state().keyboard_parts[0].sound_edited, "no reads while the window is closed");
+    assert!(s.inner.lock().plugins.probes.is_empty());
+    tune(0.0);
+
+    // The window opens: its first read is the baseline if none was taken yet.
+    let window = editor.watch();
+    assert!(editor.editor_open());
+    until(&s, "the open window's reads start", &|s| s.inner.lock().plugins.channels[ch].as_ref().unwrap().sound_fp.is_some());
+    s.advance(1_000_000_000);
+    std::thread::sleep(Duration::from_millis(20));
+    s.advance(1_000_000_000);
+    assert!(!s.state().keyboard_parts[0].sound_edited, "nothing changed yet");
+
+    tune(30.0);
+    until(&s, "the edit shows while the window is open", &|s| s.state().keyboard_parts[0].sound_edited);
+    tune(0.0);
+    until(&s, "undoing the edit clears it", &|s| !s.state().keyboard_parts[0].sound_edited);
+
+    // Closed again: no more reads.
+    window.release();
+    assert!(!editor.editor_open());
+    until(&s, "the last read lands", &|s| s.inner.lock().plugins.probes.is_empty());
+    tune(30.0);
+    for _ in 0..8 {
+        s.advance(250_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(s.inner.lock().plugins.probes.is_empty() && !s.state().keyboard_parts[0].sound_edited);
+}
+
 /// D5/O7: a plugin sound in the library exports as an `.aupreset` in its plugin's preset
 /// folder (where Logic reads it), with #307's overwrite rule. The plugin is the made-up
 /// "Sampler Deluxe" from a mock scan cache; no real plugin state is used.
