@@ -119,7 +119,7 @@
           {/each}
         </div>
       {:else if tab === 'racks'}
-        <span class="hint engraved">loads the whole rack</span>
+        <span class="hint engraved">a rack is all four parts, the split and Harmony/Arp</span>
       {:else}
         <span class="hint engraved">what styles play for each GM voice</span>
       {/if}

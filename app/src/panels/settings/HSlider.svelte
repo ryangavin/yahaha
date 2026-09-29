@@ -134,17 +134,21 @@
     background: var(--engrave);
     opacity: 0.7;
   }
+  /* The rail is the whole track and clips: the carrier is as wide as the slot and moves by
+     its own width, so unclipped it would stick out past the track and widen whatever
+     scrolls around the slider (the docked Rack panel). The cap stays inside the track. */
   .rail {
     position: absolute;
-    left: 0.7rem;
-    right: 0.7rem;
-    top: 0;
-    bottom: 0;
+    inset: 0;
+    overflow: hidden;
     pointer-events: none;
   }
   .carrier {
     position: absolute;
-    inset: 0;
+    top: 0;
+    bottom: 0;
+    left: 0.7rem;
+    right: 0.7rem;
     will-change: transform;
   }
   .cap {

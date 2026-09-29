@@ -9,8 +9,9 @@
 // yet, are reached through Instruments › Browse (the instrument filter), which lists all of
 // that instrument's presets.
 
+import { quickLabel } from '../../lib/api/quick-racks'
 import { CATEGORY_LABELS } from '../../lib/api/sound-library'
-import type { KeyboardPart, PatchCategory, SoundCatalog, SoundEntry } from '../../lib/api/types'
+import type { KeyboardPart, PatchCategory, QuickRacksState, RackEntry, SoundCatalog, SoundEntry } from '../../lib/api/types'
 import { allSoundIds, instrumentOf, instruments, patchesById, playingId, type SoundContext } from '../sounds/model'
 
 /** A row's badge: what kind of sound it is. */
@@ -82,6 +83,22 @@ export function libraryCategories(catalog: SoundCatalog, f: SoundFilter, ctx: So
 
 /** Short part names, as the rack writes them. */
 export const PART_SHORT = ['R1', 'R2', 'R3', 'L'] as const
+
+/** Racks: the racks whose name or part sounds hold every word of `query`. */
+export function searchRacks(racks: RackEntry[], query: string): RackEntry[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return racks
+  return racks.filter((r) => {
+    const hay = `${r.name} ${r.parts.filter((_, i) => r.on[i]).join(' ')}`.toLowerCase()
+    return words.every((w) => hay.includes(w))
+  })
+}
+
+/** The Quick Rack buttons of the bank on view holding rack `id` (["A1", "A3"]); Quick
+ * Racks state only carries the bank on view. */
+export function quickButtonsOf(q: QuickRacksState, id: string): string[] {
+  return q.buttons.flatMap((b, i) => (b.rack === id ? [quickLabel(q.bank, i)] : []))
+}
 
 /** The sound each keyboard part plays now (its catalog id), by part. */
 export function playingByPart(parts: KeyboardPart[], ctx: SoundContext): (string | null)[] {
