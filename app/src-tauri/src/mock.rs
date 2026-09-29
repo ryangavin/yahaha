@@ -1314,6 +1314,7 @@ impl MockSession {
         let st = &self.state;
         let page = st.pads.page;
         let styles = self.library.entries.len() > 1;
+        let quick_racks = st.quick_racks.buttons.iter().any(|b| b.rack.is_some());
         let fader_page = st.mixer.fader_page;
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
@@ -1335,6 +1336,7 @@ impl MockSession {
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 Control::Act(Action::Style(_)) if !styles => None,
+                Control::Act(Action::QuickRackStep(_)) if !quick_racks => None,
                 Control::Act(a) => Some(a.into()),
             }
         };
@@ -3249,9 +3251,11 @@ mod tests {
         assert_eq!((m.state.quick_racks.bank, m.state.quick_racks.buttons[1].rack.clone()), (1, None));
         m.send(QuickRackCmd::ToggleQuickRackStore);
         assert!(m.state.pads.pads.iter().take(8).all(|p| p.anim == Anim::Flash));
+        let track = |m: &MockSession| m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().shift_action.clone();
+        assert_eq!(track(&m), None, "Shift + Track is dark on a bank with no rack");
+        m.send(QuickRackCmd::StepQuickRackBank { delta: -1 });
         let tl = m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().clone();
         assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("RACK ▶", Some(AppCmd::QuickRacks(QuickRackCmd::StepQuickRack { delta: 1, discard: false }))));
-        m.send(QuickRackCmd::StepQuickRackBank { delta: -1 });
         m.send(QuickRackCmd::ClearQuickRack { bank: 0, slot: 1 });
         assert_eq!(m.state.quick_racks.buttons[1].rack, None);
     }

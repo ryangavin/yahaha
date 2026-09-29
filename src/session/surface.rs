@@ -16,6 +16,7 @@ impl Control {
         let kp = &shared.parts;
         let page = pnl.page;
         let styles = self.published.count() > 1;
+        let quick_racks = self.quick_panel().stored != 0;
         let fader_page = kp.fader_page();
         let style_on = launchkey::style_lit(self.snap.parts, manual_bass_active);
         let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on, pnl.lamps());
@@ -26,6 +27,8 @@ impl Control {
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 C::Act(Action::Style(_)) if !styles => None,
+                // Shift + Track: dark while the Quick Racks bank on view has no rack.
+                C::Act(Action::QuickRackStep(_)) if !quick_racks => None,
                 C::Act(a) => Some(a.into()),
             }
         };

@@ -140,7 +140,9 @@ fn app_state_round_trips_through_json() {
     assert!(st.transport.running);
     let j = serde_json::to_string_pretty(&*st).unwrap();
     let back: AppState = serde_json::from_str(&j).unwrap();
-    assert_eq!(back, *st);
+    // Registration Memory and the Playlist are off the wire (Quick Racks replaced them).
+    let want = AppState { registration: Default::default(), playlist: Default::default(), ..(*st).clone() };
+    assert_eq!(back, want);
     // Every field is there, camelCase.
     for k in ["\"keyboardParts\"", "\"styleParts\"", "\"lamps\"", "\"faderPage\"", "\"syncStopAvailable\"", "\"transposeKeyboard\""] {
         assert!(j.contains(k), "{k}");
