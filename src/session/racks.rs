@@ -45,13 +45,20 @@ impl Session {
 
 impl Control {
     pub(super) fn capture_rack(&self, name: &str) -> Rack {
+        Rack { id: racks::new_id(), name: name.to_string(), ..self.capture_rack_with(true) }
+    }
+
+    /// The rack playing now, with no id or name. Without `states`, no plugin states are
+    /// read or encoded: an edited sound's `edited_state` is an empty string, and a bare
+    /// plugin's is none (the live rack's change check, which runs at every pump).
+    pub(super) fn capture_rack_with(&self, states: bool) -> Rack {
         let sh = &self.shared;
         Rack {
             format: racks::FORMAT.into(),
             version: racks::VERSION,
-            id: racks::new_id(),
-            name: name.to_string(),
-            parts: std::array::from_fn(|p| self.capture_rack_part(p)),
+            id: String::new(),
+            name: String::new(),
+            parts: std::array::from_fn(|p| self.capture_rack_part(p, states)),
             split: sh.split.load(Relaxed),
             harmony_arp: self.harmony_arp_reg(),
             transpose: self.transpose.keyboard,
@@ -60,19 +67,21 @@ impl Control {
         }
     }
 
-    fn capture_rack_part(&self, p: usize) -> RackPart {
+    fn capture_rack_part(&self, p: usize, states: bool) -> RackPart {
         let kp = &self.shared.parts;
         let ch = parts::CHANNEL[p];
         let program = kp.program[p].load(Relaxed) & 127;
+        // An edited sound's state: the plugin's, or (no states) a marker that it is edited.
+        let edit = |edited: bool, state: Option<String>| if states { state.filter(|_| edited) } else { edited.then(String::new) };
         let (sound, edited_state, fallback_program) = if let Some((id, _)) = self.part_patch(p) {
             // Its own library patch; a plugin patch whose plugin was edited keeps the edit.
             let edited = self.channel_sound(ch).is_some_and(|(_, e)| e);
-            let state = self.part_plugin_voice(p).filter(|_| edited).and_then(|(_, s)| s);
-            (SoundRef::Library { id }, state, Some(program))
-        } else if let Some((component, state)) = self.part_plugin_voice(p) {
+            let state = self.part_plugin_voice_with(p, states).and_then(|(_, s)| s);
+            (SoundRef::Library { id }, edit(edited, state), Some(program))
+        } else if let Some((component, state)) = self.part_plugin_voice_with(p, states) {
             let (tag, edited) = self.channel_sound(ch).unwrap_or_default();
             match tag.and_then(|t| SoundId::parse(&t.id)) {
-                Some(SoundId::Library(id)) => (SoundRef::Library { id }, state.filter(|_| edited), Some(program)),
+                Some(SoundId::Library(id)) => (SoundRef::Library { id }, edit(edited, state), Some(program)),
                 _ => (SoundRef::Plugin { component }, state, Some(program)),
             }
         } else {

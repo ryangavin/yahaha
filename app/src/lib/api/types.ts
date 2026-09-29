@@ -1177,6 +1177,18 @@ export interface AppState {
   effects: EffectsState
   /** What the Home screen shows: read-only, derived from the rest. */
   home: HomeState
+  /** The live rack (docs/racks.md): its name, the saved rack it came from, unsaved changes. */
+  liveRack: LiveRackState
+}
+
+/** The live rack: what's under the player's hands now, autosaved and restored on boot. */
+export interface LiveRackState {
+  /** The saved rack's name, "Restored" (the first start after racks came in), or "New rack". */
+  name: string
+  /** The id of the saved rack it came from; null when none. */
+  id: string | null
+  /** Changed since it was loaded or saved: a sound, the mix, the split, Harmony/Arp, the transpose, the controller map, or a plugin edit. */
+  modified: boolean
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────

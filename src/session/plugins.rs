@@ -30,15 +30,14 @@
 //! `plugin::may_retry_in_process`) is retried in process once; never one that timed out or
 //! crashed its host, and never during the start-up restore.
 //!
-//! **Persistence.** A live session keeps the keyboard parts' plugins (id and state) in
-//! `~/Library/Application Support/yahaha/plugin-parts.json` and loads them again at start.
+//! **Persistence.** The keyboard parts' plugins (id and state) are kept in the live rack
+//! (session/live_rack.rs), which autosaves and comes back at start. `plugin-parts.json`,
+//! which kept them before racks, is read once: on the first start without a live rack.
 
 use super::Control;
 use crate::api::{base64_decode, base64_encode, CmdError, PartPlugin, PluginCmd, PluginStatus, PluginsState};
 use crate::parts;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "plugins")]
-use std::path::PathBuf;
 
 /// What a channel plays when it plays a plugin: which one and its preset.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -107,17 +106,13 @@ mod b64opt {
     }
 }
 
-/// The saved keyboard parts' plugins.
+/// The keyboard parts' plugins as `plugin-parts.json` kept them (before racks), and as a
+/// test sets them.
 #[cfg(feature = "plugins")]
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Saved {
     /// By part index (0 = Right 1, 1 = Right 2, 2 = Right 3, 3 = Left).
     pub(crate) parts: [Option<PluginVoice>; parts::COUNT],
-}
-
-#[cfg(feature = "plugins")]
-fn saved_path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/yahaha/plugin-parts.json"))
 }
 
 #[cfg(feature = "plugins")]
@@ -322,8 +317,13 @@ mod imp {
         pub(crate) stats_ns: u64,
         /// The last autosave of the parts' plugin states.
         pub(crate) autosave_ns: u64,
-        /// Save the parts' plugins at the next pump (live sessions only).
+        /// A part's plugin (its choice, status or state) changed: the next pump tells the
+        /// live rack, which autosaves it.
         pub(crate) dirty: bool,
+        /// The start-up restore is loading the parts' plugins: no in-process fallback (a
+        /// plugin that crashed its host process last time must not take yahaha down at
+        /// every start).
+        pub(crate) restoring: bool,
         /// Plugin state reads running on `plugin-state` threads (the autosave and
         /// `savePartPluginState`): an out-of-process plugin's state is an XPC round trip and
         /// a sampler's can be MBs, so the control thread never waits for one.
@@ -407,7 +407,8 @@ mod imp {
         /// once: the pump finishes the job. Err if it can't even start (no synth, an
         /// unknown plugin id).
         pub(crate) fn assign_channel_plugin(&mut self, ch: u8, voice: PluginVoice) -> Result<(), String> {
-            self.assign_channel_plugin_with(ch, voice, true)
+            let fallback = !self.plugins.restoring;
+            self.assign_channel_plugin_with(ch, voice, fallback)
         }
 
         fn assign_channel_plugin_with(&mut self, ch: u8, mut voice: PluginVoice, allow_fallback: bool) -> Result<(), String> {
@@ -1108,9 +1109,9 @@ mod imp {
                     self.read_states(targets, false);
                 }
             }
-            if self.plugins.dirty && self.offline.is_none() {
+            if self.plugins.dirty {
                 self.plugins.dirty = false;
-                self.save_plugin_parts();
+                self.live_rack_touched(now);
             }
         }
 
@@ -1238,7 +1239,8 @@ mod imp {
             self.plugins.dirty |= parts::part_of_channel(ch).is_some();
         }
 
-        /// The parts' plugins as saved (their last saved state).
+        /// The parts' plugins as the live rack keeps them (their last read state): tests.
+        #[cfg(test)]
         pub(crate) fn saved_parts(&self) -> Saved {
             let mut s = Saved::default();
             for p in 0..parts::COUNT {
@@ -1250,30 +1252,26 @@ mod imp {
             s
         }
 
-        fn save_plugin_parts(&self) {
-            write_saved(&self.saved_parts());
+        /// A live session's start: the plugin list.
+        pub(crate) fn start_plugins(&mut self) {
+            if self.plugin_ready().is_ok() {
+                self.start_plugin_scan(false);
+            }
         }
 
-        /// A live session's start: the plugin list, and the parts' saved plugins.
-        pub(crate) fn restore_plugin_parts(&mut self) {
-            if self.plugin_ready().is_err() {
-                return;
-            }
-            self.start_plugin_scan(false);
-            let Some(path) = saved_path() else { return };
-            let Ok(bytes) = std::fs::read(&path) else { return };
-            let saved = match serde_json::from_slice::<Saved>(&bytes) {
-                Ok(s) => s,
+        /// The first start without a live rack: the parts' plugins from `plugin-parts.json`
+        /// (before racks), loaded. A file that can't be read is moved aside (`.bak`) for
+        /// the user, as before. The file itself is left in place.
+        pub(crate) fn restore_plugin_parts_file(&mut self, path: &std::path::Path) {
+            let Ok(bytes) = std::fs::read(path) else { return };
+            match serde_json::from_slice::<Saved>(&bytes) {
+                Ok(saved) => self.restore_saved(saved),
                 Err(e) => {
-                    // Keep the file for the user (it may be recoverable) rather than
-                    // overwriting it with nothing on the next save.
                     let bak = path.with_extension("json.bak");
-                    let _ = std::fs::rename(&path, &bak);
+                    let _ = std::fs::rename(path, &bak);
                     self.say(format!("the saved plugin parts could not be read ({e}); moved to {}", bak.display()), true);
-                    return;
                 }
-            };
-            self.restore_saved(saved);
+            }
         }
 
         /// Load the saved parts' plugins (the start-up restore).
@@ -1292,13 +1290,13 @@ mod imp {
             }
         }
 
-        /// Stopping: read the playing plugins' states and save them (with a deadline: a
-        /// plugin that hangs reading its state does not hold up quitting).
-        pub(crate) fn save_plugin_states_on_stop(&mut self) {
+        /// Stopping: read the playing plugins' states into the parts' voices, for the live
+        /// rack's last save (with a deadline: a plugin that hangs reading its state does not
+        /// hold up quitting).
+        pub(crate) fn read_plugin_states_on_stop(&mut self) {
             if self.offline.is_some() {
                 return;
             }
-            let mut saved = self.saved_parts();
             let targets: Vec<(usize, EditorTarget)> = (0..parts::COUNT)
                 .filter_map(|p| {
                     let c = self.plugins.channels[parts::CHANNEL[p] as usize].as_ref()?;
@@ -1316,26 +1314,10 @@ mod imp {
                 });
                 let deadline = std::time::Instant::now() + Duration::from_secs(2);
                 while let Ok((p, s)) = rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
-                    if let Some(v) = saved.parts[p].as_mut() {
-                        v.state = Some(s);
+                    if let Some(c) = self.plugins.channels[parts::CHANNEL[p] as usize].as_mut() {
+                        c.voice.state = Some(s);
                     }
                 }
-            }
-            write_saved(&saved);
-        }
-    }
-
-    /// Write the saved parts atomically (a temporary file, then a rename), so a crash mid
-    /// write never leaves a truncated file.
-    fn write_saved(s: &Saved) {
-        let Some(path) = saved_path() else { return };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Ok(json) = serde_json::to_string_pretty(s) {
-            let tmp = path.with_extension("json.tmp");
-            if std::fs::write(&tmp, json).is_ok() {
-                let _ = std::fs::rename(&tmp, &path);
             }
         }
     }
@@ -1375,8 +1357,8 @@ impl Control {
         Err("this build has no plugin host".into())
     }
     pub(crate) fn pump_plugins(&mut self, _now: u64) {}
-    pub(crate) fn restore_plugin_parts(&mut self) {}
-    pub(crate) fn save_plugin_states_on_stop(&mut self) {}
+    pub(crate) fn start_plugins(&mut self) {}
+    pub(crate) fn read_plugin_states_on_stop(&mut self) {}
     pub(crate) fn save_channel_state(&mut self, _ch: u8) -> Result<(), String> {
         Err("this build has no plugin host".into())
     }
@@ -1516,14 +1498,20 @@ impl Control {
     /// and the base64 state), for a client that stores voices itself.
     #[allow(dead_code)]
     pub(crate) fn part_plugin_voice(&self, part: usize) -> Option<(String, Option<String>)> {
+        self.part_plugin_voice_with(part, true)
+    }
+
+    /// As [`Control::part_plugin_voice`]; without `state`, no state (it isn't encoded: the
+    /// live rack's change check).
+    pub(crate) fn part_plugin_voice_with(&self, part: usize, state: bool) -> Option<(String, Option<String>)> {
         #[cfg(feature = "plugins")]
         {
             let c = self.plugins.channels[parts::CHANNEL[part & 3] as usize].as_ref()?;
-            Some((c.voice.id.clone(), c.voice.state.as_deref().map(base64_encode)))
+            Some((c.voice.id.clone(), c.voice.state.as_deref().filter(|_| state).map(base64_encode)))
         }
         #[cfg(not(feature = "plugins"))]
         {
-            let _ = (part, base64_encode as fn(&[u8]) -> String);
+            let _ = (part, state, base64_encode as fn(&[u8]) -> String);
             None
         }
     }

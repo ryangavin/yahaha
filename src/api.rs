@@ -37,6 +37,7 @@ mod plugins;
 mod parts;
 mod playlist;
 mod preview;
+mod racks;
 mod registration;
 mod settings;
 mod style_change;
@@ -68,6 +69,7 @@ pub use plugins::*;
 pub use parts::*;
 pub use playlist::*;
 pub use preview::*;
+pub use racks::*;
 pub use registration::*;
 pub use settings::*;
 pub use style_change::*;
@@ -392,6 +394,10 @@ pub struct AppState {
     /// What the Home screen shows (read-only, derived from the rest).
     #[serde(default)]
     pub home: HomeState,
+    /// The live rack (docs/racks.md): its name, the saved rack it came from, and whether
+    /// it has unsaved changes.
+    #[serde(default)]
+    pub live_rack: LiveRackState,
 }
 
 // ---------------------------------------------------------------------------

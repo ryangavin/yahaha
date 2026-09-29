@@ -425,7 +425,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if no_synth {
         sf2 = None;
     }
-    let opts = yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, sound_font_dir, palette_leds, audio_out, audio_buffer, fingering, upper, manual_bass, transpose, chord_settle_ms, data_dir };
+    let opts = yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, sound_font_dir, palette_leds, audio_out, audio_buffer, fingering, upper, manual_bass, transpose, chord_settle_ms, data_dir, live_rack: None };
     if top { ui::play_top(opts, startup) } else { ui::play(opts, startup) }
 }
 

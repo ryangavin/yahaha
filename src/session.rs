@@ -41,6 +41,7 @@ mod keyboard;
 mod knobs;
 mod leds;
 mod library;
+mod live_rack;
 mod looper;
 mod looper_banks;
 mod metronome;
@@ -69,6 +70,7 @@ mod transport;
 
 pub use chart::chart_song;
 pub use library::library_entry;
+pub use live_rack::default_live_rack_path;
 pub use plugins::{PluginVoice, VoicePreset};
 pub use preview::AUDITION_CHORDS;
 pub use settings::choose_keys;
@@ -136,6 +138,10 @@ pub struct Options {
     /// the sound library (`sound-library.json`) are saved. None: they can't be saved (tests, `state-json`). `default_data_dir()` is
     /// the usual one.
     pub data_dir: Option<PathBuf>,
+    /// The live rack's file (session/live_rack.rs): it autosaves there and comes back from
+    /// there at start. None: a live session uses `default_live_rack_path()`; an offline
+    /// session keeps none.
+    pub live_rack: Option<PathBuf>,
 }
 
 /// The usual data folder: `~/Documents/yahaha` (banks and playlists are the user's files,
@@ -163,6 +169,7 @@ impl Default for Options {
             transpose: Transpose::default(),
             chord_settle_ms: crate::engine::CHORD_SETTLE_DEFAULT_MS,
             data_dir: None,
+            live_rack: None,
         }
     }
 }
@@ -337,6 +344,8 @@ struct Control {
     /// The loaded rack's controller map (session/racks.rs): what a rack applied sets and a
     /// capture reads. The Rack knob page will play it.
     rack_controls: crate::racks::ControlMap,
+    /// The live rack: its name, where it came from, modified, its autosave.
+    live_rack: live_rack::LiveRack,
     /// The sound catalog (#117).
     sounds: sounds::Sounds,
 }
@@ -481,6 +490,7 @@ impl Control {
         self.pump_multipad();
         self.pump_plugins(now);
         self.pump_sound_library(now);
+        self.pump_live_rack(now);
     }
 
     /// The state: each feature builds its part, in `AppState`'s order.
@@ -529,6 +539,7 @@ impl Control {
             knobs: self.knobs_state(),
             effects: self.effects_state(),
             home: Default::default(),
+            live_rack: self.live_rack_state(),
         };
         st.home = self.home_state(&st);
         st
@@ -728,6 +739,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         display: Default::default(),
         sound_settings: gm_auto::settings_file(opts.data_dir.as_deref()),
         rack_controls: Default::default(),
+        live_rack: Default::default(),
     };
     let mut control = control;
     control.list_sound_fonts();
@@ -801,7 +813,8 @@ impl Session {
             std::thread::Builder::new().name("yahaha-engine".into()).spawn(move || live::run_engine(engine, io, sh))?;
         p.control.shared.parts.set_bass_program(synth::style_bass_program(p.control.info.voices[10]));
         p.control.sync_manual_bass();
-        p.control.restore_plugin_parts();
+        p.control.start_plugins();
+        p.control.restore_live_rack(opts.live_rack.clone().or_else(default_live_rack_path));
 
         let inner = Arc::new(Inner::new(shared, p.control));
         let i2 = inner.clone();
@@ -954,7 +967,7 @@ impl Session {
             if let Some(leds) = self.inner.lock().leds.as_mut() {
                 leds.off();
             }
-            self.inner.lock().save_plugin_states_on_stop();
+            self.inner.lock().save_live_rack_on_stop();
             if let Some(s) = live.synth {
                 let _ = s.stop.send(SynthMsg::Stop);
                 let _ = s.thread.join();
@@ -965,6 +978,7 @@ impl Session {
             if let Some(o) = ctl.offline.as_mut() {
                 o.engine.stop();
             }
+            ctl.save_live_rack_on_stop();
         }
         self.inner.notify(&[Event::Stopped]);
     }
