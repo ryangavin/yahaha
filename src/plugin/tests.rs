@@ -562,6 +562,42 @@ fn a_plugin_part_plays_its_eq_velocity_curve_and_mono() {
     assert!(energy(&mono.0, &mono.1) < energy(&plain.0, &plain.1) * 0.7, "not the chord");
 }
 
+/// A part's insert (#269, a keyboard part's slot or a Style part's style insert) plays on
+/// its plugin's output: off it is not run (the output bit-identical), a distortion brightens
+/// the part, and its time counts in the part's CPU. Another channel's insert leaves it be.
+#[test]
+fn a_plugin_part_plays_its_insert() {
+    use crate::fx::{InsertKind, InsertSettings};
+    // `None` never calls `set_insert`: the rack as it was before inserts existed.
+    let play = |ch: u8, kind: Option<InsertKind>| {
+        let (mut rack, mut ctl) = rack(512, RATE);
+        ctl.assign(0, dls(512), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        if let Some(kind) = kind {
+            rack.set_insert(ch, InsertSettings { kind, amount: 110, ..InsertSettings::NONE });
+        }
+        let (mut l, mut r) = block(&mut rack, &[[0x90, 48, 100], [0x90, 55, 100]], 512);
+        let mut ns = 0;
+        for _ in 0..8 {
+            let (a, b) = block(&mut rack, &[], 512);
+            l.extend(a);
+            r.extend(b);
+            ns = ns.max(rack.insert_ns(0));
+        }
+        (l, r, ns)
+    };
+    let plain = play(0, None);
+    let off = play(0, Some(InsertKind::None));
+    assert_eq!(off.2, 0, "not run");
+    assert_eq!(off, plain, "an off insert is bit-identical to no insert");
+    assert_eq!(play(1, Some(InsertKind::Distortion)), plain, "another channel's insert");
+    let dist = play(0, Some(InsertKind::Distortion));
+    assert!(dist.2 > 0, "timed");
+    // The drive reshapes the part: far from the dry sound.
+    let e = |x: &[f32]| x.iter().map(|v| v * v).sum::<f32>();
+    let diff: f32 = dist.0.iter().zip(&plain.0).map(|(a, b)| (a - b).powi(2)).sum();
+    assert!(diff > 0.1 * e(&plain.0), "distorted: {diff} vs {}", e(&plain.0));
+}
+
 /// Only a typed "the system won't host this out of process" status allows an in-process
 /// retry: never a timeout, a crash of the hosting process, a later stage, or an error that
 /// merely mentions the code (#105 review B3).

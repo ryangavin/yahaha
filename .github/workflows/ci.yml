@@ -166,8 +166,8 @@ jobs:
       - name: cargo check --no-default-features --lib
         run: cargo check --no-default-features --lib
 
-      - name: cargo test --profile test-quick
-        run: cargo test --profile test-quick
+      - name: cargo test --profile test-quick --features slow-tests
+        run: cargo test --profile test-quick --features slow-tests
 
   # The app shell's tests run in macos-app (with plugins, as the real app builds). Here we
   # only prove the Linux (no-plugins) variant compiles.
@@ -221,8 +221,8 @@ jobs:
           cache-on-failure: true
           save-if: false
 
-      - name: cargo test --profile test-quick --features plugins
-        run: cargo test --profile test-quick --features plugins
+      - name: cargo test --profile test-quick --features plugins,slow-tests
+        run: cargo test --profile test-quick --features plugins,slow-tests
 
   macos-app:
     needs: changes

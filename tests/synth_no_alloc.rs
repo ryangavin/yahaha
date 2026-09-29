@@ -1,5 +1,5 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, a style's XG drum setup (#239), a part's sound controllers, portamento and mono (#246), the keyboard parts' channel-strip EQ and a plugin part's mono and velocity curve (#247), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
+//! notes and controllers, a style's XG drum setup (#239), a part's sound controllers, portamento and mono (#246), the keyboard parts' channel-strip EQ and a plugin part's mono and velocity curve (#247), a keyboard part's insert slot (SoundFont and plugin), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -12,6 +12,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use yahaha::fx::part_eq::PartEq;
+use yahaha::fx::{InsertEffect, PartInsert};
 use yahaha::parts::Parts;
 use yahaha::synth::{self, AudioCore, Rack, SynthControl};
 
@@ -160,6 +161,23 @@ fn the_audio_callback_does_not_allocate() {
         }
     }
     ctl.fx.insert[4].store(0, Ordering::Relaxed);
+    // The Master Compressor and Master EQ: on, every type, then off (the compressor
+    // gliding back to unity).
+    {
+        use yahaha::fx::master::{CompPreset, EqPreset, MasterComp, MasterEq};
+        for (c, e) in CompPreset::ALL.into_iter().zip(EqPreset::ALL) {
+            ctl.fx.master.set_compressor(&MasterComp::of(true, c));
+            ctl.fx.master.set_eq(&MasterEq { on: true, preset: e, bands: e.bands() });
+            for _ in 0..3 {
+                assert_eq!(run(&mut core, &mut feed, &[]), none, "master compressor and EQ");
+            }
+        }
+        ctl.fx.master.set_compressor(&MasterComp::default());
+        ctl.fx.master.set_eq(&MasterEq::default());
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "master effects off");
+        }
+    }
     assert_eq!(run(&mut core, &mut feed, &[[0x8B, 60, 0], [0x8C, 64, 0]]), none, "inserts off");
     ctl.fx.legacy.store(true, Ordering::Relaxed);
     assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 100]]), none, "the SoundFont's own effects");
@@ -242,6 +260,15 @@ fn the_audio_callback_does_not_allocate() {
     }
     parts.set_eq(0, PartEq { low_gain: 5, ..PartEq::FLAT });
     assert_eq!(run(&mut core, &mut feed, &[[0x80, 60, 0], [0x81, 48, 0]]), none, "part EQ, notes off");
+    // A keyboard part's insert slot: on, its effect changed (a fade), off.
+    assert_eq!(run(&mut core, &mut feed, &[[0x90, 60, 100]]), none, "a note for the insert");
+    for (effect, on) in [(InsertEffect::Distortion, true), (InsertEffect::Rotary, true), (InsertEffect::Compressor, false)] {
+        parts.set_insert(0, PartInsert { effect, on, amount: 100 });
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "insert slot");
+        }
+    }
+    assert_eq!(run(&mut core, &mut feed, &[[0x80, 60, 0]]), none, "insert slot, note off");
     ctl.master.store(90, Ordering::Relaxed);
     parts.set_program(0, 5);
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 1, 30], [0xE0, 0, 80]]), none, "master, program, controllers");
@@ -303,6 +330,12 @@ fn the_audio_callback_does_not_allocate() {
         }
         assert_eq!(run(&mut core, &mut feed, &[xg(0x05, 1), [0x80, 60, 0], [0x80, 67, 0], [0xB0, 64, 0]]), none, "plugin: poly again");
         parts.set_eq(0, PartEq::FLAT);
+        // Its insert slot on the plugin's output.
+        parts.set_insert(0, PartInsert { effect: InsertEffect::Tremolo, on: true, amount: 90 });
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[[0x90, 62, 90], [0x80, 62, 0]]), none, "plugin: insert");
+        }
+        parts.set_insert(0, PartInsert::OFF);
         link.assign(0, b, Swap::default()).ok().unwrap();
         for _ in 0..6 {
             assert_eq!(run(&mut core, &mut feed, &[[0xB0, 7, 90]]), none, "crossfade to a second instance");

@@ -7,6 +7,9 @@
 //! back into the mix at its return level (Genos: 0-127, 64 = 0 dB, 127 = +6 dB), before
 //! the master fader's clipper.
 //!
+//! After the returns, the Master Compressor and Master EQ ([`master`]) run on the whole
+//! mix, before the clipper; off (the default), they aren't run.
+//!
 //! The SoundFont synthesizers' own reverb and chorus are off: the bus replaces them
 //! (`SynthesizerSettings::enable_reverb_and_chorus`), so a send is not heard twice. For a
 //! before/after comparison (`YAHAHA_FX=legacy yahaha render ...`), a rack built with them on
@@ -32,8 +35,9 @@
 //!
 //! Insertion effects (#269, [`insert`]): a style's XG Insertion Effect on one of its parts
 //! (a distortion or amp simulator, a compressor, a wah, a tremolo, a rotary speaker) runs
-//! on that part's own stem, before its sends and the mix ([`BandInserts`], run by
-//! `synth::Rack::render`).
+//! on that part's own stem, before its sends and the mix ([`ChannelInserts`], run by
+//! `synth::Rack::render`). Each keyboard part has an insert slot of its own
+//! ([`PartInsert`]); a part played by a plugin gets its insert in the plugin rack.
 //!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
@@ -45,6 +49,7 @@ mod chorus;
 mod delay;
 pub mod insert;
 mod line;
+pub mod master;
 mod params;
 pub mod part_eq;
 mod reverb;
@@ -52,7 +57,7 @@ pub mod xg;
 
 pub use chorus::{Chorus, ChorusType};
 pub use delay::{Delay, DelayType, NOTES};
-pub use insert::{BandInserts, Insert, InsertKind, InsertSettings};
+pub use insert::{ChannelInserts, Insert, InsertEffect, InsertKind, InsertSettings, PartInsert};
 pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 
@@ -152,6 +157,9 @@ pub struct FxControl {
     pub tempo: AtomicU32,
     /// The SoundFont's own reverb and chorus instead of the bus (the sound before #204).
     pub legacy: AtomicBool,
+    /// The Master Compressor and Master EQ ([`master`]), on the master bus after the
+    /// returns.
+    pub master: master::MasterControl,
 }
 
 impl FxControl {
@@ -172,6 +180,7 @@ impl FxControl {
             rotary_fast: AtomicBool::new(false),
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
+            master: master::MasterControl::new(),
         }
     }
 }

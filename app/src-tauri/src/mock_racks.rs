@@ -30,6 +30,7 @@ struct RackPartMix {
     chorus: u8,
     variation: u8,
     eq: PartEq,
+    insert: PartInsert,
 }
 
 #[derive(Default)]
@@ -183,11 +184,12 @@ impl MockSession {
                 chorus: 0,
                 variation: 0,
                 eq: PartEq::FLAT,
+                insert: PartInsert::OFF,
             });
             self.cmd(SoundLibraryCmd::SetPartPatch { part: p as u8, id: mix.patch.clone() }.into());
             let k = &mut self.state.keyboard_parts[p];
-            (k.on, k.program, k.volume, k.octave, k.pan, k.reverb, k.chorus, k.variation, k.eq) =
-                (mix.on, mix.program, mix.volume, mix.octave, mix.pan, mix.reverb, mix.chorus, mix.variation, mix.eq);
+            (k.on, k.program, k.volume, k.octave, k.pan, k.reverb, k.chorus, k.variation, k.eq, k.insert) =
+                (mix.on, mix.program, mix.volume, mix.octave, mix.pan, mix.reverb, mix.chorus, mix.variation, mix.eq, mix.insert);
         }
         self.state.chord.split = rack.as_ref().map_or(54, |r| r.split);
         self.state.chord.transpose_keyboard = rack.as_ref().map_or(0, |r| r.transpose);
@@ -282,6 +284,7 @@ impl MockSession {
                     chorus: k.chorus,
                     variation: k.variation,
                     eq: k.eq,
+                    insert: k.insert,
                 })
                 .collect(),
             names: s.keyboard_parts.iter().map(|k| k.sound.as_ref().map_or_else(|| k.voice_name.clone(), |t| t.name.clone())).collect(),

@@ -175,6 +175,9 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
 | `setPartSend` | `part`, `send`: `reverb` \| `chorus` \| `variation`, `value` 0–127 | The part's reverb (CC91), chorus (CC93) or variation (CC94: the tempo delay) send depth to the effect bus (#204). |
 | `setPartEq` | `part`, `eq`: `{ lowGain, lowFreq, highGain, highFreq }` | The part's channel-strip EQ (#247): a low shelf and a high shelf, as the Genos Mixer's Part EQ. Gains in dB, −12..12; `lowFreq` 32–2000 Hz, `highFreq` 500–16000 Hz; out-of-range values are clamped. yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), before its level, pan, meters and sends. It is a tone control, not a level: a band at 0 dB is out of the signal, so a flat EQ leaves the part bit-identical. Saved with the rack (a rack without it plays flat). An OTS recall sets it from the OTS's XG part EQ (see `eq` under Keyboard parts). Example: `{"type":"setPartEq","part":0,"eq":{"lowGain":3,"lowFreq":80,"highGain":-2,"highFreq":10000}}`. |
+| `setKeyboardInsertEffect` | `part`, `effect`: `distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary` | The effect in the part's insert slot (Genos Mixer > Effect: Insertion Effect Type). yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), after its EQ and before its level, pan, meters and sends; the effect sees the part at full volume. It does not turn the slot on. Saved with the rack. Example: `{"type":"setKeyboardInsertEffect","part":0,"effect":"rotary"}`. |
+| `setKeyboardInsertOn` | `part`, `on` | The part's insert slot on or off. Off, the part plays bit-identical to no insert at all. `setInsertsOn` (the style's inserts) doesn't touch it. |
+| `setKeyboardInsertAmount` | `part`, `amount` 0–127 | The insert's amount: the distortion's drive, the compressor's squeeze, the wah's sensitivity, the tremolo's and rotary's depth. Out-of-range values are clamped. |
 | `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
@@ -443,6 +446,34 @@ scaled. A change glides in over about 30 ms.
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. |
 | `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). |
+| `setMasterCompressorOn` | `on` | The Master Compressor on or off (default off). Example: `{"type":"setMasterCompressorOn","on":true}`. |
+| `setMasterCompressorPreset` | `preset` `natural` \| `rich` \| `punchy` \| `electronic` \| `loud` | The Master Compressor's type; its Compression, Texture and Output come with it (see below). Example: `{"type":"setMasterCompressorPreset","preset":"punchy"}`. |
+| `setMasterCompressorParam` | `param` `compression` \| `texture` \| `output`, `value` | One Master Compressor parameter, clamped: `compression` 0–100 %, `texture` 0–100 %, `output` −12..12 dB. Example: `{"type":"setMasterCompressorParam","param":"output","value":-3}`. |
+| `setMasterEqOn` | `on` | The Master EQ on or off (default off). Example: `{"type":"setMasterEqOn","on":true}`. |
+| `setMasterEqPreset` | `preset` `flat` \| `mellow` \| `bright` \| `loudness` \| `powerful` | The Master EQ's type: every band comes with it. Example: `{"type":"setMasterEqPreset","preset":"loudness"}`. |
+| `setMasterEqBand` | `band` 0–7, `gain`, `freq`, `q`, `shelf` | One Master EQ band, clamped to its ranges (below). A band other than 0–7 is refused. Example: `{"type":"setMasterEqBand","band":7,"gain":3,"freq":10000,"q":7,"shelf":true}`. |
+
+**Master Compressor and Master EQ** (Genos RM p.130–131, p.136; OM p.106). They run on the
+whole mix, after the effect returns and before the output's safety clipper, compressor
+first; the metronome click doesn't go through them (as on the Genos). They are tone on the
+master, shown with their settings, and may boost (an EQ band, the compressor's Output). Off
+(the default), they aren't run: the output is bit-identical to the mix without them. They
+are a setup setting, saved in `<data>/master-effects.json` (never in a rack) and read at
+start; a missing or unreadable file, or a missing field, reads as its default (both off).
+
+- **Compressor.** `compression` 0–100 %: threshold −3 − 0.27 × `compression` dBFS, ratio
+  1 + 0.07 × `compression` (0 % compresses nothing, 100 % is −30 dBFS at 8:1), a 6 dB soft
+  knee, stereo-linked. `texture` 0–100 %: higher is lighter, attack 30 → 1 ms and release
+  500 → 60 ms. `output` −12..12 dB after it. A change glides; switched off, it glides back to
+  unity and then stops. Types (compression / texture / output): Natural 30 / 50 / +1, Rich
+  45 / 30 / +2, Punchy 70 / 80 / +4, Electronic 60 / 65 / +3, Loud 85 / 45 / +6.
+- **EQ.** Eight bands, each `{ gain, freq, q, shelf }`: `gain` −12..12 dB; `freq` Hz, band 0
+  32–2000, bands 1–6 100–10000, band 7 500–16000; `q` in tenths, 1–120 (0.1–12.0; higher is
+  narrower); `shelf` (bands 0 and 7 only) makes the band a low (high) shelf, with a fixed
+  slope rather than a Q. A band at 0 dB is out of the signal. Every type puts the bands at
+  80, 250, 500, 630, 800, 1000, 4000 and 8000 Hz, Q 0.7, bands 0 and 7 as shelves, with gains:
+  Flat all 0; Mellow −2 at 4 kHz and −4 at 8 kHz; Bright +2, +4 there; Loudness +4 at 80 Hz,
+  +1 at 250 Hz, +2 and +4 at the top; Powerful +4, +2, +1, +1, +1, +1, +2, +3.
 
 The effect parameters (`param`, its unit and range, and each type's own value):
 
@@ -730,6 +761,7 @@ Indices are 0-based unless a field says otherwise.
 | `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. They go out again after a Panic, a Reset All Controllers from the keyboard, or a new synth. |
 | `variation` | 0–127 | Variation send depth (CC94): the effect bus's tempo delay. 0 until something sets it. |
 | `eq` | PartEq | Its channel-strip EQ (`setPartEq`): `lowGain`, `highGain` (dB, −12..12) and `lowFreq`, `highFreq` (Hz). Flat (0 dB, 80 Hz, 0 dB, 10000 Hz) until something sets it. An OTS recall sets it from the OTS's XG part EQ (bass/treble gain and frequency, XG multi part 72H, 73H, 76H, 77H: 40H = 0 dB, 1 dB a step, frequencies from the XG EQ frequency table), the bands it leaves out flat; a part the OTS gives a voice but no EQ goes flat; any other part keeps its EQ. A voice change keeps it. |
+| `insert` | PartInsert | Its insert slot (`setKeyboardInsertEffect`, `setKeyboardInsertOn`, `setKeyboardInsertAmount`): `effect` (`distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary`), `on`, `amount` 0–127. Off (a distortion, amount 64) until something sets it. An OTS recall sets it from the OTS's XG Insertion Effect type for the part (block n is part n: Right 1, Right 2, Right 3, Left), mapped as the Style parts' are (`effects.inserts`): on with the effect that plays it and its amount, or off when nothing here plays that type (THRU, an EQ, a delay...); a part the OTS gives a voice but no insertion type turns it off; any other part keeps its slot. A voice change and a plugin swap keep it. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 | `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened), `missing` (the plugin isn't installed: the last scan did not find it. The status is `failed`, the part is silent rather than on its SoundFont voice, and its mix, sound and saved state are kept; once the plugin is back and the plugins are scanned again, it loads as it was. A plugin that is installed but fails to load is not missing). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
@@ -1203,6 +1235,11 @@ plays as, null if nothing is near it), or null when the style sets none; and `fo
 Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
 `rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
 (`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
+`master`: the Master Compressor and Master EQ (see Effects), `{ compressor, eq }`.
+`compressor` is `{ on, preset, compression, texture, output, edited }`; `eq` is
+`{ on, preset, bands, edited }`, `bands` the eight `{ gain, freq, q, shelf }`, low to high.
+`preset` is the type the settings started from, and `edited` whether they now differ from
+it. Absent in an older state: both off.
 
 ### `liveRack`
 The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
@@ -1428,6 +1465,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "chorus": 0,
       "variation": 0,
       "eq": { "lowGain": 3, "lowFreq": 80, "highGain": -2, "highFreq": 10000 },
+      "insert": { "effect": "rotary", "on": true, "amount": 90 },
       "plugin": {
         "id": "aumu dls  appl",
         "name": "DLSMusicDevice",
@@ -1463,6 +1501,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "chorus": 0,
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     },
     {
@@ -1483,6 +1522,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "chorus": 0,
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     },
     {
@@ -1503,6 +1543,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "chorus": 0,
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     }
   ],
@@ -1972,7 +2013,20 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ],
-    "inserts": [], "insertsOn": true, "rotaryFast": false
+    "inserts": [], "insertsOn": true, "rotaryFast": false,
+    "master": {
+      "compressor": { "on": true, "preset": "natural", "compression": 30, "texture": 50, "output": 1, "edited": false },
+      "eq": {
+        "on": false, "preset": "flat",
+        "bands": [
+          { "gain": 0, "freq": 80, "q": 7, "shelf": true }, { "gain": 0, "freq": 250, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 500, "q": 7, "shelf": false }, { "gain": 0, "freq": 630, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 800, "q": 7, "shelf": false }, { "gain": 0, "freq": 1000, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 4000, "q": 7, "shelf": false }, { "gain": 0, "freq": 8000, "q": 7, "shelf": true }
+        ],
+        "edited": false
+      }
+    }
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "ots": null, "bandSends": [] },
   "liveRack": {

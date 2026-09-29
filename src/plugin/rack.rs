@@ -34,6 +34,11 @@
 //! (a flat EQ is not run), and its mono/poly and velocity curve in front of the plugin
 //! (`PartVoice`).
 //!
+//! **Inserts (#269).** A part's insertion effect (a keyboard part's own slot, a Style
+//! part's style insert) runs on the plugin's output after the EQ, before its gain and pan
+//! (`PluginRack::set_insert`); an insert off is not run, and its time counts in the part's
+//! CPU (`last_render_ns`).
+//!
 //! **Swaps.** An assign takes effect at the next block boundary. The outgoing instance gets
 //! Sustain off + All Notes Off and keeps rendering while it fades out over `fade_frames`
 //! (default 5 ms) as the new one fades in; then it is handed back to the control side. The
@@ -64,6 +69,7 @@ use super::PartGain;
 use super::part_voice::PartVoice;
 use crate::fx::BUSES;
 use crate::fx::part_eq::{EqCoeffs, EqDsp};
+use crate::fx::{Insert, InsertSettings};
 use super::instance::{PluginInstance, RenderError};
 
 /// Slots: one per MIDI channel.
@@ -233,10 +239,18 @@ struct Slot {
     voice: PartVoice,
     /// The part's channel-strip EQ (#247), on the plugin's output before its gain and pan.
     eq: EqDsp,
+    /// The part's insertion effect (#269: a keyboard part's own slot, a Style part's
+    /// style insert), after the EQ, and what the control side asks of it this buffer.
+    insert: Insert,
+    insert_set: InsertSettings,
+    /// The insert's time in the last block rendered (ns; 0: it didn't run), counted in
+    /// the part's CPU with the plugin's (`last_render_ns`).
+    insert_ns: u64,
 }
 
 impl Slot {
-    const fn new() -> Self {
+    /// A slot at `rate` Hz (allocates its insert: off the audio thread).
+    fn new(rate: f32) -> Self {
         Slot {
             cur: None,
             cur_trim: 1.0,
@@ -256,6 +270,9 @@ impl Slot {
             pending: None,
             voice: PartVoice::new(),
             eq: EqDsp::new(),
+            insert: Insert::new(rate.max(1.0)),
+            insert_set: InsertSettings::NONE,
+            insert_ns: 0,
         }
     }
 
@@ -397,7 +414,7 @@ pub fn rack(max_block: usize, sample_rate: f64) -> (PluginRack, RackControl) {
     let (rtx, rrx) = RingBuffer::new(32);
     let z = || vec![0f32; max_block].into_boxed_slice();
     let rack = PluginRack {
-        slots: [const { Slot::new() }; SLOTS],
+        slots: std::array::from_fn(|_| Slot::new(sample_rate as f32)),
         rx,
         events: etx,
         retired: rtx,
@@ -437,7 +454,8 @@ impl PluginRack {
     /// for the performance view. RT-safe.
     #[inline]
     pub fn last_render_ns(&self, channel: u8) -> u64 {
-        self.slots[(channel & 0x0F) as usize].cur.as_ref().map_or(0, |i| i.last_render_ns())
+        let slot = &self.slots[(channel & 0x0F) as usize];
+        slot.cur.as_ref().map_or(0, |i| i.last_render_ns() + slot.insert_ns)
     }
 
     /// `channel`'s output peak (linear, both sides; after its gain and pan) since the last
@@ -654,6 +672,20 @@ impl PluginRack {
         self.slots[(channel & 0x0F) as usize].eq.set(c);
     }
 
+    /// A part's insertion effect for the next buffer (#269; a keyboard part's own slot or
+    /// a Style part's style insert): run on the plugin's output after its EQ, before its
+    /// gain and pan. Kind None: not run once it has faded out, and the output is as with
+    /// no insert. RT-safe.
+    pub fn set_insert(&mut self, channel: u8, s: InsertSettings) {
+        self.slots[(channel & 0x0F) as usize].insert_set = s;
+    }
+
+    /// The insert's time in `channel`'s last block (ns).
+    #[cfg(test)]
+    pub(super) fn insert_ns(&self, channel: u8) -> u64 {
+        self.slots[(channel & 0x0F) as usize].insert_ns
+    }
+
     /// Render every slot and **add** it into `left` / `right` (the caller's mix, before its
     /// master gain and soft clipper). RT-safe.
     pub fn render_add(&mut self, left: &mut [f32], right: &mut [f32]) {
@@ -745,16 +777,28 @@ impl PluginRack {
         };
         // The part's EQ (#247) on that output, before its gain and pan (and so before the
         // meters and sends). Flat, it is not run, and the mix below is as before.
-        let eq = slot.eq.active() && (cur_live || old_live);
+        // Then its insert (#269), still before them; the effect sees the part at full
+        // volume, as it is before its gain. Off (and faded out), it is not run either.
+        let live = cur_live || old_live;
+        let insert = slot.insert.active(slot.insert_set.kind) && live;
+        let eq = (slot.eq.active() && live) || insert;
         if eq {
             for i in 0..n {
                 let (a, b) = mix(i, l, r, l2, r2);
                 l[i] = a;
                 r[i] = b;
             }
-            slot.eq.process(l, r);
-        } else if !cur_live && !old_live {
+            if slot.eq.active() {
+                slot.eq.process(l, r);
+            }
+        } else if !live {
             slot.eq.clear();
+        }
+        slot.insert_ns = 0;
+        if insert {
+            let t0 = crate::rt::host_now();
+            slot.insert.process(l, r, 1.0, &slot.insert_set);
+            slot.insert_ns = crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
         }
         let gain = slot.gain.ramp(n);
         let (bl0, br0) = slot.bal;

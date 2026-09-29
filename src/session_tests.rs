@@ -882,6 +882,25 @@ fn library_list_revision_matches_its_entries() {
     assert_eq!(s.state().library.pending, 0);
 }
 
+/// `finish_indexing` after the control side already applied every index result is no new
+/// library revision, so twin sessions agree however the index thread was timed.
+#[test]
+fn finish_indexing_after_the_index_landed_keeps_the_revision() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+    for _ in 0..50_000 {
+        s.send(SystemCmd::ClearMessage).unwrap(); // the control side applies index results
+        if s.state().library.pending == 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+    let rev = s.state().library.revision;
+    assert_eq!(s.state().library.pending, 0);
+    s.finish_indexing();
+    assert_eq!(s.state().library.revision, rev);
+}
+
 /// Live (real CoreMIDI, no Launchkey, no synth): what `send` applied on the control side
 /// is in `state()` as soon as it returns, and a second, concurrent `stop` is harmless.
 #[test]
@@ -913,6 +932,8 @@ fn launchkey_buttons_are_what_the_state_says() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
     let mk = |page: Page, fp: FaderPage| {
         let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+        // The index thread would otherwise land in one twin and not the other under load.
+        s.finish_indexing();
         s.send(PadsCmd::SetPadPage { page }).unwrap();
         s.send(MixerCmd::SetFaderPage { page: fp }).unwrap();
         s.take_output();

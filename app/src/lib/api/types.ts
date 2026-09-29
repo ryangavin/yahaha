@@ -116,6 +116,9 @@ export type AppCmd =
   | { type: 'setPartPan'; part: number; pan: number }
   | { type: 'setPartSend'; part: number; send: PartSend; value: number }
   | { type: 'setPartEq'; part: number; eq: PartEq }
+  | { type: 'setKeyboardInsertEffect'; part: number; effect: InsertEffect }
+  | { type: 'setKeyboardInsertOn'; part: number; on: boolean }
+  | { type: 'setKeyboardInsertAmount'; part: number; amount: number }
   /** Solo a keyboard part 0–3 (only it sounds from the keys); null ends the solo. */
   | { type: 'setPartSolo'; part: number | null }
   // Mixer and Launchkey pages
@@ -272,6 +275,59 @@ export type FxCmd =
   | { type: 'setPartInsertAmount'; part: number; amount: number }
   /** Every rotary insert fast or slow (the Leslie switch). */
   | { type: 'setRotaryFast'; on: boolean }
+  /** The Master Compressor on or off (`effects.master`). */
+  | { type: 'setMasterCompressorOn'; on: boolean }
+  /** The Master Compressor's type: its Compression, Texture and Output come with it. */
+  | { type: 'setMasterCompressorPreset'; preset: CompPreset }
+  /** compression and texture 0–100 %, output −12..12 dB; clamped. */
+  | { type: 'setMasterCompressorParam'; param: CompParam; value: number }
+  | { type: 'setMasterEqOn'; on: boolean }
+  /** The Master EQ's type: every band comes with it. */
+  | { type: 'setMasterEqPreset'; preset: EqPreset }
+  /** One band (0–7), clamped to its ranges (MASTER_EQ_FREQ_RANGE, Q 1–120). */
+  | { type: 'setMasterEqBand'; band: number; gain: number; freq: number; q: number; shelf: boolean }
+
+export type CompPreset = 'natural' | 'rich' | 'punchy' | 'electronic' | 'loud'
+export type CompParam = 'compression' | 'texture' | 'output'
+export type EqPreset = 'flat' | 'mellow' | 'bright' | 'loudness' | 'powerful'
+
+/** One Master EQ band: gain dB (−12..12), freq Hz, q in tenths (1–120), shelf (bands 0 and 7 only). */
+export interface EqBand {
+  gain: number
+  freq: number
+  q: number
+  shelf: boolean
+}
+
+/** The Master Compressor and Master EQ, on the whole mix after the effect returns. */
+export interface MasterFxState {
+  compressor: { on: boolean; preset: CompPreset; compression: number; texture: number; output: number; edited: boolean }
+  eq: { on: boolean; preset: EqPreset; bands: EqBand[]; edited: boolean }
+}
+
+/** Each Master EQ band's frequency range (Hz), low to high (the session's `EQ_FREQ_RANGE`). */
+export const MASTER_EQ_FREQ_RANGE: [number, number][] = [[32, 2000], [100, 10000], [100, 10000], [100, 10000], [100, 10000], [100, 10000], [100, 10000], [500, 16000]]
+export const COMP_PRESETS: { preset: CompPreset; name: string; params: [number, number, number] }[] = [
+  { preset: 'natural', name: 'Natural', params: [30, 50, 1] },
+  { preset: 'rich', name: 'Rich', params: [45, 30, 2] },
+  { preset: 'punchy', name: 'Punchy', params: [70, 80, 4] },
+  { preset: 'electronic', name: 'Electronic', params: [60, 65, 3] },
+  { preset: 'loud', name: 'Loud', params: [85, 45, 6] },
+]
+const EQ_FREQS = [80, 250, 500, 630, 800, 1000, 4000, 8000]
+/** Each Master EQ type's band gains, low to high (the session's `EqPreset::bands`). */
+export const EQ_PRESETS: { preset: EqPreset; name: string; gains: number[] }[] = [
+  { preset: 'flat', name: 'Flat', gains: [0, 0, 0, 0, 0, 0, 0, 0] },
+  { preset: 'mellow', name: 'Mellow', gains: [0, 0, 0, 0, 0, 0, -2, -4] },
+  { preset: 'bright', name: 'Bright', gains: [0, 0, 0, 0, 0, 0, 2, 4] },
+  { preset: 'loudness', name: 'Loudness', gains: [4, 1, 0, 0, 0, 0, 2, 4] },
+  { preset: 'powerful', name: 'Powerful', gains: [4, 2, 1, 1, 1, 1, 2, 3] },
+]
+/** A Master EQ type's bands: the default frequencies, Q 0.7, the edge bands as shelves. */
+export function eqPresetBands(p: EqPreset): EqBand[] {
+  const gains = EQ_PRESETS.find((x) => x.preset === p)!.gains
+  return gains.map((gain, i) => ({ gain, freq: EQ_FREQS[i], q: 7, shelf: i === 0 || i === 7 }))
+}
 
 /**
  * Reverb: reverbTime (0.1 s), preDelay (ms), reverbTone (100 Hz). Chorus: chorusRate (0.01 Hz),
@@ -315,6 +371,8 @@ export interface EffectsState {
   insertsOn: boolean
   /** The rotary inserts at their fast speed (`setRotaryFast`). */
   rotaryFast: boolean
+  /** The Master Compressor and Master EQ (both off by default). */
+  master: MasterFxState
 }
 
 /** What plays a style's insertion effect here (#269). */
@@ -716,6 +774,26 @@ export function clampEq(eq: PartEq): PartEq {
   return { lowGain: c(eq.lowGain, -12, 12), lowFreq: c(eq.lowFreq, 32, 2000), highGain: c(eq.highGain, -12, 12), highFreq: c(eq.highFreq, 500, 16000) }
 }
 
+/** A keyboard part's insert slot (Genos: Insertion Effect Type, On/Off, Depth): its effect,
+ *  whether it plays (off: the part as with no insert), and its amount 0–127. */
+export interface PartInsert {
+  effect: InsertEffect
+  on: boolean
+  amount: number
+}
+
+/** A slot before anything sets it: off, a distortion at the middle amount. */
+export const OFF_INSERT: PartInsert = { effect: 'distortion', on: false, amount: 64 }
+
+/** The effects an insert slot offers, in the kind select's order, with their names. */
+export const INSERT_EFFECTS: { effect: InsertEffect; name: string }[] = [
+  { effect: 'distortion', name: 'Distortion' },
+  { effect: 'compressor', name: 'Compressor' },
+  { effect: 'autoWah', name: 'Auto Wah' },
+  { effect: 'tremolo', name: 'Tremolo' },
+  { effect: 'rotary', name: 'Rotary' },
+]
+
 export interface KeyboardPart {
   /** "Right 1", "Right 2", "Right 3", "Left". */
   name: string
@@ -742,6 +820,8 @@ export interface KeyboardPart {
   variation: number
   /** Its channel-strip EQ (#247, `setPartEq`); flat until something sets it (an OTS's XG part EQ, a rack). */
   eq: PartEq
+  /** Its insert slot (`setKeyboardInsertEffect`, `On`, `Amount`); off until something sets it (an OTS's XG insertion type, a rack). */
+  insert: PartInsert
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
   /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */

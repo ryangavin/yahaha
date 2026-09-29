@@ -160,8 +160,9 @@ impl EqCoeffs {
     }
 }
 
-/// An RBJ shelf with slope 1: `gain_db` below (`high`: above) `hz`.
-fn shelf(gain_db: f64, hz: f64, sr: f64, high: bool) -> [f32; 5] {
+/// An RBJ shelf with slope 1: `gain_db` below (`high`: above) `hz`. The Master EQ's edge
+/// bands use it too (`fx::master`).
+pub(super) fn shelf(gain_db: f64, hz: f64, sr: f64, high: bool) -> [f32; 5] {
     let a = 10f64.powf(gain_db / 40.0);
     let w0 = 2.0 * std::f64::consts::PI * hz / sr;
     let (sin, cos) = w0.sin_cos();

@@ -736,8 +736,9 @@ pub struct AudioCore {
     sends_gliding: bool,
     /// `FxControl::legacy` as last applied.
     legacy: bool,
-    /// The Style parts' insertion effects (#269).
-    inserts: Box<crate::fx::BandInserts>,
+    /// The parts' insertion effects on the SoundFont side (#269): the Style parts' and the
+    /// keyboard parts' own slots.
+    inserts: Box<crate::fx::ChannelInserts>,
     /// The band send scales (#236) as they glide towards `FxControl::band_send`.
     band_scale: [f32; crate::fx::BUSES],
     /// The Style parts' own sends (#268, `FxControl::part_send`) as last applied.
@@ -749,6 +750,8 @@ pub struct AudioCore {
     /// publication they came from), for the racks and the plugin rack.
     eq_seen: [u32; parts::COUNT],
     eq: [crate::fx::part_eq::EqCoeffs; parts::COUNT],
+    /// The Master Compressor and Master EQ, after the effect returns.
+    master_fx: crate::fx::master::MasterDsp,
 }
 
 impl AudioCore {
@@ -772,6 +775,8 @@ impl AudioCore {
         let (kits_link, kits) = kit::link();
         // The parts' EQ coefficients at this rate, computed here, off the audio thread.
         parts.set_sample_rate(sample_rate);
+        // The Master EQ's too.
+        control.fx.master.set_sample_rate(sample_rate.max(1) as f32);
         let core = AudioCore {
             rack,
             swap_rx,
@@ -809,13 +814,14 @@ impl AudioCore {
             sends_dirty: true,
             sends_gliding: false,
             legacy: false,
-            inserts: Box::new(crate::fx::BandInserts::new(sample_rate.max(1) as f32)),
+            inserts: Box::new(crate::fx::ChannelInserts::new(sample_rate.max(1) as f32)),
             band_scale: crate::fx::BAND_SEND_DEFAULT.map(crate::fx::band_scale),
             part_send: [[crate::fx::SEND_STYLE; crate::fx::BUSES]; 8],
             pad_scale: crate::fx::PAD_SEND_DEFAULT.map(crate::fx::band_scale),
             sample_rate: sample_rate.max(1) as f32,
             eq_seen: [crate::fx::part_eq::EqCell::UNSEEN; parts::COUNT],
             eq: [crate::fx::part_eq::EqCoeffs::FLAT; parts::COUNT],
+            master_fx: crate::fx::master::MasterDsp::new(sample_rate.max(1) as f32),
         };
         (core, RackSwap { tx: swap_tx, old: old_rx, kits: kits_link }, Some(link))
     }
@@ -1081,7 +1087,23 @@ impl AudioCore {
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         let (left2, right2) = (&mut self.left2[..frames], &mut self.right2[..frames]);
         let sends = &mut self.sends[..2 * crate::fx::BUSES * frames];
-        self.inserts.update(&ctl.fx);
+        // Each channel's insert (#269; a keyboard part's own slot), run by whatever plays
+        // the part: the SoundFont rack on its stem, the plugin rack on the plugin's output.
+        // The other side's fades out (an insert off is not run at all).
+        let mut ins = crate::fx::InsertSettings::channels(&ctl.fx);
+        for p in 0..parts::COUNT {
+            let ch = parts::CHANNEL[p] as usize;
+            ins[ch] = ins[ch].with(self.parts.insert(p));
+        }
+        for (ch, s) in ins.iter_mut().enumerate() {
+            let plugin = active >> ch & 1 == 1;
+            #[cfg(feature = "plugins")]
+            self.plugins.set_insert(ch as u8, if plugin && !self.legacy { *s } else { crate::fx::InsertSettings { kind: crate::fx::InsertKind::None, ..*s } });
+            if plugin {
+                s.kind = crate::fx::InsertKind::None;
+            }
+        }
+        self.inserts.set(&ins);
         if let Some(rack) = self.rack.as_mut() {
             rack.set_timing(prof);
         }
@@ -1170,6 +1192,9 @@ impl AudioCore {
         if !self.legacy {
             self.fx.process_add(sends, frames, left, right, &ctl.fx);
         }
+        // The Master Compressor and Master EQ on the whole mix, returns included (off: not
+        // run). Not on the metronome, as on the Genos: the click comes after.
+        self.master_fx.process(left, right, &ctl.fx.master);
         clock.lap(crate::perf::ST_FX);
         self.click.render_add(left, right, master_gain(master));
         let mute = ctl.muted.load(Relaxed);
@@ -2042,6 +2067,52 @@ mod rack_tests {
         assert!(pad_half > dry * 1.2 && pad_half < pad_full * 0.6, "{pad_half} between {dry} and {pad_full}");
     }
 
+    /// The Master Compressor and Master EQ on the master bus. Off (with or without other
+    /// settings behind them), the output is the one without them, sample for sample; the
+    /// compressor on brings a loud chord down, and neither touches the metronome click.
+    #[test]
+    fn the_master_effects_run_on_the_mix_and_off_change_nothing() {
+        use crate::fx::master::{CompPreset, EqPreset, MasterComp, MasterEq};
+        let render = |font: Option<&Arc<SoundFont>>, msgs: &[Msg], setup: &dyn Fn(&SynthControl)| -> Vec<f32> {
+            let rack = font.map(|f| Box::new(Rack::new(f, 48_000).unwrap()));
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            let (mut core, _swap, _link) = AudioCore::new(rack, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+            setup(&ctl);
+            for m in msgs {
+                tx.push(*m).unwrap();
+            }
+            let mut all = Vec::new();
+            let mut out = vec![0f32; 256];
+            for _ in 0..80 {
+                core.process(&mut out);
+                all.extend_from_slice(&out);
+            }
+            all
+        };
+        let off_behind = |ctl: &SynthControl| {
+            ctl.fx.master.set_compressor(&MasterComp::of(false, CompPreset::Loud));
+            ctl.fx.master.set_eq(&MasterEq { on: false, preset: EqPreset::Powerful, bands: EqPreset::Powerful.bands() });
+        };
+        let both_on = |ctl: &SynthControl| {
+            ctl.fx.master.set_compressor(&MasterComp { output: 0, ..MasterComp::of(true, CompPreset::Loud) });
+            ctl.fx.master.set_eq(&MasterEq { on: true, preset: EqPreset::Powerful, bands: EqPreset::Powerful.bands() });
+        };
+        // The click alone (no SoundFont needed): the master effects leave it as it is.
+        let click = [[CLICK, 1, 0]];
+        let plain = render(None, &click, &|_| {});
+        assert!(plain.iter().any(|x| *x != 0.0), "the click sounds");
+        assert_eq!(render(None, &click, &both_on), plain, "not on the click");
+        let Some(font) = font() else { return };
+        let chord: Vec<Msg> = [60u8, 64, 67, 72].iter().flat_map(|&k| [[0x90, k, 127], [0x91, k, 127]]).collect();
+        let dry = render(Some(&font), &chord, &|_| {});
+        assert_eq!(render(Some(&font), &chord, &off_behind), dry, "off: bit-identical");
+        let wet = render(Some(&font), &chord, &both_on);
+        let rms = |v: &[f32]| (v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32).sqrt();
+        let tail = dry.len() / 2;
+        assert!(rms(&wet[tail..]) < rms(&dry[tail..]) * 0.9, "compressed: {} vs {}", rms(&wet[tail..]), rms(&dry[tail..]));
+    }
+
     /// #269: a Style part's insertion effect. A sustained note on channel 12 with a
     /// distortion on Chord 1 (part 3) has more high harmonics than without, at a similar
     /// level; its reverb send carries the distorted sound; a note on channel 13 is
@@ -2094,6 +2165,50 @@ mod rack_tests {
         // None on the part: exactly the dry part.
         let (none, _) = play(11, crate::fx::InsertKind::None, false);
         assert_eq!(none, dry);
+    }
+
+    /// A keyboard part's own insert slot: on, it plays on that part's stem (Right 1,
+    /// channel 1) and its time counts in the part's CPU; off, whatever its effect and
+    /// amount, the output is bit-identical to no slot ever set; Left is untouched.
+    #[test]
+    fn a_keyboard_parts_insert_slot_runs_on_that_part_only() {
+        use crate::fx::{InsertEffect, PartInsert};
+        let Some(font) = font() else { return };
+        let play = |ch: u8, slot: Option<PartInsert>| -> (Vec<f32>, u64) {
+            let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            ctl.fx.reverb_return.store(0, Relaxed);
+            ctl.fx.chorus_return.store(0, Relaxed);
+            let parts = Arc::new(Parts::new());
+            if let Some(s) = slot {
+                parts.set_insert(parts::RIGHT1, s);
+            }
+            let (mut core, _swap, _link) = AudioCore::new(Some(rack), vec![rx], parts, ctl, 48_000, 2);
+            for m in [[0xC0 | ch, 16, 0], [0xB0 | ch, 91, 0], [0xB0 | ch, 93, 0], [0x90 | ch, 45, 100]] {
+                tx.push(m).unwrap();
+            }
+            let mut out = vec![0f32; 256];
+            let (mut left, mut ns) = (Vec::new(), 0);
+            for _ in 0..200 {
+                core.process(&mut out);
+                left.extend(out.iter().step_by(2));
+                ns += core.rack.as_ref().unwrap().insert_ns(ch as usize);
+            }
+            (left, ns)
+        };
+        let r1 = parts::CHANNEL[parts::RIGHT1];
+        let bright = |x: &[f32]| x[9600..].windows(2).map(|w| (w[1] - w[0]).powi(2)).sum::<f32>() / x[9600..].iter().map(|v| v * v).sum::<f32>().max(1e-30);
+        let (dry, dry_ns) = play(r1, None);
+        let on = PartInsert { effect: InsertEffect::Distortion, on: true, amount: 110 };
+        let (dist, dist_ns) = play(r1, Some(on));
+        assert!(bright(&dist) > 1.5 * bright(&dry), "distorted: {} vs {}", bright(&dist), bright(&dry));
+        assert!(dist_ns > 0 && dry_ns == 0, "its time in the part's CPU: {dist_ns} vs {dry_ns}");
+        for effect in [InsertEffect::Distortion, InsertEffect::Rotary] {
+            assert_eq!(play(r1, Some(PartInsert { effect, on: false, amount: 127 })).0, dry, "off: {effect:?}");
+        }
+        let left = parts::CHANNEL[parts::LEFT];
+        assert_eq!(play(left, Some(on)).0, play(left, None).0, "only the part it is on");
     }
 
     #[test]

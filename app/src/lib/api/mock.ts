@@ -24,7 +24,7 @@ import { MockStyleRacks } from './mock-style-racks'
 import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, clampEq, defaultControlMap, FLAT_EQ, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  BREAK, CHORD_SETTLE_MAX_MS, clampEq, COMP_PRESETS, eqPresetBands, MASTER_EQ_FREQ_RANGE, defaultControlMap, FLAT_EQ, OFF_INSERT, type PartInsert, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PartEq, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
@@ -207,7 +207,7 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0, eq: { ...FLAT_EQ }, fader: null, patch: null as string | null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0, eq: { ...FLAT_EQ }, insert: { ...OFF_INSERT }, fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
@@ -1124,6 +1124,11 @@ export class MockSession implements Session {
       const eq = mockOtsEq(n, i)
       if (eq) p.eq = { ...eq }
       else if (o.program !== null) p.eq = { ...FLAT_EQ }
+      // The insert slot, as apply_ots sets it: the OTS's insertion type turns it on with its
+      // effect; a part it gives a voice but no type turns it off; others keep theirs.
+      const insert = mockOtsInsert(n, i)
+      if (insert) p.insert = { ...insert }
+      else if (o.program !== null) p.insert = { ...p.insert, on: false }
       p.on = o.on
       p.octave = o.octave
       if (p.volume !== o.volume) p.waiting = panel
@@ -1572,6 +1577,15 @@ export class MockSession implements Session {
         break
       case 'setPartEq':
         st.keyboardParts[cmd.part].eq = clampEq(cmd.eq)
+        break
+      case 'setKeyboardInsertEffect':
+        st.keyboardParts[cmd.part].insert = { ...st.keyboardParts[cmd.part].insert, effect: cmd.effect }
+        break
+      case 'setKeyboardInsertOn':
+        st.keyboardParts[cmd.part].insert = { ...st.keyboardParts[cmd.part].insert, on: cmd.on }
+        break
+      case 'setKeyboardInsertAmount':
+        st.keyboardParts[cmd.part].insert = { ...st.keyboardParts[cmd.part].insert, amount: Math.max(0, Math.min(127, Math.round(cmd.amount))) }
         break
       case 'setFaderPage':
       case 'toggleFaderPage': {
@@ -2052,6 +2066,49 @@ export class MockSession implements Session {
       case 'setRotaryFast':
         this.state.effects.rotaryFast = cmd.on
         break
+      // The Master Compressor and Master EQ, as the session plays them (not saved).
+      case 'setMasterCompressorOn':
+        this.state.effects.master.compressor.on = cmd.on
+        break
+      case 'setMasterCompressorPreset': {
+        const c = this.state.effects.master.compressor
+        const [compression, texture, output] = COMP_PRESETS.find((p) => p.preset === cmd.preset)!.params
+        Object.assign(c, { preset: cmd.preset, compression, texture, output })
+        c.edited = false
+        break
+      }
+      case 'setMasterCompressorParam': {
+        const c = this.state.effects.master.compressor
+        const v = Math.round(cmd.value)
+        if (cmd.param === 'output') c.output = Math.max(-12, Math.min(12, v))
+        else c[cmd.param] = Math.max(0, Math.min(100, v))
+        const own = COMP_PRESETS.find((p) => p.preset === c.preset)!.params
+        c.edited = c.compression !== own[0] || c.texture !== own[1] || c.output !== own[2]
+        break
+      }
+      case 'setMasterEqOn':
+        this.state.effects.master.eq.on = cmd.on
+        break
+      case 'setMasterEqPreset': {
+        const e = this.state.effects.master.eq
+        e.preset = cmd.preset
+        e.bands = eqPresetBands(cmd.preset)
+        e.edited = false
+        break
+      }
+      case 'setMasterEqBand': {
+        const e = this.state.effects.master.eq
+        const i = cmd.band
+        if (!Number.isInteger(i) || i < 0 || i > 7) {
+          this.message(`the Master EQ has no band ${i} (0-7)`, true)
+          break
+        }
+        const [lo, hi] = MASTER_EQ_FREQ_RANGE[i]
+        const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, Math.round(v)))
+        e.bands[i] = { gain: clamp(cmd.gain, -12, 12), freq: clamp(cmd.freq, lo, hi), q: clamp(cmd.q, 1, 120), shelf: cmd.shelf && (i === 0 || i === 7) }
+        e.edited = JSON.stringify(e.bands) !== JSON.stringify(eqPresetBands(e.preset))
+        break
+      }
       case 'setBandSend':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.bandSend = clampLevel(cmd.level)
         break
@@ -2112,6 +2169,12 @@ export function mockOtsEq(n: number, p: number): PartEq | null {
   return n === 0 && p === 0 ? { ...FLAT_EQ, lowGain: 3, highGain: 2 } : null
 }
 
+/** The insert slot the mock's OTS `n` sets on part `p`, from its XG insertion type: only
+ *  OTS 1's Right 1 has one (a rotary speaker); the Rust dev mock has the same (`mock_ots_insert`). */
+export function mockOtsInsert(n: number, p: number): PartInsert | null {
+  return n === 0 && p === 0 ? { effect: 'rotary', on: true, amount: 64 } : null
+}
+
 const MOCK_STYLE_SENDS:[number, number, number][] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]]
 
 /**
@@ -2122,7 +2185,7 @@ const MOCK_STYLE_SENDS:[number, number, number][] = [[30, 0, 0], [30, 0, 0], [20
 /** What the live rack holds, as the state shows it (docs/racks.md): the keyboard parts'
  *  sounds and mix, the split, the keyboard transpose, Harmony/Arp and the controller map. */
 export function liveRackView(st: AppState): string {
-  const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false])
+  const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.insert, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false])
   return JSON.stringify([parts, st.chord.split, st.chord.transposeKeyboard, st.harmonyArp, st.liveRack.controls])
 }
 
@@ -2142,6 +2205,11 @@ export function initialEffects(): EffectsState {
     inserts: [{ part: 3, partName: 'Chord 1', name: 'British Combo Classic', effect: 'distortion', on: true, amount: 64 }],
     insertsOn: true,
     rotaryFast: false,
+    // Both off, as a session with no saved settings starts.
+    master: {
+      compressor: { on: false, preset: 'natural', compression: 30, texture: 50, output: 1, edited: false },
+      eq: { on: false, preset: 'flat', bands: eqPresetBands('flat'), edited: false },
+    },
   }
 }
 

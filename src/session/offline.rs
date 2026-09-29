@@ -128,13 +128,19 @@ impl Session {
     pub fn finish_indexing(&self) {
         let mut ctl = self.inner.lock();
         if let Some(rx) = ctl.index_rx.take() {
+            let mut n = 0;
             for (id, info) in rx.iter() {
                 if id < ctl.lib.len() && !matches!(ctl.lib.entry(id).info, Info::Err(_)) {
                     ctl.lib.set_info(id, info);
+                    n += 1;
                 }
             }
-            ctl.lib.sort();
-            ctl.lib_rev += 1;
+            // A new revision only when something new came in: results `pump_index`
+            // already applied are no change, so the revision doesn't depend on timing.
+            if n > 0 {
+                ctl.lib.sort();
+                ctl.lib_rev += 1;
+            }
         }
         drop(ctl);
         self.settle();
