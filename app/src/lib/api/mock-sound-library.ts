@@ -4,7 +4,7 @@
 
 import fixture from './mock-fixture.json'
 import { partSound } from './part-sound'
-import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, originOfPresetKey, sameOrigin, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
+import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, originOfPresetKey, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
 import type { AppState } from './types'
 
 const GM: string[] = fixture.gm
@@ -194,14 +194,12 @@ export class MockSoundLibrary {
   /** The part's plugin was edited since its sound loaded (the editor closed, O3). */
   private edited = [false, false, false, false]
 
-  /** A plugin preset picked on a part: its one library sound (added once, found again by
-   * its origin), as the session's `link_voice_sound`. */
+  /** A plugin preset picked on a part: the part plays the preset itself, named by its
+   * catalog id, and no library record is made (as the session's
+   * `PluginVoice::name_preset_sound`). */
   presetSound(part: number, componentId: string, key: string, name: string) {
-    const origin = originOfPresetKey(key)
-    if (!origin) return
-    const found = this.sl.patches.find((p) => p.source.kind === 'plugin' && p.source.componentId === componentId && sameOrigin(p.source.origin, origin))
-    const id = found?.id ?? this.add({ name, category: 'synthLead', tags: [], favourite: false, source: { kind: 'plugin', componentId, state: '', origin }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } })
-    this.pluginSound[part & 3] = { id: `saved:${id}`, name: found?.name ?? name }
+    if (!originOfPresetKey(key)) return
+    this.pluginSound[part & 3] = { id: `au:${componentId}#${key}`, name }
   }
 
   /** The part's plugin editor closed: its sound counts as edited (no state to fingerprint). */
@@ -210,9 +208,10 @@ export class MockSoundLibrary {
     this.edited[p] = !!this.pluginParts[p] || !!this.pluginSound[p]
   }
 
-  /** The library sound part `p` plays through its plugin, if any. */
+  /** The library sound part `p` plays through its plugin, if any (a preset is none). */
   private pluginSoundId(p: number): string | null {
-    return this.pluginParts[p] ?? this.pluginSound[p]?.id.replace(/^saved:/, '') ?? null
+    const tag = this.pluginSound[p]?.id
+    return this.pluginParts[p] ?? (tag?.startsWith('saved:') ? tag.slice(6) : null)
   }
 
   /** Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's). */
@@ -312,12 +311,17 @@ export class MockSoundLibrary {
         if (plugin) {
           const source = { kind: 'plugin' as const, componentId: plugin.id, state: '' }
           const same = base?.source.kind === 'plugin' && base.source.componentId === plugin.id
-          f = same ? { ...f, source } : { name: plugin.name, category: base?.category ?? guessCategory(0, kp.program), tags: [], favourite: false, source, defaults: blank }
+          // A plugin playing a named Sound (a preset): the new sound takes its name.
+          const named = this.pluginSound[c.part & 3]?.name.trim() ? this.pluginSound[c.part & 3]!.name : null
+          f = same ? { ...f, source } : { name: named ?? plugin.name, category: base?.category ?? guessCategory(0, kp.program), tags: [], favourite: false, source, defaults: blank }
         }
         f.defaults.volume = kp.volume
         f.defaults.octave = kp.octave
         if (c.name?.trim()) f.name = c.name
         const added = this.add(f)
+        // Save as… on a SoundFont part: the part takes it as its own patch (not Left
+        // playing Manual Bass), so a second Save updates it.
+        if (c.type === 'saveSoundAs' && f.source.kind === 'soundFont' && !kp.plugin && !kp.playsBass) this.parts[c.part & 3] = added
         // A part playing a plugin plays the new sound, not edited (O3).
         if (f.source.kind === 'plugin') {
           const i = c.part & 3

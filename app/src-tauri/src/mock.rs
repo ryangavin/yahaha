@@ -2382,24 +2382,27 @@ mod tests {
         60000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64
     }
 
-    /// Now playing (O3): a preset names its sound; the editor closing marks it edited;
-    /// Save as… plays the new sound, not edited; Save keeps the same one.
+    /// Now playing (O3): a preset names its sound (no library record: docs/racks.md "One
+    /// save makes one record"); the editor closing marks it edited; Save makes one sound
+    /// named after the preset, which the part then plays; Save again keeps the same one.
     #[test]
     fn a_part_shows_its_sound_edited_and_saved() {
         let mut m = MockSession::new();
         m.send(SoundsCmd::ListPluginPresets { id: format!("au:{}", sounds::MOCK_PRESETS_ID) });
+        let n = m.state.sound_library.patches.len();
         m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
+        assert_eq!(m.state.sound_library.patches.len(), n, "picking a preset adds no record");
         let tag = m.state.keyboard_parts[0].sound.clone().expect("the preset's sound");
         assert_eq!(tag.name, "Bright Grand");
-        assert!(tag.id.ends_with("#f:1") && !m.state.keyboard_parts[0].sound_edited);
+        assert_eq!(tag.id, format!("au:{}#f:1", sounds::MOCK_PRESETS_ID));
+        assert!(!m.state.keyboard_parts[0].sound_edited);
         m.send(PluginCmd::SavePartPluginState { part: 0 });
         assert!(m.state.keyboard_parts[0].sound_edited);
-        // A factory preset's sound is not overwritten: Save is Save as….
-        let n = m.state.sound_library.patches.len();
+        // A factory preset is not overwritten: Save makes one sound named after it.
         m.send(SoundLibraryCmd::SaveSound { part: 0 });
         assert_eq!(m.state.sound_library.patches.len(), n + 1);
         let mine = m.state.keyboard_parts[0].sound.clone().unwrap();
-        assert!(mine.id != tag.id && !m.state.keyboard_parts[0].sound_edited);
+        assert!(mine.id != tag.id && mine.name == "Bright Grand" && !m.state.keyboard_parts[0].sound_edited);
         m.send(PluginCmd::SavePartPluginState { part: 0 });
         m.send(SoundLibraryCmd::SaveSound { part: 0 });
         assert_eq!((m.state.sound_library.patches.len(), m.state.keyboard_parts[0].sound.clone()), (n + 1, Some(mine)));
@@ -2437,6 +2440,19 @@ mod tests {
         let row = m.state.sound_library.gm_map.iter().find(|r| r.program == Some(p1.program)).unwrap().resolved.sound.clone();
         assert_eq!(p1.sound.map(|t| t.id), row);
         assert!(!p1.voice_name.contains("Broken Synth"));
+    }
+
+    /// One save makes one record (docs/racks.md): Save on a part playing a GM voice makes
+    /// one sound, which the part then plays, so saving again updates it.
+    #[test]
+    fn saving_a_gm_voice_part_again_makes_no_copy() {
+        let mut m = MockSession::new();
+        let n = m.state.sound_library.patches.len();
+        for _ in 0..3 {
+            m.send(SoundLibraryCmd::SaveSound { part: 2 });
+        }
+        assert_eq!(m.state.sound_library.patches.len(), n + 1);
+        assert_eq!(m.state.keyboard_parts[2].patch.as_ref(), m.state.sound_library.patches.last().map(|p| &p.patch.id));
     }
 
     #[test]

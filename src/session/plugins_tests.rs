@@ -887,6 +887,81 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
+/// One save makes one record (docs/racks.md "Saving"): Save as… with an `.aupreset`
+/// makes one sound, and the file is only an export: picking it adds nothing, and a map
+/// rule naming it gets that same sound. Picking an `.aupreset` adds no library record (the
+/// part plays the preset, named by its catalog id); Save makes one sound named after the
+/// preset, which the part then plays, so saving again updates it.
+#[test]
+fn one_save_makes_one_record() {
+    use crate::api::{PatchCategory, SoundLibraryCmd, SoundsCmd};
+    use crate::plugin::{presets, LoadConfig, PluginHost, PluginId};
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+    if !p.exists() {
+        eprintln!("corpus missing; skipping");
+        return;
+    }
+    let data = std::env::temp_dir().join(format!("yahaha-one-record-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    let root = data.join("Presets");
+    let host = PluginHost::with_preset_roots(Some(data.join("plugins.json")), vec![root.clone()]);
+    let info = host.info(&PluginId::DLS).unwrap();
+    let state = host.load(&PluginId::DLS, LoadConfig::default()).unwrap().get_state().unwrap();
+    let file = presets::write_user_preset(&root, &info, "Warm Strings", &state, false).unwrap();
+    host.rescan().unwrap();
+    let opts = Options { paths: vec![p], data_dir: Some(data.join("data")), ..Options::default() };
+    let s = Session::offline(opts).unwrap();
+    s.offline_audio(None, 48_000).unwrap();
+    s.inner.lock().plugins.host = Some(host);
+    wait_scanned(&s);
+    let records = |s: &Session| s.state().sound_library.patches.len();
+    let n = records(&s);
+
+    // Save as… with the .aupreset box: one sound; the file is only an export.
+    s.send(SoundsCmd::AssignSound { part: 1, id: format!("au:{DLS}") }).unwrap();
+    assert_eq!(wait_playing(&s, 1), PluginStatus::Playing);
+    s.send(SoundsCmd::SavePartAsPluginPreset { part: 1, name: "My Organ".into(), category: PatchCategory::Organ, overwrite: false }).unwrap();
+    s.send(SoundLibraryCmd::SaveSoundAs { part: 1, name: Some("My Organ".into()) }).unwrap();
+    let t0 = Instant::now();
+    while s.state().keyboard_parts[1].plugin.as_ref().and_then(|p| p.preset.clone()).is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(20), "the preset was not saved");
+        s.advance(1_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    wait_reads(&s);
+    assert_eq!(records(&s), n + 1, "Save as… with an .aupreset makes one record");
+    let organ = s.state().sound_library.last_added.clone().unwrap();
+    let saved = format!("au:{DLS}#u:{}", root.join("Apple/DLSMusicDevice/My Organ.aupreset").display());
+    s.send(SoundsCmd::AssignSound { part: 2, id: saved.clone() }).unwrap();
+    assert_eq!(wait_playing(&s, 2), PluginStatus::Playing);
+    wait_reads(&s);
+    assert_eq!(records(&s), n + 1, "picking the exported file adds nothing");
+    s.send(SoundLibraryCmd::SetFamilyRule { family: 2, patch: Some(saved), style: false }).unwrap();
+    assert_eq!(records(&s), n + 1, "a rule naming the file gets the sound saved with it");
+    assert_eq!(s.state().sound_library.map.families[2].as_deref(), Some(organ.as_str()));
+
+    // Pick a preset: no record; the part plays the preset.
+    let id = format!("au:{DLS}#u:{}", file.path.display());
+    s.send(SoundsCmd::AssignSound { part: 0, id: id.clone() }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    wait_reads(&s);
+    assert_eq!(records(&s), n + 1, "picking a preset adds no record");
+    let tag = s.state().keyboard_parts[0].sound.clone().expect("the part plays the preset");
+    assert_eq!((tag.id.as_str(), tag.name.as_str()), (id.as_str(), "Warm Strings"));
+    assert!(!s.state().keyboard_parts[0].sound_edited);
+
+    // Save three times: one sound, named after the preset, which the part plays.
+    for _ in 0..3 {
+        s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+        wait_reads(&s);
+    }
+    assert_eq!(records(&s), n + 2, "three saves, one record");
+    let mine = s.state().sound_library.patches.last().unwrap().patch.clone();
+    assert_eq!(mine.name, "Warm Strings");
+    assert_eq!(s.state().keyboard_parts[0].sound.clone().map(|t| t.id), Some(format!("saved:{}", mine.id)));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 /// Pump until no plugin state read is running, then twice more (a save fill lands after).
 fn wait_reads(s: &Session) {
     let t0 = Instant::now();
