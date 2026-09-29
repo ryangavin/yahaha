@@ -1012,7 +1012,7 @@ fn a_part_shows_its_sound_and_when_it_was_edited() {
 #[test]
 fn an_edit_in_the_open_plugin_window_shows_at_once_and_undoing_it_clears_it() {
     use crate::api::SoundLibraryCmd;
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
@@ -1074,7 +1074,7 @@ fn an_edit_in_the_open_plugin_window_shows_at_once_and_undoing_it_clears_it() {
 #[test]
 fn a_probe_that_ends_without_a_result_does_not_stop_the_reads() {
     use crate::api::SoundLibraryCmd;
-    let Some(s) = session() else { return };
+    let s = session();
     s.offline_audio(None, 48_000).unwrap();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
