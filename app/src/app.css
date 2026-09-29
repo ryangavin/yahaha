@@ -112,11 +112,40 @@ select {
   color: inherit;
 }
 
-button {
-  cursor: pointer;
+/* No text selection, iOS callout or tap flash anywhere in the app: on an iPad
+   a tap on a control would otherwise start selecting text. Form fields opt
+   back in below so search and name fields still select and edit. */
+html {
   -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+select,
+[contenteditable]:not([contenteditable='false']) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* No double-tap-to-zoom delay on controls. Drag controls set touch-action: none. */
+button,
+a,
+input,
+select,
+textarea,
+label,
+[role='button'],
+[role='slider'],
+[tabindex] {
   touch-action: manipulation;
+}
+
+button {
+  cursor: pointer;
 }
 
 :focus-visible {
