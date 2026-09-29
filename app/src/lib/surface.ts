@@ -7,7 +7,7 @@ import { tipFor } from '../help/actions'
 import type { TipKey } from '../help/tooltips'
 import type { AppCmd, AppState, LibraryList, SurfaceControl, SurfaceFader, SurfaceState } from './api/types'
 
-export { neighbours } from './api/mock-surface'
+export { neighbours } from './api/constants'
 
 /** The surface, as the engine sends it. (`lib` is unused: kept for existing callers.) */
 export function surfaceOf(s: AppState, lib?: LibraryList): SurfaceState {
@@ -25,7 +25,19 @@ export function layer(c: SurfaceControl, shift: boolean): { label: string; actio
  * JSON gives `action` and `shiftAction` separate objects even when they're the same command.
  */
 export function hasShiftFunction(c: SurfaceControl): boolean {
-  return c.shiftLabel !== c.label || JSON.stringify(c.shiftAction) !== JSON.stringify(c.action)
+  return c.shiftLabel !== c.label || !sameValue(c.shiftAction, c.action)
+}
+
+/** Deep equality of two JSON values (a command's fields, in any key order). */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  const ka = Object.keys(a)
+  if (ka.length !== Object.keys(b).length) return false
+  const ra = a as Record<string, unknown>
+  const rb = b as Record<string, unknown>
+  return ka.every((k) => k in rb &&sameValue(ra[k], rb[k]))
 }
 
 /** The catalog entry for a control on the layer showing. */

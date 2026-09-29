@@ -14,7 +14,7 @@
   setDrumRule, setFamilyRule, setProgramOverride, clearStyleMap.
 -->
 <script lang="ts">
-  import { GM } from '../../lib/api/mock'
+  import { GM } from '../../lib/api/constants'
   import type { GmMapRow } from '../../lib/api/types'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'

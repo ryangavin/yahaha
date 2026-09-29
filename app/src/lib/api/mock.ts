@@ -28,8 +28,10 @@ import {
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PartEq, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
+import { GM, NOTE_NAMES, noteName } from './constants'
 
-export const GM: string[] = fixture.gm
+// Moved to ./constants (the app imports them from there, not from the mock).
+export { GM, noteName }
 
 interface FixtureStyle {
   id: number
@@ -116,13 +118,6 @@ const RESCAN_MS = 1200
 
 /** The default progression an audition plays, one chord a bar (#21). */
 export const AUDITION_PROGRESSION = ['C', 'Am', 'F', 'G7']
-
-const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
-
-/** Yamaha numbering: C3 = middle C (60). */
-export function noteName(n: number): string {
-  return `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 2}`
-}
 
 /** Move a chord name ("Am7/G") by `d` semitones. */
 export function transposeChord(name: string, d: number): string {

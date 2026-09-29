@@ -32,7 +32,7 @@
   are that bank's.
 -->
 <script lang="ts">
-  import { noteName } from '../../lib/api/mock'
+  import { noteName } from '../../lib/api/constants'
   import { bankLetter } from '../../lib/api/quick-racks'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
