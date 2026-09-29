@@ -195,9 +195,40 @@ mod imp {
         /// after it loaded (or after a Save), taken on a `plugin-state` thread. None until
         /// then, or when the voice names no sound (docs/sound-browser.md, "Edited").
         pub(crate) sound_fp: Option<u64>,
-        /// The plugin's state no longer matches the sound it was loaded from. It stays set
-        /// until a Save, Save as… or another sound.
+        /// The plugin's state no longer matches the sound it was loaded from: the latest
+        /// read's fingerprint is not `sound_fp` (so undoing an edit clears it), or
+        /// `start_edited`. A Save, Save as… or another sound clears it.
         pub(crate) edited: bool,
+        /// It loaded with a state that isn't its sound's (a recalled edit): the baseline
+        /// read is of that edit, so it stays edited until a Save or another sound.
+        pub(crate) start_edited: bool,
+        /// The fingerprint-only reads while its editor window is open ([`Probe`]).
+        pub(crate) probe: Probe,
+    }
+
+    /// While a part's plugin window is open, its state is read now and then on a
+    /// `plugin-state` thread, for its fingerprint only, so an edit made there shows as
+    /// "edited" within about a second rather than at the 30-second autosave. The next read
+    /// waits at least [`PROBE_NS`] after the last one, or four times as long as it took, so
+    /// a plugin whose state takes long to read (a big sampler) is read less often.
+    #[derive(Clone, Copy, Debug, Default)]
+    pub(crate) struct Probe {
+        /// A read is running.
+        pub(crate) running: bool,
+        /// Not before this (the pump's clock, ns).
+        pub(crate) next_ns: u64,
+    }
+
+    /// The shortest time between two fingerprint reads of a part whose window is open.
+    pub(crate) const PROBE_NS: u64 = 500_000_000;
+
+    /// A fingerprint read's result ([`Probe`]): the state itself is dropped on the reading
+    /// thread, so the control thread never holds (or saves) it.
+    pub(crate) struct ProbeRead {
+        inst: InstanceRef,
+        /// None: the read failed (it is tried again later).
+        fp: Option<u64>,
+        took_ns: u64,
     }
 
     impl ChannelPlugin {
@@ -222,11 +253,27 @@ mod imp {
                 fell_back: false,
                 sound_fp: None,
                 edited: false,
+                start_edited: false,
+                probe: Probe::default(),
             }
         }
 
         fn name(&self) -> String {
             self.info.as_ref().map_or_else(|| self.voice.id.clone(), |i| i.name.clone())
+        }
+
+        /// A state read's fingerprint, for "edited": the first read after the sound loaded
+        /// (or was saved) is its baseline (a plugin's own serialization, not the stored
+        /// bytes); a later read that differs means the editor changed it, and one that is
+        /// the baseline again means the change was undone.
+        fn note_fingerprint(&mut self, fp: u64) {
+            if self.voice.sound.is_none() {
+                return;
+            }
+            match self.sound_fp {
+                None => self.sound_fp = Some(fp),
+                Some(base) => self.edited = self.start_edited || base != fp,
+            }
         }
     }
 
@@ -281,6 +328,10 @@ mod imp {
         /// `savePartPluginState`): an out-of-process plugin's state is an XPC round trip and
         /// a sampler's can be MBs, so the control thread never waits for one.
         pub(crate) state_reads: Vec<mpsc::Receiver<StateRead>>,
+        /// Fingerprint reads of parts whose plugin window is open ([`Probe`]). Apart from
+        /// `state_reads`, so the autosave and a Save never wait for them. Each with its
+        /// channel, so a read that ends without a result still frees the channel's probe.
+        pub(crate) probes: Vec<(u8, mpsc::Receiver<ProbeRead>)>,
         /// Plugins preloaded for the Registration bank's buttons (plugins/pool.rs).
         pub(crate) warm: super::pool::WarmPool,
         /// Preset listings running (`listPluginPresets`).
@@ -410,6 +461,8 @@ mod imp {
                 fell_back: false,
                 sound_fp: None,
                 edited,
+                start_edited: edited,
+                probe: Probe::default(),
             });
             Ok(())
         }
@@ -514,6 +567,73 @@ mod imp {
             }
         }
 
+        /// Start a fingerprint read ([`Probe`]) of each keyboard part whose plugin window is
+        /// open, that plays a named sound and is due one.
+        fn start_probes(&mut self, now: u64) {
+            for &ch in parts::CHANNEL.iter() {
+                let Some(c) = self.plugins.channels[ch as usize].as_mut() else { continue };
+                if c.status != PluginStatus::Playing || c.voice.sound.is_none() || c.probe.running || now < c.probe.next_ns {
+                    continue;
+                }
+                let Some(e) = c.editor.as_ref().filter(|e| e.editor_open()).cloned() else { continue };
+                let (tx, rx) = mpsc::channel();
+                let ok = std::thread::Builder::new().name("plugin-state".into()).spawn(move || {
+                    let t0 = std::time::Instant::now();
+                    // The state is dropped here, on this thread: only its fingerprint goes.
+                    let fp = e.state().ok().map(|s| state_fingerprint(&s));
+                    let took_ns = t0.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+                    let inst = e.instance();
+                    // As in `read_states`: the unit is never disposed of on the control thread.
+                    drop(e);
+                    let _ = tx.send(ProbeRead { inst, fp, took_ns });
+                });
+                if ok.is_ok() {
+                    c.probe.running = true;
+                    self.plugins.probes.push((ch, rx));
+                }
+            }
+        }
+
+        /// Fingerprint reads done since the last pump: "edited" for the channels that still
+        /// play the instance read, and when each may be read next.
+        fn pump_probes(&mut self, now: u64) {
+            // Every read that ended, with its result if it sent one (None: its thread died).
+            let mut done = Vec::new();
+            self.plugins.probes.retain(|(ch, rx)| match rx.try_recv() {
+                Ok(r) => {
+                    done.push((*ch, Some(r)));
+                    false
+                }
+                Err(mpsc::TryRecvError::Empty) => true,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done.push((*ch, None));
+                    false
+                }
+            });
+            for (ch, r) in done {
+                // Whatever the outcome, the channel's probe has ended (unless another is
+                // still in flight for it), so the part keeps being read.
+                let pending = self.plugins.probes.iter().any(|(p, _)| *p == ch);
+                let Some(c) = self.plugins.channels[ch as usize].as_mut() else { continue };
+                if !pending {
+                    c.probe.running = false;
+                }
+                let Some(r) = r else {
+                    c.probe.next_ns = now.saturating_add(PROBE_NS);
+                    continue;
+                };
+                if !c.editor.as_ref().is_some_and(|e| r.inst.is(e)) {
+                    continue;
+                }
+                c.probe = Probe { running: pending, next_ns: now.saturating_add(PROBE_NS.max(r.took_ns.saturating_mul(4))) };
+                if let Some(fp) = r.fp
+                    && c.status == PluginStatus::Playing
+                {
+                    c.note_fingerprint(fp);
+                }
+            }
+        }
+
         /// Plugin states read since the last pump: into the channels' voices (to be saved),
         /// if the channel still plays the instance read.
         fn pump_state_reads(&mut self) {
@@ -537,15 +657,7 @@ mod imp {
                             c.voice.state = Some(s.clone());
                             self.plugins.dirty = true;
                         }
-                        // Edited: the first read after the sound loaded is its baseline
-                        // (a plugin's own serialization, not the stored bytes); a later
-                        // read that differs means the editor changed it.
-                        if c.voice.sound.is_some() {
-                            match c.sound_fp {
-                                None => c.sound_fp = Some(r.fp),
-                                Some(fp) => c.edited |= fp != r.fp,
-                            }
-                        }
+                        c.note_fingerprint(r.fp);
                         // A factory preset's first play: its sound keeps the state.
                         if let Some(tag) = c.voice.sound.clone() {
                             captures.push((tag, s));
@@ -604,6 +716,7 @@ mod imp {
             c.voice.sound = tag;
             c.sound_fp = None;
             c.edited = false;
+            c.start_edited = false;
             self.plugins.dirty |= parts::part_of_channel(ch).is_some();
         }
 
@@ -978,6 +1091,10 @@ mod imp {
             // them, so a crash or a window closed with the red button loses little. Read
             // on a thread (not while the last reads are still running).
             self.pump_state_reads();
+            // An open plugin window: an edit there shows within about a second (any
+            // session: the window is what starts them).
+            self.pump_probes(now);
+            self.start_probes(now);
             if self.offline.is_none() && now.saturating_sub(self.plugins.autosave_ns) >= 30_000_000_000 && self.plugins.state_reads.is_empty() {
                 self.plugins.autosave_ns = now;
                 let targets: Vec<(u8, EditorTarget)> = parts::CHANNEL

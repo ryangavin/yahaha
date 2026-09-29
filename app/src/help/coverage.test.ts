@@ -102,7 +102,7 @@ const STATES: [string, Setup][] = [
     s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
     s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
     s.advance(5000)
-    s.send({ type: 'savePartPluginState', part: 0 })
+    s.pluginWindow(0, 1)
     ui.soundBrowser = 0
     flushSync()
     click('sounds.save')

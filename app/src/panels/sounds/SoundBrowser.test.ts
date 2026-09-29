@@ -285,7 +285,7 @@ describe('the Save flow (O3)', () => {
     const s = await setup(0, onFactory)
     expect(foot()).toContain('Right 1 plays Sampler Deluxe · Bright Grand')
     expect(tipped('sounds.edited')).toHaveLength(0)
-    s.send({ type: 'savePartPluginState', part: 0 })
+    s.pluginWindow(0, 3)
     flushSync()
     expect(tipped('sounds.edited')[0].textContent).toBe('edited')
     // The two old save buttons are gone: one Save and one Save as….
@@ -299,8 +299,9 @@ describe('the Save flow (O3)', () => {
     expect(tipped('sounds.edited')).toHaveLength(0)
     // Now the part plays its own sound: Save overwrites it.
     const mine = s.state.keyboardParts[0].sound!
-    s.send({ type: 'savePartPluginState', part: 0 })
+    s.pluginWindow(0, 4)
     flushSync()
+    expect(tipped('sounds.edited')).toHaveLength(1)
     await fireEvent.click(tipped('sounds.save_over')[0])
     flushSync()
     expect(s.state.soundLibrary.patches.length).toBe(n + 1)

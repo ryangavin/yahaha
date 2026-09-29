@@ -547,10 +547,28 @@ export class MockSession implements Session {
     this.publish()
   }
 
+  /** The demo has no real plugin window: opening one turns its knob one step off the
+   * sound's setting (the part shows "edited" at once), and opening it again turns it back
+   * (the badge clears), as the engine's reads of an open window show. */
   pluginEditor(part: number, open: boolean) {
     if (!open) return
     const p = this.state.keyboardParts[part & 3]?.plugin
-    this.message(p ? `${p.name}'s window opens in the desktop app` : 'the part plays its SoundFont voice', !p)
+    if (p?.status === 'playing') {
+      this.pluginWindow(part, this.sound.pluginWindowDemo(part))
+      const kp = this.state.keyboardParts[part & 3]
+      const turned = !kp.sound ? '' : `; the demo turned its knob ${kp.soundEdited ? 'off' : 'back to'} the sound's setting`
+      this.message(`${p.name}'s window opens in the desktop app${turned}`)
+      this.publish()
+      return
+    }
+    this.message(p ? `${p.name} is not playing yet` : 'the part plays its SoundFont voice', true)
+    this.publish()
+  }
+
+  /** The mock plugin window on part `part` turned its knob to `value` (tests, the demo). */
+  pluginWindow(part: number, value: number) {
+    if (this.state.keyboardParts[part & 3]?.plugin?.status !== 'playing') return
+    this.sound.pluginWindow(part, value)
     this.publish()
   }
 
@@ -1754,8 +1772,7 @@ export class MockSession implements Session {
         this.plugins.cmd(cmd)
         break
       case 'savePartPluginState':
-        // The editor closed: the mock takes it as an edit (O3's "edited" badge).
-        if (st.keyboardParts[cmd.part & 3].plugin?.status === 'playing') this.sound.pluginEdited(cmd.part)
+        // The editor closed: "edited" already shows what its window changed.
         this.plugins.cmd(cmd)
         break
       case 'rescanPlugins':
