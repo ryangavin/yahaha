@@ -24,10 +24,12 @@ export function styleVoice(v: Voice | null): VoiceLines {
   return { plays: label || '—', writtenFor: '' }
 }
 
-/** A keyboard part's voice: its GM voice, or the Style's Bass voice under Manual Bass. */
+/** A keyboard part's voice: the engine's name for what sounds (`voiceName`: a plugin's
+ * preset or sound, a failed plugin's SoundFont voice), with what it is: the plugin's
+ * maker, the Style's Bass voice under Manual Bass, or its GM voice. */
 export function partVoice(p: KeyboardPart): VoiceLines {
   if (p.playsBass) return { plays: p.voiceName, writtenFor: 'Style Bass (Manual Bass)' }
-  if (p.plugin?.status === 'playing' || p.plugin?.status === 'muted') return { plays: p.plugin.name, writtenFor: p.plugin.manufacturer }
+  if (p.plugin && p.plugin.status !== 'failed') return { plays: p.voiceName, writtenFor: p.plugin.manufacturer }
   return { plays: p.voiceName, writtenFor: `GM ${p.program + 1}` }
 }
 

@@ -329,6 +329,13 @@ impl Control {
         }
     }
 
+    /// A font preset's name, as the catalog lists it (None for a preset not in the folder,
+    /// or one with no name).
+    pub(super) fn font_preset_name(&self, f: &crate::patches::FontPreset) -> Option<String> {
+        let p = self.sounds.presets.get(&f.file)?.iter().find(|p| p.bank == f.bank && p.program == f.program)?;
+        Some(p.name.trim().to_string()).filter(|n| !n.is_empty())
+    }
+
     fn save_sounds(&mut self, key: &str, value: serde_json::Result<serde_json::Value>) {
         let r = value.map_err(anyhow::Error::from).and_then(|v| write_key(self.sound_settings.as_deref(), key, v));
         if let Err(e) = r {
