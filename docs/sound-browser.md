@@ -1,5 +1,13 @@
 # Sound Browser: the Sound model and the GM map
 
+> **The browser is replaced.** Library ([racks.md](racks.md), "Screens") replaced the
+> Sounds modal and the Sound Library drawer: Library › Sounds and Instruments play sounds
+> on a part, and Library › Style map holds the GM map and Add from SoundFont. What is left
+> of the modal is the sound picker for a map rule (`app/src/panels/sounds/SoundPicker.svelte`).
+> `auditionSound` / `stopSoundAudition` are gone (a click in Library plays the sound on the
+> target part). The Sound model, the map's layers and the migrations below still hold;
+> the UI sections ("The Sounds tab", the drawer) are the record of the old screens.
+
 The Sound Browser rethink. This page is the model the whole sprint builds on: what a
 Sound is, how things name one, the GM map's layers, and how old files migrate. The
 owner's decisions D1–D6 are binding and listed at the end.

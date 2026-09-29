@@ -198,7 +198,7 @@ export type AppCmd =
   | SoundsCmd
   // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
   | HarmonyArpCmd
-  // Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
+  // Parameter Lock: groups that rack and OTS recalls leave alone.
   | { type: 'setParamLock'; item: LockItem; on: boolean }
   // Style Dynamics Control, Touch and Accent (#180): see DynamicsState below.
   | DynamicsCmd
@@ -425,7 +425,7 @@ export type AccentMode = 'hits' | 'fill'
 /** Accent hears the chord section only, or both hands. */
 export type AccentSource = 'left' | 'both'
 
-/** Style Dynamics: System settings, not in Registration. */
+/** Style Dynamics: System settings, not in racks. */
 export interface DynamicsState {
   /** Style Setting › Dynamics Control: the level acts on the Style. */
   control: boolean
@@ -1672,7 +1672,6 @@ export const KEYBOARD_PART_NAMES = ['Right 1', 'Right 2', 'Right 3', 'Left']
 export interface HomeState {
   mains: HomeMain[]
   progress: { running: boolean; bar: number; beat: number; bars: number | null; beatsPerBar: number; fraction: number }
-  snapshot: { index: number; label: string; name: string; bank: string } | null
   ots: { index: number; name: string } | null
   bandSends: { block: FxBlock; name: string; effectName: string; level: number }[]
 }

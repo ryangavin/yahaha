@@ -1,6 +1,6 @@
 // The mock's sound catalog (#117): what `src/session/sounds.rs` does, built from the mock's
 // fonts, plugins and sound library. No audio. MockSession calls `cmd` for its commands
-// (running what it hands back), `advance` for the audition, and `derive` after every change.
+// (running what it hands back) and `derive` after every change.
 // The twin of app/src-tauri/src/mock_sounds.rs.
 
 import { guessCategory, presetsOf } from './mock-sound-library'
@@ -10,7 +10,7 @@ import { originOfPresetKey, sameOrigin, type PatchCategory } from './sound-libra
 import type { AppCmd, AppState } from './types'
 
 export function initialSounds(): SoundsState {
-  return { revision: 0, count: 0, scanning: false, auditioning: null, listingPresets: [] }
+  return { revision: 0, count: 0, scanning: false, listingPresets: [] }
 }
 
 const PRESET_DIR = '/Users/mock/Library/Audio/Presets/Fake Instruments/Sampler Deluxe'
@@ -26,7 +26,6 @@ export class MockSounds {
   private favourites = new Set<string>()
   private recents: string[] = []
   private categories = new Map<string, PatchCategory>()
-  private audition: { id: string; left: number } | null = null
   private key = ''
   private revision = 0
   private presets = initialPresets()
@@ -103,10 +102,6 @@ export class MockSounds {
   /** Run a command: an error's text, or the commands the rest of the mock runs for it (an
    * `assignLastAdded` part: then give that part the patch just added). */
   cmd(st: AppState, c: SoundsCmd): { error?: string; run?: AppCmd[]; assignLastAdded?: number; saved?: string } {
-    if (c.type === 'stopSoundAudition') {
-      this.audition = null
-      return {}
-    }
     // The session mock adds the patch itself (`patchFor`), as a map rule's.
     if (c.type === 'addToMySounds') return {}
     // The session mock does it too (assignSound, keeping the part's mix).
@@ -150,10 +145,6 @@ export class MockSounds {
         if (saved) return { run: [{ type: 'setPatchFavourite', id: saved, favourite: c.on }] }
         if (c.on) this.favourites.add(c.id)
         else this.favourites.delete(c.id)
-        return {}
-      case 'auditionSound':
-        if (st.transport.running) return { error: 'Stop the band to audition a sound' }
-        this.audition = { id: c.id, left: 3000 }
         return {}
       case 'setSoundCategory': {
         if (saved) {
@@ -218,12 +209,6 @@ export class MockSounds {
     return { patch: st.soundLibrary.lastAdded ?? '' }
   }
 
-  advance(ms: number, running: boolean) {
-    if (!this.audition) return
-    this.audition.left -= ms
-    if (this.audition.left <= 0 || running) this.audition = null
-  }
-
   /** `state.sounds`: a new revision whenever what the catalog is built from changed. */
   derive(st: AppState) {
     const key = JSON.stringify([st.io.soundFonts, st.io.soundFontFile, st.plugins.list, st.soundLibrary.patches, [...this.favourites], this.recents, [...this.categories], this.presets])
@@ -237,7 +222,6 @@ export class MockSounds {
       revision: this.revision,
       count: presets + st.plugins.list.length + pluginPresets + st.soundLibrary.patches.length,
       scanning: st.plugins.scanning,
-      auditioning: this.audition?.id ?? null,
       listingPresets: [],
     }
   }
