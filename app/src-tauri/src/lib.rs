@@ -6,7 +6,9 @@
 //! - command `sounds() -> SoundCatalog` (the Sound Browser's list, #117)
 //! - command `meters() -> Meters` (the latest `meters` event's levels)
 //! - event `meters` (`Meters`): every part's peak, RMS and CPU, the pads and the master, at
-//!   about 30 Hz (`METER_PERIOD`)
+//!   about 30 Hz (`METER_PERIOD`), from the first `meters` call on
+//! - `state`, `library` and `sounds` answer with JSON serialized once, straight from the
+//!   session's shared state (no `serde_json::Value`, no copy of the state)
 //! - commands `open_plugin_editor(part)` / `close_plugin_editor(part)`: a keyboard part's
 //!   instrument plugin window, opened on the main thread (AppKit); closing it keeps the
 //!   plugin's settings with the part (`savePartPluginState`)
@@ -37,11 +39,13 @@ use std::path::Path;
 use std::path::PathBuf;
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use mock::MockSession;
 use serde_json::Value;
+use tauri::ipc::Response;
 use tauri::{Emitter, Manager, State};
 
 enum Backend {
@@ -75,37 +79,69 @@ fn send(cmd: Value, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result
     }
 }
 
+/// `v` as JSON, serialized once straight to the string the webview gets (no
+/// `serde_json::Value` tree in between).
+fn json<T: serde::Serialize + ?Sized>(v: &T) -> String {
+    serde_json::to_string(v).unwrap_or_else(|_| "null".into())
+}
+
+/// `state` as JSON with its clock read at `now_ms` (`ClockState::at`), as `state_now` would
+/// give it, without cloning the whole state: the state is serialized as it is, and its one
+/// `"clock":{…}` object is swapped for the clock read now. `ClockState` is a flat object and
+/// the state holds exactly one (`surface.clock`), so the stale clock's JSON after its key
+/// is found only there. Should it not be found, the state is cloned and serialized as before.
+fn state_json(state: &yahaha::AppState, now_ms: f64) -> String {
+    let stale = &state.surface.clock;
+    let out = json(state);
+    let needle = format!("\"clock\":{}", json(stale));
+    match out.find(&needle) {
+        Some(at) => {
+            let fresh = json(&stale.at(now_ms));
+            let mut s = String::with_capacity(out.len() + fresh.len() + 16);
+            s.push_str(&out[..at + "\"clock\":".len()]);
+            s.push_str(&fresh);
+            s.push_str(&out[at + needle.len()..]);
+            s
+        }
+        None => {
+            let mut st = state.clone();
+            st.surface.clock = stale.at(now_ms);
+            json(&st)
+        }
+    }
+}
+
 #[tauri::command]
-fn state(backend: State<'_, Shared>, app: tauri::AppHandle) -> Value {
-    match &**backend {
-        // With its clock read now (docs/app-api.md, `surface.clock`).
-        Backend::Live(s) => serde_json::to_value(s.state_now()).unwrap_or(Value::Null),
+fn state(backend: State<'_, Shared>, app: tauri::AppHandle) -> Response {
+    Response::new(match &**backend {
+        // With its clock read now (docs/app-api.md, `surface.clock`), as `Session::state_now`.
+        Backend::Live(s) => state_json(&s.state(), yahaha::api::ns_to_ms(s.now_ns())),
         Backend::Mock(m) => {
             let mut m = m.lock().unwrap();
             // The mock's clock moved on to now first, as the engine's is always now.
             if m.catch_up() {
                 let _ = app.emit("yahaha", yahaha::Event::StateChanged { version: m.state.version });
             }
-            serde_json::to_value(m.state_now()).unwrap_or(Value::Null)
+            state_json(&m.state, m.now_ms())
         }
-    }
+    })
 }
 
 #[tauri::command]
-fn library(backend: State<'_, Shared>) -> Value {
-    match &**backend {
-        Backend::Live(s) => serde_json::to_value(s.library_list()).unwrap_or(Value::Null),
-        Backend::Mock(m) => serde_json::to_value(m.lock().unwrap().library()).unwrap_or(Value::Null),
-    }
+fn library(backend: State<'_, Shared>) -> Response {
+    Response::new(match &**backend {
+        Backend::Live(s) => json(&s.library_list()),
+        Backend::Mock(m) => json(m.lock().unwrap().library()),
+    })
 }
 
 /// The sound catalog (#117): every preset, plugin and saved sound.
 #[tauri::command]
-fn sounds(backend: State<'_, Shared>) -> Value {
-    match &**backend {
-        Backend::Live(s) => serde_json::to_value(&*s.sound_catalog()).unwrap_or(Value::Null),
-        Backend::Mock(m) => serde_json::to_value(m.lock().unwrap().sounds()).unwrap_or(Value::Null),
-    }
+fn sounds(backend: State<'_, Shared>) -> Response {
+    Response::new(match &**backend {
+        Backend::Live(s) => json(&*s.sound_catalog()),
+        Backend::Mock(m) => json(&m.lock().unwrap().sounds()),
+    })
 }
 
 /// How often the `meters` event goes out: about 30 Hz.
@@ -115,18 +151,33 @@ const METER_PERIOD: Duration = Duration::from_micros(33_333);
 /// session's meters; the command hands out its latest frame).
 static LAST_METERS: std::sync::Mutex<Option<yahaha::api::Meters>> = std::sync::Mutex::new(None);
 
+/// The meter thread starts on the first `meters` call: until something reads meters, nothing
+/// polls the session for them.
+static METERS_STARTED: std::sync::Once = std::sync::Once::new();
+
 /// Output levels: the latest `meters` event's (each part's and the pads' peak, RMS and CPU,
-/// the master's, the clip count). The mock has no audio: zero levels, and made-up CPU
-/// figures per track (#340).
+/// the master's, the clip count). The first call starts the `meters` event (a first
+/// reading taken there, then the thread at `METER_PERIOD`). The mock has no audio: zero
+/// levels, and made-up CPU figures per track (#340).
 #[tauri::command]
-fn meters(backend: State<'_, Shared>) -> Value {
+fn meters(backend: State<'_, Shared>, app: tauri::AppHandle) -> Value {
     match &**backend {
-        Backend::Live(_) => serde_json::to_value(LAST_METERS.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default()).unwrap_or(Value::Null),
+        Backend::Live(s) => {
+            METERS_STARTED.call_once(|| {
+                *LAST_METERS.lock().unwrap_or_else(|e| e.into_inner()) = Some(s.meters());
+                let b = backend.inner().clone();
+                if let Err(e) = std::thread::Builder::new().name("meters".into()).spawn(move || emit_meters(app, b)) {
+                    eprintln!("yahaha: no meters thread ({e})");
+                }
+            });
+            serde_json::to_value(LAST_METERS.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default()).unwrap_or(Value::Null)
+        }
         Backend::Mock(m) => serde_json::to_value(m.lock().unwrap_or_else(|e| e.into_inner()).meters()).unwrap_or(Value::Null),
     }
 }
 
-/// Read the session's meters at `METER_PERIOD` and send them as the `meters` event.
+/// Read the session's meters at `METER_PERIOD` and send them as the `meters` event. Started
+/// by the first `meters` call.
 fn emit_meters(app: tauri::AppHandle, backend: Shared) {
     let Backend::Live(s) = &*backend else { return };
     loop {
@@ -275,20 +326,77 @@ fn close_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHand
     Err(failed("plugins are macOS only"))
 }
 
-/// Forward the engine's events to the webview. The frontend coalesces `stateChanged` to
-/// one fetch per animation frame.
+/// At most one `stateChanged` goes to the webview per this long (about a display frame).
+const STATE_PERIOD: Duration = Duration::from_millis(16);
+
+/// Pass `rx`'s events to `emit` (which returns false to stop), with `StateChanged` coalesced
+/// to at most one per `period`: one that comes sooner than `period` after the last one sent
+/// waits until then, replaced by any later one, so the latest version always goes out.
+/// Other events go out at once, in order. A waiting `StateChanged` goes out before
+/// `Stopped`, and when `rx` closes. Ends after `Stopped`.
+fn coalesce_events(rx: &mpsc::Receiver<yahaha::Event>, period: Duration, mut emit: impl FnMut(yahaha::Event) -> bool) {
+    use yahaha::Event;
+    // When the last `StateChanged` went out, and the one waiting (only while `last` is set).
+    let mut last: Option<Instant> = None;
+    let mut waiting: Option<Event> = None;
+    loop {
+        let next = match (waiting, last) {
+            (Some(_), Some(t)) => match (t + period).checked_duration_since(Instant::now()) {
+                Some(left) => rx.recv_timeout(left),
+                None => Err(RecvTimeoutError::Timeout),
+            },
+            _ => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
+        match next {
+            Ok(e @ Event::StateChanged { .. }) => {
+                if last.is_none_or(|t| t.elapsed() >= period) {
+                    last = Some(Instant::now());
+                    waiting = None;
+                    if !emit(e) {
+                        return;
+                    }
+                } else {
+                    waiting = Some(e);
+                }
+            }
+            Ok(e) => {
+                let stopped = e == Event::Stopped;
+                if stopped && let Some(w) = waiting.take() && !emit(w) {
+                    return;
+                }
+                if !emit(e) || stopped {
+                    return;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                last = Some(Instant::now());
+                if let Some(w) = waiting.take() && !emit(w) {
+                    return;
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                if let Some(w) = waiting.take() {
+                    emit(w);
+                }
+                return;
+            }
+        }
+    }
+}
+
+/// Forward the engine's events to the webview, `stateChanged` at most once per
+/// `STATE_PERIOD` (the engine can change its state ~100 times a second; the frontend
+/// fetches the state on each). The frontend also merges them to one fetch at a time.
 fn forward_events(app: tauri::AppHandle, backend: Shared) {
     let Backend::Live(s) = &*backend else { return };
-    for e in s.subscribe() {
-        let stopped = e == yahaha::Event::Stopped;
+    let rx = s.subscribe();
+    coalesce_events(&rx, STATE_PERIOD, |e| {
         if matches!(e, yahaha::Event::StateChanged { .. }) {
             #[cfg(target_os = "macos")]
             close_stale_editors(&app, s);
         }
-        if app.emit("yahaha", e).is_err() || stopped {
-            break;
-        }
-    }
+        app.emit("yahaha", e).is_ok()
+    });
 }
 
 /// Tick the mock at ~60 Hz and tell the webview when its state changed.
@@ -397,10 +505,7 @@ pub fn run() {
             std::thread::Builder::new()
                 .name(if live { "session-events" } else { "mock-tick" }.into())
                 .spawn(move || if live { forward_events(handle, b) } else { tick_mock(handle, b) })?;
-            if live {
-                let (handle, b) = (app.handle().clone(), app.state::<Shared>().inner().clone());
-                std::thread::Builder::new().name("meters".into()).spawn(move || emit_meters(handle, b))?;
-            }
+            // The meter thread starts on the first `meters` call.
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![send, state, library, sounds, meters, open_plugin_editor, close_plugin_editor])
@@ -448,6 +553,86 @@ mod tests {
         let now = |p: u8| [Some(0x10), Some(0x99), Some(0x31), None][p as usize];
         assert_eq!(stale_editors(&editing, now), vec![(2, 0x30), (3, 0x40)]);
         assert!(stale_editors(&[0; 4], |_| None).is_empty());
+    }
+
+    /// `state` hands out the same JSON as serializing `state_now` did: the clock read now,
+    /// everything else as it is, with no clone of the state.
+    #[test]
+    fn state_json_is_state_now_with_the_clock_patched() {
+        let mut m = MockSession::new();
+        m.advance(1234.5); // the demo plays: the clock's position moves on
+        let now = m.now_ms();
+        // Read later than the state's own clock, so the patch changes something.
+        let later = now + 777.25;
+        let got = state_json(&m.state, later);
+        let mut want = m.state.clone();
+        want.surface.clock = want.surface.clock.at(later);
+        assert_ne!(want.surface.clock, m.state.surface.clock);
+        assert_eq!(got, serde_json::to_string(&want).unwrap(), "byte for byte, in the state's field order");
+        let back: yahaha::AppState = serde_json::from_str(&got).unwrap();
+        assert_eq!(back, want);
+        // The mock's own reading: as `state_now`.
+        assert_eq!(state_json(&m.state, m.now_ms()), serde_json::to_string(&m.state_now()).unwrap());
+    }
+
+    use yahaha::Event::{LibraryChanged, SoundsChanged, StateChanged, Stopped};
+
+    /// A burst of state changes goes out as the first and then the latest; other events
+    /// pass at once, in order; the waiting change goes out before `Stopped`, and nothing
+    /// after it.
+    #[test]
+    fn state_changes_are_coalesced_other_events_pass() {
+        let (tx, rx) = mpsc::channel();
+        for version in 1..=100 {
+            tx.send(StateChanged { version }).unwrap();
+            if version == 50 {
+                tx.send(LibraryChanged { revision: 7 }).unwrap();
+                tx.send(SoundsChanged { revision: 3 }).unwrap();
+            }
+        }
+        tx.send(Stopped).unwrap();
+        tx.send(StateChanged { version: 101 }).unwrap();
+        let mut out = vec![];
+        // A long period: the whole burst falls in it.
+        coalesce_events(&rx, Duration::from_secs(60), |e| {
+            out.push(e);
+            true
+        });
+        assert_eq!(
+            out,
+            vec![StateChanged { version: 1 }, LibraryChanged { revision: 7 }, SoundsChanged { revision: 3 }, StateChanged { version: 100 }, Stopped]
+        );
+    }
+
+    /// A change that waits goes out once its period is up, with no further event to wake
+    /// the thread; one after a quiet period goes out too.
+    #[test]
+    fn a_waiting_state_change_goes_out_after_the_period() {
+        let (tx, rx) = mpsc::channel();
+        let (out_tx, out_rx) = mpsc::channel();
+        let period = Duration::from_millis(40);
+        let t = std::thread::spawn(move || {
+            coalesce_events(&rx, period, |e| {
+                out_tx.send((e, Instant::now())).unwrap();
+                true
+            })
+        });
+        let start = Instant::now();
+        tx.send(StateChanged { version: 1 }).unwrap();
+        tx.send(StateChanged { version: 2 }).unwrap();
+        let wait = Duration::from_secs(5);
+        let (first, _) = out_rx.recv_timeout(wait).unwrap();
+        let (second, at) = out_rx.recv_timeout(wait).unwrap();
+        assert_eq!((first, second), (StateChanged { version: 1 }, StateChanged { version: 2 }));
+        assert!(at - start >= period, "the second waited for the period");
+        std::thread::sleep(period * 2);
+        let quiet = Instant::now();
+        tx.send(StateChanged { version: 3 }).unwrap();
+        let (third, at) = out_rx.recv_timeout(wait).unwrap();
+        assert_eq!(third, StateChanged { version: 3 });
+        assert!(at >= quiet);
+        drop(tx);
+        t.join().unwrap();
     }
 
     /// When the engine can't start, the stand-in mock doesn't pass for a working rig.
