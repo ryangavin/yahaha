@@ -1213,7 +1213,7 @@ Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `
 
 ### `liveRack`
 The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
-plugin states included. `{ name, id, modified }`.
+plugin states included. `{ name, id, modified, controls }`.
 - `name`: the saved rack's it came from; `Restored` on the first start after racks came in
   (made from the old `plugin-parts.json` and the parts); `New rack` when it came from none.
 - `id`: the saved rack it came from, or null.
@@ -1222,6 +1222,12 @@ plugin states included. `{ name, id, modified }`.
   keyboard transpose, Harmony/Arp, the controller map, or a plugin edit (`soundEdited`).
   It shows at once (a Launchkey fader within the control thread's next 10 ms). Loading or
   saving a rack clears it (the rack commands, docs/racks.md).
+- `controls`: its controller map, `{ faders, knobs }`: four and eight targets for
+  Launchkey faders 1–4 and knobs 1–8 on the Rack knob page. A target is `{ "kind": "none" }`,
+  `partLevel`, `partPan`, `partReverb` or `partChorus` with `part` 0–3, `harmonyArp` or
+  `splitPoint`; a target a newer build wrote is passed through as it is. A new rack has the
+  four parts' levels on faders 1–4 and knobs 1–4, and none on knobs 5–8. The Rack panel
+  shows it.
 
 A live session autosaves the live rack to `~/Library/Application Support/yahaha/live-rack.json`
 (atomically, off the control and audio threads: a second after the last change, or at most
@@ -1978,7 +1984,13 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "inserts": [], "insertsOn": true, "rotaryFast": false
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "snapshot": null, "ots": null, "bandSends": [] },
-  "liveRack": { "name": "Restored", "id": null, "modified": true },
+  "liveRack": {
+    "name": "Restored", "id": null, "modified": true,
+    "controls": {
+      "faders": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }],
+      "knobs": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }]
+    }
+  },
   "message": null
 }
 ```

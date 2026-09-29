@@ -11,7 +11,8 @@
    │ 8 buttons  M │  Track  [◀ ▶]    [ 8 pads, bottom row ] Func    Play                   │
    └──────────────┴────────────────────────────────────────────────────────────────────────┘
 
-  The fader head carries the Parts & OTS, Sounds and Mixer drawer buttons, and the pad-page
+  The fader head names the rack ("Rack: <name> ●" while modified) and carries the Rack,
+  Sounds and Mixer drawer buttons; under each part fader, its sound. The pad-page
   row the Multi Pads one (lib/ui/DrawerButton: small and quieter, not hardware).
 
   Every element shows its function on the current pad/fader page and Shift layer, has a
@@ -32,6 +33,7 @@
   import HwPad from './HwPad.svelte'
   import KnobStrip from './KnobStrip.svelte'
   import StatusDisplay from './StatusDisplay.svelte'
+  import { rackName } from '../rack/rack'
 
   const s = $derived(app.state)
   const surface = $derived(surfaceOf(s, app.library))
@@ -56,10 +58,10 @@
     <!-- Left of the screen, as on the hardware (and first in tab order). -->
     <div class="faders">
       <div class="fader-head">
-        <span class="engraved">Faders · {s.mixer.faderPage === 'panel' ? 'Panel: your parts' : 'Style: the band'}</span>
-        <!-- The drawers that detail what the faders play: your parts, their sounds, the mix. -->
+        <span class="engraved head-text">Faders · {#if s.mixer.faderPage === 'panel'}<b class="rackname">Rack: {rackName(s.liveRack)}{s.liveRack.modified ? ' ●' : ''}</b>{:else}Style: the band{/if}</span>
+        <!-- The drawers that detail what the faders play: your rack, the sounds, the mix. -->
         <nav class="drawers" aria-label="Part panels">
-          <DrawerButton tip="drawer.parts" open={ui.parts} onclick={() => ui.toggleDrawer('parts')}>Parts & OTS</DrawerButton>
+          <DrawerButton tip="drawer.rack" open={ui.rack} onclick={() => ui.toggleDrawer('rack')}>Rack</DrawerButton>
           <DrawerButton tip="drawer.sound" open={ui.sound} onclick={() => ui.toggleDrawer('sound')}>Sounds</DrawerButton>
           <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleDrawer('mixer')}>Mixer</DrawerButton>
         </nav>
@@ -289,8 +291,19 @@
     gap: 0.8em;
     min-width: 0;
   }
+  .head-text {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rackname {
+    color: var(--ink);
+    font-weight: 700;
+  }
   .drawers {
     display: flex;
+    flex: none;
     gap: 0.35em;
   }
   .fader-body {

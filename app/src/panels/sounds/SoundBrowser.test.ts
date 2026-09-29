@@ -107,6 +107,22 @@ describe('Sounds tab (#117, O6)', () => {
     expect(document.querySelector('.count')!.textContent).not.toContain('listing presets')
   })
 
+  it('on a part whose plugin is missing, a pick replaces the sound and keeps the mix (Replace…)', async () => {
+    const s = await setup(2, (m) => {
+      m.send({ type: 'setPartVolume', part: 2, volume: 33 })
+      m.missingPlugin(2)
+    })
+    const sent: string[] = []
+    const orig = s.send.bind(s)
+    s.send = (c) => (sent.push(c.type), orig(c))
+    await chip('FluidR3_GM')
+    await filter('cello')
+    await key('Enter')
+    expect(sent).toContain('replacePartSound')
+    expect(sent).not.toContain('assignSound')
+    expect(s.state.keyboardParts[2].volume).toBe(33)
+  })
+
   it('an instrument chip lists every preset of the font; Enter plays one on the part', async () => {
     const s = await setup(1)
     await chip('FluidR3_GM')

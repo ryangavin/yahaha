@@ -413,7 +413,7 @@ impl MockSession {
                 ..EffectsState::initial()
             },
             home: HomeState::default(),
-            live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false },
+            live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default() },
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -2528,7 +2528,7 @@ mod tests {
                 m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
                 m.state.live_rack.modified = false;
             }
-            assert_eq!(m.state.live_rack, LiveRackState { name: "New rack".into(), id: None, modified: false });
+            assert_eq!(m.state.live_rack, LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default() });
             m.send(TransportCmd::StartStop);
             m.advance(bar_ms(&m) * 2.0);
             assert!(!m.state.live_rack.modified, "change {i}: not by the band");

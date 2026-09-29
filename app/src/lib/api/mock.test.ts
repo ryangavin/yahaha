@@ -21,7 +21,9 @@ describe('mock session', () => {
       { type: 'setHarmonyArpOn', on: true },
     ] as const) {
       const m = new MockSession({ manual: true })
-      expect(m.state.liveRack).toEqual({ name: 'New rack', id: null, modified: false })
+      expect(m.state.liveRack).toMatchObject({ name: 'New rack', id: null, modified: false })
+      expect(m.state.liveRack.controls.faders).toEqual([0, 1, 2, 3].map((part) => ({ kind: 'partLevel', part })))
+      expect(m.state.liveRack.controls.knobs.slice(4)).toEqual(Array(4).fill({ kind: 'none' }))
       m.send({ type: 'startStop' })
       m.advance(bar(m) * 2)
       expect(m.state.liveRack.modified).toBe(false)

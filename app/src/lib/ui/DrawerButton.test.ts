@@ -11,7 +11,7 @@ import { ui } from '../store.svelte'
 
 afterEach(() => {
   cleanup()
-  ui.parts = ui.mixer = ui.sound = ui.multipad = ui.charts = ui.harmony = ui.looper = ui.settings = false
+  ui.rack = ui.mixer = ui.sound = ui.multipad = ui.charts = ui.harmony = ui.looper = ui.settings = false
   ui.browser = false
 })
 
@@ -24,7 +24,7 @@ const btn = (sel: string) => document.querySelector<HTMLButtonElement>(sel)!
 
 describe('drawer buttons on the stage', () => {
   const PLACES = [
-    ['drawer.parts', 'parts', '.faders'],
+    ['drawer.rack', 'rack', '.faders'],
     ['drawer.sound', 'sound', '.faders'],
     ['drawer.mixer', 'mixer', '.faders'],
     ['drawer.multipad', 'multipad', '.pagebar'],

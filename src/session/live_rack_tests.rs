@@ -81,7 +81,7 @@ fn put_fake_plugin(s: &Session) {
 fn stop_then_start_restores_the_parts_the_mix_and_a_plugins_state() {
     let d = dir("restore");
     let a = session(&d);
-    assert_eq!(live(&a), LiveRackState { name: NEW_NAME.into(), id: None, modified: false }, "no live rack yet: a new one");
+    assert_eq!(live(&a), LiveRackState { name: NEW_NAME.into(), id: None, modified: false, controls: ControlMap::default() }, "no live rack yet: a new one");
     a.send(PartsCmd::SetPartVoice { part: 0, program: 4 }).unwrap();
     a.send(PartsCmd::SetPartVolume { part: 0, volume: 77 }).unwrap();
     a.send(PartsCmd::SetPartPan { part: 0, pan: 30 }).unwrap();
@@ -104,7 +104,7 @@ fn stop_then_start_restores_the_parts_the_mix_and_a_plugins_state() {
     let b = session(&d);
     let after = (parts(&b), b.state().chord.split, b.state().chord.transpose_keyboard, b.state().harmony_arp.clone());
     assert_eq!(after, before, "the parts sound and mix as before the stop");
-    assert_eq!(live(&b), LiveRackState { name: NEW_NAME.into(), id: None, modified: true }, "still unsaved");
+    assert_eq!(live(&b), LiveRackState { name: NEW_NAME.into(), id: None, modified: true, controls: ControlMap::default() }, "still unsaved");
     if cfg!(feature = "plugins") {
         let again = b.capture_rack("");
         assert_eq!(again.parts[2].sound, SoundRef::Plugin { component: FAKE_PLUGIN.into() });
@@ -118,7 +118,7 @@ fn stop_then_start_restores_the_parts_the_mix_and_a_plugins_state() {
     b.stop();
     let c = session(&d);
     c.advance(MAX_WAIT_NS);
-    assert_eq!(live(&c), LiveRackState { name: "Ballad".into(), id: Some("r1".into()), modified: false });
+    assert_eq!(live(&c), LiveRackState { name: "Ballad".into(), id: Some("r1".into()), modified: false, controls: ControlMap::default() });
     drop(c);
     let _ = std::fs::remove_dir_all(&d);
 }
@@ -156,7 +156,7 @@ fn plugin_parts_json_becomes_the_live_rack_restored() {
     std::fs::write(&old, &fixture).unwrap();
 
     let a = session(&d);
-    assert_eq!(live(&a), LiveRackState { name: RESTORED_NAME.into(), id: None, modified: true }, "saved nowhere else, so modified");
+    assert_eq!(live(&a), LiveRackState { name: RESTORED_NAME.into(), id: None, modified: true, controls: ControlMap::default() }, "saved nowhere else, so modified");
     if cfg!(feature = "plugins") {
         let plugin = a.state().keyboard_parts[1].plugin.clone().expect("Right 2's plugin from plugin-parts.json");
         assert_eq!(plugin.id, FAKE_PLUGIN);
@@ -265,6 +265,9 @@ fn every_kind_of_change_sets_modified() {
         change(&s);
         assert!(live(&s).modified, "{what} sets modified");
         assert_eq!((live(&s).name.as_str(), live(&s).id.as_deref()), ("Ballad", Some("r1")), "{what}: still the same rack");
+        if *what == "controller map" {
+            assert_eq!(live(&s).controls.knobs[6], ControlTarget::SplitPoint, "the state shows the rack's controller map");
+        }
     }
     let _ = std::fs::remove_dir_all(&d);
 }

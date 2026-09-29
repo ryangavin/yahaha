@@ -235,6 +235,21 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 | **Library patch** | The part plays a patch from your sound library. Pick a GM voice instead to go back to it. | Voice Selection | — | — |
 
+## Rack panel
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Save rack** | Saves the rack over your own saved rack, with any edited sounds. Not in this build yet: it arrives with the rack commands. The live rack is autosaved meanwhile, so nothing is lost. | Registration Memory › Save | — | — |
+| **Save as…** | Saves the rack as a new rack of yours, under a name you give. Not in this build yet: it arrives with the rack commands. | — | — | — |
+| **Revert** | Puts the rack back as it was last loaded or saved, dropping the unsaved changes. Not in this build yet: it arrives with the rack commands. | — | — | — |
+| **Harmony / Arp type** | The Keyboard Harmony type or arpeggio pattern this rack plays, saved with the rack. The switch next to it turns Harmony/Arp on or off; the Harmony/Arp drawer has its settings. | Keyboard Harmony/Arpeggio type | — | — |
+| **Controller map** | Shows what Launchkey faders 1–4 and knobs 1–8 do while this rack is loaded, on the Rack knob page. It is saved with the rack. | — | — | — |
+| **Keyboard part** | Makes this part the one you edit: Voice −/+ and the Sound Browser act on it, as the Launchkey's EDIT pads do. Clicking anywhere in the part does the same. | PART SELECT | — | Pad page 3 (OTS/Parts), bottom row, pads 5–8 (EDIT R1…L) |
+| **Sound** | The sound this part plays. Click to open the Sound Browser on this part and pick another; the part keeps its level, pan, sends and octave. | Voice select (VOICE buttons) | — | — |
+| **Edit** | Opens the part's plugin window over the app. What you change there marks the sound "edited" until you save it. SoundFont sounds have no editor. | Voice Edit | — | — |
+| **Save sound** | Keeps the plugin edits in the sound: your own sound is updated; a factory preset is never overwritten and is saved as a new sound of yours instead. The part's mix is not part of the sound. | Voice Setting › Save | — | — |
+| **Replace…** | The plugin this part plays isn't installed, so the part is silent. Opens the Sound Browser on this part: the sound you pick replaces it and the part keeps its level, pan, sends and octave. Nothing is saved until you save the rack; reinstalling the plugin brings the sound back. | — | — | — |
+
 ## Sound Browser
 
 | control | what it does | Genos | key | Launchkey |
@@ -500,6 +515,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Launchkey** | Whether the Launchkey is connected in DAW mode, so its pads and buttons are arranger controls. | — | — | — |
 | **Unused fader** | On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under faders 6–8 |
 | **Unused pad** | This pad does nothing on this page and stays dark. | — | — | — |
+| **Part sound** | The sound this keyboard part plays: ● when its plugin has unsaved edits, ⚠ when its plugin is missing. Click to open the Sound Browser on this part. | Voice name (Home screen) | — | — |
 
 ## Lead-sheet band
 
@@ -546,7 +562,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Sound Browser** | Opens the Sound Browser for the selected keyboard part (Right 1 if none): every preset, plugin and saved sound. Press again to close. | Voice Selection | `Alt+B` (terminal: ) | — |
 | **Styles** | Opens the style browser. Press again to close. | Style Selection | `Alt+S` (terminal: ) | — |
 | **Registrations** | Opens the Registration panel: bank, groups, sequence and playlist. Press again to close. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
-| **Parts and OTS** | Opens the keyboard parts drawer with the style's One Touch Settings. Press again to close. | ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
+| **Rack** | Opens the Rack: what's under your hands (the four keyboard parts with their sounds and mix, the split, Harmony/Arp, transpose) and the style's One Touch Settings. Press again to close. | Voice Setting, ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
 | **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
 | **Effects** | Opens the Mixer, where the Reverb, Chorus and Variation effect blocks live. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
 | **Mixer** | Opens the full mixer. Press again to close. | Mixer | `Alt+M` (terminal: ) | — |
@@ -560,7 +576,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Keyboard parts and OTS** | Opens the detail of Right 1–3 and Left (voice, volume, octave, on/off) and the style's One Touch Settings. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the same controls |
+| **Rack** | Opens the Rack: Right 1–3 and Left with their sounds and mix, the split, Harmony/Arp, transpose, the controller map and the style's One Touch Settings. Alt+O too. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the part and OTS controls |
 | **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
 | **Charts** | Opens the iReal Pro chart player: import playlists, pick a song, and set how the band plays it. | — | — | — |
 | **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |

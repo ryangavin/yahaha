@@ -4,7 +4,7 @@
 //   ?theme=light   start in the light theme (not remembered)
 //   ?help=1        start in help mode
 //   ?tip=<key>     show the help-footer entry of the first control with that catalog key
-//   ?open=browser|settings|parts|mixer|charts|looper|multipad|harmony|regist|playlist|sound|sounds   open an overlay or drawer (sounds: the Sound Browser for Right 1)
+//   ?open=browser|settings|rack|mixer|charts|looper|multipad|harmony|regist|playlist|sound|sounds   open an overlay or drawer (sounds: the Sound Browser for Right 1)
 //   ?shift=1       latch the Launchkey mirror's Shift layer
 //   ?styles=N      mock: add N synthetic styles to the library (e.g. 60000; read in api/session.ts)
 //   ?chart=1       mock: import the demo chart playlist, chart mode on (read in api/session.ts)
@@ -22,7 +22,8 @@ export function applyUrlParams(search = location.search) {
   const open = p.get('open')
   if (open === 'browser') ui.browser = true
   if (open === 'sounds') ui.soundBrowser = 0
-  if (open === 'settings' || open === 'parts' || open === 'mixer' || open === 'charts' || open === 'looper' || open === 'multipad' || open === 'harmony' || open === 'regist' || open === 'sound') ui.toggleDrawer(open)
+  if (open === 'parts') ui.toggleDrawer('rack') // the Rack panel's old name
+  if (open === 'settings' || open === 'rack' || open === 'mixer' || open === 'charts' || open === 'looper' || open === 'multipad' || open === 'harmony' || open === 'regist' || open === 'sound') ui.toggleDrawer(open)
   if (open === 'playlist') {
     ui.registTab = 'playlist'
     ui.toggleDrawer('regist')

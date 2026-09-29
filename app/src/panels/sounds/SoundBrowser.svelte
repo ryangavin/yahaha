@@ -176,7 +176,8 @@
   function assign(i: number) {
     const e = entries[i]
     if (!e) return
-    if (!pick) return app.send({ type: 'assignSound', part, id: e.id })
+    // A part whose plugin is missing: Replace… keeps its mix (docs/racks.md).
+    if (!pick) return app.send({ type: kp?.plugin?.missing ? 'replacePartSound' : 'assignSound', part, id: e.id })
     pick.onpick(e.id)
     ui.soundPick = null
   }

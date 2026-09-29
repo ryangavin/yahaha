@@ -126,11 +126,22 @@ const STATES: [string, Setup][] = [
     s.send({ type: 'setPedal', pedal: 2, cc: 4, function: 'pitchBend', controlType: 'holdA', reverse: false, range: 'full' })
     ui.settings = true
   }],
-  ['parts drawer open', () => (ui.parts = true)],
-  ['parts drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.parts = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
-  ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
-  ['parts drawer, Right 1 on a plugin', (s) => ((ui.parts = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
-  ['parts drawer, Right 2 loading a plugin', (s) => ((ui.parts = true), s.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null }))],
+  ['rack drawer open', () => (ui.rack = true)],
+  ['rack drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.rack = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
+  ['rack drawer, fader page Style', (s) => ((ui.rack = true), s.send({ type: 'toggleFaderPage' }))],
+  ['rack drawer, Right 1 on a plugin', (s) => ((ui.rack = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
+  ['rack drawer: modified, controller map open, an edited sound, a missing plugin (Replace…)', (s) => {
+    s.send({ type: 'stop' })
+    s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
+    s.advance(5000)
+    s.pluginWindow(0, 1)
+    s.missingPlugin(2)
+    ui.rack = true
+    flushSync()
+    click('rack.map')
+  }],
+  ['rack drawer, Right 2 loading a plugin',(s) => ((ui.rack = true), s.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null }))],
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer, a plugin part', (s) => ((ui.mixer = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
   ['harmony drawer open', () => (ui.harmony = true)],
@@ -171,7 +182,7 @@ const STATES: [string, Setup][] = [
     s.send({ type: 'browseSoundFont', file: 'GeneralUser-GS.sf2' })
     s.send({ type: 'auditionPreset', file: 'GeneralUser-GS.sf2', bank: 0, program: 4 })
   }],
-  ['parts drawer, a part on a library patch', (s) => ((ui.parts = true), s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' }))],
+  ['rack drawer, a part on a library patch', (s) => ((ui.rack = true), s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' }))],
   ['audio dropout notice', (s) => s.dropouts(5)],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
@@ -185,7 +196,7 @@ afterEach(() => {
   browserNav.tab = 'sounds'
   browserNav.open.clear()
   ui.settings = false
-  ui.parts = false
+  ui.rack = false
   ui.mixer = false
   ui.charts = false
   ui.regist = false

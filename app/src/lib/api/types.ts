@@ -1189,6 +1189,28 @@ export interface LiveRackState {
   id: string | null
   /** Changed since it was loaded or saved: a sound, the mix, the split, Harmony/Arp, the transpose, the controller map, or a plugin edit. */
   modified: boolean
+  /** Its controller map: Launchkey faders 1-4 and knobs 1-8 on the Rack knob page. */
+  controls: ControlMap
+}
+
+/** What a controller does on the Rack knob page (`racks::ControlTarget`); `part` 0-3.
+ * A kind this build doesn't know (a newer build's) is passed through as it is. */
+export type ControlTarget =
+  | { kind: 'none' }
+  | { kind: 'partLevel' | 'partPan' | 'partReverb' | 'partChorus'; part: number }
+  | { kind: 'harmonyArp' }
+  | { kind: 'splitPoint' }
+
+/** A rack's controller map: four fader targets and eight knob targets. */
+export interface ControlMap {
+  faders: ControlTarget[]
+  knobs: ControlTarget[]
+}
+
+/** A new rack's map (`ControlMap::default`): the parts' levels on faders 1-4 and knobs 1-4. */
+export function defaultControlMap(): ControlMap {
+  const level = (part: number): ControlTarget => ({ kind: 'partLevel', part })
+  return { faders: [0, 1, 2, 3].map(level), knobs: [...[0, 1, 2, 3].map(level), ...Array.from({ length: 4 }, (): ControlTarget => ({ kind: 'none' }))] }
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────

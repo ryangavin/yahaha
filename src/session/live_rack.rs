@@ -347,7 +347,7 @@ impl Control {
 
     pub(super) fn live_rack_state(&self) -> LiveRackState {
         let l = &self.live_rack;
-        LiveRackState { name: l.name.clone(), id: l.id.clone(), modified: l.modified }
+        LiveRackState { name: l.name.clone(), id: l.id.clone(), modified: l.modified, controls: self.rack_controls.clone() }
     }
 }
 

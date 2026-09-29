@@ -27,7 +27,7 @@ export const NAV: NavItem[] = [
   { tip: 'nav.sounds', label: 'Sounds', key: 'alt+b', open: () => ui.soundBrowser !== null, toggle: toggleSounds },
   { tip: 'nav.styles', label: 'Styles', key: 'alt+s', open: () => ui.browser, toggle: () => (ui.browser = !ui.browser) },
   { tip: 'nav.regist', label: 'Registrations', key: 'alt+r', open: () => ui.regist, toggle: () => ui.toggleDrawer('regist') },
-  { tip: 'nav.parts', label: 'Parts & OTS', key: 'alt+o', open: () => ui.parts, toggle: () => ui.toggleDrawer('parts') },
+  { tip: 'nav.rack', label: 'Rack', key: 'alt+o', open: () => ui.rack, toggle: () => ui.toggleDrawer('rack') },
   { tip: 'nav.multipad', label: 'Multi Pads', key: 'alt+p', open: () => ui.multipad, toggle: () => ui.toggleDrawer('multipad') },
   { tip: 'nav.effects', label: 'Effects', key: 'alt+e', open: () => ui.mixer, toggle: () => ui.toggleDrawer('mixer') },
   { tip: 'nav.mixer', label: 'Mixer', key: 'alt+m', open: () => ui.mixer, toggle: () => ui.toggleDrawer('mixer') },

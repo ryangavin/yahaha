@@ -169,7 +169,8 @@ class UiStore {
   /** Overlays and drawers around the hardware view. */
   browser = $state(false)
   settings = $state(false)
-  parts = $state(false)
+  /** The Rack panel's drawer on Stage (docs/racks.md). */
+  rack = $state(false)
   mixer = $state(false)
   charts = $state(false)
   /** The Registration panel (bank, groups, sequence, playlist) and its page. */
@@ -196,9 +197,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'charts' | 'regist' | 'looper' | 'multipad' | 'harmony' | 'sound') {
+  toggleDrawer(d: 'rack' | 'mixer' | 'settings' | 'charts' | 'regist' | 'looper' | 'multipad' | 'harmony' | 'sound') {
     const open = !this[d]
-    this.parts = this.mixer = this.settings = this.charts = this.regist = this.looper = this.multipad = this.harmony = this.sound = false
+    this.rack = this.mixer = this.settings = this.charts = this.regist = this.looper = this.multipad = this.harmony = this.sound = false
     this[d] = open
   }
 
@@ -233,7 +234,7 @@ class UiStore {
     }
     if (this.browser) return !(this.browser = false)
     if (this.settings) return !(this.settings = false)
-    if (this.parts) return !(this.parts = false)
+    if (this.rack) return !(this.rack = false)
     if (this.mixer) return !(this.mixer = false)
     if (this.charts) return !(this.charts = false)
     if (this.regist) return !(this.regist = false)

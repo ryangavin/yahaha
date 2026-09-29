@@ -6,7 +6,7 @@
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
-  │ │ keyboard strip (panels/keystrip), one panel:                        │ │ parts  │
+  │ │ keyboard strip (panels/keystrip), one panel:                        │ │ rack   │
   │ │   Registration bar: bank · 1–10 · Memory · Freeze · seq. · playlist │ │ mixer  │
   │ │   chord tones · the keys                                            │ │settings│
   │ └─────────────────────────────────────────────────────────────────────┘ │        │
@@ -14,7 +14,7 @@
   │ help footer (lib/tooltip): the hovered control's entry · last Launchkey  └────────┘
   └──────────────────────────────────────────────────────────────────────────┘
   Each drawer opens from a small button on the stage by what it details (lib/ui/DrawerButton):
-  Parts & OTS, Sounds, Mixer on the fader head; Multi Pads by the pad-page tabs; Charts by
+  Rack, Sounds, Mixer on the fader head; Multi Pads by the pad-page tabs; Charts by
   the lead-sheet lane; Harmony/Arp and Chord Looper on the keyboard strip's cheek; the style
   name on the display opens the browser (as touching it does on the Genos).
   Browser: centred modal. Drawers and the browser end above the help footer
@@ -49,7 +49,7 @@
   import Mixer from './panels/mixer/Mixer.svelte'
   import Looper from './panels/looper/Looper.svelte'
   import MultiPad from './panels/multipad/MultiPad.svelte'
-  import Parts from './panels/parts/Parts.svelte'
+  import RackPanel from './panels/rack/RackPanel.svelte'
   import RegistBar from './panels/registration/RegistBar.svelte'
   import Registration from './panels/registration/Registration.svelte'
   import Settings from './panels/settings/Settings.svelte'
@@ -107,7 +107,7 @@
   <DropoutNotice />
 </div>
 
-{#if ui.parts}<Parts />{/if}
+{#if ui.rack}<RackPanel />{/if}
 {#if ui.mixer}<Mixer />{/if}
 {#if ui.looper}<Looper />{/if}
 {#if ui.multipad}<MultiPad />{/if}
