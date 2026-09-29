@@ -52,6 +52,12 @@
   --r-key: 6px;
   --r-panel: 12px;
 
+  /* The Stage knob bar (KnobStrip): each knob is as tall as the label + readout beside
+     it (label line 0.72rem x 1.2, 0.3rem gap, 1.45rem readout), and the bar is that plus
+     0.5rem padding top and bottom and its 1px border. App.svelte's stage sizing counts on it. */
+  --knob-size-bar: calc(0.72rem * 1.2 + 0.3rem + 1.45rem);
+  --knob-bar-h: calc(var(--knob-size-bar) + 2 * 0.5rem + 2px);
+
   color-scheme: dark;
   font-family: var(--font-body);
   font-size: 16px;
