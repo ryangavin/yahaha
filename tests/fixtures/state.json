@@ -1996,8 +1996,7 @@
   "sounds": {
     "revision": 1,
     "count": 0,
-    "scanning": false,
-    "auditioning": null
+    "scanning": false
   },
   "dynamics": {
     "control": true,
