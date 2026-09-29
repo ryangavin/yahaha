@@ -187,6 +187,8 @@ app_cmd! {
     Knobs(KnobsCmd),
     /// The effect bus's blocks: type and return level (#204).
     Fx(FxCmd),
+    /// Racks: new, load, save, save as, revert, rename, duplicate, delete.
+    Rack(RackCmd),
 }
 
 impl From<Button> for AppCmd {
@@ -284,6 +286,12 @@ pub enum CmdError {
     Busy,
     /// The command was refused or failed; the text says why (it is also `AppState::message`).
     Failed(String),
+    /// A rack switch (`loadRack`, `newRack`) would lose unsaved changes: nothing changed,
+    /// and `liveRack.prompt` asks what to do.
+    UnsavedChanges,
+    /// A rack save needs names for the new sounds it would make: nothing was saved, and
+    /// `liveRack.prompt` lists the parts.
+    NeedsSoundNames,
 }
 
 impl std::fmt::Display for CmdError {
@@ -291,6 +299,8 @@ impl std::fmt::Display for CmdError {
         match self {
             CmdError::Busy => write!(f, "busy, try again"),
             CmdError::Failed(s) => write!(f, "{s}"),
+            CmdError::UnsavedChanges => write!(f, "the rack has unsaved changes"),
+            CmdError::NeedsSoundNames => write!(f, "the edited sounds need names"),
         }
     }
 }
@@ -398,6 +408,9 @@ pub struct AppState {
     /// it has unsaved changes.
     #[serde(default)]
     pub live_rack: LiveRackState,
+    /// The user's racks (`<data>/Racks`), by name.
+    #[serde(default)]
+    pub racks: Vec<RackEntry>,
 }
 
 // ---------------------------------------------------------------------------

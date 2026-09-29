@@ -58,6 +58,7 @@ mod plugins;
 mod playlist;
 mod preview;
 mod racks;
+mod rack_cmds;
 mod registration;
 mod settings;
 mod style_change;
@@ -427,6 +428,7 @@ impl Control {
             AppCmd::Dynamics(c) => self.dynamics_cmd(c),
             AppCmd::Knobs(c) => self.knobs_cmd(c),
             AppCmd::Fx(c) => self.fx_cmd(c),
+            AppCmd::Rack(c) => self.rack_cmd(c),
         }
     }
 
@@ -554,7 +556,9 @@ impl Control {
             effects: self.effects_state(),
             home: Default::default(),
             live_rack: self.live_rack_state(),
+            racks: Vec::new(),
         };
+        st.racks = self.rack_entries(&st.plugins);
         st.home = self.home_state(&st);
         st
     }

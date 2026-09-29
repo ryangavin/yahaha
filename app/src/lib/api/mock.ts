@@ -19,6 +19,7 @@ import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
 import { mockHome } from './mock-home'
 import { MockRegistration } from './mock-registration'
+import { MockRacks } from './mock-racks'
 import { emptyPlaylist, emptyRegistration } from './registration'
 import type { Session } from './session'
 import {
@@ -285,7 +286,8 @@ export function initialState(): AppState {
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
     home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
-    liveRack: { name: 'New rack', id: null, modified: false },
+    liveRack: { name: 'New rack', id: null, modified: false, prompt: null },
+    racks: [],
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
@@ -446,6 +448,10 @@ export class MockSession implements Session {
   private fadeLeft = 0
   /** Registration Memory and the Playlist (in-memory banks and playlists). */
   private reg: MockRegistration
+  /** The user's racks (mock-racks.ts). */
+  private racks = new MockRacks()
+  /** A rack was just loaded or saved: the next publish takes what plays as unmodified. */
+  private rackClean = false
   /** Multi Pads (mock-multipad.ts). */
   private multiPads = new MockPads(() => this.state.multiPad)
   /** Instrument plugins (mock-plugins.ts). */
@@ -601,8 +607,9 @@ export class MockSession implements Session {
     this.state.knobs = this.knobs.state(this.state)
     // The live rack: any change to what it holds sets modified (the session's pump_live_rack).
     const rack = liveRackView(this.state)
-    if (this.rackSeen !== null && rack !== this.rackSeen) this.state.liveRack.modified = true
+    if (this.rackSeen !== null && rack !== this.rackSeen && !this.rackClean) this.state.liveRack.modified = true
     this.rackSeen = rack
+    this.rackClean = false
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -1175,6 +1182,18 @@ export class MockSession implements Session {
           this.lib.entries.find((e) => e.path.split('/').pop() === path.split('/').pop() || e.name === name)?.path ??
           null,
       })
+      return
+    }
+    if (this.racks.handles(cmd)) {
+      this.racks.cmd(cmd, {
+        state: this.state,
+        command: (c) => this.cmd(c),
+        message: (text, error) => this.message(text, error),
+        clean: () => {
+          this.rackClean = true
+        },
+      })
+      this.state.racks = this.racks.entries()
       return
     }
     const st = this.state

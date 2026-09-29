@@ -7,7 +7,7 @@
 //! examples/api_doc_check.rs checks the doc's JSON examples (AGENTS.md, Checks).
 
 use serde_json::Value;
-use yahaha::api::{AppState, LibraryList};
+use yahaha::api::{AppState, CmdError, LibraryList};
 use yahaha::{AppCmd, Event};
 
 const STATE: &str = include_str!("fixtures/state.json");
@@ -330,6 +330,19 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartInsertOn","part":3,"on":false}"#,
     r#"{"type":"setPartInsertAmount","part":3,"amount":100}"#,
     r#"{"type":"setRotaryFast","on":true}"#,
+    r#"{"type":"newRack"}"#,
+    r#"{"type":"newRack","discard":true}"#,
+    r#"{"type":"loadRack","id":"r5f3a2c1d-0"}"#,
+    r#"{"type":"loadRack","id":"r5f3a2c1d-0","discard":true}"#,
+    r#"{"type":"saveRack"}"#,
+    r#"{"type":"saveRack","soundNames":{"1":"Soft Pad"}}"#,
+    r#"{"type":"saveRackAs","name":"Ballad"}"#,
+    r#"{"type":"saveRackAs","name":"Ballad","soundNames":{"0":"My Keys","3":"My Bass"}}"#,
+    r#"{"type":"revertRack"}"#,
+    r#"{"type":"renameRack","id":"r5f3a2c1d-0","name":"Slow Ballad"}"#,
+    r#"{"type":"duplicateRack","id":"r5f3a2c1d-0"}"#,
+    r#"{"type":"deleteRack","id":"r5f3a2c1d-0"}"#,
+    r#"{"type":"dismissRackPrompt"}"#,
 ];
 
 #[test]
@@ -385,6 +398,19 @@ fn state_fixture_round_trips_byte_for_byte() {
     assert_eq!(strip(&out), strip(LIBRARY));
 }
 
+
+#[test]
+fn cmd_errors_keep_their_form() {
+    for (e, json) in [
+        (CmdError::Busy, r#"{"kind":"busy"}"#),
+        (CmdError::Failed("no".into()), r#"{"kind":"failed","message":"no"}"#),
+        (CmdError::UnsavedChanges, r#"{"kind":"unsavedChanges"}"#),
+        (CmdError::NeedsSoundNames, r#"{"kind":"needsSoundNames"}"#),
+    ] {
+        assert_eq!(serde_json::to_string(&e).unwrap(), json);
+        assert_eq!(serde_json::from_str::<CmdError>(json).unwrap(), e);
+    }
+}
 
 #[test]
 fn events_keep_their_form() {

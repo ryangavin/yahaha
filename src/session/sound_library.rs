@@ -736,7 +736,7 @@ impl Control {
 
     /// Save as… (O3): what the part plays as a new Sound (`save_part_as_patch`), which a
     /// part playing a plugin then plays: its name shows, and it is no longer edited.
-    fn save_part_sound_as(&mut self, part: usize, name: Option<String>) -> Result<(), CmdError> {
+    pub(super) fn save_part_sound_as(&mut self, part: usize, name: Option<String>) -> Result<(), CmdError> {
         self.save_part_as_patch(part, name)?;
         if let Some(id) = self.sound.last_added.clone() {
             self.adopt_part_sound(part, &id);
@@ -748,21 +748,10 @@ impl Control {
     /// sound's state (read fresh, as Save as… does); never the part's mix. Only the
     /// user's own sounds are overwritten; a factory preset, an `.aupreset` file's sound, a
     /// part playing no sound, or a sound of another plugin is saved as a new one instead.
-    fn save_part_sound(&mut self, part: usize) -> Result<(), CmdError> {
+    pub(super) fn save_part_sound(&mut self, part: usize) -> Result<(), CmdError> {
         let ch = parts::CHANNEL[part];
-        let current = match self.channel_sound(ch) {
-            Some((tag, _)) => tag.and_then(|t| match patches::SoundId::parse(&t.id) {
-                Some(patches::SoundId::Library(id)) => Some(id),
-                _ => None,
-            }),
-            None => self.sound.part_patch[part].clone(),
-        };
         let voice = self.part_plugin_voice(part);
-        let own = current.as_deref().and_then(|id| self.sound.lib.patch(id)).is_some_and(|p| match &p.source {
-            PatchSource::Plugin { component_id, origin, .. } => origin.is_user() && voice.as_ref().is_some_and(|(v, _)| v == component_id),
-            PatchSource::SoundFont { .. } => voice.is_none(),
-        });
-        let (Some(id), true) = (current, own) else { return self.save_part_sound_as(part, None) };
+        let Some(id) = self.part_own_sound(part) else { return self.save_part_sound_as(part, None) };
         let Some(i) = self.sound.lib.index_of(&id) else { return self.save_part_sound_as(part, None) };
         let mut p = self.sound.lib.patches[i].clone();
         let mut fill = None;
@@ -788,6 +777,27 @@ impl Control {
         }
         self.say(format!("Saved {name}"), false);
         Ok(())
+    }
+
+    /// The user's own library sound keyboard part `part` plays, which Save overwrites in
+    /// place: a sound of the user's on the plugin the part plays, or a SoundFont sound on a
+    /// part with no plugin. None: a factory or `.aupreset` preset, a sound of another
+    /// plugin or no sound, which Save makes a new sound of.
+    pub(super) fn part_own_sound(&self, part: usize) -> Option<String> {
+        let ch = parts::CHANNEL[part];
+        let current = match self.channel_sound(ch) {
+            Some((tag, _)) => tag.and_then(|t| match patches::SoundId::parse(&t.id) {
+                Some(patches::SoundId::Library(id)) => Some(id),
+                _ => None,
+            }),
+            None => self.sound.part_patch[part].clone(),
+        };
+        let voice = self.part_plugin_voice_with(part, false);
+        let own = current.as_deref().and_then(|id| self.sound.lib.patch(id)).is_some_and(|p| match &p.source {
+            PatchSource::Plugin { component_id, origin, .. } => origin.is_user() && voice.as_ref().is_some_and(|(v, _)| v == component_id),
+            PatchSource::SoundFont { .. } => voice.is_none(),
+        });
+        current.filter(|_| own)
     }
 
     /// After Save as…: the part plays the new Sound `id`, so a second Save updates it
