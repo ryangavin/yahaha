@@ -25,6 +25,29 @@ pub struct FactoryPreset {
     pub name: String,
 }
 
+/// The unit's factory presets as the browser lists them, from what
+/// `kAudioUnitProperty_FactoryPresets` gave (number, name; None for a preset with no name):
+/// names trimmed, placeholders dropped (no name, a blank one, a bracketed or punctuation-only
+/// one such as "<disabled>" or "---", or a slot word such as "empty"), and each name kept
+/// once (the first). Many units pad their bank with such slots; they are not sounds.
+pub fn real_factory_presets(raw: impl IntoIterator<Item = (i32, Option<String>)>) -> Vec<FactoryPreset> {
+    let mut seen = std::collections::HashSet::new();
+    raw.into_iter()
+        .filter_map(|(number, name)| {
+            let name = name?.trim().to_string();
+            (!is_placeholder(&name) && seen.insert(name.clone())).then_some(FactoryPreset { number, name })
+        })
+        .collect()
+}
+
+/// A factory preset name that names no sound: blank, bracketed ("<disabled>", "[empty]",
+/// "(none)"), without a letter or digit ("---"), or a slot word.
+fn is_placeholder(name: &str) -> bool {
+    const SLOTS: [&str; 7] = ["empty", "disabled", "none", "unused", "n/a", "null", "untitled"];
+    let inner = name.trim_matches(|c: char| "<>[]()-_*. ".contains(c)).to_lowercase();
+    !name.chars().any(char::is_alphanumeric) || (name.starts_with('<') && name.ends_with('>')) || SLOTS.contains(&inner.as_str())
+}
+
 /// An `.aupreset` file for the unit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserPreset {
@@ -292,6 +315,27 @@ mod tests {
             factory_presets: None,
             user_presets: Vec::new(),
         }
+    }
+
+    #[test]
+    fn placeholder_factory_presets_are_never_listed() {
+        let raw = [
+            (0, Some("Init".to_string())),
+            (1, Some("  Bright Grand ".into())),
+            (2, None),
+            (3, Some(String::new())),
+            (4, Some("   ".into())),
+            (5, Some("<disabled>".into())),
+            (6, Some("<Empty Slot>".into())),
+            (7, Some("---".into())),
+            (8, Some("[Empty]".into())),
+            (9, Some("empty".into())),
+            (10, Some("Bright Grand".into())),
+            (11, Some("Init".into())),
+            (12, Some("Brass Stabs (2)".into())),
+        ];
+        let got: Vec<_> = real_factory_presets(raw).into_iter().map(|p| (p.number, p.name)).collect();
+        assert_eq!(got, [(0, "Init".to_string()), (1, "Bright Grand".into()), (12, "Brass Stabs (2)".into())]);
     }
 
     #[test]

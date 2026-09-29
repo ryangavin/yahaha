@@ -159,7 +159,8 @@ describe('savePartAsPatch (#109)', () => {
     // The .aupreset files are listed from the start; the factory presets once expanded.
     const kids = () => cat.entries.filter((e) => e.parent === id)
     expect(kids().map((e) => e.name)).toEqual(['Arco Strings', 'Upright Piano'])
-    expect(cat.entries.find((e) => e.id === id)?.plugin?.presets).toBe(2)
+    // Its .aupreset files are not its count: unknown until the factory presets are listed.
+    expect(cat.entries.find((e) => e.id === id)?.plugin?.presets).toBe(null)
     // Categories: guessed from the name and folder.
     expect(kids().map((e) => e.category)).toEqual(['strings', 'piano'])
     // Not in All sounds (O6): under the plugin's own chip, filtered too.
@@ -172,7 +173,13 @@ describe('savePartAsPatch (#109)', () => {
     m.send({ type: 'listPluginPresets', id })
     cat = await m.sounds()
     expect(kids().map((e) => e.name)).toEqual(['Init', 'Bright Grand', 'Brass Stabs', 'Arco Strings', 'Upright Piano'])
+    expect(cat.entries.find((e) => e.id === id)?.plugin?.presets).toBe(5)
     expect(cat.entries.length).toBe(m.state.sounds.count)
+    // A plugin that does not load: its listing ends with the reason, and no count.
+    m.send({ type: 'listPluginPresets', id: 'au:aumu Mock Demo' })
+    const broken = (await m.sounds()).entries.find((e) => e.id === 'au:aumu Mock Demo')?.plugin
+    expect(broken).toMatchObject({ presets: null, presetsError: 'timed out after 20.0 s' })
+    expect(m.state.sounds.listingPresets ?? []).toEqual([])
 
     m.send({ type: 'assignSound', part: 0, id: `${id}#f:1` })
     m.send({ type: 'assignSound', part: 1, id: kids()[3].id })

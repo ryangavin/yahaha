@@ -594,8 +594,9 @@ unsafe extern "C" {
 
 impl Unit {
     /// The unit's factory presets (`kAudioUnitProperty_FactoryPresets`): (number, name), in
-    /// the unit's order. Empty when it has none. Not RT-safe.
-    pub fn factory_presets(&self) -> Vec<(i32, String)> {
+    /// the unit's order, None for a preset with no name. Empty when it has none. Unfiltered:
+    /// `presets::real_factory_presets` drops the placeholders. Not RT-safe.
+    pub fn factory_presets(&self) -> Vec<(i32, Option<String>)> {
         let mut arr: *const c_void = ptr::null();
         if unsafe { get_prop(self.raw, kAudioUnitProperty_FactoryPresets, kAudioUnitScope_Global, &mut arr) } != 0 || arr.is_null() {
             return Vec::new();
@@ -609,7 +610,8 @@ impl Unit {
                     continue;
                 }
                 let preset = ptr::read(p);
-                let name = if preset.presetName.is_null() { format!("Preset {}", preset.presetNumber) } else { (*preset.presetName).to_string() };
+                // A preset without a name is a placeholder (`presets::real_factory_presets`).
+                let name = (!preset.presetName.is_null()).then(|| (*preset.presetName).to_string());
                 out.push((preset.presetNumber, name));
             }
             // The property hands over a retained array (AUBase retains it for the caller).
