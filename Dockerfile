@@ -1,5 +1,5 @@
 # Linux build and test image, for developing on Linux (not for shipping).
-# The same packages as the linux job in .github/workflows/ci.yml. See "Developing on Linux"
+# The same packages as the linux-app job in .github/workflows/ci.yml. See "Developing on Linux"
 # in README.md, and AGENTS.md for the checks.
 #
 #   docker build -t yahaha-linux .

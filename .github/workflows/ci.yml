@@ -1,15 +1,17 @@
 # The checks in AGENTS.md, run directly. CI on the pull request is the final check before merge.
 # The jobs run in parallel:
 # - api-doc: docs/app-api.md against the code. Every PR.
-# - linux: the Rust checks and tests without plugins, and the app shell's no-plugins compile check.
+# - linux-rust: the Rust checks and tests without plugins.
+# - linux-app: the app shell's (app/src-tauri) no-plugins compile check.
 # - macos-rust: the Rust tests with plugins.
-# - macos-app: the app shell's (app/src-tauri) tests, with plugins.
+# - macos-app: the app shell's tests, with plugins.
 # - web: the web app's `npm ci` and `npm run verify`, on Linux (it has nothing macOS-only).
-# - macos: passes when macos-rust, macos-app and web passed or were skipped. It keeps the
-#   `macos` check the branch rulesets require.
+# - linux and macos: the checks the branch rulesets require. linux passes when linux-rust and
+#   linux-app passed or were skipped; macos when macos-rust, macos-app and web did.
 #
-# The Rust tests use the test-quick profile: our crate unoptimised (it compiles in about a
-# third of the time), the dependencies optimised, debug assertions and overflow checks on.
+# The Rust tests use the test-quick profile: our crate unoptimised (it compiles several
+# times faster than at opt-level 2), the dependencies optimised, debug assertions and
+# overflow checks on.
 #
 # Each commit is checked once:
 # - PRs into develop run on the PR.
@@ -111,14 +113,47 @@ jobs:
         with:
           shared-key: api-doc
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
 
       - name: JSON examples in docs/app-api.md parse into the Rust types
         run: cargo run --no-default-features --example api_doc_check -- docs/app-api.md
 
   # No `cargo check --all-targets`: `cargo test` builds every target it would (the library,
   # the binary, the tests and the example; there are no benches).
-  linux:
+  linux-rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # cpal (a library dependency) links ALSA on Linux. The app shell's packages are only
+      # needed in linux-app.
+      - name: System packages (ALSA headers)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # A new key, not the old `linux`: that develop cache holds test-fast builds, and
+      # rust-cache never re-saves a key it restored exactly, so the test-quick dependencies
+      # would be rebuilt on every run until Cargo.lock changed.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-rust
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+
+      - name: cargo check --no-default-features --lib
+        run: cargo check --no-default-features --lib
+
+      - name: cargo test --profile test-quick
+        run: cargo test --profile test-quick
+
+  # The app shell's tests run in macos-app (with plugins, as the real app builds). Here we
+  # only prove the Linux (no-plugins) variant compiles.
+  linux-app:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
@@ -143,26 +178,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: linux
+          shared-key: linux-app
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
-          workspaces: |
-            . -> target
-            app/src-tauri -> target
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          workspaces: app/src-tauri -> target
 
-      - name: cargo check --no-default-features --lib
-        run: cargo check --no-default-features --lib
-
-      - name: cargo test --profile test-quick
-        run: cargo test --profile test-quick
-
-      # The app shell's tests run in macos-app (with plugins, as the real app builds). Here
-      # we only prove the Linux (no-plugins) variant compiles.
       - name: cargo check --all-targets (app/src-tauri)
         working-directory: app/src-tauri
         run: cargo check --all-targets
 
-  # As in linux, `cargo test` builds every target `cargo check --all-targets` would.
+  # As in linux-rust, `cargo test` builds every target `cargo check --all-targets` would.
   macos-rust:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
@@ -176,7 +201,7 @@ jobs:
         with:
           shared-key: macos-rust
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
 
       - name: cargo test --profile test-quick --features plugins
         run: cargo test --profile test-quick --features plugins
@@ -194,7 +219,7 @@ jobs:
         with:
           shared-key: macos-app
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
           workspaces: app/src-tauri -> target
 
       - name: cargo test (app/src-tauri)
@@ -222,9 +247,20 @@ jobs:
         working-directory: app
         run: npm run verify
 
-  # The branch rulesets require the checks `linux`, `macos` and `api-doc`. The old macos job
-  # is now macos-rust, macos-app and web, running in parallel; this job keeps the `macos`
-  # check and passes when each of them passed or was skipped.
+  # The branch rulesets require the checks `linux`, `macos` and `api-doc`. The old linux job
+  # is now linux-rust and linux-app, and the old macos job macos-rust, macos-app and web,
+  # all running in parallel. These two jobs keep the `linux` and `macos` checks: each passes
+  # when every job it covers passed or was skipped, and fails otherwise.
+  linux:
+    needs: [changes, linux-rust, linux-app]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: linux-rust and linux-app passed or were skipped
+        run: |
+          echo "changes: ${{ needs.changes.result }}, linux-rust: ${{ needs.linux-rust.result }}, linux-app: ${{ needs.linux-app.result }}"
+          test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
+
   macos:
     needs: [changes, macos-rust, macos-app, web]
     if: always()
