@@ -14,3 +14,4 @@ slow-tests = ["yahaha-core/slow-tests"]
 
 [dependencies]
 yahaha-core = { path = "../yahaha-core" }
+anyhow = "1.0.104"

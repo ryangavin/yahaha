@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 
 // The shared style types live below sff (see `style_types`); these keep the old paths.
-pub use crate::style_types::{ChannelRule, Ev, Ntr, Ntt, Rtr, SectionId, Zone};
+pub use yahaha_core::style_types::{ChannelRule, Ev, Ntr, Ntt, Rtr, SectionId, Zone};
 
 // ---------------------------------------------------------------------------
 // MIDI events
@@ -84,7 +84,7 @@ pub struct OtsPart {
     /// The voice's filter, EG, vibrato and portamento, by `tone::TONE_CC`: cutoff,
     /// resonance, attack, decay, release, vibrato rate, depth and delay (relative, 64 = the
     /// voice's own), portamento switch and time. None where the track sets none.
-    pub tone: [Option<u8>; crate::tone::TONE],
+    pub tone: [Option<u8>; yahaha_core::tone::TONE],
     /// Pitch bend range in semitones (RPN 0 coarse).
     pub bend_range: Option<u8>,
     /// The XG multi part parameters the track sets for this part (mono/poly, velocity
@@ -214,8 +214,8 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
         if let Ok(evs) = parse_track(&data[p + 8..end]) {
             for e in evs {
                 match e.ev {
-                    Ev::Cc { ch, cc, val } if ch < 4 && crate::tone::TONE_CC.contains(&cc) => {
-                        let i = crate::tone::TONE_CC.iter().position(|&c| c == cc).unwrap_or(0);
+                    Ev::Cc { ch, cc, val } if ch < 4 && yahaha_core::tone::TONE_CC.contains(&cc) => {
+                        let i = yahaha_core::tone::TONE_CC.iter().position(|&c| c == cc).unwrap_or(0);
                         ots.parts[ch as usize].tone[i] = Some(val);
                     }
                     Ev::Cc { ch, cc, val } if ch < 4 && matches!(cc, 98..=101 | 6) => {
@@ -518,7 +518,9 @@ impl<'a> Reader<'a> {
     }
 }
 
-pub(crate) fn parse_track(data: &[u8]) -> Result<Vec<TimedEv>> {
+/// Facade-internal: `pub` only for the facade's capture, Multi Pad and engine code.
+#[doc(hidden)]
+pub fn parse_track(data: &[u8]) -> Result<Vec<TimedEv>> {
     let mut r = Reader { b: data, p: 0 };
     let mut out = Vec::new();
     let mut tick: u32 = 0;
@@ -674,7 +676,7 @@ fn parse_zone(b: &[u8]) -> Zone {
 /// which is not a recordable source chord) falls back to the Style Creator default, Maj7,
 /// so the transposer never sees a type it has no chord tones for.
 fn source_chord_type(v: u8) -> u8 {
-    if (v as usize) < crate::theory::NUM_TYPES {
+    if (v as usize) < yahaha_core::theory::NUM_TYPES {
         v
     } else {
         2
@@ -765,7 +767,9 @@ fn records(buf: &[u8]) -> Result<Vec<(&[u8], &[u8])>> {
     Ok(out)
 }
 
-pub(crate) fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
+/// Facade-internal: `pub` only for the facade's Multi Pad bank parser.
+#[doc(hidden)]
+pub fn parse_casm(data: &[u8]) -> Result<Vec<Cseg>> {
     let mut segs = Vec::new();
     for (id, cseg) in records(data)? {
         if id != b"CSEG" {
@@ -1053,25 +1057,8 @@ fn build_style(
 mod tests {
     use super::*;
     #[cfg(feature = "slow-tests")]
-    use crate::theory::{self, Chord, NUM_TYPES};
-
-    /// A Ctb2 record: src ch 12 -> dest 12, all roots/types on, source C + `src_type`,
-    /// with every zone byte set to `zone`.
-    fn ctb2(src_type: u8, zone: u8) -> Vec<u8> {
-        let mut d = vec![11];
-        d.extend_from_slice(b"Chord1  ");
-        d.extend_from_slice(&[11, 0, 0x0F, 0xFF, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0, src_type, 0, 127]);
-        d.extend_from_slice(&[zone; 18]);
-        assert_eq!(d.len(), 40);
-        d
-    }
-
-    pub(super) fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
-        let mut v = id.to_vec();
-        v.extend_from_slice(&(body.len() as u32).to_be_bytes());
-        v.extend_from_slice(body);
-        v
-    }
+    use yahaha_core::theory::{self, Chord, NUM_TYPES};
+    use super::test_style::{chunk, ctab, ctb2, marker, tempo, track_style};
 
     /// Smallest style the parser accepts: one Main A bar with a note on ch 12 plus a CASM
     /// segment holding `rec`.
@@ -1164,15 +1151,6 @@ mod tests {
         }
     }
 
-    /// A 27-byte SFF1 Ctab record for src ch 12 (see `ctb2`) with the given NTR and NTT bytes.
-    pub(super) fn ctab(ntr: u8, ntt: u8) -> Vec<u8> {
-        let mut d = ctb2(2, 0)[..27].to_vec();
-        d[20] = ntr;
-        d[21] = ntt;
-        d[24] = 127;
-        d
-    }
-
     #[test]
     fn every_ctab_ntt_code_decodes() {
         let want = [
@@ -1251,9 +1229,9 @@ mod tests {
                     assert_eq!(r.zones[1].ntt, Ntt::Melody, "{}", p.display());
                     // The audible check: the part's source root plays E under C/E, C under C.
                     let key = 36 + r.src_root % 12;
-                    let c = crate::theory::Chord::new(0, 0);
-                    let c_over_e = crate::theory::Chord { bass: Some(4), ..c };
-                    let pc = |ch| crate::theory::transpose(key, r, ch).map(|n| n % 12);
+                    let c = yahaha_core::theory::Chord::new(0, 0);
+                    let c_over_e = yahaha_core::theory::Chord { bass: Some(4), ..c };
+                    let pc = |ch| yahaha_core::theory::transpose(key, r, ch).map(|n| n % 12);
                     assert_eq!(pc(c), Some(0), "{}: root under C", p.display());
                     assert_eq!(pc(c_over_e), Some(4), "{}: root under C/E", p.display());
                     bass_parts += 1;
@@ -1332,7 +1310,7 @@ mod tests {
 
     #[test]
     fn ots_parse() {
-        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/FunkyFinger.S930.STY");
+        let p = crate::library::corpus_dir().join("MOX_v2/FunkyFinger.S930.STY");
         if !p.exists() {
             return;
         }
@@ -1345,7 +1323,7 @@ mod tests {
         assert_eq!(o.parts[3].voice, Some((0, 117, 95)));
         assert_eq!(o.parts[3].volume, 75);
         // SlowWalker OTS 1: Right 1 + Right 2 layered, Left on.
-        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        let p = crate::library::corpus_dir().join("MOX_v2/SlowWalker.T552.sty");
         let s = Style::load(&p).unwrap();
         let o = &s.ots[0];
         assert!(o.parts[0].on && o.parts[1].on && !o.parts[2].on && o.parts[3].on);
@@ -1378,14 +1356,14 @@ mod tests {
         trk.extend_from_slice(&[0x00, 0xFF, 0x2F, 0]);
         let o = parse_ots(&chunk(b"MTrk", &trk));
         let r2 = &o[0].parts[1];
-        let mut want = [None; crate::tone::TONE];
-        want[crate::tone::CUTOFF] = Some(30);
-        want[crate::tone::RELEASE] = Some(20);
-        want[crate::tone::PORTAMENTO] = Some(127);
+        let mut want = [None; yahaha_core::tone::TONE];
+        want[yahaha_core::tone::CUTOFF] = Some(30);
+        want[yahaha_core::tone::RELEASE] = Some(20);
+        want[yahaha_core::tone::PORTAMENTO] = Some(127);
         assert_eq!(r2.tone, want);
         assert_eq!(r2.bend_range, Some(12));
         assert_eq!(r2.xg.iter().collect::<Vec<_>>(), vec![(0x08, 0x05, 0), (0x0A, 0x40, 0x50)]);
-        assert!(o[0].parts[0].xg.is_empty() && o[0].parts[0].tone == [None; crate::tone::TONE]);
+        assert!(o[0].parts[0].xg.is_empty() && o[0].parts[0].tone == [None; yahaha_core::tone::TONE]);
         assert!(o[0].parts.iter().all(|p| p.insert.is_none()), "no insertion SysEx");
     }
 
@@ -1417,7 +1395,7 @@ mod tests {
     #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_ots_voice_settings() {
-        let (mut parts, mut tone, mut bend, mut xg, mut xg_max, mut inserts) = (0, [0; crate::tone::TONE], 0, 0, 0, 0);
+        let (mut parts, mut tone, mut bend, mut xg, mut xg_max, mut inserts) = (0, [0; yahaha_core::tone::TONE], 0, 0, 0, 0);
         for (_, s) in crate::library::corpus_loaded() {
             for q in s.ots.iter().flat_map(|o| &o.parts) {
                 parts += 1;
@@ -1435,7 +1413,7 @@ mod tests {
             return;
         }
         assert!(xg_max < XG_MAX, "room to spare for XG parameters: {xg_max}");
-        assert_eq!((tone, bend, inserts), ([parts; crate::tone::TONE], parts, parts), "every corpus OTS part sets them all");
+        assert_eq!((tone, bend, inserts), ([parts; yahaha_core::tone::TONE], parts, parts), "every corpus OTS part sets them all");
     }
 
     #[test]
@@ -1582,7 +1560,7 @@ mod tests {
     /// follows slash chords, its chord zone does not.
     #[test]
     fn bass_on_per_zone() {
-        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/SX900Style for Genos/6-8ChartBallad.T547.prs");
+        let p = crate::library::corpus_dir().join("SX900Style for Genos/6-8ChartBallad.T547.prs");
         if !p.exists() {
             return;
         }
@@ -1593,43 +1571,13 @@ mod tests {
         assert!(!r.zones[1].bass_on && !r.zones[2].bass_on);
         // Through transpose, over C/E: the left-hand C moves to the slash bass E, the
         // chord-zone C stays exactly where it plays over plain C.
-        use crate::theory::{transpose, Chord};
+        use yahaha_core::theory::{transpose, Chord};
         let (c, c_over_e) = (Chord::new(0, 0), Chord { root: 0, ty: 0, bass: Some(4) });
         let low = transpose(36, r, c_over_e).unwrap();
         assert_eq!(low % 12, 4, "low zone C1 over C/E -> {low}");
         assert_ne!(Some(low), transpose(36, r, c));
         assert_eq!(transpose(60, r, c_over_e), transpose(60, r, c));
         assert_eq!(transpose(60, r, c), Some(60));
-    }
-
-    /// A style track built from (delta, raw event bytes) pairs, ppq 96 (a 4/4 bar is 384).
-    pub(super) fn track_style(evs: &[(u32, Vec<u8>)]) -> Vec<u8> {
-        let mut trk = Vec::new();
-        for (delta, ev) in evs {
-            let mut d = *delta;
-            let mut v = vec![(d & 0x7F) as u8];
-            d >>= 7;
-            while d > 0 {
-                v.insert(0, (d & 0x7F) as u8 | 0x80);
-                d >>= 7;
-            }
-            trk.extend(v);
-            trk.extend_from_slice(ev);
-        }
-        trk.extend_from_slice(&[0x00, 0xFF, 0x2F, 0]);
-        let mut out = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
-        out.extend(chunk(b"MTrk", &trk));
-        out
-    }
-
-    pub(super) fn marker(t: &str) -> Vec<u8> {
-        let mut v = vec![0xFF, 0x06, t.len() as u8];
-        v.extend_from_slice(t.as_bytes());
-        v
-    }
-
-    pub(super) fn tempo(us: u32) -> Vec<u8> {
-        vec![0xFF, 0x51, 3, (us >> 16) as u8, (us >> 8) as u8, us as u8]
     }
 
     /// Main A, Fill In AA, an unknown "Fill In AB", then Ending A; one bar each, with a
@@ -1740,19 +1688,78 @@ mod tests {
 /// A-D, Fill In AA-DD, Break and Ending A-C; an SFF1 CASM (rhythm Bypass with Autostart,
 /// Bass, Chord and Melody parts); a channel setup with voices and XG effect types; and four
 /// One Touch Settings that differ in voices, part on/off, volume, octave and sends.
-#[cfg(test)]
-pub(crate) mod test_style {
-    use super::tests::{chunk, ctab, marker, tempo, track_style};
+///
+/// Facade-internal: `pub` and compiled in every build (a dependency's `#[cfg(test)]` is off
+/// when the facade's tests build) only so the facade's tests can use it; not part of the
+/// crate's API. It also holds the raw-byte builders sff's own tests use.
+#[doc(hidden)]
+pub mod test_style {
+    /// A Ctb2 record: src ch 12 -> dest 12, all roots/types on, source C + `src_type`,
+    /// with every zone byte set to `zone`.
+    pub fn ctb2(src_type: u8, zone: u8) -> Vec<u8> {
+        let mut d = vec![11];
+        d.extend_from_slice(b"Chord1  ");
+        d.extend_from_slice(&[11, 0, 0x0F, 0xFF, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0, src_type, 0, 127]);
+        d.extend_from_slice(&[zone; 18]);
+        assert_eq!(d.len(), 40);
+        d
+    }
+
+    pub fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut v = id.to_vec();
+        v.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        v.extend_from_slice(body);
+        v
+    }
+
+    /// A 27-byte SFF1 Ctab record for src ch 12 (see `ctb2`) with the given NTR and NTT bytes.
+    pub fn ctab(ntr: u8, ntt: u8) -> Vec<u8> {
+        let mut d = ctb2(2, 0)[..27].to_vec();
+        d[20] = ntr;
+        d[21] = ntt;
+        d[24] = 127;
+        d
+    }
+
+    /// A style track built from (delta, raw event bytes) pairs, ppq 96 (a 4/4 bar is 384).
+    pub fn track_style(evs: &[(u32, Vec<u8>)]) -> Vec<u8> {
+        let mut trk = Vec::new();
+        for (delta, ev) in evs {
+            let mut d = *delta;
+            let mut v = vec![(d & 0x7F) as u8];
+            d >>= 7;
+            while d > 0 {
+                v.insert(0, (d & 0x7F) as u8 | 0x80);
+                d >>= 7;
+            }
+            trk.extend(v);
+            trk.extend_from_slice(ev);
+        }
+        trk.extend_from_slice(&[0x00, 0xFF, 0x2F, 0]);
+        let mut out = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
+        out.extend(chunk(b"MTrk", &trk));
+        out
+    }
+
+    pub fn marker(t: &str) -> Vec<u8> {
+        let mut v = vec![0xFF, 0x06, t.len() as u8];
+        v.extend_from_slice(t.as_bytes());
+        v
+    }
+
+    pub fn tempo(us: u32) -> Vec<u8> {
+        vec![0xFF, 0x51, 3, (us >> 16) as u8, (us >> 8) as u8, us as u8]
+    }
 
     /// Ticks per quarter note (`track_style`'s) and per 4/4 bar.
     const PPQ: u32 = 96;
     const BAR: u32 = PPQ * 4;
     /// 100 BPM.
-    pub(crate) const TEMPO_US: u32 = 600_000;
-    pub(crate) const NAME: &str = "Synthetic Test";
+    pub const TEMPO_US: u32 = 600_000;
+    pub const NAME: &str = "Synthetic Test";
 
     /// The sections in track order, with their length in bars.
-    pub(crate) const SECTIONS: [(&str, u32); 15] = [
+    pub const SECTIONS: [(&str, u32); 15] = [
         ("Main A", 2),
         ("Main B", 2),
         ("Main C", 2),
@@ -1879,7 +1886,7 @@ pub(crate) mod test_style {
     }
 
     /// The style file's bytes.
-    pub(crate) fn synthetic_style_bytes() -> Vec<u8> {
+    pub fn synthetic_style_bytes() -> Vec<u8> {
         let mut name = vec![0xFF, 0x03, NAME.len() as u8];
         name.extend_from_slice(NAME.as_bytes());
         // (absolute tick, event), then sorted (stably) by tick.

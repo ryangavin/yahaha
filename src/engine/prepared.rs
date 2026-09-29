@@ -21,6 +21,7 @@ pub(super) struct PEvent {
     pub(super) kind: PKind,
 }
 
+#[derive(Clone)]
 pub struct PSection {
     pub id: SectionId,
     pub len: u32,
@@ -105,6 +106,7 @@ pub fn id_of(slot: usize) -> SectionId {
     }
 }
 
+#[derive(Clone)]
 pub struct Prepared {
     pub name: String,
     pub ppq: u32,
@@ -140,6 +142,7 @@ pub struct Prepared {
 }
 
 /// The style's channel setup (SInt) routed through one set of channel rules.
+#[derive(Clone)]
 pub struct Setup {
     /// The setup, remapped to destination channels, without the parts' CC7 (the mixer
     /// sends those).
@@ -168,7 +171,7 @@ pub struct Setup {
 
 /// MIDI messages of any length (SysEx too), stored back to back so sending them from the
 /// engine thread allocates nothing.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Msgs {
     bytes: Vec<u8>,
     ends: Vec<u32>,

@@ -761,10 +761,67 @@ mod tests {
         out
     }
 
-    /// A kit plays every note of its preset as the font does, but the notes its setup
-    /// sets, which play with their settings in their generators; it holds that preset
-    /// alone, and only the samples it plays. Prints the build's cost for each font (the
-    /// PR's measurements).
+    /// Derive and build `font`'s drum kit (128:0) with a setup on the snare (38): level
+    /// 50, a fifth up, hard left, a darker cutoff with more resonance, a shorter decay and
+    /// a longer release; the kick left alone. Checks the kit holds that preset alone, plays
+    /// every other note as the font does and the snare with its settings in its
+    /// generators, and builds its lanes. Returns the kit, the preset's index in `font`, and
+    /// the derive's and the build's time (ms). `f` names the font in failures.
+    fn check_baked_kit(font: &Arc<SoundFont>, f: &str) -> (SoundFont, usize, f64, f64) {
+        let source = KitSource::of(font).unwrap();
+        let kit = preset_index(font, 128, 0).unwrap();
+        let set = params(&[(38, 2, 50), (38, 0, 0x47), (38, 4, 1), (38, 0x0B, 0x30), (38, 0x0C, 0x50), (38, 0x0E, 0x50), (38, 0x0F, 0x30)]);
+        let t = std::time::Instant::now();
+        let bytes = derive(&source.pdta, font.get_wave_data(), kit, &set).unwrap();
+        let derive_ms = t.elapsed().as_secs_f64() * 1e3;
+        let t = std::time::Instant::now();
+        let built = build(&KitRequest { source: source.clone(), key: KitKey { font: source.id(), preset: kit as u32, sample_rate: 48_000, legacy: false, params: *set } }).unwrap();
+        let build_ms = t.elapsed().as_secs_f64() * 1e3;
+        assert_eq!(built.lanes.len(), super::super::rack::KIT_LANES);
+        let k = SoundFont::new(&mut &bytes[..]).unwrap();
+        assert_eq!(k.get_presets().len(), 1);
+        assert_eq!(k.get_presets()[0].get_name(), font.get_presets()[kit].get_name());
+        for key in (27..88).filter(|&k| k != 38) {
+            assert_eq!(plays(&k, 0, key), plays(font, kit, key), "{f}: key {key} as the font plays it");
+        }
+        let (own, baked) = (plays(font, kit, 38), plays(&k, 0, 38));
+        assert!(!own.is_empty(), "{f}: the snare plays");
+        assert_eq!(own.len(), baked.len(), "{f}: the snare's layers");
+        for (o, b) in own.iter().zip(&baked) {
+            assert_eq!(b.0, o.0, "the same sample");
+            assert_eq!(b.1, o.1 + 7, "a fifth up");
+            // Pan 1: (1 - 64) x 50 / 64 = -49.22, in place of the kit's own.
+            assert!((b.2 + 49.21875).abs() < 0.05, "hard left: {}", b.2);
+            // Level 50: 40 log10(0.5) dB. rustysynth takes 0.4 x the attenuation and
+            // 0.5 x the Q off the gain; the kit gives the Q's share back.
+            let dq = b.5 - o.5;
+            let db = -(0.4 * (b.3 - o.3) + 0.5 * dq);
+            assert!((db - 40.0 * 0.5f32.log10()).abs() < 0.03, "level 50: {db} dB");
+            let cut = (o.4 * 0.5f32).clamp(19.45, 20_000.0);
+            assert!((b.4 / cut - 1.0).abs() < 1e-3, "cutoff an octave down: {} vs {}", b.4, o.4);
+            assert!((dq - (o.5 + 3.2).clamp(0.0, 96.0) + o.5).abs() < 1e-3, "resonance +3.2 dB");
+            assert!((b.6 / o.6 - 0.5).abs() < 1e-3 && (b.7 / o.7 - 2.0).abs() < 1e-3, "decay halved, release doubled");
+        }
+        (k, kit, derive_ms, build_ms)
+    }
+
+    /// `check_baked_kit` on the tiny in-memory font, so the kit derivation runs in the
+    /// core suite: its one kit zone (no key range) splits into keys 0-37, the baked snare
+    /// and 39-127. The instrument sets a cutoff, decay and release of its own, so the kit
+    /// moves the zone's values, not rustysynth's defaults.
+    #[test]
+    fn a_kit_plays_its_preset_with_the_setup_baked_in_on_the_tiny_font() {
+        use crate::synth::rack_tests::{tiny_font_with, CUTOFF, DECAY, RELEASE};
+        let font = tiny_font_with(&[(CUTOFF, 9000), (DECAY, -2000), (RELEASE, -2000)]);
+        let (k, _, _, _) = check_baked_kit(&font, "tiny");
+        // rustysynth lists the tiny font's zones more than once, so compare the distinct ranges.
+        let keys: std::collections::BTreeSet<(i32, i32)> = k.get_presets()[0].get_regions().iter().map(|r| (r.get_key_range_start(), r.get_key_range_end())).collect();
+        assert_eq!(keys.into_iter().collect::<Vec<_>>(), [(0, 37), (38, 38), (39, 127)]);
+    }
+
+    /// `check_baked_kit` on every real font in the checkout's soundfonts/; it also holds
+    /// only the samples its preset plays. Prints the build's cost for each font (the PR's
+    /// measurements).
     #[cfg(feature = "slow-tests")]
     #[test]
     fn a_kit_plays_its_preset_with_the_setup_baked_in() {
@@ -776,40 +833,7 @@ mod tests {
         }
         for f in files {
             let font = crate::synth::font::open(&dir.join(&f)).unwrap();
-            let source = KitSource::of(&font).unwrap();
-            let kit = preset_index(&font, 128, 0).unwrap();
-            // Level 50, a fifth up, hard left, a darker cutoff with more resonance, a
-            // shorter decay and a longer release, on the snare; the kick left alone.
-            let set = params(&[(38, 2, 50), (38, 0, 0x47), (38, 4, 1), (38, 0x0B, 0x30), (38, 0x0C, 0x50), (38, 0x0E, 0x50), (38, 0x0F, 0x30)]);
-            let t = std::time::Instant::now();
-            let bytes = derive(&source.pdta, font.get_wave_data(), kit, &set).unwrap();
-            let derive_ms = t.elapsed().as_secs_f64() * 1e3;
-            let t = std::time::Instant::now();
-            let built = build(&KitRequest { source: source.clone(), key: KitKey { font: source.id(), preset: kit as u32, sample_rate: 48_000, legacy: false, params: *set } }).unwrap();
-            let build_ms = t.elapsed().as_secs_f64() * 1e3;
-            let k = SoundFont::new(&mut &bytes[..]).unwrap();
-            assert_eq!(k.get_presets().len(), 1);
-            assert_eq!(k.get_presets()[0].get_name(), font.get_presets()[kit].get_name());
-            for key in (27..88).filter(|&k| k != 38) {
-                assert_eq!(plays(&k, 0, key), plays(&font, kit, key), "{f}: key {key} as the font plays it");
-            }
-            let (own, baked) = (plays(&font, kit, 38), plays(&k, 0, 38));
-            assert_eq!(own.len(), baked.len(), "{f}: the snare's layers");
-            for (o, b) in own.iter().zip(&baked) {
-                assert_eq!(b.0, o.0, "the same sample");
-                assert_eq!(b.1, o.1 + 7, "a fifth up");
-                // Pan 1: (1 - 64) x 50 / 64 = -49.22, in place of the kit's own.
-                assert!((b.2 + 49.21875).abs() < 0.05, "hard left: {}", b.2);
-                // Level 50: 40 log10(0.5) dB. rustysynth takes 0.4 x the attenuation and
-                // 0.5 x the Q off the gain; the kit gives the Q's share back.
-                let dq = b.5 - o.5;
-                let db = -(0.4 * (b.3 - o.3) + 0.5 * dq);
-                assert!((db - 40.0 * 0.5f32.log10()).abs() < 0.03, "level 50: {db} dB");
-                let cut = (o.4 * 0.5f32).clamp(19.45, 20_000.0);
-                assert!((b.4 / cut - 1.0).abs() < 1e-3, "cutoff an octave down: {} vs {}", b.4, o.4);
-                assert!((dq - (o.5 + 3.2).clamp(0.0, 96.0) + o.5).abs() < 1e-3, "resonance +3.2 dB");
-                assert!((b.6 / o.6 - 0.5).abs() < 1e-3 && (b.7 / o.7 - 2.0).abs() < 1e-3, "decay halved, release doubled");
-            }
+            let (k, kit, derive_ms, build_ms) = check_baked_kit(&font, &f);
             let samples: std::collections::BTreeSet<i32> = (0..128).flat_map(|key| plays(&font, kit, key)).map(|p| p.0).collect();
             eprintln!(
                 "{f}: kit {:?} ({} zones), {} KB of samples of {} KB; derive {derive_ms:.1} ms, build (with its lanes) {build_ms:.1} ms",
@@ -819,7 +843,7 @@ mod tests {
                 font.get_wave_data().len() * 2 / 1024,
             );
             assert!(k.get_wave_data().len() < font.get_wave_data().len(), "only the kit's samples");
-            assert!(!samples.is_empty() && built.lanes.len() == super::super::rack::KIT_LANES);
+            assert!(!samples.is_empty());
         }
     }
 
@@ -828,12 +852,26 @@ mod tests {
     #[test]
     fn a_kit_of_nothing_is_the_preset_itself() {
         let Some(font) = font() else { return };
-        let source = KitSource::of(&font).unwrap();
+        check_kit_of_nothing(&font);
+    }
+
+    /// `a_kit_of_nothing_is_the_preset_itself` on the tiny in-memory font, in the core
+    /// suite.
+    #[test]
+    fn a_kit_of_nothing_is_the_preset_itself_on_the_tiny_font() {
+        let font = crate::synth::rack_tests::tiny_font();
+        // Every preset plays every key, so the comparison has zones to compare.
+        assert!([36, 38, 60, 72].iter().all(|&key| plays(&font, 0, key).len() == 1));
+        check_kit_of_nothing(&font);
+    }
+
+    fn check_kit_of_nothing(font: &Arc<SoundFont>) {
+        let source = KitSource::of(font).unwrap();
         let none = params(&[]);
         for (i, p) in font.get_presets().iter().enumerate().step_by(7) {
             let k = SoundFont::new(&mut &derive(&source.pdta, font.get_wave_data(), i, &none).unwrap()[..]).unwrap();
             for key in [36, 38, 60, 72] {
-                assert_eq!(plays(&k, 0, key), plays(&font, i, key), "{} key {key}", p.get_name());
+                assert_eq!(plays(&k, 0, key), plays(font, i, key), "{} key {key}", p.get_name());
             }
         }
         assert!(derive(&source.pdta, font.get_wave_data(), font.get_presets().len(), &none).is_err());
@@ -846,11 +884,22 @@ mod tests {
     #[test]
     fn presets_are_found_as_rustysynth_finds_them() {
         let Some(font) = font() else { return };
+        check_presets_found(&font);
+    }
+
+    /// `presets_are_found_as_rustysynth_finds_them` on the tiny in-memory font, in the
+    /// core suite.
+    #[test]
+    fn presets_are_found_as_rustysynth_finds_them_on_the_tiny_font() {
+        check_presets_found(&crate::synth::rack_tests::tiny_font());
+    }
+
+    fn check_presets_found(font: &SoundFont) {
         let p = font.get_presets();
         let at = |i: Option<usize>| i.map(|i| (p[i].get_bank_number(), p[i].get_patch_number()));
-        assert_eq!(at(preset_index(&font, 0, 0)), Some((0, 0)));
-        assert_eq!(at(preset_index(&font, 128, 0)), Some((128, 0)));
-        assert_eq!(at(preset_index(&font, 120, 5)), Some((0, 5)), "a missing melodic bank: bank 0");
-        assert_eq!(at(preset_index(&font, 128, 126)).map(|b| b.0), Some(128), "a missing kit: a kit");
+        assert_eq!(at(preset_index(font, 0, 0)), Some((0, 0)));
+        assert_eq!(at(preset_index(font, 128, 0)), Some((128, 0)));
+        assert_eq!(at(preset_index(font, 120, 5)), Some((0, 5)), "a missing melodic bank: bank 0");
+        assert_eq!(at(preset_index(font, 128, 126)).map(|b| b.0), Some(128), "a missing kit: a kit");
     }
 }

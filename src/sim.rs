@@ -622,7 +622,7 @@ mod tests {
             let bar = (60e9 / prep.bpm * (prep.tpb as f64 / prep.ppq as f64)) as u64;
             let play = |ty: u8| {
                 let script = [(0, Step::Chord(Chord { root: 2, ty, bass: Some(9) }))];
-                run(Box::new(Prepared::new(style)), &script, bar * 2).1.out
+                run(Box::new(prep.clone()), &script, bar * 2).1.out
             };
             // Each CASM type runs once; a type that maps to another runs once more itself.
             let mut casm_runs = std::collections::HashMap::new();
