@@ -6,7 +6,7 @@
 // Components read `voiceList()` only.
 
 import type { LibraryList } from './types'
-import { GM } from './mock'
+import { GM } from './constants'
 
 export interface VoiceEntry {
   program: number

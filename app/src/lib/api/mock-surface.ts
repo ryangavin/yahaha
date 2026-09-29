@@ -2,8 +2,9 @@
 // with the button colours of src/launchkey.rs (`button_colours`, `palette_colour`), so the
 // browser mock sends what the engine sends. Mock only: the UI reads `state.surface`.
 
-import type { AppCmd, AppState, ClockState, ControlId, FaderLayer, Level, LibraryList, Neighbour, Rgb, SurfaceControl, SurfaceFader, SurfaceState } from './types'
+import type { AppCmd, AppState, ClockState, ControlId, FaderLayer, Level, LibraryList, Rgb, SurfaceControl, SurfaceFader, SurfaceState } from './types'
 import { PAD_PAGES, STYLE_PART_NAMES } from './types'
+import { neighbours } from './constants'
 import { MockKnobs, faderRoute, rackFn } from './mock-knobs'
 
 /** Reads a controller map target for a fader's label and level (no knob state of its own). */
@@ -70,21 +71,8 @@ const LEFT_HOLD_FADER_BTN = 6
 const PART_LABELS = ['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT']
 const SELECT_LABELS = ['EDIT R1', 'EDIT R2', 'EDIT R3', 'EDIT L']
 
-/** The styles Track ◀/▶ load: library order, skipping unreadable files, wrapping. */
-export function neighbours(lib: LibraryList, position: number): { prev: Neighbour | null; next: Neighbour | null } {
-  const n = lib.entries.length
-  const step = (d: number): Neighbour | null => {
-    let i = position
-    for (let k = 0; k < n; k++) {
-      i = (((i + d) % n) + n) % n
-      if (i === position) return null
-      const e = lib.entries[i]
-      if (e.status !== 'error') return { id: e.id, name: e.name, path: e.path }
-    }
-    return null
-  }
-  return n ? { prev: step(-1), next: step(1) } : { prev: null, next: null }
-}
+// The styles Track ◀/▶ load (moved to ./constants; re-exported for mock code and tests).
+export { neighbours }
 
 export interface MockHardware {
   /** Where the physical faders 1–8 and master are (0–127), null until moved. */

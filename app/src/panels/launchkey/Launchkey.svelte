@@ -40,8 +40,11 @@
   const surface = $derived(surfaceOf(s, app.library))
   const shift = $derived(ui.shift || surface.shift)
   const beats = $derived(clock.beats)
-  const top = $derived(s.pads.pads.filter((p) => p.note < 112))
-  const bottom = $derived(s.pads.pads.filter((p) => p.note >= 112))
+  // The same array while the pads don't change (the store shares equal parts of each
+  // state), so the rows below aren't re-filtered on every state.
+  const pads = $derived(s.pads.pads)
+  const top = $derived(pads.filter((p) => p.note < 112))
+  const bottom = $derived(pads.filter((p) => p.note >= 112))
   const pageIndex = $derived(PAD_PAGES.findIndex((p) => p.id === s.pads.page))
 
   /** Page identity colours for the tabs (src/launchkey.rs: white, cyan, magenta, orange). */
