@@ -286,6 +286,55 @@ fn every_kind_of_change_sets_modified() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A strip edit and an added send effect change the live rack.
+#[test]
+fn strip_edits_and_added_sends_set_modified() {
+    let d = dir("strip-modified");
+    let changes = [StripCmd::SetStripCompressorOn { strip: 1, on: true }, StripCmd::AddSend { kind: SendKind::Room }];
+    for c in changes {
+        let s = session_with(&d, false);
+        s.live_rack_clean("Ballad", Some("r1".into()));
+        s.advance(QUIET_NS);
+        assert!(!live(&s).modified, "{c:?}: not before the change");
+        s.send(c.clone()).unwrap();
+        assert!(live(&s).modified, "{c:?} sets modified");
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A stop then a start brings the keyboard parts' strips and the send effects back.
+#[test]
+fn stop_then_start_restores_the_strips() {
+    let d = dir("strips");
+    let a = session(&d);
+    let cmds = [
+        StripCmd::SetStripCompressorOn { strip: 0, on: true },
+        StripCmd::SetStripCompressorPreset { strip: 0, preset: CompPreset::Rich },
+        StripCmd::SetStripInsertKind { strip: 1, slot: 1, kind: InsertType::AutoWah },
+        StripCmd::SetStripInsertOn { strip: 1, slot: 1, on: true },
+        StripCmd::SetStripInsertSetting { strip: 1, slot: 1, setting: 2, value: 90 },
+        StripCmd::AddSend { kind: SendKind::Flanger },
+        StripCmd::SetStripSend { strip: 3, send: 3, level: 45 },
+        StripCmd::SetRackSendOverride { send: 1, on: true },
+        StripCmd::SetSendKind { send: 1, kind: SendKind::Celeste },
+    ];
+    for c in cmds {
+        a.send(c.clone()).unwrap_or_else(|e| panic!("{c:?}: {e:?}"));
+    }
+    let before = a.state();
+    a.stop();
+
+    let b = session(&d);
+    let after = b.state();
+    for p in 0..4 {
+        assert_eq!(after.keyboard_parts[p].strip, before.keyboard_parts[p].strip, "part {p}");
+    }
+    assert_eq!(after.effects.sends, before.effects.sends, "the added send and the override");
+    assert_eq!(after.effects.sends[1].kind, SendKind::Celeste);
+    drop(b);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// The live rack's split and transpose come back unless `--split` / `--transpose` was
 /// given on this launch: a flag given wins (and the live rack shows modified); defaults
 /// never override the rack.

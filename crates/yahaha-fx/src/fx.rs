@@ -188,6 +188,12 @@ pub struct FxControl {
     /// Each channel's send to sends 4-6 (`[channel][send - 4]`), 0-127 on the
     /// [`send_gain`] scale; 0 (none) by default.
     pub strip_send: [[AtomicU8; ADDED_SENDS]; 16],
+    /// Each Style part's EQ (channels 9-16, `[part]`; a keyboard part's is in its part
+    /// state). The control side sets it ([`FxControl::set_style_eq`]) at the rate
+    /// [`FxControl::set_style_eq_rate`] gave; the audio thread takes it with
+    /// `EqCell::read`.
+    pub style_eq: [part_eq::EqCell; 8],
+    style_eq_rate: AtomicU32,
 }
 
 impl FxControl {
@@ -212,6 +218,27 @@ impl FxControl {
             strips: strip::StripControl::new(),
             sends: std::array::from_fn(|_| SendControl::new()),
             strip_send: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(0))),
+            style_eq: [const { part_eq::EqCell::new() }; 8],
+            style_eq_rate: AtomicU32::new(48_000),
+        }
+    }
+
+    /// Style part `part`'s (0-7) EQ, clamped: its coefficients are computed here, on the
+    /// caller's thread (control side only). Unchanged: nothing is done.
+    pub fn set_style_eq(&self, part: usize, eq: part_eq::PartEq) {
+        let cell = &self.style_eq[part & 7];
+        if cell.get() != eq.clamped() {
+            cell.set(eq, self.style_eq_rate.load(Relaxed) as f32);
+        }
+    }
+
+    /// The rate the Style parts' EQs play at (the synth sets it when it starts, off the
+    /// audio thread): their coefficients are computed again.
+    pub fn set_style_eq_rate(&self, sample_rate: u32) {
+        if self.style_eq_rate.swap(sample_rate, Relaxed) != sample_rate {
+            for c in &self.style_eq {
+                c.recompute(sample_rate as f32);
+            }
         }
     }
 }
