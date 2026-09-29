@@ -5,6 +5,9 @@ import type { Meters } from '../../lib/api/types'
 export interface TrackCpu {
   avg: number
   peak: number
+  /** A group of tracks: `peak` sums their worst buffers, which need not coincide, so it is
+   * only an upper bound and never turns the strip red. */
+  summed: boolean
 }
 
 /** How often the Mixer reads the meters; a reading changes once a second. */
@@ -25,7 +28,14 @@ export function cpuOf(m: Meters | null, channels: number[]): TrackCpu | null {
     // Tracks' worst buffers need not coincide: their sum is an upper bound.
     peak += c.cpuPeak ?? 0
   }
-  return { avg, peak }
+  return { avg, peak, summed: channels.length > 1 }
+}
+
+/** Whether a strip shows red: a track by its worst buffer; a group only by its average,
+ * since its summed peak is an upper bound (#340). */
+export function cpuWarn(cpu: TrackCpu | null): boolean {
+  if (cpu === null) return false
+  return (cpu.summed ? cpu.avg : cpu.peak) > CPU_WARN
 }
 
 /** "0.4%", "12%": a share as a percentage, one decimal below 10%. */

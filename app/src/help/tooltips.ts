@@ -1599,6 +1599,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'mixer.cpu_group': {
+    title: 'Group CPU',
+    body: 'How much of each audio buffer this group\'s tracks take together to render over the last second, where 100% is the whole buffer; red past half the buffer. "≤ pk" adds up each track\'s slowest single buffer. Those need not happen in the same buffer, so it is only an upper bound and never turns the strip red: open the group\'s tab to see each track\'s own peak.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'mixer.cpu_total': {
     title: 'CPU, all tracks',
     body: 'Every track\'s render time together, as a share of the audio buffer, over the last second, and the slowest single buffer (pk). The effects bus and the output are not in it. Near 100% at the peak, the audio drops out: raise the audio buffer in Settings, or find the expensive track on its strip.',

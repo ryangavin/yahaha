@@ -356,8 +356,13 @@ describe('Mixer drawer', () => {
     flushSync()
     const cpu = () => [...document.querySelectorAll('.strips [data-testid="cpu"]')].map((e) => e.textContent?.replace(/\s+/g, ' ').trim())
     // Right 1 (ch 1), Right 2 (ch 3), Right 3 (ch 4), Left (ch 2); Style: ch 9–16 together; M.Pad: ch 5–8.
-    expect(cpu()).toEqual(['1.0% pk 2.0%', '3.0% pk 6.0%', '4.0% pk 8.0%', '2.0% pk 4.0%', '100% pk 200%', '26% pk 52%', '', ''])
+    expect(cpu()).toEqual(['1.0% pk 2.0%', '3.0% pk 6.0%', '4.0% pk 8.0%', '2.0% pk 4.0%', '100% ≤ pk 200%', '26% ≤ pk 52%', '', ''])
     expect(document.querySelector('.strips [data-testid="cpu"] [data-tip="mixer.cpu"]')).not.toBeNull()
+    // Red: Style by its 100% average; M.Pad's summed peak (52%) is past CPU_WARN but its
+    // average (26%) isn't, so it stays un-warned; a single track warns by its own peak.
+    const warn = () => [...document.querySelectorAll('.strips [data-testid="cpu"]')].map((e) => e.classList.contains('warn'))
+    expect(warn()).toEqual([false, false, false, false, true, false, false, false])
+    expect(document.querySelectorAll('.strips [data-tip="mixer.cpu_group"]').length).toBe(2)
     const total = document.querySelector('[data-testid="cpu-total"]')!.textContent!.replace(/\s+/g, ' ')
     expect(total).toContain('CPU 136% · pk 40% of a 1.3 ms buffer')
     expect(total).toContain('Plugin instances 1')

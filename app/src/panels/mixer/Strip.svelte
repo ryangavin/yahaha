@@ -15,7 +15,7 @@
   import FxKnob from './FxKnob.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import type { VoiceLines } from './voice'
-  import { CPU_WARN, pct, type TrackCpu } from './cpu'
+  import { cpuWarn, pct, type TrackCpu } from './cpu'
 
   let {
     name,
@@ -135,10 +135,10 @@
     {#if badge}<span class="tag" use:tip={badge.tip}>{badge.text}</span>{/if}
   </div>
 
-  <div class="cpu" class:warn={cpu !== null && cpu.peak > CPU_WARN} data-testid="cpu">
+  <div class="cpu" class:warn={cpuWarn(cpu)} data-testid="cpu">
     {#if cpu !== null && !unused}
-      <span class="cpu-text" use:tip={'mixer.cpu'} aria-label="{name} CPU {pct(cpu.avg)}, peak {pct(cpu.peak)}"
-        >{pct(cpu.avg)} <span class="pk">pk {pct(cpu.peak)}</span></span
+      <span class="cpu-text" use:tip={cpu.summed ? 'mixer.cpu_group' : 'mixer.cpu'} aria-label="{name} CPU {pct(cpu.avg)}, peak {cpu.summed ? 'at most ' : ''}{pct(cpu.peak)}"
+        >{pct(cpu.avg)} <span class="pk">{cpu.summed ? '≤ ' : ''}pk {pct(cpu.peak)}</span></span
       >
       <span class="bar" aria-hidden="true"><span class="fill" style:width="{Math.min(1, cpu.avg) * 100}%"></span><span class="mark" style:left="{Math.min(1, cpu.peak) * 100}%"></span></span>
     {/if}
