@@ -10,7 +10,12 @@ impl Control {
     pub(super) fn ots_cmd(&mut self, c: OtsCmd) -> Result<(), CmdError> {
         let parts = self.shared.parts.clone();
         match c {
-            OtsCmd::RecallOts { index } => self.recall_ots(index, true),
+            OtsCmd::RecallOts { index } => {
+                let unattended = self.hardware;
+                return self.recall_ots(index, true, unattended);
+            }
+            OtsCmd::SetOtsRack { index, id } => return self.set_ots_rack(index, Some(id)),
+            OtsCmd::ClearOtsRack { index } => return self.set_ots_rack(index, None),
             OtsCmd::SetOtsLink { on } => parts.ots_link.store(on, Relaxed),
             OtsCmd::ToggleOtsLink => {
                 parts.ots_link.fetch_xor(true, Relaxed);
@@ -27,7 +32,16 @@ impl Control {
     ///
     /// `sends`: an explicit recall applies the OTS's reverb/chorus/delay sends; OTS Link
     /// firing on its own (a style start, a section change) keeps the player's.
-    fn recall_ots(&mut self, index: u8, sends: bool) {
+    ///
+    /// When the style's OTS `index` loads one of the user's racks (session/style_racks.rs),
+    /// that rack loads instead: `unattended` (the hardware, OTS Link) switches without the
+    /// guard, keeping unsaved changes as a Recovered rack.
+    fn recall_ots(&mut self, index: u8, sends: bool, unattended: bool) -> Result<(), CmdError> {
+        if (index as usize) < self.info.ots.len()
+            && let Some(id) = self.style_rack_for(index)
+        {
+            return self.recall_style_rack(index, id, unattended);
+        }
         if let Some(o) = self.info.ots.get(index as usize) {
             self.shared.parts.apply_ots(o, index + 1, sends);
             // Pitch bend range is the controllers' (the engine thread sends it as RPN 0).
@@ -47,6 +61,7 @@ impl Control {
                 self.wake_engine();
             }
         }
+        Ok(())
     }
 
     /// OTS Link (every pump, on the latest snapshot): Main A-D recall One Touch Settings
@@ -93,7 +108,7 @@ impl Control {
         let due = link && (self.last_ots_key != Some(key) || !self.last_link);
         if due && (main as usize) < self.info.ots.len() {
             // OTS Link fires by itself: the sends the player dialled in stay.
-            self.recall_ots(main, false);
+            let _ = self.recall_ots(main, false, true);
         }
         self.last_ots_key = Some(key);
         self.last_link = link;
@@ -129,6 +144,8 @@ impl Control {
             applied: kp.ots_applied.load(Relaxed),
             link: kp.ots_link.load(Relaxed),
             link_timing: self.ots_timing,
+            racks: self.ots_racks_state(),
+            racks_read_only: self.style_racks_read_only(),
         }
     }
 }

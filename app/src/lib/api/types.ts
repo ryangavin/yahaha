@@ -132,6 +132,10 @@ export type AppCmd =
   | { type: 'toggleOtsLink' }
   /** OTS Link Timing: recall as the Main is pressed, or when it starts playing. */
   | { type: 'setOtsLinkTiming'; timing: OtsLinkTiming }
+  /** For the loaded style, OTS `index` loads the user's rack `id` instead of its own (style-racks.json). */
+  | { type: 'setOtsRack'; index: number; id: string }
+  /** For the loaded style, OTS `index` is the style's own again. */
+  | { type: 'clearOtsRack'; index: number }
   // Style Setting > Change Behavior
   | { type: 'setTempoChange'; rule: ChangeRule }
   | { type: 'setPartsChange'; rule: ChangeRule }
@@ -862,6 +866,20 @@ export interface OtsState {
   link: boolean
   /** When OTS Link recalls during playback. */
   linkTiming: OtsLinkTiming
+  /** Per OTS of the loaded style (as `settings`): the user's rack its button loads instead. */
+  racks: OtsRack[]
+  /** style-racks.json can't be changed (a newer yahaha's, or no data folder). */
+  racksReadOnly: boolean
+}
+
+/** What one OTS button of the loaded style loads (docs/racks.md "Styles and OTS"). */
+export interface OtsRack {
+  /** The user's rack it loads; null: the style's own OTS. */
+  rack: string | null
+  /** That rack's name; empty for the style's own. */
+  name: string
+  /** The rack chosen is gone: the style's own loads. */
+  missing: boolean
 }
 
 export interface LibraryStatus {

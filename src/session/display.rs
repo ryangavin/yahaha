@@ -179,7 +179,11 @@ fn value_of(cmd: &AppCmd, level: Level, st: &AppState) -> String {
             }
             _ => level_text(level),
         },
-        AppCmd::Ots(OtsCmd::RecallOts { index }) => format!("OTS {}", index + 1),
+        AppCmd::Ots(OtsCmd::RecallOts { index }) => match st.ots.racks.get(*index as usize).filter(|r| r.rack.is_some() && !r.missing) {
+            // A style rack: the rack it loaded.
+            Some(r) => format!("OTS {} {}", index + 1, r.name),
+            None => format!("OTS {}", index + 1),
+        },
         AppCmd::Ots(OtsCmd::ToggleOtsLink) => on(st.ots.link),
         AppCmd::QuickRacks(c) => match c {
             QuickRackCmd::PressQuickRack { .. } | QuickRackCmd::StepQuickRack { .. } => st.live_rack.name.clone(),

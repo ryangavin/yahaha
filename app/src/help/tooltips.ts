@@ -621,31 +621,38 @@ const catalog = {
   // ── One Touch Settings ──────────────────────────────────────────────────
   'ots.1': {
     title: 'OTS 1',
-    body: 'A sound setup for your own hands that the style\'s author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. Dark if the style has none.',
+    body: 'A sound setup for your own hands that the style\'s author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. If you chose one of your racks for it (OTS rack), that rack loads instead. Dark if the style has none.',
     genos: 'ONE TOUCH SETTING 1',
     keys: ['shift+1'],
     launchkey: pad(P3, 'top', 1),
   },
   'ots.2': {
     title: 'OTS 2',
-    body: 'The style\'s second suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change.',
+    body: 'The style\'s second suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. If you chose one of your racks for it (OTS rack), that rack loads instead.',
     genos: 'ONE TOUCH SETTING 2',
     keys: ['shift+2'],
     launchkey: pad(P3, 'top', 2),
   },
   'ots.3': {
     title: 'OTS 3',
-    body: 'The style\'s third suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change.',
+    body: 'The style\'s third suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. If you chose one of your racks for it (OTS rack), that rack loads instead.',
     genos: 'ONE TOUCH SETTING 3',
     keys: ['shift+3'],
     launchkey: pad(P3, 'top', 3),
   },
   'ots.4': {
     title: 'OTS 4',
-    body: 'The style\'s fourth suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change.',
+    body: 'The style\'s fourth suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. If you chose one of your racks for it (OTS rack), that rack loads instead.',
     genos: 'ONE TOUCH SETTING 4',
     keys: ['shift+4'],
     launchkey: pad(P3, 'top', 4),
+  },
+  'ots.rack': {
+    title: 'OTS rack',
+    body: 'What this OTS button loads while this style is loaded: the style\'s own setup, or one of your racks instead. The choice is kept for this style in your data folder (the style file isn\'t touched), and pad page 3, the pedals and OTS Link follow it. Style\'s own puts it back.',
+    genos: null,
+    keys: [],
+    launchkey: null,
   },
   'ots.link': {
     title: 'OTS Link',
@@ -2953,6 +2960,13 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'library.style_rack_load': {
+    title: 'Load OTS',
+    body: 'Recalls this OTS button, as pad page 3 does: the rack of yours chosen for it, or the style\'s own setup. Loading a rack asks first if the live rack has unsaved changes.',
+    genos: 'ONE TOUCH SETTING 1–4',
+    keys: [],
+    launchkey: null,
+  },
   'library.rack_duplicate': {
     title: 'Duplicate',
     body: 'Copies this rack as a new rack of yours named “… copy”, and selects the copy.',
@@ -2962,7 +2976,7 @@ const catalog = {
   },
   'library.rack_delete': {
     title: 'Delete…',
-    body: 'Deletes this rack after you confirm, emptying the Quick Rack buttons that hold it. The loaded rack can’t be deleted: load another first.',
+    body: 'Deletes this rack after you confirm, emptying the Quick Rack buttons that hold it and giving any OTS button that loaded it back to its style. The loaded rack can’t be deleted: load another first.',
     genos: null,
     keys: [],
     launchkey: null,
