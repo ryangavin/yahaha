@@ -6,6 +6,14 @@ description = "A software arranger keyboard that plays Yamaha Genos/PSR style fi
 license = "MIT"
 repository = "https://github.com/satoramoto/yahaha"
 
+# One workspace, one Cargo.lock and one target directory for the engine and the app shell
+# (app/src-tauri), so the app's tests reuse the engine's dependency builds instead of
+# building everything a second time. Cargo at the repo root builds only the engine
+# (default-members); in app/src-tauri it builds the app shell.
+[workspace]
+members = [".", "app/src-tauri"]
+default-members = ["."]
+
 # The engine, the runtime and the app API are the `yahaha` library; the terminal front
 # panel and the developer tools are the `yahaha` binary. A client such as the desktop
 # app depends on the library alone: `yahaha = { path = "..", default-features = false }`.
