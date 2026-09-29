@@ -12,7 +12,7 @@
 //! a pattern CC7, during a fade goes out scaled too.
 //!
 //! The Style volume (#199, the Genos Balance page's Style slider, a Panel fader here) is
-//! the same kind of scale and the owner's other exception to the mixer rule: `level` (0-127,
+//! the same kind of scale on the CC7 that's sent (AGENTS.md, "Engine rules"): `level` (0-127,
 //! 100 = as written) multiplies the Style parts' CC7 as they go out, together with the fade
 //! position, and the faders again never move. Above 100 it raises them, up to CC7 127.
 //!
