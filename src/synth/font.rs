@@ -775,6 +775,7 @@ mod tests {
     /// The SoundFonts in `soundfonts/` (git-ignored; skipped without them): each bakes
     /// within the format's limits and loads with the same presets. Prints the tolerance
     /// used, the zones and the load time with and without baking (the PR's measurements).
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn real_fonts_bake_within_the_limits() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");

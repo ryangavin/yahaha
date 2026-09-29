@@ -649,6 +649,7 @@ mod tests {
         assert_eq!(f(&lib, "8beat"), ["Pop|Modern Pop Groove"]);
     }
 
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_indexes_without_errors() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");

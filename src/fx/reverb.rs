@@ -326,12 +326,14 @@ fn hadamard8(v: &mut [f32; 8]) {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "slow-tests")]
     fn rms(x: &[f32]) -> f32 {
         (x.iter().map(|v| v * v).sum::<f32>() / x.len().max(1) as f32).sqrt()
     }
 
     /// Noise in for a second, then silence: how long the tail takes to fall 30 dB below
     /// its level as the input stopped (s), measured in 20 ms windows.
+    #[cfg(feature = "slow-tests")]
     fn decay_30db(rt60: f32, predelay_ms: f32, tone_hz: f32) -> f32 {
         let rate = 48_000.0;
         let mut r = Reverb::new(rate);
@@ -355,6 +357,7 @@ mod tests {
 
     /// The Time parameter sets how long the tail rings: 30 dB down takes about half the
     /// RT60, and four times the time is about four times the tail.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn the_tail_follows_the_time() {
         let short = decay_30db(1.0, 0.0, 4500.0);
@@ -388,6 +391,7 @@ mod tests {
     }
 
     /// The Tone parameter darkens the tail: less of a high tone rings on.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn a_lower_tone_is_darker() {
         let tail = |tone: f32, hz: f32| {
@@ -409,6 +413,7 @@ mod tests {
     /// Turning a parameter while the reverb rings glides: the output moves no faster just
     /// after a change than once it has settled at the new setting (a click would be a
     /// jump right at the change).
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn a_parameter_change_does_not_click() {
         let mut r = Reverb::new(48_000.0);

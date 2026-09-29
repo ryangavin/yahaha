@@ -446,6 +446,7 @@ mod tests {
     /// #269: a style's insertion effects reach the audio thread on the parts they are on,
     /// show in the state, go off together, and another style brings its own.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn the_styles_inserts_reach_the_bus() {
         use crate::api::{FxCmd, InsertEffect, LibraryCmd};
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
@@ -567,6 +568,7 @@ mod tests {
     /// feedback from its SysEx); another style sets its own; a type the player picks
     /// stays through style changes until the block follows the style again.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn the_styles_own_effect_types() {
         use crate::api::{FxBlock, FxCmd, FxType, LibraryCmd};
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style");

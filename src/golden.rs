@@ -215,6 +215,7 @@ fn pick(listing: &str, which: &[usize]) -> String {
     out
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn golden_snapshots() {
     let dir = root().join("tests/golden");
@@ -285,13 +286,14 @@ fn golden_snapshots() {
     }
     assert!(
         failures.is_empty(),
-        "{}\n\nIf the change is intended, regenerate with UPDATE_GOLDEN=1 cargo test --release golden and commit the digests.",
+        "{}\n\nIf the change is intended, regenerate with UPDATE_GOLDEN=1 cargo test --release --features slow-tests golden and commit the digests.",
         failures.join("\n\n")
     );
 }
 
 /// #47: no snapshot holds a zero-length note (`~0`): a chord change never retriggers a note
 /// the pattern ends at that tick. (#45 found about 72 of them across these six styles.)
+#[cfg(feature = "slow-tests")]
 #[test]
 fn snapshots_hold_no_zero_length_notes() {
     let script = std::fs::read_to_string(root().join("tests/golden/chords.script")).unwrap();

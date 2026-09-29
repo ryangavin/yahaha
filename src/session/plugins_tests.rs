@@ -288,6 +288,7 @@ fn a_restore_keeps_a_missing_plugin_and_never_falls_back_in_process() {
 }
 
 /// Goertzel power at `hz` (48 kHz).
+#[cfg(feature = "slow-tests")]
 fn power_at(x: &[f32], hz: f64) -> f64 {
     let w = 2.0 * std::f64::consts::PI * hz / 48_000.0;
     let (mut s1, mut s2) = (0.0f64, 0.0f64);
@@ -299,6 +300,7 @@ fn power_at(x: &[f32], hz: f64) -> f64 {
 }
 
 /// Play with time running: engine deadlines (Echo, the arpeggio) and audio together.
+#[cfg(feature = "slow-tests")]
 fn play(s: &Session, ms: usize) -> Vec<f32> {
     let mut out = Vec::new();
     for _ in 0..ms / 10 {
@@ -311,6 +313,7 @@ fn play(s: &Session, ms: usize) -> Vec<f32> {
 /// Keyboard Harmony's added notes (input thread) and the arpeggio's (engine thread) on a
 /// keyboard part reach that part's plugin, as its keys do (#100 with #91).
 #[test]
+#[cfg(feature = "slow-tests")]
 fn harmony_and_arpeggio_notes_reach_the_parts_plugin() {
     use crate::api::HarmonyArpCmd;
     let s = session();
@@ -357,6 +360,7 @@ fn harmony_and_arpeggio_notes_reach_the_parts_plugin() {
 /// channels (9-16) only: section changes never reach a keyboard part's plugin, which
 /// plays its key as before afterwards.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn section_setups_never_reach_a_keyboard_parts_plugin() {
     use crate::api::TransportCmd;
     let s = session();
@@ -741,6 +745,7 @@ fn a_gm_voice_selection_ends_a_picked_plugin() {
 /// (#204): fully sent to the reverb, its note rings on after the release; at return 0 the
 /// release is the plugin's own.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn a_plugin_part_feeds_the_effect_bus() {
     let tail = |returns: bool| {
         let s = session();
@@ -842,6 +847,7 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
 /// part plays the preset, named by its catalog id); Save makes one sound named after the
 /// preset, which the part then plays, so saving again updates it.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn one_save_makes_one_record() {
     use crate::api::{PatchCategory, SoundLibraryCmd, SoundsCmd};
     use crate::plugin::{presets, LoadConfig, PluginHost, PluginId};
@@ -979,6 +985,7 @@ fn a_part_shows_its_sound_and_when_it_was_edited() {
 /// session never runs), and turning it back clears it. With the window closed, nothing
 /// reads the state.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn an_edit_in_the_open_plugin_window_shows_at_once_and_undoing_it_clears_it() {
     use crate::api::SoundLibraryCmd;
     let s = session();

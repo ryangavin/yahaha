@@ -2,41 +2,17 @@
 //! allocate or free: band program changes routed to a second SoundFont's synthesizer,
 //! keyboard parts on their own patches, a table rewrite under the playing channels, a
 //! table bank switch (a style change), an audition start and end, and the port's program
-//! mapping on the engine thread. A counting global allocator (in this test binary only)
-//! checks every call.
+//! mapping on the engine thread. The crate's counting allocator (`alloc_count`, on the
+//! test's own thread, which plays those threads) checks every call.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::alloc_count::counted;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use yahaha::parts::Parts;
 use yahaha::patches::port::PortMap;
 use yahaha::patches::route::{AUDITION, AUDITION_CHANNEL, ROUTE_BANK};
 use yahaha::patches::{Route, Routes};
 use yahaha::synth::{self, AudioCore, Rack, SynthControl};
-
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static FREES: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        FREES.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
-
-fn counted(f: impl FnOnce()) -> (usize, usize) {
-    let (a, d) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
-    f();
-    (ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - d)
-}
 
 #[test]
 fn the_audio_callback_with_a_map_does_not_allocate() {

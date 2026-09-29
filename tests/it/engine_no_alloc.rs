@@ -1,8 +1,10 @@
 //! The engine thread must not allocate or free: a style preview (its whole run, and its
-//! end) and a style change at the next bar line run there. A counting global allocator (in
-//! this test binary only) checks `EngineLoop::step` through both.
+//! end) and a style change at the next bar line run there. The crate's counting allocator
+//! (`alloc_count`: this thread only, so the harness's own work on another test's thread,
+//! freeing that test's captured output after it ends, never lands in a window, #188)
+//! checks `EngineLoop::step` through both.
 
-use std::alloc::{GlobalAlloc, Layout, System};
+use crate::alloc_count::{count_here, counts};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use yahaha::engine::{Button, DynamicsSettings, Engine, PadCmd, Prepared, StyleSettings, Transpose, PAD_PPQ};
@@ -10,56 +12,6 @@ use yahaha::live::{self, Audition, Cmd, EngineLoop, FxConfig, FxKey, FxMode, Out
 use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
-
-struct Counting;
-
-thread_local! {
-    /// Count on this thread only: the test's own. The counts are per thread too, so the
-    /// harness's own work on another test's thread (freeing that test's captured output
-    /// after it ends) never lands in this test's window (#188).
-    static COUNT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static ALLOCS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static FREES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-fn bump(n: &'static std::thread::LocalKey<std::cell::Cell<usize>>) {
-    if COUNT.try_with(|c| c.get()).unwrap_or(false) {
-        let _ = n.try_with(|n| n.set(n.get() + 1));
-    }
-}
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        bump(&ALLOCS);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        bump(&FREES);
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
-
-/// This thread's allocations and frees so far.
-fn counts() -> (usize, usize) {
-    (ALLOCS.with(|n| n.get()), FREES.with(|n| n.get()))
-}
-
-/// Counting on, for this thread, until the guard drops.
-struct Counted;
-
-impl Drop for Counted {
-    fn drop(&mut self) {
-        COUNT.with(|c| c.set(false));
-    }
-}
-
-fn count_here() -> Counted {
-    COUNT.with(|c| c.set(true));
-    Counted
-}
 
 fn prep(name: &str) -> Option<Box<Prepared>> {
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2").join(name);

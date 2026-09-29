@@ -4,7 +4,7 @@
 //! and a replug puts it back into DAW mode.
 //!
 //! It starts a live session (CoreMIDI, a virtual "yahaha" port; no synth), so it is not
-//! run by default: `cargo test --release --test devices_live -- --ignored`. With a real
+//! run by default: `cargo test --release --test it devices_live -- --ignored`. With a real
 //! Launchkey connected, the session leaves the Launchkeys' DAW ports alone (`no_pads`: it
 //! would take the real one) and only the keyboard is checked.
 

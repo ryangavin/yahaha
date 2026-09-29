@@ -612,6 +612,7 @@ mod tests {
 
     /// Every corpus style: its effects read, and the reverb always matches (they are all
     /// halls, rooms and plates). Prints how often each type occurs.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_styles_effects() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");

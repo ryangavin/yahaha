@@ -198,7 +198,7 @@ state are `chart` in [app-api.md](app-api.md).
   bar into a `PlanBar`: the Main it plays, whether a section starts on it, the chord in
   effect as it begins, and up to 8 chords on beats. The plan is built on the control side
   and handed to the engine thread in a `Box` through its own ring. The plan it replaces
-  comes back through another ring to be freed there (`tests/chart_no_alloc.rs`).
+  comes back through another ring to be freed there (`tests/it/chart_no_alloc.rs`).
 - **Bars.** One chart bar is one bar of the style. The chart moves on a bar at each bar line
   of the Main, Fill or Break playing (the engine's `on_bar` hook). It stays put during the
   Intro and the Ending.
@@ -316,4 +316,4 @@ good once Auto Style is off.
 
 Tests are synthetic charts only: `src/engine/chart.rs` (the engine, on a corpus style),
 `src/session_tests.rs` (`chart_player_*`), `src/ireal/styles.rs`, and
-`tests/chart_no_alloc.rs`.
+`tests/it/chart_no_alloc.rs`.

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { MockSession, mockOtsEq, mockOtsInsert, noteName, transposeChord } from './mock'
 import { FLAT_EQ } from './types'

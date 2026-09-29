@@ -4,15 +4,9 @@
 
 use super::*;
 
-/// The smallest SoundFont in the checkout's soundfonts/ (None: skip).
+/// The smallest SoundFont in the checkout's soundfonts/ (None: skip), loaded once.
 fn font() -> Option<Arc<SoundFont>> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-    let f = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX));
-    let Some(f) = f else {
-        eprintln!("no SoundFont; skipping");
-        return None;
-    };
-    Some(crate::synth::font::open(&f).unwrap())
+    super::rack_tests::font()
 }
 
 const RATE: i32 = 48_000;

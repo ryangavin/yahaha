@@ -220,5 +220,5 @@ the nearest Main the style has when it lacks that one (RM p.12: D missing → C)
 | Fill functions, Half Bar Fill | `src/engine/fills.rs`, `Change::HalfBar` in `src/engine/sections.rs` |
 | Stop ACMP modes, Change Behavior | `src/engine/change_rules.rs` (engine), `src/session/style_change.rs`, `src/api/style_change.rs` |
 | OTS Link timing, OTS → Sync Start | `src/session/ots.rs` (`pump_ots_link`, `recall_ots`), `live::Cmd::SyncStartOn` |
-| Tests | `src/engine/rules_tests.rs`, `src/session/style_change.rs`, `tests/engine_no_alloc.rs` |
+| Tests | `src/engine/rules_tests.rs`, `src/session/style_change.rs`, `tests/it/engine_no_alloc.rs` |
 | App | Settings › Style (`StylePage.svelte`, `FillButtons.svelte`, `ChangeBehavior.svelte`) |

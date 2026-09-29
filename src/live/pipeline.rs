@@ -27,7 +27,7 @@
 //! This is the CoreMIDI receive thread: nothing here allocates, frees, locks or blocks.
 //! Every stage works on `Copy` values and fixed arrays; settings come from `Shared`'s
 //! atomics; the engine hears about things through its rings (`Cmd`) and `Wakeup`.
-//! `tests/input_no_alloc.rs` checks the whole key path with a counting allocator.
+//! `tests/it/input_no_alloc.rs` checks the whole key path with a counting allocator.
 //!
 //! # The processor
 //!

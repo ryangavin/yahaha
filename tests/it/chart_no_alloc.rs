@@ -1,34 +1,16 @@
 //! The chart player runs on the engine thread: a plan arriving (and the one it replaces
 //! going back out), chart chords on every beat, section changes with fills, an Intro, the
-//! player's override and the Ending must not allocate or free there. A counting global
-//! allocator (in this test binary only) checks `EngineLoop::step` through a whole song.
+//! player's override and the Ending must not allocate or free there. The crate's counting
+//! allocator (`alloc_count`) checks `EngineLoop::step` through a whole song.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::alloc_count::{count_here, counts};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use yahaha::engine::{Button, ChartPlan, ChartSettings, Engine, Prepared};
 use yahaha::ireal::{expand, parse_chart};
 use yahaha::live::{self, Cmd, EngineLoop, Out, Shared};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
-
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static FREES: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        FREES.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
 
 #[test]
 fn a_chart_plays_without_allocating() {
@@ -56,7 +38,8 @@ fn a_chart_plays_without_allocating() {
     // Snapshots are collected as they come (the ring holds 256), into room made up front.
     let mut snaps = Vec::with_capacity(100_000);
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let _on = count_here();
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     ch.chart_tx.push(first).ok().unwrap();
     ch.ui_tx.push(Cmd::Chart(settings)).ok().unwrap();
@@ -84,8 +67,8 @@ fn a_chart_plays_without_allocating() {
     ch.chart_tx.push(third).ok().unwrap();
     l.step(now);
     run(&mut l, &mut now, 60 * bar);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
 
     assert!(snaps.iter().any(|s| s.chart_override), "the player took over");
     assert!(snaps.iter().any(|s| s.chart_tag == 2 && s.chart_bar.is_some()), "the second plan played");

@@ -381,6 +381,7 @@ fn plugin_patches_say_why_they_play_the_fallback() {
 /// the drums). Every program each style sends a part resolves (to a patch or the
 /// fallback) without a panic, drum parts only ever to the drum rule, and the route table
 /// agrees with the resolution.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_styles_resolve_every_channel() {
     let files = crate::library::corpus_styles();
