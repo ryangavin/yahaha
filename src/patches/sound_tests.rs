@@ -85,34 +85,24 @@ fn plugin_parts_json_migrates_to_a_sound() {
     assert!(serde_json::to_value(&bare).unwrap().get("sound").is_none());
 }
 
-/// A Registration from before sounds had ids: its plugin voice reads with no sound, and
-/// the library's sound with exactly that state is found for it.
+/// A plugin state saved before sounds had ids: the library's sound with exactly that state
+/// is found for it.
 #[test]
-fn registration_plugin_voices_migrate() {
-    use crate::registration::VoiceRef;
+fn a_plugin_state_finds_its_sound() {
     let mut lib = library();
-    let old: VoiceRef = serde_json::from_str(r#"{"kind":"plugin","id":"aumu:abcd:manu","name":"Keys (AU)","state":"00ff","program":4}"#).unwrap();
-    let VoiceRef::Plugin { id, state, sound, .. } = &old else { panic!("a plugin voice") };
-    assert_eq!(*sound, None);
-    assert_eq!(lib.tag_for_state(id, state.as_deref().unwrap()), Some(SoundTag { id: "saved:keys".into(), name: "Keys (AU)".into() }));
+    let id = "aumu:abcd:manu";
+    assert_eq!(lib.tag_for_state(id, "00ff"), Some(SoundTag { id: "saved:keys".into(), name: "Keys (AU)".into() }));
     assert_eq!(lib.tag_for_state(id, "ffff"), None, "an edited state is no sound of the library's");
     assert_eq!(lib.tag_for_state(id, ""), None);
     lib.patches.clear();
-    assert_eq!(lib.tag_for_state("aumu:abcd:manu", "00ff"), None);
-    // Written back without a sound, it is the old record exactly.
-    assert!(serde_json::to_value(&old).unwrap().get("sound").is_none());
+    assert_eq!(lib.tag_for_state(id, "00ff"), None);
 }
 
-/// OTS voices (a style's One Touch Settings, and the OTS a Registration keeps) are GM
-/// voices: the record is unchanged, and they resolve through the map as before.
+/// OTS voices (a style's One Touch Settings) are GM voices: they resolve through the map.
 #[test]
-fn ots_voices_migrate_unchanged() {
-    use crate::registration::VoiceRef;
-    let ots: VoiceRef = serde_json::from_str(r#"{"kind":"gm","program":33,"bankMsb":0,"bankLsb":0}"#).unwrap();
-    assert_eq!(ots, VoiceRef::gm(33));
-    assert_eq!(serde_json::to_string(&ots).unwrap(), r#"{"kind":"gm","program":33,"bankMsb":0,"bankLsb":0}"#);
+fn ots_voices_resolve_through_the_map() {
     let lib = library();
-    let r = resolve_gm(&lib, None, &AutoFill::default(), false, ots.program().unwrap());
+    let r = resolve_gm(&lib, None, &AutoFill::default(), false, 33);
     assert_eq!((r.sound.as_deref(), r.layer), (Some("saved:bass"), Layer::Family));
 }
 

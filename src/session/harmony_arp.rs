@@ -12,7 +12,6 @@ use crate::arp::{library::PATTERNS, Quantize, Velocity};
 use crate::harmony::{Assign, EchoSpeed, ALL_TYPES};
 use crate::live::{type_index, FxMode};
 use crate::racks::HarmonyArpReg;
-use crate::registration::{Group, Groups};
 use std::sync::atomic::Ordering::Release;
 
 impl Control {
@@ -136,28 +135,10 @@ impl Control {
     }
 }
 
-// ----- Registration and racks (group Keyboard Harmony/Arpeggio) -----
-
-/// The `harmonyArp` section of a Registration Memory: `racks::HarmonyArpReg` (a rack
-/// stores the same).
-pub(super) fn harmony_arp_capture(c: &Control, g: Groups) -> Option<serde_json::Value> {
-    if !g.has(Group::HarmonyArp) {
-        return None;
-    }
-    serde_json::to_value(c.harmony_arp_reg()).ok()
-}
-
-/// Recall the `harmonyArp` section (`Control::apply_harmony_arp_reg`).
-pub(super) fn harmony_arp_recall(c: &mut Control, v: &serde_json::Value, g: Groups) -> Result<(), String> {
-    if !g.has(Group::HarmonyArp) {
-        return Ok(());
-    }
-    let r: HarmonyArpReg = serde_json::from_value(v.clone()).map_err(|e| format!("registration harmonyArp: {e}"))?;
-    c.apply_harmony_arp_reg(&r)
-}
+// ----- Racks -----
 
 impl Control {
-    /// Harmony/Arpeggio as a Registration or a rack stores it.
+    /// Harmony/Arpeggio as a rack stores it.
     pub(super) fn harmony_arp_reg(&self) -> HarmonyArpReg {
         let s = self.harmony_arp_state();
         let h = &self.harmony_arp;

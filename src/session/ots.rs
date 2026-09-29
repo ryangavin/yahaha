@@ -99,12 +99,6 @@ impl Control {
         };
         let main = key.1;
         let link = self.shared.parts.ots_link.load(Relaxed);
-        // A Registration recall settling: its voices, not the OTS of its section.
-        if self.registration_holds_ots() {
-            self.last_ots_key = Some(key);
-            self.last_link = link;
-            return;
-        }
         let due = link && (self.last_ots_key != Some(key) || !self.last_link);
         if due && (main as usize) < self.info.ots.len() {
             // OTS Link fires by itself: the sends the player dialled in stay.

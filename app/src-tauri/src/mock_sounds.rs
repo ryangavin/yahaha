@@ -14,10 +14,9 @@ pub const MOCK_PRESETS_ID: &str = "aumu Smp7 Fake";
 /// Its user presets' folder.
 const MOCK_PRESET_DIR: &str = "/Users/mock/Library/Audio/Presets/Fake Instruments/Sampler Deluxe";
 
-/// The catalog's settings, its revision and the audition.
+/// The catalog's settings and its revision.
 pub struct MockSounds {
     prefs: SoundPrefs,
-    audition: Option<(String, f64)>,
     /// What the catalog was last built from, and its revision.
     key: String,
     revision: u64,
@@ -34,7 +33,6 @@ impl Default for MockSounds {
         };
         MockSounds {
             prefs: SoundPrefs::default(),
-            audition: None,
             key: String::new(),
             revision: 0,
             presets: vec![PluginPresetList {
@@ -110,16 +108,6 @@ impl MockSounds {
                     self.prefs.favourites.remove(&id);
                 }
             }
-            SoundsCmd::AuditionSound { id } => {
-                if !self.known(st, &id) {
-                    return Err(no(&id));
-                }
-                if st.transport.running {
-                    return Err("Stop the band to audition a sound".into());
-                }
-                self.audition = Some((id, 3000.0));
-            }
-            SoundsCmd::StopSoundAudition => self.audition = None,
             SoundsCmd::AssignSound { part, id } => {
                 if part > 3 {
                     return Err(format!("no keyboard part {part} (0-3)"));
@@ -286,15 +274,6 @@ impl MockSounds {
         }))
     }
 
-    pub fn advance(&mut self, ms: f64, running: bool) {
-        if let Some((_, left)) = self.audition.as_mut() {
-            *left -= ms;
-            if *left <= 0.0 || running {
-                self.audition = None;
-            }
-        }
-    }
-
     /// `state.sounds`: a new revision whenever what the catalog is built from changed.
     pub fn derive(&mut self, st: &mut AppState) {
         let patches: Vec<_> = st.sound_library.patches.iter().map(|p| &p.patch).collect();
@@ -309,7 +288,6 @@ impl MockSounds {
             revision: self.revision,
             count: (presets + st.plugins.list.len() + plugin_presets + st.sound_library.patches.len()) as u32,
             scanning: st.plugins.scanning,
-            auditioning: self.audition.as_ref().map(|(id, _)| id.clone()),
             // The mock lists at once.
             listing_presets: Vec::new(),
         };

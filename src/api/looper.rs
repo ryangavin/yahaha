@@ -104,5 +104,13 @@ pub struct LooperState {
     pub bank_path: Option<String>,
     /// The bank files in the ChordLooper folder, by name.
     #[serde(default)]
-    pub banks: Vec<super::BankFile>,
+    pub banks: Vec<BankFile>,
+}
+
+/// A bank file in a folder: its name and its path.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BankFile {
+    pub name: String,
+    pub path: String,
 }

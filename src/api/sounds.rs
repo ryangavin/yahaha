@@ -21,10 +21,6 @@ use std::collections::{BTreeMap, BTreeSet};
 pub enum SoundsCmd {
     /// Mark or unmark a favourite (a saved sound's is its patch's `favourite`).
     SetSoundFavourite { id: String, on: bool },
-    /// Play a sound on its own for a moment (the band must be stopped), as `auditionPatch`
-    /// does (a plugin with its default preset).
-    AuditionSound { id: String },
-    StopSoundAudition,
     /// Keyboard part `part` (0-3) plays the sound: a preset of the synth's main font as its
     /// voice (`setPartVoice`), a preset of another font as a saved sound (`setPartPatch`,
     /// adding the preset to the library once), a plugin (`setPartPlugin`), a saved sound
@@ -191,8 +187,6 @@ pub struct SoundsState {
     pub count: u32,
     /// Plugins are being scanned: more may come.
     pub scanning: bool,
-    /// The sound being auditioned (`auditionSound`).
-    pub auditioning: Option<String>,
     /// Plugins (`au:<component id>`) whose presets are being listed (`listPluginPresets`).
     /// Left out of the JSON while none is.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

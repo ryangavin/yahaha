@@ -399,8 +399,6 @@ impl MockSession {
             controllers: ControllersState::of(&Controllers::new()),
             message: None,
             style_change: StyleChangeState::default(),
-            registration: RegistrationState::default(),
-            playlist: PlaylistState::default(),
             looper: mock_looper::empty(),
             metronome: MetronomeState { on: false, volume: 90, bell: true, audible: true },
             plugins: mock_plugins(),
@@ -828,7 +826,6 @@ impl MockSession {
         self.step_fade(ms);
         self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
         self.sound.advance(ms, self.state.transport.running);
-        self.sounds.advance(ms, self.state.transport.running);
         if !self.state.transport.running {
             return;
         }
@@ -2148,8 +2145,6 @@ impl MockSession {
                 self.state.dynamics = c.apply(now).into();
             }
             AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
-            // Off the wire (Quick Racks replaced them): the app can't send these.
-            AppCmd::Registration(_) | AppCmd::Playlist(_) => self.message("Registrations are gone: Quick Racks replace them", true),
             AppCmd::MultiPad(c) => {
                 let running = self.state.transport.running;
                 if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
@@ -2866,13 +2861,6 @@ mod tests {
         let cat = m.sounds();
         assert_eq!(cat.recents[0], "au:aumu dls  appl");
         assert!(cat.entries.iter().any(|e| e.id == "au:aumu dls  appl" && e.favourite && e.recent));
-        m.send(TransportCmd::Stop);
-        m.advance(10.0);
-        assert!(!m.state.transport.running);
-        m.send(SoundsCmd::AuditionSound { id: "sf:GeneralUser-GS.sf2:128:0".into() });
-        assert_eq!(m.state.sounds.auditioning.as_deref(), Some("sf:GeneralUser-GS.sf2:128:0"));
-        m.advance(3100.0);
-        assert_eq!(m.state.sounds.auditioning, None);
     }
 
     /// The Instruments tab, as mock-sounds.ts: a summary per font, and Add to my sounds

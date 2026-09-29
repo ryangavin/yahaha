@@ -6,9 +6,9 @@
 
 use super::Control;
 use crate::api::{BankFile as BankEntry, CmdError};
+use crate::data_files;
 use crate::engine::LoopState;
 use crate::looper::{BankFile, ChordSeq, BANK_EXT};
-use crate::registration as reg;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -47,7 +47,7 @@ impl BankFiles {
         if let Some(path) = setup.bank
             && let Some(b) = read(&path)
         {
-            self.name = reg::file_stem(&path, BANK_EXT);
+            self.name = data_files::file_stem(&path, BANK_EXT);
             self.path = Some(path);
             return Some(b);
         }
@@ -65,11 +65,11 @@ impl BankFiles {
     }
 
     pub(super) fn list(&self) -> Vec<BankEntry> {
-        self.banks.iter().map(|p| BankEntry { name: reg::file_stem(p, BANK_EXT), path: p.to_string_lossy().to_string() }).collect()
+        self.banks.iter().map(|p| BankEntry { name: data_files::file_stem(p, BANK_EXT), path: p.to_string_lossy().to_string() }).collect()
     }
 
     fn relist(&mut self) {
-        self.banks = self.dir.as_deref().map(|d| reg::list_files(d, BANK_EXT)).unwrap_or_default();
+        self.banks = self.dir.as_deref().map(|d| data_files::list_files(d, BANK_EXT)).unwrap_or_default();
     }
 
     /// A new bank: no file, "New Bank".
@@ -83,7 +83,7 @@ impl BankFiles {
         if let Some(dir) = &self.dir
             && let Ok(text) = serde_json::to_string_pretty(&Setup { bank: self.path.clone() })
         {
-            let _ = reg::write_atomic(&dir.join(SETUP_FILE), &text);
+            let _ = data_files::write_atomic(&dir.join(SETUP_FILE), &text);
         }
         self.relist();
     }
@@ -92,7 +92,7 @@ impl BankFiles {
     fn write(&self, memories: &[Option<(String, ChordSeq)>]) -> anyhow::Result<()> {
         let Some(dir) = &self.dir else { return Ok(()) };
         let target = self.path.clone().unwrap_or_else(|| dir.join(AUTOSAVE_FILE));
-        reg::write_atomic(&target, &BankFile::new(&self.name, memories).to_json())
+        data_files::write_atomic(&target, &BankFile::new(&self.name, memories).to_json())
     }
 }
 
@@ -119,12 +119,12 @@ impl Control {
                 return self.fail("Chord Looper: give the bank a name");
             }
             let own = self.looper.files.path.clone();
-            let path = match reg::save_target(&dir, &reg::file_name(&name, BANK_EXT), own.as_deref(), overwrite) {
+            let path = match data_files::save_target(&dir, &data_files::file_name(&name, BANK_EXT), own.as_deref(), overwrite) {
                 Ok(p) => p,
-                Err(reg::SaveClash::Exists) => return self.fail(format!("a Chord Looper bank called {name} already exists: save under another name, or overwrite it")),
-                Err(reg::SaveClash::Rename(e)) => return self.fail(format!("Chord Looper: renaming the bank file: {e}")),
+                Err(data_files::SaveClash::Exists) => return self.fail(format!("a Chord Looper bank called {name} already exists: save under another name, or overwrite it")),
+                Err(data_files::SaveClash::Rename(e)) => return self.fail(format!("Chord Looper: renaming the bank file: {e}")),
             };
-            self.looper.files.name = reg::file_stem(&path, BANK_EXT);
+            self.looper.files.name = data_files::file_stem(&path, BANK_EXT);
             self.looper.files.set_path(Some(path));
         } else if self.looper.files.path.is_none() {
             return self.fail("Chord Looper: give the bank a name to save it");
@@ -150,7 +150,7 @@ impl Control {
             Err(e) => return self.fail(format!("Chord Looper: reading {}: {e:#}", path.display())),
         };
         self.looper.set_memories(&b);
-        self.looper.files.name = reg::file_stem(&path, BANK_EXT);
+        self.looper.files.name = data_files::file_stem(&path, BANK_EXT);
         self.looper.files.set_path(Some(path));
         self.say(format!("Chord Looper bank: {}", self.looper.files.name), false);
         Ok(())
