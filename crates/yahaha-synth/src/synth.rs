@@ -754,6 +754,10 @@ pub struct AudioCore {
     /// publication they came from), for the racks and the plugin rack.
     eq_seen: [u32; parts::COUNT],
     eq: [yahaha_fx::fx::part_eq::EqCoeffs; parts::COUNT],
+    /// The Style parts' EQ coefficients (channels 9-16, `FxControl::style_eq`) as last
+    /// taken, the same way.
+    style_eq_seen: [u32; 8],
+    style_eq: [yahaha_fx::fx::part_eq::EqCoeffs; 8],
     /// The Master Compressor and Master EQ, after the effect returns.
     master_fx: yahaha_fx::fx::master::MasterDsp,
 }
@@ -781,6 +785,8 @@ impl AudioCore {
         parts.set_sample_rate(sample_rate);
         // The Master EQ's too.
         control.fx.master.set_sample_rate(sample_rate.max(1) as f32);
+        // And the Style parts' EQs.
+        control.fx.set_style_eq_rate(sample_rate.max(1));
         let core = AudioCore {
             rack,
             swap_rx,
@@ -826,6 +832,8 @@ impl AudioCore {
             sample_rate: sample_rate.max(1) as f32,
             eq_seen: [yahaha_fx::fx::part_eq::EqCell::UNSEEN; parts::COUNT],
             eq: [yahaha_fx::fx::part_eq::EqCoeffs::FLAT; parts::COUNT],
+            style_eq_seen: [yahaha_fx::fx::part_eq::EqCell::UNSEEN; 8],
+            style_eq: [yahaha_fx::fx::part_eq::EqCoeffs::FLAT; 8],
             master_fx: yahaha_fx::fx::master::MasterDsp::new(sample_rate.max(1) as f32),
         };
         (core, RackSwap { tx: swap_tx, old: old_rx, kits: kits_link }, Some(link))
@@ -871,6 +879,9 @@ impl AudioCore {
             for (p, c) in self.eq.iter().enumerate() {
                 new.set_eq(parts::CHANNEL[p], c);
             }
+            for (p, c) in self.style_eq.iter().enumerate() {
+                new.set_eq(8 + p as u8, c);
+            }
             self.sends_dirty = true;
             self.fading = self.rack.replace(new);
             self.last_master = 255;
@@ -887,6 +898,19 @@ impl AudioCore {
             if let Some(c) = self.parts.eq_cell(p).read(&mut self.eq_seen[p]) {
                 self.eq[p] = c;
                 let ch = parts::CHANNEL[p];
+                if let Some(rack) = self.rack.as_mut() {
+                    rack.set_eq(ch, &c);
+                }
+                #[cfg(feature = "plugins")]
+                self.plugins.set_eq(ch, &c);
+            }
+        }
+        // The Style parts' EQs (channels 9-16), published by the control side into
+        // `FxControl::style_eq`.
+        for p in 0..8 {
+            if let Some(c) = ctl.fx.style_eq[p].read(&mut self.style_eq_seen[p]) {
+                self.style_eq[p] = c;
+                let ch = 8 + p as u8;
                 if let Some(rack) = self.rack.as_mut() {
                     rack.set_eq(ch, &c);
                 }
@@ -2296,6 +2320,52 @@ mod rack_tests {
         let rms = |v: &[f32]| (v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32).sqrt();
         let tail = dry.len() / 2;
         assert!(rms(&wet[tail..]) < rms(&dry[tail..]) * 0.9, "compressed: {} vs {}", rms(&wet[tail..]), rms(&dry[tail..]));
+    }
+
+    /// A Style part's EQ (`FxControl::style_eq`) plays on its channel's stem: a high-shelf
+    /// cut on Style part 0 (channel 9) changes the output of a chord there, and flat (set,
+    /// or set back) is bit-identical to never set. Another part's cut leaves channel 9 as
+    /// it is.
+    #[test]
+    fn a_style_part_eq_plays_on_its_channel_and_flat_is_bit_identical() {
+        use yahaha_fx::fx::part_eq::PartEq;
+        let font = tiny_font();
+        let render = |setup: &dyn Fn(&SynthControl)| -> Vec<f32> {
+            let rack = Some(Box::new(Rack::new(&font, 48_000).unwrap()));
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            let (mut core, _swap, _link) = AudioCore::new(rack, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+            setup(&ctl);
+            for k in [60u8, 64, 67, 72] {
+                tx.push([0x98, k, 127]).unwrap();
+            }
+            let mut all = Vec::new();
+            let mut out = vec![0f32; 256];
+            for _ in 0..40 {
+                core.process(&mut out);
+                all.extend_from_slice(&out);
+            }
+            all
+        };
+        let cut = PartEq { high_gain: -12, high_freq: 1_000, ..PartEq::FLAT };
+        let dry = render(&|_| {});
+        assert!(dry.iter().any(|x| *x != 0.0), "the chord sounds");
+        assert_eq!(render(&|c| c.fx.set_style_eq(0, PartEq::FLAT)), dry, "flat: bit-identical");
+        assert_eq!(
+            render(&|c| {
+                c.fx.set_style_eq(0, cut);
+                c.fx.set_style_eq(0, PartEq::FLAT);
+            }),
+            dry,
+            "set back to flat: bit-identical"
+        );
+        assert_eq!(render(&|c| c.fx.set_style_eq(3, cut)), dry, "another part's EQ: not on channel 9");
+        let wet = render(&|c| c.fx.set_style_eq(0, cut));
+        let diff: f32 = wet.iter().zip(&dry).map(|(a, b)| (a - b).abs()).sum();
+        assert!(diff > 1.0, "the cut changes the output: {diff}");
+        // A high-shelf cut makes the signal smoother: less sample-to-sample change.
+        let rough = |v: &[f32]| v.windows(3).map(|w| (w[2] - w[0]).abs()).sum::<f32>();
+        assert!(rough(&wet) < rough(&dry) * 0.95, "less top: {} vs {}", rough(&wet), rough(&dry));
     }
 
     /// #269: a Style part's insertion effect. A sustained note on channel 12 with a
