@@ -52,6 +52,8 @@ See "Developing on Linux" in README.md.
 
 PRs target `develop` and are squash-merged. `develop` merges into `main` only when the owner says so, with a merge commit, so `main` keeps `develop`'s commits and the next release PR shows only new work. The rulesets enforce both: `develop` allows squash only, `main` allows merge commits only.
 
+PRs into `develop` land through its merge queue. Turn on auto-merge as soon as the PR opens (`gh pr merge --auto --squash`): once the review approves and the PR's CI passes, GitHub queues it, runs CI again on the PR merged onto `develop`'s tip (with anything queued ahead of it), and squash-merges it if that passes. Nobody updates branches by hand or waits to press merge. A PR that fails in the queue drops out of it; push the fix and run `gh pr merge --auto --squash` again.
+
 ## Never commit
 
 Style data, manual text, soundfonts, or real plugin state. Research transcripts and frames live in `../yahaha-research`, not this repo. Mocks use the fake "Sampler Deluxe" plugin.
