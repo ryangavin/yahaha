@@ -13,7 +13,14 @@
 //!   low-pass swept by the part's own envelope;
 //! - [`InsertKind::Tremolo`]: a volume tremolo at a 1/8 note of the style tempo;
 //! - [`InsertKind::Rotary`]: a rotary speaker, slow or fast (`FxControl::rotary_fast`,
-//!   gliding between them), horn and drum, with a little Doppler.
+//!   gliding between them), horn and drum, with a little Doppler;
+//! - [`InsertKind::Phaser`]: a stereo allpass-chain phaser ([`super::Phaser`]), for a
+//!   keyboard part's or a strip's slot (no XG type maps to it).
+//!
+//! Each kind has 2-4 named settings (`kinds::InsertType::settings`, documented there),
+//! read once per buffer with [`InsertSettings::value`]: the first is the old single
+//! `amount`, and at the others' defaults a kind sounds bit-for-bit as it did with only the
+//! amount (a style's insert and an old slot carry only that).
 //!
 //! The effect sees the part as if at full volume: `process` divides the part's level out
 //! before it and puts it back after, so a fader or expression move doesn't change how hard
@@ -35,7 +42,7 @@ pub enum InsertEffect {
     AutoWah,
     Tremolo,
     Rotary,
-    /// A phaser (the mixer rework). Its DSP is still to come: it plays dry for now.
+    /// A stereo phaser (the mixer rework, [`super::Phaser`]).
     Phaser,
 }
 
@@ -118,7 +125,7 @@ pub enum InsertKind {
     AutoWah = 3,
     Tremolo = 4,
     Rotary = 5,
-    /// Plays dry until its DSP lands (the mixer rework's lane A).
+    /// A stereo phaser ([`super::Phaser`]); no XG type maps to it.
     Phaser = 6,
 }
 
@@ -142,6 +149,9 @@ impl InsertKind {
         }
     }
 }
+
+/// `InsertSettings::rest`: this setting at the kind's default.
+pub const KIND_DEFAULT: u16 = u16::MAX;
 
 /// How long a kind change fades (s).
 const FADE_S: f32 = 0.02;
@@ -171,6 +181,124 @@ fn shape(x: f32) -> f32 {
     x / (1.0 + x.abs())
 }
 
+/// One kind's settings (`InsertSettings::value`) as the DSP uses them, worked out once
+/// per buffer. At a kind's default settings every field is exactly what the insert used
+/// before it had them (only `amount`), so an old slot sounds bit-for-bit the same.
+#[derive(Clone, Copy)]
+struct Params {
+    // Distortion: pre gain, post gain (with Output), the low cut's and the tone
+    // high cut's coefficients.
+    pre: f32,
+    post: f32,
+    lo_c: f32,
+    hi_c: f32,
+    // Compressor: threshold, attack and release coefficients, makeup (with Output).
+    thr: f32,
+    att: f32,
+    rel: f32,
+    makeup: f32,
+    // Auto wah: the follower's attack and release, sensitivity, base frequency (Hz), the
+    // filter's damping and its band-pass share.
+    wa: f32,
+    wr: f32,
+    sens: f32,
+    wah_hz: f32,
+    wah_q: f32,
+    wah_band: f32,
+    // Tremolo: its rate (Hz) and squareness (0 = the cosine). Tremolo and rotary: depth.
+    trem_hz: f32,
+    trem_sq: f32,
+    depth: f32,
+    // Rotary: the drive's pre and post gains (pre 1: clean), the horn's and drum's share.
+    rot_pre: f32,
+    rot_post: f32,
+    horn: f32,
+    drum: f32,
+    /// Phaser: depth, rate (centihertz), feedback (%), for `Phaser::set`.
+    phaser: [u16; 3],
+}
+
+/// `v` (0-127) as a factor: 64 = 1, each 32 steps an octave (x0.25 .. about x4).
+fn octaves_from_64(v: u16) -> f32 {
+    if v == 64 { 1.0 } else { ((v as f32 - 64.0) / 32.0).exp2() }
+}
+
+/// An Output setting (0-127) as a gain: 100 = unity, linear.
+fn output_gain(v: u16) -> f32 {
+    if v == 100 { 1.0 } else { v as f32 / 100.0 }
+}
+
+impl Params {
+    /// `s`'s kind's settings at `rate` (every kind's fields are filled: the unused ones
+    /// from their defaults, cheaply).
+    fn of(s: &InsertSettings, rate: f32) -> Params {
+        let amount = s.amount.min(127) as f32 / 127.0;
+        let v = |i: usize| s.value(i);
+        let kind = s.kind;
+        // Distortion: pre gain 1 (clean) .. 40 (lead); the output kept near the input's
+        // loudness, times Output; Tone moves the cabinet-like high cut by up to two
+        // octaves either way.
+        let pre = 1.0 + 39.0 * amount * amount;
+        let (tone, dist_out) = if kind == InsertKind::Distortion { (octaves_from_64(v(1)), output_gain(v(2))) } else { (1.0, 1.0) };
+        let post = 1.0 / shape(pre).max(0.05) * 0.7 * dist_out;
+        let hi_c = one_pole((5500.0 - 2500.0 * amount) * tone, rate);
+        // Compressor: threshold -12 .. -30 dB, ratio 4, Attack (ms), Release (ms), makeup
+        // times Output.
+        let thr = 10f32.powf((-12.0 - 18.0 * amount) / 20.0);
+        let (att_ms, rel_ms, comp_out) = if kind == InsertKind::Compressor { (v(1), v(2), output_gain(v(3))) } else { (3, 150, 1.0) };
+        let (att, rel) = (time_coef(att_ms as f32 / 1000.0, rate), time_coef(rel_ms as f32 / 1000.0, rate));
+        let makeup = (1.0 / thr).powf(0.75 * 0.5) * comp_out;
+        // Auto wah: envelope follower, a resonant low-pass from Frequency (32: 350 Hz) up;
+        // Resonance lowers its damping (64: 0.25) and the band-pass share follows, so
+        // the peak rises without the level jumping.
+        let (reso, freq) = if kind == InsertKind::AutoWah { (octaves_from_64(v(1)), octaves_from_64(v(2) + 32)) } else { (1.0, 1.0) };
+        let wah_q = (0.25 / reso).max(0.06);
+        let wah_band = 0.4 * (wah_q / 0.25).sqrt();
+        // Tremolo: Note of the style tempo (1/8 by default), capped at 12 Hz; Shape.
+        let bpm = s.bpm.clamp(20.0, 400.0);
+        let (beats, sq) = if kind == InsertKind::Tremolo { (super::NOTES.get(v(1) as usize).map_or(0.5, |n| n.0), v(2)) } else { (0.5, 0) };
+        let trem_hz = (bpm / 60.0 / beats).min(12.0);
+        let trem_sq = sq as f32 / 127.0 * 20.0;
+        // Rotary: Drive's clipper (0: clean) and Balance (64: horn 0.6, drum 0.4).
+        let (drive, bal) = if kind == InsertKind::Rotary { (v(1), v(2)) } else { (0, 64) };
+        let d = drive as f32 / 127.0;
+        let rot_pre = 1.0 + 15.0 * d * d;
+        let rot_post = 1.0 / rot_pre.sqrt();
+        let (horn, drum) = if bal <= 64 {
+            let t = bal as f32 / 64.0;
+            (0.6 * t, 0.4 + 0.6 * (1.0 - t))
+        } else {
+            let t = (bal - 64) as f32 / 63.0;
+            (0.6 + 0.4 * t, 0.4 * (1.0 - t))
+        };
+        let phaser = if kind == InsertKind::Phaser { [v(0), v(1), v(2)] } else { [64, 50, 40] };
+        Params {
+            pre,
+            post,
+            lo_c: one_pole(90.0, rate),
+            hi_c,
+            thr,
+            att,
+            rel,
+            makeup,
+            wa: time_coef(0.004, rate),
+            wr: time_coef(0.09, rate),
+            sens: 2.0 + 10.0 * amount,
+            wah_hz: 350.0 * freq,
+            wah_q,
+            wah_band,
+            trem_hz,
+            trem_sq,
+            depth: 0.2 + 0.6 * amount,
+            rot_pre,
+            rot_post,
+            horn,
+            drum,
+            phaser,
+        }
+    }
+}
+
 /// One Style part's insertion effect (audio thread).
 pub struct Insert {
     rate: f32,
@@ -194,15 +322,25 @@ pub struct Insert {
     /// The glide per sample: speeding up, slowing down.
     spin_up: f32,
     spin_down: f32,
+    /// The phaser kind's.
+    phaser: super::Phaser,
+    /// The playing kind's settings as of the last buffer that asked for it: what it
+    /// fades out with after a kind change.
+    playing: Params,
 }
 
 /// What the control side asks of an insert, read once per buffer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct InsertSettings {
     pub kind: InsertKind,
-    /// 0-127: the distortion's drive, the compressor's squeeze, the wah's sensitivity, the
-    /// tremolo's and rotary's depth.
+    /// Setting 1 (`kinds::InsertType::settings()[0]`), 0-127: the distortion's drive, the
+    /// compressor's squeeze, the wah's sensitivity, the tremolo's, rotary's and phaser's
+    /// depth.
     pub amount: u8,
+    /// Settings 2-4, in the kind's own units (`kinds::InsertType::settings()[1..]`);
+    /// [`KIND_DEFAULT`] (what a style's insert and an old single slot carry) plays the
+    /// kind's default, which sounds as the insert did before it had them.
+    pub rest: [u16; 3],
     /// The style tempo (BPM): the tremolo's rate.
     pub bpm: f32,
     /// The rotary at its fast speed (the Leslie switch): it speeds up and slows down
@@ -229,6 +367,8 @@ impl Insert {
             spin: 0.0,
             spin_up: 1.0 / (ROTARY_UP_S * rate),
             spin_down: 1.0 / (ROTARY_DOWN_S * rate),
+            phaser: super::Phaser::new(rate),
+            playing: Params::of(&InsertSettings::NONE, rate),
         }
     }
 
@@ -247,6 +387,7 @@ impl Insert {
             l.fill(0.0);
         }
         self.pos = 0;
+        self.phaser.reset();
     }
 
     /// Run the part's signal (`left`/`right`, its channel's own mix) through the effect in
@@ -255,24 +396,19 @@ impl Insert {
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32], level: f32, s: &InsertSettings) {
         let n = left.len().min(right.len());
         let g = if level > 1e-4 { level } else { 1.0 };
-        let (inv, amount) = (1.0 / g, s.amount.min(127) as f32 / 127.0);
+        let inv = 1.0 / g;
         let rate = self.rate;
-        // Distortion: pre gain 1 (clean) .. 40 (lead); the output kept near the input's
-        // loudness.
-        let pre = 1.0 + 39.0 * amount * amount;
-        let post = 1.0 / shape(pre).max(0.05) * 0.7;
-        let lo_c = one_pole(90.0, rate);
-        let hi_c = one_pole(5500.0 - 2500.0 * amount, rate);
-        // Compressor: threshold -12 .. -30 dB, ratio 4, attack 3 ms, release 150 ms.
-        let thr = 10f32.powf((-12.0 - 18.0 * amount) / 20.0);
-        let (att, rel) = (time_coef(0.003, rate), time_coef(0.15, rate));
-        let makeup = (1.0 / thr).powf(0.75 * 0.5);
-        // Auto wah: envelope follower, a resonant low-pass from 350 Hz to 3 kHz.
-        let (wa, wr) = (time_coef(0.004, rate), time_coef(0.09, rate));
-        let sens = 2.0 + 10.0 * amount;
-        // Tremolo: a 1/8 note; rotary: horn 0.8 Hz, drum 0.67 Hz (the slow speed).
-        let trem_hz = (s.bpm.clamp(20.0, 400.0) / 60.0 * 2.0).min(12.0);
-        let depth = 0.2 + 0.6 * amount;
+        // The settings, once per buffer: the wanted kind's, and while a change fades the
+        // playing kind out, that kind's as they last were (the wanted kind's settings
+        // mean something else to it).
+        let want = Params::of(s, rate);
+        if self.kind == s.kind {
+            self.playing = want;
+        }
+        let old = self.playing;
+        if s.kind == InsertKind::Phaser {
+            self.phaser.set(want.phaser[0], want.phaser[1], want.phaser[2]);
+        }
         let line_len = self.line[0].len();
         for k in 0..n {
             // The kind changes only at dry: fade out, swap, fade in.
@@ -290,44 +426,48 @@ impl Insert {
             if self.kind == InsertKind::None || self.mix == 0.0 {
                 continue;
             }
+            let p = if self.kind == s.kind { &want } else { &old };
             let x = [dl * inv, dr * inv];
             let mut y = x;
             match self.kind {
                 InsertKind::Distortion => {
                     for (c, v) in y.iter_mut().enumerate() {
-                        self.lo[c] += lo_c * (*v - self.lo[c]);
-                        let shaped = shape((*v - self.lo[c]) * pre) * post;
-                        self.hi[c] += hi_c * (shaped - self.hi[c]);
+                        self.lo[c] += p.lo_c * (*v - self.lo[c]);
+                        let shaped = shape((*v - self.lo[c]) * p.pre) * p.post;
+                        self.hi[c] += p.hi_c * (shaped - self.hi[c]);
                         *v = self.hi[c];
                     }
                 }
                 InsertKind::Compressor => {
                     let peak = x[0].abs().max(x[1].abs());
-                    let c = if peak > self.env { att } else { rel };
+                    let c = if peak > self.env { p.att } else { p.rel };
                     self.env += c * (peak - self.env);
-                    let gain = if self.env > thr { (thr / self.env).powf(0.75) } else { 1.0 };
+                    let gain = if self.env > p.thr { (p.thr / self.env).powf(0.75) } else { 1.0 };
                     for v in &mut y {
-                        *v *= gain * makeup;
+                        *v *= gain * p.makeup;
                     }
                 }
                 InsertKind::AutoWah => {
                     let peak = (x[0].abs() + x[1].abs()) * 0.5;
-                    let c = if peak > self.env { wa } else { wr };
+                    let c = if peak > self.env { p.wa } else { p.wr };
                     self.env += c * (peak - self.env);
-                    let hz = 350.0 * (1.0 + sens * self.env).min(8.6);
+                    let hz = p.wah_hz * (1.0 + p.sens * self.env).min(8.6);
                     let f = 2.0 * (std::f32::consts::PI * hz.min(rate * 0.2) / rate).sin();
-                    let q = 0.25;
+                    let q = p.wah_q;
                     for (c, v) in y.iter_mut().enumerate() {
                         let [low, band] = &mut self.svf[c];
                         *low += f * *band;
                         let high = *v - *low - q * *band;
                         *band += f * high;
-                        *v = *low * 0.8 + *band * 0.4;
+                        *v = *low * 0.8 + *band * p.wah_band;
                     }
                 }
                 InsertKind::Tremolo => {
-                    self.phase[0] = (self.phase[0] + trem_hz / rate).fract();
-                    let m = 1.0 - depth * 0.5 * (1.0 - (TAU * self.phase[0]).cos());
+                    self.phase[0] = (self.phase[0] + p.trem_hz / rate).fract();
+                    let cos = (TAU * self.phase[0]).cos();
+                    // Shape 0: the smooth cosine; up, clipped toward a square.
+                    let w = if p.trem_sq > 0.0 { shape(cos * p.trem_sq) / shape(p.trem_sq) } else { cos };
+                    let m = 1.0 - p.depth * 0.5 * (1.0 - w);
                     for v in &mut y {
                         *v *= m;
                     }
@@ -339,9 +479,13 @@ impl Insert {
                     self.phase[0] = (self.phase[0] + horn_hz / rate).fract();
                     self.phase[1] = (self.phase[1] + drum_hz / rate).fract();
                     let (h, d) = ((TAU * self.phase[0]).sin(), (TAU * self.phase[1]).sin());
-                    let mono = 0.5 * (x[0] + x[1]);
-                    for c in 0..2 {
-                        self.line[c][self.pos] = mono;
+                    // Drive 0: clean; up, the amp in front of the speaker clips.
+                    let xin = if p.rot_pre > 1.0 { [shape(x[0] * p.rot_pre) * p.rot_post, shape(x[1] * p.rot_pre) * p.rot_post] } else { x };
+                    let mono = 0.5 * (xin[0] + xin[1]);
+                    for line in &mut self.line {
+                        if let Some(w) = line.get_mut(self.pos) {
+                            *w = mono;
+                        }
                     }
                     // The horn swings its tap (Doppler) and pans; the drum pans the other way.
                     for (c, v) in y.iter_mut().enumerate() {
@@ -352,14 +496,17 @@ impl Insert {
                         let fr = back - i;
                         let (a, b) = (self.line[c][i as usize % line_len], self.line[c][(i as usize + 1) % line_len]);
                         let horn = a + (b - a) * fr;
-                        let am_h = 1.0 - depth * 0.5 * (1.0 - side * h);
-                        let am_d = 1.0 - depth * 0.35 * (1.0 + side * d);
-                        *v = 0.6 * horn * am_h + 0.4 * mono * am_d;
+                        let am_h = 1.0 - p.depth * 0.5 * (1.0 - side * h);
+                        let am_d = 1.0 - p.depth * 0.35 * (1.0 + side * d);
+                        *v = p.horn * horn * am_h + p.drum * mono * am_d;
                     }
                     self.pos = (self.pos + 1) % line_len;
                 }
-                // The phaser's DSP is lane A's (the mixer rework): dry until then.
-                InsertKind::None | InsertKind::Phaser => {}
+                InsertKind::Phaser => {
+                    let (a, b) = self.phaser.tick(x[0], x[1]);
+                    y = [a, b];
+                }
+                InsertKind::None => {}
             }
             let m = self.mix;
             left[k] = dl + (y[0] * g - dl) * m;
@@ -370,7 +517,16 @@ impl Insert {
 
 impl InsertSettings {
     /// No effect.
-    pub const NONE: InsertSettings = InsertSettings { kind: InsertKind::None, amount: 64, bpm: 120.0, fast: false };
+    pub const NONE: InsertSettings = InsertSettings { kind: InsertKind::None, amount: 64, rest: [KIND_DEFAULT; 3], bpm: 120.0, fast: false };
+
+    /// Setting `i` (0-3) in its unit, clamped to the kind's range: `amount` for 0, and
+    /// the kind's default for a setting at [`KIND_DEFAULT`] or one the kind hasn't.
+    pub fn value(&self, i: usize) -> u16 {
+        let specs = super::InsertType::from(self.kind).settings();
+        let Some(spec) = specs.get(i) else { return 0 };
+        let v = if i == 0 { self.amount as u16 } else { self.rest[i - 1] };
+        if v == KIND_DEFAULT { spec.default } else { spec.clamp(v) }
+    }
 
     /// Every channel's insert as the control side has it (read once per buffer): the Style
     /// parts' (channels 9-16) from the style (`FxControl::insert`), none on the others;
@@ -393,76 +549,6 @@ impl InsertSettings {
     }
 }
 
-/// Every MIDI channel's insert on the SoundFont side, each run on its part's stem by the
-/// synth's rack (audio thread; allocated in `new`): the Style parts' (channels 9-16) and
-/// the keyboard parts' (channels 1-4).
-///
-/// Each channel has two slots (`super::INSERT_SLOTS`, the mixer rework's strip: insert 1
-/// then insert 2), both allocated here. Slot 2 is taken (`set_second`) but not run yet:
-/// it passes the stem through until the chaining lands (the mixer rework's lane A).
-pub struct ChannelInserts {
-    slots: [Insert; 16],
-    settings: [InsertSettings; 16],
-    /// Slot 2 of each channel: allocated, not run yet.
-    #[allow(dead_code)]
-    second: [Insert; 16],
-    second_settings: [InsertSettings; 16],
-}
-
-impl ChannelInserts {
-    pub fn new(rate: f32) -> ChannelInserts {
-        ChannelInserts {
-            slots: std::array::from_fn(|_| Insert::new(rate)),
-            settings: [InsertSettings::NONE; 16],
-            second: std::array::from_fn(|_| Insert::new(rate)),
-            second_settings: [InsertSettings::NONE; 16],
-        }
-    }
-
-    /// Take the settings for this buffer (`InsertSettings::channels`).
-    pub fn set(&mut self, settings: &[InsertSettings; 16]) {
-        self.settings = *settings;
-    }
-
-    /// Take slot 2's settings for this buffer. Stub: slot 2 passes through for now.
-    pub fn set_second(&mut self, settings: &[InsertSettings; 16]) {
-        self.second_settings = *settings;
-    }
-
-    /// Slot 2's settings as last taken.
-    pub fn second(&self) -> &[InsertSettings; 16] {
-        &self.second_settings
-    }
-
-    /// The channels (bit = channel) whose stem runs through `process` before the mix.
-    pub fn mask(&self) -> u16 {
-        let mut m = 0;
-        for (ch, (slot, s)) in self.slots.iter().zip(&self.settings).enumerate() {
-            if slot.active(s.kind) {
-                m |= 1 << ch;
-            }
-        }
-        m
-    }
-
-    /// Run channel `channel`'s stem (`left`/`right`) through its effect in place. `level`
-    /// is the part's gain in the mix (volume x expression, squared, x the master volume).
-    pub fn process(&mut self, channel: usize, left: &mut [f32], right: &mut [f32], level: f32) {
-        let Some(slot) = self.slots.get_mut(channel) else { return };
-        // The top view (#296) shows the Style parts' inserts.
-        let band = channel.checked_sub(super::BAND_CHANNELS.start).filter(|&p| p < 8);
-        let perf = &yahaha_core::perf::PERF;
-        let t0 = band.is_some_and(|_| perf.on()).then(yahaha_core::rt::host_now);
-        slot.process(left, right, level, &self.settings[channel]);
-        // Its time and output peak, atomics only.
-        if let (Some(t0), Some(p)) = (t0, band) {
-            perf.insert[p].add(yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0)));
-            let peak = left.iter().chain(right.iter()).fold(0f32, |m, x| m.max(x.abs()));
-            yahaha_core::perf::Perf::peak(&perf.insert_peak[p], peak);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,7 +561,7 @@ mod tests {
 
     fn run(kind: InsertKind, amount: u8, input: &[f32], level: f32) -> Vec<f32> {
         let mut ins = Insert::new(RATE);
-        let s = InsertSettings { kind, amount, bpm: 120.0, fast: false };
+        let s = InsertSettings { kind, amount, ..InsertSettings::NONE };
         let (mut l, mut r) = (input.iter().map(|x| x * level).collect::<Vec<_>>(), input.iter().map(|x| x * level).collect::<Vec<_>>());
         for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
             ins.process(a, b, level, &s);
@@ -552,7 +638,7 @@ mod tests {
     #[test]
     fn the_rotary_spins() {
         let mut ins = Insert::new(RATE);
-        let s = InsertSettings { kind: InsertKind::Rotary, amount: 64, bpm: 120.0, fast: false };
+        let s = InsertSettings { kind: InsertKind::Rotary, amount: 64, ..InsertSettings::NONE };
         let x = sine(440.0, 0.5, 96_000);
         let (mut l, mut r) = (x.clone(), x.clone());
         for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
@@ -569,7 +655,7 @@ mod tests {
     fn the_rotary_goes_fast() {
         let crossings = |fast: bool| {
             let mut ins = Insert::new(RATE);
-            let s = InsertSettings { kind: InsertKind::Rotary, amount: 100, bpm: 120.0, fast };
+            let s = InsertSettings { kind: InsertKind::Rotary, amount: 100, fast, ..InsertSettings::NONE };
             let x = vec![0.5; 3 * RATE as usize];
             let (mut l, mut r) = (x.clone(), x.clone());
             for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
@@ -583,7 +669,7 @@ mod tests {
         assert!(slow <= 2 && fast >= 5, "slow {slow}, fast {fast} in 1 s");
         let mut ins = Insert::new(RATE);
         let (mut a, mut b) = (vec![0.5; 4800], vec![0.5; 4800]);
-        ins.process(&mut a, &mut b, 1.0, &InsertSettings { kind: InsertKind::Rotary, amount: 64, bpm: 120.0, fast: true });
+        ins.process(&mut a, &mut b, 1.0, &InsertSettings { kind: InsertKind::Rotary, amount: 64, fast: true, ..InsertSettings::NONE });
         assert!(ins.spin > 0.0 && ins.spin < 0.2, "it glides: {}", ins.spin);
     }
 
@@ -597,10 +683,131 @@ mod tests {
         let kinds = [InsertKind::None, InsertKind::Distortion, InsertKind::Tremolo, InsertKind::None, InsertKind::Compressor];
         for (i, (a, b)) in l.chunks_mut(64).zip(r.chunks_mut(64)).enumerate() {
             let kind = kinds[(i / 150) % kinds.len()];
-            ins.process(a, b, 1.0, &InsertSettings { kind, amount: 90, bpm: 120.0, fast: false });
+            ins.process(a, b, 1.0, &InsertSettings { kind, amount: 90, ..InsertSettings::NONE });
         }
         // Around each change (the fade, 20 ms) no step is steeper than the steepest the
         // effects make anyway.
+        let steps: Vec<f32> = l.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let near = |i: usize| (1..kinds.len()).any(|c| (i as isize - (c * 150 * 64) as isize).unsigned_abs() < 2000);
+        let (mut steady, mut change) = (0f32, 0f32);
+        for (i, &s) in steps.iter().enumerate() {
+            if near(i) {
+                change = change.max(s);
+            } else {
+                steady = steady.max(s);
+            }
+        }
+        assert!(change <= steady * 1.2 + 1e-4, "{change} vs {steady}");
+    }
+
+    /// A sine plus a little noise, loud for its first third and soft after (so an
+    /// envelope rises and falls), left and right different, for `n` frames.
+    fn signal(n: usize) -> (Vec<f32>, Vec<f32>) {
+        let mut seed = 1u32;
+        let l: Vec<f32> = (0..n)
+            .map(|i| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let amp = if i < n / 3 { 1.0 } else { 0.15 };
+                ((TAU * 330.0 * i as f32 / RATE).sin() * 0.4 + (seed >> 8) as f32 / (1u32 << 24) as f32 * 0.2 - 0.1) * amp
+            })
+            .collect();
+        let r = l.iter().rev().copied().collect();
+        (l, r)
+    }
+
+    /// `input` through kind `kind` with `amount` and settings 2-4 `rest`, in 64-frame
+    /// buffers at level 0.8.
+    fn run_rest(kind: InsertKind, amount: u8, rest: [u16; 3], input: &(Vec<f32>, Vec<f32>)) -> (Vec<f32>, Vec<f32>) {
+        let mut ins = Insert::new(RATE);
+        let s = InsertSettings { kind, amount, rest, bpm: 133.0, ..InsertSettings::NONE };
+        let (mut l, mut r): (Vec<f32>, Vec<f32>) = (input.0.iter().map(|v| v * 0.8).collect(), input.1.iter().map(|v| v * 0.8).collect());
+        for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
+            ins.process(a, b, 0.8, &s);
+        }
+        (l, r)
+    }
+
+    /// Settings at `KIND_DEFAULT` (a style's insert, an old single-amount slot) play
+    /// exactly as the same settings given explicitly at the kind's defaults.
+    #[test]
+    fn kind_default_is_the_explicit_default() {
+        let x = signal(4800);
+        for kind in &InsertKind::ALL[1..] {
+            let d = super::super::InsertType::from(*kind).defaults();
+            for amount in [20, 90] {
+                assert_eq!(run_rest(*kind, amount, [KIND_DEFAULT; 3], &x), run_rest(*kind, amount, [d[1], d[2], d[3]], &x), "{kind:?}");
+            }
+        }
+    }
+
+    /// Every setting after the first changes the sound: each at its far end from its
+    /// default differs clearly from the default.
+    #[test]
+    fn every_setting_changes_the_sound() {
+        let x = signal(9600);
+        for kind in &InsertKind::ALL[1..] {
+            let specs = super::super::InsertType::from(*kind).settings();
+            let base = run_rest(*kind, 90, [KIND_DEFAULT; 3], &x);
+            for (i, spec) in specs.iter().enumerate().skip(1) {
+                let far = if spec.default - spec.min > spec.max - spec.default { spec.min } else { spec.max };
+                let mut rest = [KIND_DEFAULT; 3];
+                rest[i - 1] = far;
+                let y = run_rest(*kind, 90, rest, &x);
+                assert!(y.0.iter().chain(&y.1).all(|v| v.is_finite()), "{kind:?} {}", spec.name);
+                let diff = base.0.iter().zip(&y.0).chain(base.1.iter().zip(&y.1)).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+                assert!(diff > 0.02, "{kind:?} {} at {far}: {diff}", spec.name);
+            }
+        }
+    }
+
+    /// The phaser insert sweeps notches through the part: a fixed sine's level rises and
+    /// falls over time, and stays finite.
+    #[test]
+    fn the_phaser_sweeps_notches() {
+        let x = sine(800.0, 0.5, 24_000);
+        let (l, _) = run_rest(InsertKind::Phaser, 127, [200, 0, KIND_DEFAULT], &(x.clone(), x));
+        assert!(l.iter().all(|v| v.is_finite()));
+        let w: Vec<f32> = l[1920..].chunks(480).map(rms).collect();
+        let (lo, hi) = w.iter().fold((f32::MAX, 0f32), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!(hi > 3.0 * lo, "{lo} .. {hi}");
+    }
+
+    /// The phaser at depth 0 is the dry part, bit for bit; switched to None it is again
+    /// once its fade has passed.
+    #[test]
+    fn the_phaser_bypasses_cleanly() {
+        let x = sine(440.0, 0.5, 4800);
+        let mut ins = Insert::new(RATE);
+        let (mut l, mut r) = (x.clone(), x.clone());
+        for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
+            ins.process(a, b, 1.0, &InsertSettings { kind: InsertKind::Phaser, amount: 0, ..InsertSettings::NONE });
+        }
+        assert_eq!((&l, &r), (&x, &x));
+        let (mut l, mut r) = (x.clone(), x.clone());
+        let s = InsertSettings { kind: InsertKind::Phaser, amount: 127, ..InsertSettings::NONE };
+        for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
+            ins.process(a, b, 1.0, &s);
+        }
+        assert_ne!(l, x, "it phases at full depth");
+        let (mut l, mut r) = (x.clone(), x.clone());
+        for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
+            ins.process(a, b, 1.0, &InsertSettings::NONE);
+        }
+        assert_eq!(l[1920..], x[1920..]);
+        assert_eq!(r[1920..], x[1920..]);
+    }
+
+    /// Switching to and from the phaser fades, never jumps.
+    #[test]
+    fn a_phaser_change_does_not_click() {
+        let mut ins = Insert::new(RATE);
+        let x = sine(110.0, 0.5, 48_000);
+        let (mut l, mut r) = (x.clone(), x.clone());
+        let kinds = [InsertKind::None, InsertKind::Phaser, InsertKind::None, InsertKind::Phaser, InsertKind::Tremolo];
+        for (i, (a, b)) in l.chunks_mut(64).zip(r.chunks_mut(64)).enumerate() {
+            let kind = kinds[(i / 150) % kinds.len()];
+            ins.process(a, b, 1.0, &InsertSettings { kind, amount: 127, rest: [300, 80, KIND_DEFAULT], ..InsertSettings::NONE });
+        }
         let steps: Vec<f32> = l.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
         let near = |i: usize| (1..kinds.len()).any(|c| (i as isize - (c * 150 * 64) as isize).unsigned_abs() < 2000);
         let (mut steady, mut change) = (0f32, 0f32);

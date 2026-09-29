@@ -40,13 +40,18 @@
 //! ([`PartInsert`]); a part played by a plugin gets its insert in the plugin rack.
 //!
 //! The mixer rework's channel strip ([`kinds`], [`part_comp`]): every strip runs EQ,
-//! compressor, insert 1, insert 2, then its sends to up to [`SENDS`] send effects. The
-//! types are here; the compressor, the second insert, the phaser and sends 4-6 are stubs
-//! until their DSP lands: nothing on the audio thread plays them yet.
+//! compressor, insert 1, insert 2, then its sends to up to [`SENDS`] send effects. Sends
+//! 1-3 are the three buses above. Sends 4-6 ([`sends`]) are added by the player: each
+//! plays any [`SendKind`] (a reverb, chorus or delay type, or a phaser) at its own
+//! parameters and return level (`FxControl::sends`), fed by each channel's send to it
+//! (`FxControl::strip_send`); [`FxBus::process_add_slots`] runs them after the buses. A
+//! slot with no kind costs nothing.
 //!
-//! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
-//! allocates, locks or blocks (`tests/it/synth_no_alloc.rs`). A block with no input whose
-//! output has died away is skipped, so an idle bus costs next to nothing.
+//! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] and
+//! [`FxBus::process_add_slots`] never allocate, lock or block
+//! (`tests/it/synth_no_alloc.rs`). A block with no input whose output has died away is
+//! skipped, so an idle bus costs next to nothing. The performance view's counters
+//! (`yahaha_core::perf`) are sized [`BUSES`]: they count the buses, not sends 4-6.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, Ordering::Relaxed};
 
@@ -59,16 +64,22 @@ pub mod master;
 mod params;
 pub mod part_comp;
 pub mod part_eq;
+pub mod phaser;
 mod reverb;
+pub mod sends;
+pub mod strip;
 pub mod xg;
 
 pub use chorus::{Chorus, ChorusType};
 pub use delay::{Delay, DelayType, NOTES};
-pub use insert::{ChannelInserts, Insert, InsertEffect, InsertKind, InsertSettings, PartInsert};
+pub use insert::{Insert, InsertEffect, InsertKind, InsertSettings, KIND_DEFAULT, PartInsert};
+pub use phaser::Phaser;
+pub use strip::{ChannelInserts, StripControl};
 pub use kinds::{INSERT_SLOTS, INSERT_VALUES, InsertSlot, InsertType, KnobSpec, SEND_PARAMS, SENDS, SendKind, SendSlot, Unit};
 pub use part_comp::{PartComp, PartCompParam};
 pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
+pub use sends::{ADDED_SENDS, SendControl};
 
 /// The send buses: Reverb (CC91), Chorus (CC93), Variation (CC94). Defined in core's
 /// `perf`, whose counters it sizes.
@@ -170,6 +181,13 @@ pub struct FxControl {
     /// The Master Compressor and Master EQ ([`master`]), on the master bus after the
     /// returns.
     pub master: master::MasterControl,
+    /// Each channel's strip: its compressor and its two insert slots ([`strip`]).
+    pub strips: strip::StripControl,
+    /// Sends 4-6 ([`sends`]): each one's kind, parameters and return level.
+    pub sends: [SendControl; ADDED_SENDS],
+    /// Each channel's send to sends 4-6 (`[channel][send - 4]`), 0-127 on the
+    /// [`send_gain`] scale; 0 (none) by default.
+    pub strip_send: [[AtomicU8; ADDED_SENDS]; 16],
 }
 
 impl FxControl {
@@ -191,6 +209,9 @@ impl FxControl {
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
             master: master::MasterControl::new(),
+            strips: strip::StripControl::new(),
+            sends: std::array::from_fn(|_| SendControl::new()),
+            strip_send: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(0))),
         }
     }
 }
@@ -199,6 +220,12 @@ impl FxControl {
     /// Follow the style tempo (BPM).
     pub fn set_tempo(&self, bpm: f64) {
         self.tempo.store((bpm.clamp(1.0, 1000.0) * 100.0).round() as u32, Relaxed);
+    }
+
+    /// Each channel's send gain to sends 4-6 (`[channel][send - 4]`, [`send_gain`] of
+    /// `strip_send`). Allocation-free: for the audio thread.
+    pub fn strip_send_gains(&self) -> [[f32; ADDED_SENDS]; 16] {
+        std::array::from_fn(|c| std::array::from_fn(|s| send_gain(self.strip_send[c][s].load(Relaxed))))
     }
 }
 
@@ -269,10 +296,13 @@ pub struct FxBus {
     chorus: Chorus,
     delay: Delay,
     blocks: [Block; BUSES],
+    /// Sends 4-6, each with every engine ([`sends`]).
+    added: [sends::SendFx; ADDED_SENDS],
 }
 
 impl FxBus {
-    /// The bus for `sample_rate` (allocates its delay lines: call it off the audio thread).
+    /// The bus for `sample_rate` (allocates its delay lines, and every engine of sends
+    /// 4-6: call it off the audio thread).
     pub fn new(sample_rate: u32) -> FxBus {
         let rate = sample_rate.max(8000) as f32;
         FxBus {
@@ -280,14 +310,25 @@ impl FxBus {
             chorus: Chorus::new(rate),
             delay: Delay::new(rate),
             blocks: [Block::new(0.1, rate), Block::new(0.05, rate), Block::new(delay::MAX_SECONDS + 0.1, rate)],
+            added: std::array::from_fn(|_| sends::SendFx::new(rate)),
         }
     }
 
     /// Run the blocks on `n` frames of send buses (`sends`: bus b's left side at
     /// `2 * b * n`, its right side at `(2 * b + 1) * n`) and **add** their returns into
-    /// `left` / `right`. RT-safe.
+    /// `left` / `right`. RT-safe. The three buses only: [`FxBus::process_add_slots`] with
+    /// [`BUSES`].
     pub fn process_add(&mut self, sends: &[f32], n: usize, left: &mut [f32], right: &mut [f32], ctl: &FxControl) {
-        let n = n.min(left.len()).min(right.len()).min(sends.len() / (2 * BUSES));
+        self.process_add_slots(sends, BUSES, n, left, right, ctl);
+    }
+
+    /// As [`FxBus::process_add`], on `slots` send buses (clamped to `BUSES..=SENDS`) in
+    /// the same layout: slot s's left side at `2 * s * n`, its right side at
+    /// `(2 * s + 1) * n`. Slots 0-2 are the buses; slots 3-5 are sends 4-6, each playing
+    /// its kind at its settings (`FxControl::sends`). RT-safe.
+    pub fn process_add_slots(&mut self, sends: &[f32], slots: usize, n: usize, left: &mut [f32], right: &mut [f32], ctl: &FxControl) {
+        let slots = slots.clamp(BUSES, SENDS);
+        let n = n.min(left.len()).min(right.len()).min(sends.len() / (2 * slots));
         if n == 0 {
             return;
         }
@@ -341,6 +382,11 @@ impl FxBus {
                 yahaha_core::perf::Perf::peak(&perf.bus_peak[b], peak * block.gain);
             }
         }
+        // Sends 4-6. The performance view's counters are sized BUSES: not counted there.
+        for (i, (fx, c)) in self.added.iter_mut().zip(&ctl.sends).enumerate().take(slots - BUSES) {
+            let (il, ir) = bus(BUSES + i);
+            fx.process_add(il, ir, n, left, right, c, bpm);
+        }
     }
 }
 
@@ -367,6 +413,171 @@ mod tests {
             done += n;
         }
         (l, r)
+    }
+
+    /// As `run`, on all [`SENDS`] slots (`process_add_slots`), `input` into slot `s`.
+    fn run_slots(bus: &mut FxBus, ctl: &FxControl, input: impl Fn(usize) -> [f32; 2], s: usize, frames: usize) -> (Vec<f32>, Vec<f32>) {
+        let n = 64;
+        let (mut l, mut r) = (Vec::new(), Vec::new());
+        let mut sends = vec![0f32; 2 * SENDS * n];
+        let mut done = 0;
+        while done < frames {
+            sends.fill(0.0);
+            for k in 0..n {
+                let [a, c] = input(done + k);
+                sends[2 * s * n + k] = a;
+                sends[(2 * s + 1) * n + k] = c;
+            }
+            let (mut ol, mut or) = (vec![0f32; n], vec![0f32; n]);
+            bus.process_add_slots(&sends, SENDS, n, &mut ol, &mut or, ctl);
+            l.extend(ol);
+            r.extend(or);
+            done += n;
+        }
+        (l, r)
+    }
+
+    /// A control with send `4 + i` playing `kind` at its defaults.
+    fn with_send(i: usize, kind: SendKind) -> FxControl {
+        let ctl = FxControl::new();
+        ctl.sends[i].set(&SendSlot::of(kind));
+        ctl
+    }
+
+    /// Send 4 as a Hall reverb: nothing at all (exactly 0) with no input, a reverb once
+    /// something is sent to it.
+    #[test]
+    fn sends_a_hall_on_send_4_sounds_only_with_input() {
+        let ctl = with_send(0, SendKind::Hall);
+        let mut bus = FxBus::new(48_000);
+        let (l, r) = run_slots(&mut bus, &ctl, |_| [0.0; 2], 3, 4800);
+        assert!(l.iter().chain(&r).all(|x| *x == 0.0));
+        let (l, r) = run_slots(&mut bus, &ctl, noise(5), 3, 9600);
+        assert!(rms(&l[4800..]) > 0.01 && rms(&r[4800..]) > 0.01, "{} {}", rms(&l[4800..]), rms(&r[4800..]));
+        assert!(l.iter().chain(&r).all(|x| x.is_finite()));
+    }
+
+    /// A slot with no kind, or one this build doesn't know, plays nothing even with
+    /// input, and its engines don't run: given a kind later, it sounds exactly as a fresh
+    /// one.
+    #[test]
+    fn sends_an_empty_or_unknown_slot_plays_nothing_and_stays_fresh() {
+        let src = noise(9);
+        let later = |i: usize| src(i + 4800);
+        let fresh = {
+            let ctl = with_send(0, SendKind::Hall);
+            run_slots(&mut FxBus::new(48_000), &ctl, later, 3, 4800)
+        };
+        for code in [0u8, 200] {
+            let ctl = FxControl::new();
+            ctl.sends[0].kind.store(code, Relaxed);
+            let mut bus = FxBus::new(48_000);
+            let (l, r) = run_slots(&mut bus, &ctl, &src, 3, 4800);
+            assert!(l.iter().chain(&r).all(|x| *x == 0.0), "code {code}");
+            ctl.sends[0].set(&SendSlot::of(SendKind::Hall));
+            assert_eq!(run_slots(&mut bus, &ctl, later, 3, 4800), fresh, "code {code}");
+        }
+    }
+
+    /// Send 5 as a delay repeats at the style tempo.
+    #[test]
+    fn sends_a_delay_on_send_5_follows_the_tempo() {
+        let ctl = with_send(1, SendKind::Quarter);
+        ctl.set_tempo(120.0);
+        let mut bus = FxBus::new(48_000);
+        let (l, _) = run_slots(&mut bus, &ctl, |i| if i == 0 { [1.0, 1.0] } else { [0.0; 2] }, 4, 30_000);
+        let loud: Vec<usize> = (0..l.len()).filter(|&i| l[i].abs() > 0.05).collect();
+        assert!(loud.first().is_some_and(|&i| i.abs_diff(24_000) <= 2), "{:?}", &loud[..loud.len().min(4)]);
+    }
+
+    /// Send 6 as a phaser returns its input phased: not the input itself, and finite.
+    #[test]
+    fn sends_a_phaser_on_send_6_phases() {
+        let ctl = with_send(2, SendKind::Phaser);
+        let mut bus = FxBus::new(48_000);
+        let src = noise(11);
+        let (l, r) = run_slots(&mut bus, &ctl, &src, 5, 9600);
+        assert!(l.iter().chain(&r).all(|x| x.is_finite()));
+        assert!(rms(&l[4800..]) > 0.01, "it sounds");
+        let diff = (4800..9600).map(|i| (l[i] - src(i)[0]).abs()).fold(0f32, f32::max);
+        assert!(diff > 0.01, "phased, not the input ({diff})");
+    }
+
+    /// With sends 4-6 empty, the buses play exactly as `process_add` plays them.
+    #[test]
+    fn sends_1_to_3_are_unchanged() {
+        let ctl = FxControl::new();
+        ctl.chorus_return.store(90, Relaxed);
+        let n = 64;
+        let (mut a, mut b) = (FxBus::new(48_000), FxBus::new(48_000));
+        let mut three = vec![0f32; 2 * BUSES * n];
+        let mut six = vec![0f32; 2 * SENDS * n];
+        let src = noise(13);
+        let mut sounded = false;
+        for buf in 0..40 {
+            for (i, x) in three.iter_mut().enumerate() {
+                *x = src(buf * 1000 + i)[i % 2];
+            }
+            six[..three.len()].copy_from_slice(&three);
+            let (mut al, mut ar, mut bl, mut br) = (vec![0f32; n], vec![0f32; n], vec![0f32; n], vec![0f32; n]);
+            a.process_add(&three, n, &mut al, &mut ar, &ctl);
+            b.process_add_slots(&six, SENDS, n, &mut bl, &mut br, &ctl);
+            sounded |= al.iter().chain(&ar).any(|x| *x != 0.0);
+            assert_eq!((al, ar), (bl, br), "buffer {buf}");
+        }
+        assert!(sounded);
+    }
+
+    /// Send 4's return level scales it (0 = silent, 127 = +6 dB).
+    #[test]
+    fn sends_the_return_scales_send_4() {
+        let src = noise(17);
+        let level = |ret: u8| {
+            let ctl = with_send(0, SendKind::Chorus);
+            ctl.sends[0].return_level.store(ret, Relaxed);
+            let (l, r) = run_slots(&mut FxBus::new(48_000), &ctl, &src, 3, 4800);
+            (rms(&l[2400..]), l.iter().chain(&r).all(|x| *x == 0.0))
+        };
+        let (unity, _) = level(64);
+        assert!(unity > 0.01);
+        assert!(level(0).1, "return 0: silent");
+        assert!((level(127).0 / unity - 127.0 / 64.0).abs() < 0.02, "+6 dB");
+    }
+
+    /// A kind change while the slot sounds fades the old kind out over one buffer and the
+    /// new one in over the next: no jump.
+    #[test]
+    fn sends_a_kind_change_fades_out_then_in() {
+        let ctl = with_send(0, SendKind::Chorus);
+        let mut bus = FxBus::new(48_000);
+        let src = noise(19);
+        let (a, _) = run_slots(&mut bus, &ctl, &src, 3, 4800);
+        assert!(rms(&a[2400..]) > 0.01);
+        ctl.sends[0].set(&SendSlot::of(SendKind::Phaser));
+        let (b, _) = run_slots(&mut bus, &ctl, |i| src(i + 4800), 3, 128);
+        assert!(b[63].abs() < 1e-6, "faded out by the end of the first buffer: {}", b[63]);
+        assert!(b[64].abs() < 0.02 && b[65].abs() < 0.04, "fading in: {:?}", &b[64..68]);
+        assert!(rms(&b[96..]) > 0.01, "the phaser plays");
+        // The fade-out buffer runs the old kind at its old params: the same as a change
+        // that kept the chorus's params.
+        let ctl2 = with_send(0, SendKind::Chorus);
+        let mut bus2 = FxBus::new(48_000);
+        run_slots(&mut bus2, &ctl2, &src, 3, 4800);
+        ctl2.sends[0].set(&SendSlot { kind: SendKind::Phaser, ..SendSlot::of(SendKind::Chorus) });
+        assert_ne!(SendSlot::of(SendKind::Phaser).params, SendSlot::of(SendKind::Chorus).params);
+        let (b2, _) = run_slots(&mut bus2, &ctl2, |i| src(i + 4800), 3, 64);
+        assert_eq!(&b[..64], &b2[..], "the old kind keeps its params while it fades out");
+    }
+
+    /// Each channel's send to sends 4-6 reads as a gain, 0 by default.
+    #[test]
+    fn sends_strip_send_gains() {
+        let ctl = FxControl::new();
+        assert_eq!(ctl.strip_send_gains(), [[0.0; ADDED_SENDS]; 16]);
+        ctl.strip_send[3][1].store(127, Relaxed);
+        ctl.strip_send[15][2].store(200, Relaxed);
+        let g = ctl.strip_send_gains();
+        assert_eq!((g[3][1], g[15][2], g[3][0]), (1.0, 1.0, 0.0));
     }
 
     fn rms(x: &[f32]) -> f32 {
