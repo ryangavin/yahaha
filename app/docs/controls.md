@@ -164,7 +164,6 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Bank +** | Shows the next bank of eight Quick Racks (A to B, say, up to H) on these buttons and pad page 4. Nothing loads until you press one. | — | `Shift+P` | Pad page 4 (Quick Racks), bottom row, pad 2 |
 | **Quick Racks bank** | The bank of eight Quick Racks on view, A to H. Bank − and Bank + step through them; in the Quick Racks drawer, click a letter to view that bank. | — | — | — |
 | **Clear** | Empties this Quick Rack button. The rack itself stays in your racks. | Regist Bank Edit: Delete | — | — |
-| **Rack** | One of your racks: click to load it, as a Quick Rack button does (with unsaved changes it asks first, in the Rack panel). Its label, such as A1, is the Quick Rack button in the bank on view that holds it. | — | — | — |
 | **Rack name** | The name to save the live rack under, as a new rack of yours. It then goes on the waiting Quick Rack button. | — | — | — |
 | **Save rack** | Saves the live rack (a new one under the name typed, when it has never been saved), then stores it on the waiting Quick Rack button. | — | — | — |
 | **Cancel** | Nothing is saved or stored: Store disarms and the button keeps what it held. | — | — | — |
@@ -229,7 +228,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Racks** | The live rack (what is under your hands, autosaved) and the racks that need attention. Loading and saving racks comes next. | Registration Memory | — | — |
+| **Racks** | The live rack (what is under your hands, autosaved) and your racks: load, rename, duplicate or delete them, or start a new one. | Registration Memory | — | — |
 | **Sounds** | Every sound a keyboard part can play: yours, plugin presets and SoundFont voices, by category. Click one to hear it on the target part. | Voice Selection | — | — |
 | **Instruments** | Your plugins and SoundFonts, with New and Missing ones marked. Browse lists an instrument's sounds; + New sound starts from a blank plugin. | — | — | — |
 | **Style map** | The program map that makes every style play your sounds instead of the GM voices it asks for, and Add from SoundFont. | — | `Alt+Y` (terminal: ) | — |
@@ -252,8 +251,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Show racks** | Opens Racks with Needs attention on: the racks with parts on this missing plugin. Those parts are silent until you pick a new sound or reinstall it. | — | — | — |
 | **Needs attention** | Shows only the racks with a part whose plugin is missing. Those parts stay silent until you replace their sound or reinstall the plugin. | — | — | — |
 | **Live rack** | What is under your hands now, with its four parts' sounds. It autosaves, so it comes back when yahaha starts; ● means changed since it was loaded. | — | — | — |
-| **Rack that needs attention** | A saved rack with a part whose plugin is missing. Loading racks comes next; the rack itself is kept as it is. | — | — | — |
-| **Coming next** | New, save, save as and revert arrive with the rack commands. Until then the live rack autosaves, so nothing you pick is lost. | — | — | — |
+| **Rack that needs attention** | A saved rack with a part whose plugin is missing. The rack itself is kept as it is; load it and pick a new sound for that part, or reinstall the plugin. | — | — | — |
+| **Search racks** | Narrows the racks to those whose name or part sounds hold every word you type. Esc clears it. | — | — | — |
+| **New rack** | Starts a new rack from the defaults, named New rack until you save it. With unsaved changes it asks first, in the Rack panel. | — | — | — |
+| **Rack** | One of your racks: click to see its details below, double-click to load it (with unsaved changes it asks first, in the Rack panel). Its label, such as A1, is the Quick Rack button in the bank on view that holds it. | Registration Memory | — | — |
+| **Rack name** | Type a new name and press Enter to rename the rack; Esc puts the old one back. Quick Rack buttons keep it under its new name. | — | — | — |
+| **Load** | Loads this rack: all four parts, the split and Harmony/Arp. With unsaved changes it asks first, in the Rack panel. | — | — | — |
+| **Duplicate** | Copies this rack as a new rack of yours named “… copy”, and selects the copy. | — | — | — |
+| **Delete…** | Deletes this rack after you confirm, emptying the Quick Rack buttons that hold it. The loaded rack can’t be deleted: load another first. | — | — | — |
+| **Delete** | Deletes the rack for good and empties the Quick Rack buttons named above. | — | — | — |
+| **Cancel** | Keeps the rack. | — | — | — |
 
 ## Sound Browser
 

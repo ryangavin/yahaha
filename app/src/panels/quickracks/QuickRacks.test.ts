@@ -350,7 +350,7 @@ describe('Quick Racks in the mock', () => {
 })
 
 describe('Library › Racks', () => {
-  it('opens from nav "Quick Racks" and loads your racks, labelled with their Quick Rack button', async () => {
+  it('opens from nav "Quick Racks" and loads your racks (double-click), labelled with their Quick Rack button', async () => {
     const s = setup()
     render(App, { props: { session: s } })
     s.send({ type: 'toggleQuickRackStore' })
@@ -363,10 +363,11 @@ describe('Library › Racks', () => {
     await click(nav)
     expect(ui.view).toBe('library')
     expect(ui.libraryTab).toBe('racks')
-    const rack = tipped('quick.rack')
+    const rack = tipped('library.rack_row')
     expect(rack.map((b) => b.textContent)).toEqual([expect.stringContaining('Ballad')])
     expect(rack[0].textContent).toContain('A1')
-    await click(rack[0])
+    await fireEvent.dblClick(rack[0])
+    flushSync()
     // The prompt is asked in the docked Rack panel, not the Quick Racks bar; no drawer opens.
     expect(ui.rack).toBe(false)
     expect(document.querySelector('.library-slot .qbar')!.textContent).not.toContain('Ballad?')
