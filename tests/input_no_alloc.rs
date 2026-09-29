@@ -16,13 +16,27 @@ struct Counting;
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 static FREES: AtomicUsize = AtomicUsize::new(0);
 
+thread_local! {
+    /// Set on the thread playing the input thread: only its allocations are counted, so the
+    /// test harness reporting another test's result on its own thread never shows up here.
+    static INPUT_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn counted() -> bool {
+    INPUT_THREAD.try_with(|t| t.get()).unwrap_or(false)
+}
+
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        if counted() {
+            ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
         unsafe { System.alloc(l) }
     }
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        FREES.fetch_add(1, Ordering::Relaxed);
+        if counted() {
+            FREES.fetch_add(1, Ordering::Relaxed);
+        }
         unsafe { System.dealloc(p, l) }
     }
 }
@@ -30,12 +44,13 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static A: Counting = Counting;
 
-/// The tests take turns: the allocator counts every thread's allocations.
+/// The tests take turns, and each counts only its own thread (see `INPUT_THREAD`).
 static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn keyboard_note_path_does_not_allocate() {
     let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    INPUT_THREAD.set(true);
     let shared = Arc::new(Shared::new(54));
     for p in 0..3 {
         shared.parts.on[p].store(true, Ordering::Relaxed);
@@ -156,6 +171,7 @@ fn keyboard_note_path_does_not_allocate() {
 #[test]
 fn harmony_and_arpeggio_processor_does_not_allocate() {
     let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    INPUT_THREAD.set(true);
     let shared = Arc::new(Shared::new(54));
     for p in 0..3 {
         shared.parts.on[p].store(true, Ordering::Relaxed);
