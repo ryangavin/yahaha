@@ -72,7 +72,9 @@
   // ── The Save flow (O3): Save over the part's own sound, Save as… a new one. ──────────
   // Save as… names the new sound; a plugin part can also keep it as an .aupreset that
   // Logic reads (asking before it replaces a file of that name, #307).
-  let justSaved = $state(false)
+  // The Save as… waiting for its new sound: the sound added before it, and its name (a
+  // Duplicate's "<name> copy", or a sound added before, is not it).
+  let justSaved = $state<{ before: string | null; name: string } | null>(null)
   let saveForm = $state<{ name: string; aupreset: boolean; category: PatchCategory; replace: boolean } | null>(null)
   let saveName: HTMLInputElement | undefined = $state()
   function save() {
@@ -98,6 +100,8 @@
     if (!saveForm || !kp) return
     const name = saveForm.name.trim()
     if (!name) return
+    // The sound added before this one (a send may add it at once).
+    const before = sl.lastAdded
     if (saveForm.aupreset && canPreset) {
       if (clash && !overwrite) {
         saveForm.replace = true
@@ -106,7 +110,7 @@
       app.send({ type: 'savePartAsPluginPreset', part, name, category: saveForm.category, overwrite })
     }
     app.send({ type: 'saveSoundAs', part, name })
-    justSaved = true
+    justSaved = { before, name }
     closeSaveAs()
   }
   function saveFormKey(e: KeyboardEvent) {
@@ -118,8 +122,10 @@
   // The new sound shows in My Sounds, selected, once the catalog has it.
   $effect(() => {
     const id = sl.lastAdded
-    if (!justSaved || !id || !entries.some((e) => e.id === `saved:${id}`)) return
-    justSaved = false
+    if (!justSaved || !id || id === justSaved.before || !entries.some((e) => e.id === `saved:${id}`)) return
+    const mine = byId.get(`saved:${id}`)?.name === justSaved.name
+    justSaved = null
+    if (!mine) return
     view = { kind: 'mine' }
     cursorId = `saved:${id}`
     void tick().then(() => ensureVisible(cursor, true))
