@@ -19,8 +19,9 @@
 
 use super::{Takeover, HW_UNKNOWN};
 use crate::parts_data::*;
+use crate::fx::part_eq::{EqCell, PartEq};
 use crate::tone::{TONE, TONE_CC, TONE_NEUTRAL};
-use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, Ordering::{Acquire, Relaxed, Release}};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, AtomicU32, Ordering::{Acquire, Relaxed, Release}};
 
 /// `Parts::level`: the volume bits and the pickup bit.
 const VOLUME: u8 = 0x7F;
@@ -93,6 +94,10 @@ pub struct Parts {
     tone: [[AtomicU8; TONE]; COUNT],
     xg: [[AtomicU8; XG_SLOTS]; COUNT],
     tone_dirty: AtomicU8,
+    /// Each part's channel-strip EQ (#247) and its coefficients for the audio thread
+    /// (`fx::part_eq`), at `sample_rate` (Hz; the synth sets it).
+    eq: [EqCell; COUNT],
+    sample_rate: AtomicU32,
 }
 
 /// XG multi part parameters per part: block 08 (0-127), then block 0A (128-255).
@@ -144,6 +149,34 @@ impl Parts {
             tone: [const { [const { AtomicU8::new(NO_FX) }; TONE] }; COUNT],
             xg: [const { [const { AtomicU8::new(NO_FX) }; XG_SLOTS] }; COUNT],
             tone_dirty: AtomicU8::new(0),
+            eq: [const { EqCell::new() }; COUNT],
+            sample_rate: AtomicU32::new(48_000),
+        }
+    }
+
+    /// A part's channel-strip EQ (#247), as last set.
+    pub fn eq(&self, part: usize) -> PartEq {
+        self.eq[part % COUNT].get()
+    }
+
+    /// Set a part's EQ (clamped to its ranges): its coefficients are computed here, on the
+    /// caller's thread, and the audio thread takes them on its next buffer.
+    pub fn set_eq(&self, part: usize, eq: PartEq) {
+        self.eq[part % COUNT].set(eq, self.sample_rate.load(Relaxed) as f32);
+    }
+
+    /// The shared EQ of a part, for the audio thread (`EqCell::read`).
+    pub fn eq_cell(&self, part: usize) -> &EqCell {
+        &self.eq[part % COUNT]
+    }
+
+    /// The sample rate the parts' EQs play at: set by the synth when it starts (off the
+    /// audio thread), which computes every part's coefficients again.
+    pub fn set_sample_rate(&self, sample_rate: u32) {
+        if self.sample_rate.swap(sample_rate, Relaxed) != sample_rate {
+            for cell in &self.eq {
+                cell.recompute(sample_rate as f32);
+            }
         }
     }
 
@@ -536,18 +569,27 @@ impl Parts {
     /// current voice. The voice settings (#238): a part the OTS gives a voice starts from
     /// neutral (`voice_changed`), then takes the filter, EG, vibrato, portamento and XG
     /// part parameters the OTS sets. Pitch bend range is the caller's (`Controllers`).
+    /// The part EQ (#247): the OTS's XG part EQ (`PartEq::from_xg`, its other bands at the
+    /// XG defaults); a part the OTS gives a voice but no EQ gets a flat one (the voice's
+    /// own EQ, which yahaha has no data for); any other part keeps its EQ.
     ///
     /// `sends`: whether the OTS's reverb, chorus and delay sends apply. An explicit recall
     /// (an OTS button, the app) applies them; OTS Link firing on its own (a style start, a
     /// section change) leaves the sends the player dialled in, and applies only the pan.
     pub fn apply_ots(&self, ots: &crate::sff::Ots, number: u8, sends: bool) {
         for (p, part) in ots.parts.iter().enumerate() {
-            if let Some((_, _, pc)) = part.voice.filter(|v| v.0 < 126) {
+            let voiced = part.voice.filter(|v| v.0 < 126);
+            if let Some((_, _, pc)) = voiced {
                 self.program[p].store(pc, Relaxed);
                 self.voice_changed(p);
             }
             if part.tone.iter().any(Option::is_some) || !part.xg.is_empty() {
                 self.set_tone(p, part.tone, part.xg.iter());
+            }
+            match PartEq::from_xg(part.xg.iter()) {
+                Some(eq) => self.set_eq(p, eq),
+                None if voiced.is_some() => self.set_eq(p, PartEq::FLAT),
+                None => {}
             }
             self.on[p].store(part.on, Relaxed);
             self.set_volume(p, part.volume);
@@ -726,6 +768,34 @@ mod tests {
         assert!(parts.tone(RIGHT1).iter().all(Option::is_none));
         parts.resend_fx();
         assert_eq!(sent(&parts).len(), 3);
+    }
+
+    /// #247: an OTS's XG part EQ sets the part's channel-strip EQ; a part it gives a voice
+    /// and no EQ goes flat; a part it gives neither keeps the EQ it has.
+    #[test]
+    fn ots_xg_part_eq_sets_the_part_eq() {
+        use crate::fx::part_eq::PartEq;
+        let parts = Parts::new();
+        let mine = PartEq { low_gain: -4, ..PartEq::FLAT };
+        for p in 0..COUNT {
+            parts.set_eq(p, mine);
+        }
+        let mut ots = crate::sff::Ots::default();
+        ots.parts[RIGHT1].voice = Some((0, 0, 5));
+        ots.parts[RIGHT1].xg.set(0x08, 0x72, 0x46);
+        ots.parts[RIGHT1].xg.set(0x08, 0x77, 0x30);
+        ots.parts[RIGHT2].voice = Some((0, 0, 7));
+        ots.parts[LEFT].xg.set(0x08, 0x73, 0x3C);
+        parts.apply_ots(&ots, 1, true);
+        assert_eq!(parts.eq(RIGHT1), PartEq { low_gain: 6, high_freq: 5_000, ..PartEq::FLAT });
+        assert_eq!(parts.eq(RIGHT2), PartEq::FLAT, "a voice with no EQ");
+        assert_eq!(parts.eq(RIGHT3), mine, "nothing for the part");
+        assert_eq!(parts.eq(LEFT), PartEq { high_gain: -4, ..PartEq::FLAT });
+        // The audio thread gets the coefficients at the parts' sample rate.
+        parts.set_sample_rate(44_100);
+        let mut seen = crate::fx::part_eq::EqCell::UNSEEN;
+        let c = parts.eq_cell(RIGHT1).read(&mut seen).unwrap();
+        assert_eq!(c, crate::fx::part_eq::EqCoeffs::new(parts.eq(RIGHT1), 44_100.0));
     }
 
     /// The player's sends stick: an OTS recall with sends applies them; one without

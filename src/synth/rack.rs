@@ -4,7 +4,7 @@
 //!
 //! Each MIDI channel is a part and renders its own stereo stem. Everything that works on a
 //! part's signal runs here, on its stem, in yahaha code: the live tone filter (CC74/71,
-//! #346 step 3; part_tone.rs), the Style parts' insertion effects (#269), the meters (peak and RMS), the sends into the effect bus (#204) and the
+//! #346 step 3; part_tone.rs), the channel-strip EQ (#247, `fx::part_eq`), the Style parts' insertion effects (#269), the meters (peak and RMS), the sends into the effect bus (#204) and the
 //! performance view's per-part cost. Upstream rustysynth has no public voice count, so the
 //! notes a part holds are counted here, from the messages it gets ([`Part::track`]).
 //!
@@ -44,6 +44,7 @@ use super::part_tone::PartTone;
 use super::voicing::{To, Voicing};
 use super::*;
 use crate::fx::BUSES;
+use crate::fx::part_eq::{EqCoeffs, EqDsp};
 
 /// Voices per part on the main SoundFont: as many as the band's and your playing's shared
 /// synthesizers had each, so a part never has fewer than before.
@@ -214,6 +215,8 @@ pub(super) struct Part {
     env: PartEnvelope,
     /// Its drum setup's kits (kit.rs, #239).
     pub(super) kits: PartKits,
+    /// Its channel-strip EQ (#247, `fx::part_eq`), after the tone filter.
+    eq: EqDsp,
 }
 
 impl Part {
@@ -229,6 +232,7 @@ impl Part {
             tone: PartTone::new(sample_rate),
             env: PartEnvelope::new(sample_rate, block),
             kits: PartKits { keys: [None, None], newest: 0, live: None, seen: None },
+            eq: EqDsp::new(),
         }
     }
 
@@ -478,6 +482,11 @@ impl Rack {
         let melodic = part.melodic(slot);
         let (lanes, env) = (&mut part.lanes, &mut part.env);
         part.voicing.set_mono(mono, melodic, &mut |to, chans, st, d1, d2| route(env, lanes, slot, to, chans, st, d1, d2));
+    }
+
+    /// A channel's EQ coefficients (#247), computed off the audio thread.
+    pub(super) fn set_eq(&mut self, ch: u8, c: &EqCoeffs) {
+        self.parts[ch as usize & 15].eq.set(c);
     }
 
     pub(super) fn set_master_volume(&mut self, v: f32) {
@@ -745,6 +754,13 @@ impl Rack {
                 if profile {
                     ns += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
                 }
+            }
+            // The part's channel-strip EQ (#247) after it, still before the insert, meters
+            // and sends. Flat, it is not run at all.
+            if first {
+                part.eq.clear();
+            } else if part.eq.active() {
+                part.eq.process(sl, sr);
             }
             self.ch_ns[ch] = ns;
             // The part's insert runs on its stem, silent too (the effect may still ring).
@@ -1109,6 +1125,38 @@ mod tests {
         assert!(lit > open * 1.3, "the held note brightens: {lit} vs {open}");
         let edge = &a[4800 - 64..4800 + 480];
         assert!(jump(edge) <= jump(&b[..4800]) * 2.0, "no click: {} vs {}", jump(edge), jump(&b[..4800]));
+    }
+
+    /// #247: a flat channel-strip EQ leaves the part's stem bit-identical; a treble cut
+    /// darkens it, on that part only.
+    #[test]
+    fn the_part_eq_plays_on_the_stem_and_flat_is_bit_identical() {
+        use crate::fx::part_eq::PartEq;
+        let run = |eq: Option<PartEq>| {
+            let mut r = rack();
+            if let Some(eq) = eq {
+                r.set_eq(0, &EqCoeffs::new(eq, 48_000.0));
+            }
+            r.process(0, 0x90, 72, 100);
+            r.process(1, 0x90, 60, 100);
+            play(&mut r, 9600, 480)
+        };
+        let plain = run(None);
+        assert_eq!(run(Some(PartEq::FLAT)), plain, "flat");
+        assert_eq!(run(Some(PartEq { low_freq: 1_000, high_freq: 2_000, ..PartEq::FLAT })), plain, "flat at other frequencies");
+        let bright = |x: &[f32]| x.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum::<f32>() / x.iter().map(|v| v * v).sum::<f32>().max(1e-30);
+        let cut = run(Some(PartEq { high_gain: -12, high_freq: 1_000, ..PartEq::FLAT }));
+        assert!(bright(&cut) < bright(&plain) * 0.7, "darker: {} vs {}", bright(&cut), bright(&plain));
+        // Only on its part: channel 1 alone is as it was.
+        let solo = |eq: bool| {
+            let mut r = rack();
+            if eq {
+                r.set_eq(0, &EqCoeffs::new(PartEq { high_gain: -12, ..PartEq::FLAT }, 48_000.0));
+            }
+            r.process(1, 0x90, 60, 100);
+            play(&mut r, 4800, 480)
+        };
+        assert_eq!(solo(true), solo(false), "another part's EQ");
     }
 
     /// With portamento on, CC77's vibrato (folded into CC1 by the tone) reaches a gliding

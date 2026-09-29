@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import { isTipKey } from '../../help/tooltips'
+import { FLAT_EQ } from '../../lib/api/types'
 import Mixer from './Mixer.svelte'
 import { partVoice, styleVoice } from './voice'
 
@@ -30,7 +31,9 @@ afterEach(() => {
 
 /** The channel faders and the master (not the Panel strips' pan/send knobs). */
 const sliders = () => [...document.querySelectorAll<HTMLElement>('.strips [role="slider"]:not(.knob)')]
-const knobs = () => [...document.querySelectorAll<HTMLElement>('.strips .knob')]
+const knobs = () => [...document.querySelectorAll<HTMLElement>('.strips .fx .knob')]
+/** The Panel strips' EQ knobs (#247): low gain, low frequency, high gain, high frequency per part. */
+const eqKnobs = () => [...document.querySelectorAll<HTMLElement>('.strips .eq .knob')]
 const tab = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent?.includes(name))!
 
 describe('Mixer drawer', () => {
@@ -245,6 +248,31 @@ describe('Mixer drawer', () => {
     expect(s.state.keyboardParts[0].reverb).toBe(0)
   })
 
+  it('Panel strips have the part EQ: low and high shelf gain and frequency, sent as setPartEq (#247)', async () => {
+    const s = setup()
+    const k = eqKnobs()
+    expect(k).toHaveLength(16)
+    expect(k.slice(0, 4).map((e) => e.getAttribute('aria-label'))).toEqual(['Right 1 EQ low', 'Right 1 EQ low frequency', 'Right 1 EQ high', 'Right 1 EQ high frequency'])
+    expect(k.slice(0, 4).map((e) => e.getAttribute('aria-valuetext'))).toEqual(['0', '80', '0', '10k'])
+    await fireEvent.keyDown(k[0], { key: 'ArrowUp' })
+    expect(s.state.keyboardParts[0].eq).toEqual({ ...FLAT_EQ, lowGain: 1 })
+    await fireEvent.keyDown(k[14], { key: 'Home' })
+    expect(s.state.keyboardParts[3].eq).toEqual({ ...FLAT_EQ, highGain: -12 })
+    await fireEvent.keyDown(k[15], { key: 'Home' })
+    expect(s.state.keyboardParts[3].eq.highFreq).toBe(500)
+    await fireEvent.keyDown(k[5], { key: 'End' })
+    expect(s.state.keyboardParts[1].eq.lowFreq).toBe(2000)
+    flushSync()
+    expect(eqKnobs()[14].getAttribute('aria-valuetext')).toBe('−12')
+    expect(eqKnobs()[5].getAttribute('aria-valuetext')).toBe('2k')
+    // Double-click: back to flat.
+    await fireEvent.dblClick(eqKnobs()[14])
+    expect(s.state.keyboardParts[3].eq.highGain).toBe(0)
+    // The Style tab has no EQ.
+    await fireEvent.click(tab('Style'))
+    expect(eqKnobs()).toHaveLength(0)
+  })
+
   it('Style strips have Reverb, Chorus and Delay knobs: the style\'s until turned, then the part\'s own (#268)', async () => {
     const s = setup()
     await fireEvent.click(tab('Style'))
@@ -351,7 +379,7 @@ describe('voice lines', () => {
     expect(styleVoice(null)).toEqual({ plays: '—', writtenFor: '' })
   })
   it('a keyboard part under Manual Bass plays the Style Bass', () => {
-    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, fader: null, patch: null }
+    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, eq: FLAT_EQ, fader: null, patch: null }
     expect(partVoice(p).writtenFor).toContain('Manual Bass')
     expect(partVoice({ ...p, playsBass: false, voiceName: 'Strings' })).toEqual({ plays: 'Strings', writtenFor: 'GM 49' })
   })

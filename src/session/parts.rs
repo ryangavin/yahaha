@@ -50,6 +50,8 @@ impl Control {
                 parts.set_fx((part & 3) as usize, fx);
                 self.wake_engine();
             }
+            // The coefficients are computed here; the audio thread takes them (#247).
+            PartsCmd::SetPartEq { part, eq } => parts.set_eq((part & 3) as usize, eq),
         }
         Ok(())
     }
@@ -88,6 +90,7 @@ impl Control {
                     reverb: kp.fx(p)[parts::REVERB],
                     chorus: kp.fx(p)[parts::CHORUS],
                     variation: kp.fx(p)[parts::VARIATION],
+                    eq: kp.eq(p),
                     fader: v.fader_hw[p],
                     plugin: self.channel_plugin_state(parts::CHANNEL[p]),
                     patch: self.part_patch_id(p),

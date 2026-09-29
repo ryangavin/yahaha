@@ -69,7 +69,7 @@ fn live_rack_view(s: &AppState) -> serde_json::Value {
         .iter()
         .map(|p| {
             let plugin = p.plugin.as_ref().map(|x| x.id.clone());
-            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, plugin, p.sound, p.sound_edited])
+            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.patch, plugin, p.sound, p.sound_edited])
         })
         .collect();
     serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp, s.live_rack.controls])
@@ -260,6 +260,7 @@ impl MockSession {
             reverb: yahaha::parts::FX_DEFAULT[i][yahaha::parts::REVERB],
             chorus: yahaha::parts::FX_DEFAULT[i][yahaha::parts::CHORUS],
             variation: yahaha::parts::FX_DEFAULT[i][yahaha::parts::VARIATION],
+            eq: PartEq::FLAT,
             fader: None,
             plugin: None,
             patch: None,
@@ -1933,6 +1934,11 @@ impl MockSession {
                         PartSend::Chorus => p.chorus = vol(value),
                         PartSend::Variation => p.variation = vol(value),
                     }
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetPartEq { part, eq }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.eq = eq.clamped();
                 }
             }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),

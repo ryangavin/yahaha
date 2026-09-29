@@ -115,6 +115,7 @@ export type AppCmd =
   | { type: 'setPartOctave'; part: number; octave: number }
   | { type: 'setPartPan'; part: number; pan: number }
   | { type: 'setPartSend'; part: number; send: PartSend; value: number }
+  | { type: 'setPartEq'; part: number; eq: PartEq }
   /** Solo a keyboard part 0–3 (only it sounds from the keys); null ends the solo. */
   | { type: 'setPartSolo'; part: number | null }
   // Mixer and Launchkey pages
@@ -697,6 +698,24 @@ export const CHORD_SETTLE_MAX_MS = 30
 /** A keyboard part's effect send (`setPartSend`): reverb (CC 91), chorus (CC 93) or variation, the tempo delay (CC 94). */
 export type PartSend = 'reverb' | 'chorus' | 'variation'
 
+/** A keyboard part's channel-strip EQ (#247, `setPartEq`): a low and a high shelf. Gains in
+ *  dB (−12..12; 0 = the band is out of the signal), frequencies in Hz (low 32–2000, high 500–16000). */
+export interface PartEq {
+  lowGain: number
+  lowFreq: number
+  highGain: number
+  highFreq: number
+}
+
+/** A flat EQ: both bands at 0 dB, at the XG default frequencies. */
+export const FLAT_EQ: PartEq = { lowGain: 0, lowFreq: 80, highGain: 0, highFreq: 10000 }
+
+/** `eq` within its ranges, as the engine clamps it (`PartEq::clamped`). */
+export function clampEq(eq: PartEq): PartEq {
+  const c = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)))
+  return { lowGain: c(eq.lowGain, -12, 12), lowFreq: c(eq.lowFreq, 32, 2000), highGain: c(eq.highGain, -12, 12), highFreq: c(eq.highFreq, 500, 16000) }
+}
+
 export interface KeyboardPart {
   /** "Right 1", "Right 2", "Right 3", "Left". */
   name: string
@@ -721,6 +740,8 @@ export interface KeyboardPart {
   chorus: number
   /** Variation (tempo delay) send depth (CC 94); 0 until something sets it. */
   variation: number
+  /** Its channel-strip EQ (#247, `setPartEq`); flat until something sets it (an OTS's XG part EQ, a rack). */
+  eq: PartEq
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
   /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */

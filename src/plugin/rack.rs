@@ -28,6 +28,12 @@
 //! are kept from it too: the caller's shared effect bus plays them
 //! ([`PluginRack::render_add_sends`], #204).
 //!
+//! **XG part settings (#247).** A plugin gets channel messages only, so the part's XG
+//! multi part SysEx never reaches it; the rack plays what has a yahaha equivalent: the
+//! part's channel-strip EQ (`fx::part_eq`) on the plugin's output, before its gain and pan
+//! (a flat EQ is not run), and its mono/poly and velocity curve in front of the plugin
+//! (`PartVoice`).
+//!
 //! **Swaps.** An assign takes effect at the next block boundary. The outgoing instance gets
 //! Sustain off + All Notes Off and keeps rendering while it fades out over `fade_frames`
 //! (default 5 ms) as the new one fades in; then it is handed back to the control side. The
@@ -55,7 +61,9 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use std::time::{Duration, Instant};
 
 use super::PartGain;
+use super::part_voice::PartVoice;
 use crate::fx::BUSES;
+use crate::fx::part_eq::{EqCoeffs, EqDsp};
 use super::instance::{PluginInstance, RenderError};
 
 /// Slots: one per MIDI channel.
@@ -221,6 +229,10 @@ struct Slot {
     /// The command waiting for this channel's crossfade to end (the latest one: a newer
     /// command for the channel replaces it). Other channels' commands do not wait for it.
     pending: Option<RackCmd>,
+    /// The part's XG mono/poly and velocity curve, played in front of the plugin (#247).
+    voice: PartVoice,
+    /// The part's channel-strip EQ (#247), on the plugin's output before its gain and pan.
+    eq: EqDsp,
 }
 
 impl Slot {
@@ -242,6 +254,8 @@ impl Slot {
             ctl: Controllers::new(),
             last_overrun: u64::MAX,
             pending: None,
+            voice: PartVoice::new(),
+            eq: EqDsp::new(),
         }
     }
 
@@ -596,14 +610,48 @@ impl PluginRack {
             return true;
         }
         let offset = offset.min(self.max_block.saturating_sub(1) as u32);
-        if let Some(inst) = slot.cur.as_mut()
-            && let Err(e) = inst.midi(m, offset)
-        {
+        // The part's mono and velocity curve (#247) make the notes the plugin gets.
+        let mut fault = None;
+        if let Some(inst) = slot.cur.as_mut() {
+            slot.voice.play(m, &mut |x| {
+                if fault.is_none()
+                    && let Err(e) = inst.midi(x, offset)
+                {
+                    fault = Some(e);
+                }
+            });
+        }
+        if let Some(e) = fault {
             // A plugin whose process died fails here first.
             slot.faulted = true;
             self.event(RackEvent::Fault { channel: ch, error: e });
         }
         true
+    }
+
+    /// A part's mono or poly (#247, the XG part's Mono/Poly): the plugin playing `channel`
+    /// (now or later) gets its notes through yahaha's mono note handling (`PartVoice`).
+    /// RT-safe.
+    pub fn set_mono(&mut self, channel: u8, mono: bool) {
+        let slot = &mut self.slots[(channel & 0x0F) as usize];
+        let mut inst = if slot.faulted { None } else { slot.cur.as_mut() };
+        slot.voice.set_mono(channel, mono, &mut |m| {
+            if let Some(i) = inst.as_deref_mut() {
+                let _ = i.midi(m, 0);
+            }
+        });
+    }
+
+    /// A part's XG velocity sense depth (`offset` false) or offset (#247): the curve its
+    /// plugin's note-ons go through. RT-safe.
+    pub fn set_velocity_sense(&mut self, channel: u8, offset: bool, value: u8) {
+        self.slots[(channel & 0x0F) as usize].voice.set_velocity_sense(offset, value);
+    }
+
+    /// A part's channel-strip EQ coefficients (#247), computed off the audio thread.
+    /// RT-safe.
+    pub fn set_eq(&mut self, channel: u8, c: &EqCoeffs) {
+        self.slots[(channel & 0x0F) as usize].eq.set(c);
     }
 
     /// Render every slot and **add** it into `left` / `right` (the caller's mix, before its
@@ -672,6 +720,42 @@ impl PluginRack {
         };
 
         let fading = slot.old.is_some() && slot.fade_len > 0;
+        let (fade_pos, fade_len, cur_trim, old_trim) = (slot.fade_pos as usize, slot.fade_len as f32, slot.cur_trim, slot.old_trim);
+        // The instances' output, crossfaded and trimmed, at `i`.
+        let mix = |i: usize, l: &[f32], r: &[f32], l2: &[f32], r2: &[f32]| {
+            let (fin, fout) = if fading {
+                let p = ((fade_pos + i) as f32 / fade_len).min(1.0);
+                (p, 1.0 - p)
+            } else {
+                (1.0, 0.0)
+            };
+            let mut sl = 0.0;
+            let mut sr = 0.0;
+            if cur_live {
+                let k = fin * cur_trim;
+                sl += l[i] * k;
+                sr += r[i] * k;
+            }
+            if old_live && fout > 0.0 {
+                let k = fout * old_trim;
+                sl += l2[i] * k;
+                sr += r2[i] * k;
+            }
+            (sl, sr)
+        };
+        // The part's EQ (#247) on that output, before its gain and pan (and so before the
+        // meters and sends). Flat, it is not run, and the mix below is as before.
+        let eq = slot.eq.active() && (cur_live || old_live);
+        if eq {
+            for i in 0..n {
+                let (a, b) = mix(i, l, r, l2, r2);
+                l[i] = a;
+                r[i] = b;
+            }
+            slot.eq.process(l, r);
+        } else if !cur_live && !old_live {
+            slot.eq.clear();
+        }
         let gain = slot.gain.ramp(n);
         let (bl0, br0) = slot.bal;
         let (bl1, br1) = balance(slot.pan);
@@ -682,24 +766,7 @@ impl PluginRack {
         for i in 0..n {
             let g = gain.at(i);
             let (gl, gr) = (g * (bl0 + dl * (i + 1) as f32), g * (br0 + dr * (i + 1) as f32));
-            let (fin, fout) = if fading {
-                let p = ((slot.fade_pos as usize + i) as f32 / slot.fade_len as f32).min(1.0);
-                (p, 1.0 - p)
-            } else {
-                (1.0, 0.0)
-            };
-            let mut sl = 0.0;
-            let mut sr = 0.0;
-            if cur_live {
-                let k = fin * slot.cur_trim;
-                sl += l[i] * k;
-                sr += r[i] * k;
-            }
-            if old_live && fout > 0.0 {
-                let k = fout * slot.old_trim;
-                sl += l2[i] * k;
-                sr += r2[i] * k;
-            }
+            let (sl, sr) = if eq { (l[i], r[i]) } else { mix(i, l, r, l2, r2) };
             let (yl, yr) = (sl * gl, sr * gr);
             peak = peak.max(yl.abs()).max(yr.abs());
             sq += yl * yl + yr * yr;

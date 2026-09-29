@@ -23,7 +23,13 @@ pub enum PartsCmd {
     /// A part's reverb, chorus or variation (delay) send depth (its CC91, CC93 or CC94,
     /// 0-127).
     SetPartSend { part: u8, send: PartSend, value: u8 },
+    /// A part's channel-strip EQ (#247): the low and high shelves' gains (dB, -12..=12)
+    /// and frequencies (Hz: low 32-2000, high 500-16000), clamped. yahaha plays it on the
+    /// part's audio, SoundFont or plugin; at 0 dB a band is out of the signal.
+    SetPartEq { part: u8, eq: PartEq },
 }
+
+pub use crate::fx::part_eq::PartEq;
 
 /// A keyboard part's effect send (Genos Mixer > Effect: Reverb and Chorus depth).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +92,9 @@ pub struct KeyboardPart {
     /// Variation (tempo delay) send depth (CC94), 0-127 (#204).
     #[serde(default)]
     pub variation: u8,
+    /// Its channel-strip EQ (#247, `setPartEq`). Absent: flat.
+    #[serde(default)]
+    pub eq: PartEq,
     /// The instrument plugin the part plays instead of its SoundFont voice (absent: the
     /// SoundFont voice). Its fader is the same CC7.
     #[serde(default, skip_serializing_if = "Option::is_none")]

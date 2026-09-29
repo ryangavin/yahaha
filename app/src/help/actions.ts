@@ -82,6 +82,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPartOctave': return 'part.octave_up'
     case 'setPartPan': return 'mixer.part.pan'
     case 'setPartSend': return cmd.send === 'reverb' ? 'mixer.part.reverb' : cmd.send === 'chorus' ? 'mixer.part.chorus' : 'mixer.part.variation'
+    case 'setPartEq': return 'mixer.part.eq_low_gain'
     case 'setFaderPage':
     case 'toggleFaderPage': return 'mixer.page'
     case 'setFaderLayer':

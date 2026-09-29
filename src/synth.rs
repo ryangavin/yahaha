@@ -616,6 +616,10 @@ pub struct AudioCore {
     /// The Multi Pad send scales (#267) as they glide towards `FxControl::pad_send`.
     pad_scale: [f32; crate::fx::BUSES],
     sample_rate: f32,
+    /// The keyboard parts' EQ coefficients (#247) as last taken from `Parts` (and the
+    /// publication they came from), for the racks and the plugin rack.
+    eq_seen: [u32; parts::COUNT],
+    eq: [crate::fx::part_eq::EqCoeffs; parts::COUNT],
 }
 
 impl AudioCore {
@@ -637,6 +641,8 @@ impl AudioCore {
         #[cfg(not(feature = "plugins"))]
         let link = ();
         let (kits_link, kits) = kit::link();
+        // The parts' EQ coefficients at this rate, computed here, off the audio thread.
+        parts.set_sample_rate(sample_rate);
         let core = AudioCore {
             rack,
             swap_rx,
@@ -679,6 +685,8 @@ impl AudioCore {
             part_send: [[crate::fx::SEND_STYLE; crate::fx::BUSES]; 8],
             pad_scale: crate::fx::PAD_SEND_DEFAULT.map(crate::fx::band_scale),
             sample_rate: sample_rate.max(1) as f32,
+            eq_seen: [crate::fx::part_eq::EqCell::UNSEEN; parts::COUNT],
+            eq: [crate::fx::part_eq::EqCoeffs::FLAT; parts::COUNT],
         };
         (core, RackSwap { tx: swap_tx, old: old_rx, kits: kits_link }, Some(link))
     }
@@ -720,6 +728,9 @@ impl AudioCore {
             && let Ok(mut new) = self.swap_rx.pop()
         {
             self.shadow.replay(&mut new, &mut self.bank, &self.parts, self.router.as_ref());
+            for (p, c) in self.eq.iter().enumerate() {
+                new.set_eq(parts::CHANNEL[p], c);
+            }
             self.sends_dirty = true;
             self.fading = self.rack.replace(new);
             self.last_master = 255;
@@ -730,6 +741,18 @@ impl AudioCore {
             && let Some(rack) = self.rack.as_mut()
         {
             routing::sync_parts(rack, &self.parts, self.router.as_ref());
+        }
+        // The keyboard parts' EQs (#247): coefficients published since the last buffer.
+        for p in 0..parts::COUNT {
+            if let Some(c) = self.parts.eq_cell(p).read(&mut self.eq_seen[p]) {
+                self.eq[p] = c;
+                let ch = parts::CHANNEL[p];
+                if let Some(rack) = self.rack.as_mut() {
+                    rack.set_eq(ch, &c);
+                }
+                #[cfg(feature = "plugins")]
+                self.plugins.set_eq(ch, &c);
+            }
         }
         // The program map changed under the channels (#103): route them again.
         if let (Some(rack), Some(router)) = (self.rack.as_mut(), self.router.as_mut()) {
@@ -807,6 +830,16 @@ impl AudioCore {
                     if let Some(rack) = self.rack.as_mut() {
                         rack.set_mono(ch, mono);
                     }
+                    // A plugin playing the part plays it in mono too (#247).
+                    #[cfg(feature = "plugins")]
+                    self.plugins.set_mono(ch, mono);
+                    continue;
+                }
+                // A part's velocity sense depth or offset (#247): the curve a plugin playing
+                // the part gets its notes through.
+                if let Some((_ch, _offset, _v)) = xg_part::velocity(&m) {
+                    #[cfg(feature = "plugins")]
+                    self.plugins.set_velocity_sense(_ch, _offset, _v);
                     continue;
                 }
                 // The program map's own messages (a table bank switch, an audition; #103).
