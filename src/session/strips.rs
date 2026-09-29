@@ -3,16 +3,17 @@
 //! `Control::strips`, which the state shows (`Strips::fill`).
 //!
 //! `pump_strips` (at the end of every `pump_fx`) stores every strip into
-//! `SynthControl::fx.strips` (`crate::fx::StripControl`), by MIDI channel: its compressor,
-//! both insert slots (insert 1 as it plays: a keyboard part's own slot, a Style part's
-//! style insert or the kind the player chose), its levels to sends 4-6, sends 4-6
-//! themselves, and the Style parts' EQ. The synth must call
-//! `fx.strips.set_sample_rate` when it starts, for the Style parts' EQ coefficients.
+//! `SynthControl::fx` by MIDI channel: its compressor and insert slots (`fx.strips`,
+//! insert 1 as it plays: a keyboard part's own slot, a Style part's style insert or the
+//! kind the player chose), its levels to sends 4-6 (`fx.strip_send`), sends 4-6
+//! themselves (`fx.sends`), and the Style parts' EQ (`fx.style_eq`). The synth must call
+//! `fx.set_style_eq_rate` when it starts, for the Style parts' EQ coefficients, and play
+//! `fx.style_eq` on channels 9-16.
 //! The rack send override (`setRackSendOverride`) keeps a style change off sends 1-3.
 
 use super::Control;
 use crate::api::{CmdError, FxBlock, KEYBOARD_STRIPS, STYLE_SENDS, StripCmd};
-use crate::fx::{ADDED_SENDS, InsertSlot, SEND_NONE, SendKind, SendSlot, StripControl};
+use crate::fx::{InsertSlot, SendSlot};
 use std::sync::atomic::Ordering::Relaxed;
 
 impl Control {
@@ -40,11 +41,14 @@ impl Control {
         Ok(())
     }
 
-    /// Store every strip's settings for the synth (`StripControl`, by MIDI channel). Runs
-    /// on every pump: plain stores, no allocation.
+    /// Store every strip's settings for the synth, by MIDI channel: its compressor, insert
+    /// 1's settings 2-4 and insert 2 (`fx.strips`), its levels to sends 4-6
+    /// (`fx.strip_send`); sends 4-6 themselves (`fx.sends`); the Style parts' EQ
+    /// (`fx.style_eq`). Insert 1's kind, on/off and amount go as before: a keyboard part's
+    /// own slot, a Style part's `fx.insert` (`pump_fx`). Runs on every pump: plain stores.
     pub(super) fn pump_strips(&self) {
         let Some(synth) = self.synth.as_ref() else { return };
-        let sc = &synth.control.fx.strips;
+        let fx = &synth.control.fx;
         let cell = self.strips.borrow();
         let sends = cell.sends();
         for (i, s) in cell.strips.iter().enumerate() {
@@ -53,27 +57,22 @@ impl Control {
             } else {
                 (8 + i - KEYBOARD_STRIPS, self.style_insert1(i - KEYBOARD_STRIPS))
             };
-            sc.comp[ch].set(&s.comp);
-            store_insert(sc, ch, 0, &slot1);
-            store_insert(sc, ch, 1, &s.inserts[1]);
-            for (j, a) in sc.send[ch].iter().enumerate() {
+            fx.strips.set_comp(ch, &s.comp);
+            fx.strips.set_first(ch, &slot1);
+            fx.strips.set_second(ch, &s.inserts[1]);
+            for (j, a) in fx.strip_send[ch].iter().enumerate() {
                 let send = STYLE_SENDS + j;
                 a.store(if send < sends { s.sends[send].min(127) } else { 0 }, Relaxed);
             }
         }
-        for i in 0..ADDED_SENDS {
-            let (kind, params, ret) = match cell.added.get(i) {
-                Some(s) => (SendKind::ALL.iter().position(|k| *k == s.kind).map_or(SEND_NONE, |k| k as u8), s.params, s.return_level.min(127)),
-                None => (SEND_NONE, [0; crate::fx::SEND_PARAMS], 0),
-            };
-            sc.added_kind[i].store(kind, Relaxed);
-            for (a, v) in sc.added_params[i].iter().zip(params) {
-                a.store(v, Relaxed);
+        for (i, c) in fx.sends.iter().enumerate() {
+            match cell.added.get(i) {
+                Some(s) => c.set(s),
+                None => c.clear(),
             }
-            sc.added_return[i].store(ret, Relaxed);
         }
         for (p, s) in cell.strips[KEYBOARD_STRIPS..].iter().enumerate() {
-            sc.set_eq(p, s.eq);
+            fx.set_style_eq(p, s.eq);
         }
     }
 
@@ -130,16 +129,6 @@ impl Control {
             slot.values[1..].copy_from_slice(&cell.values[1..]);
         }
         slot
-    }
-}
-
-/// Insert slot `slot` of channel `ch` plays `s`: its kind when on (else nothing; an unknown
-/// kind plays nothing), and its values.
-fn store_insert(sc: &StripControl, ch: usize, slot: usize, s: &InsertSlot) {
-    let kind = if s.on { s.kind.kind() as u8 } else { 0 };
-    sc.insert_kind[ch][slot].store(kind, Relaxed);
-    for (a, &v) in sc.insert_values[ch][slot].iter().zip(&s.values) {
-        a.store(v, Relaxed);
     }
 }
 
