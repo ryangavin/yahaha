@@ -12,13 +12,29 @@ fn data_dir(test: &str) -> PathBuf {
     d
 }
 
-fn session(data: &Path) -> Option<Session> {
-    let style = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !style.exists() {
-        eprintln!("corpus missing; skipping");
-        return None;
-    }
-    Some(Session::offline(Options { paths: vec![style], data_dir: Some(data.to_path_buf()), ..Options::default() }).unwrap())
+fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
+    let mut v = id.to_vec();
+    v.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    v.extend_from_slice(body);
+    v
+}
+
+/// A session on a tiny synthetic style written at run time (one Main A bar), so these tests
+/// run without the git-ignored corpus: capturing and applying keyboard parts needs no real
+/// style.
+fn session(data: &Path) -> Session {
+    let mut trk = vec![0x00, 0xFF, 0x06, 4];
+    trk.extend_from_slice(b"SFF2");
+    trk.extend_from_slice(&[0x00, 0xFF, 0x06, 6]);
+    trk.extend_from_slice(b"Main A");
+    trk.extend_from_slice(&[0x00, 0x9B, 60, 100, 0x83, 0x00, 0x8B, 60, 0, 0x00, 0xFF, 0x2F, 0]);
+    let mut bytes = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
+    bytes.extend(chunk(b"MTrk", &trk));
+    bytes.extend(chunk(b"CASM", &chunk(b"CSEG", &chunk(b"Sdec", b"Main A"))));
+    let style = data.join("styles/Test.sty");
+    std::fs::create_dir_all(style.parent().unwrap()).unwrap();
+    std::fs::write(&style, bytes).unwrap();
+    Session::offline(Options { paths: vec![style], data_dir: Some(data.to_path_buf()), ..Options::default() }).unwrap()
 }
 
 /// A SoundFont library patch whose defaults would move the part's mix, if they won.
@@ -45,8 +61,8 @@ fn contents(r: &Rack) -> Rack {
 #[test]
 fn capture_write_read_apply_round_trips() {
     let (d1, d2) = (data_dir("rt-from"), data_dir("rt-to"));
-    let Some(a) = session(&d1) else { return };
-    let b = session(&d2).unwrap();
+    let a = session(&d1);
+    let b = session(&d2);
     let bass = add_bass_patch(&a);
     assert_eq!(add_bass_patch(&b), bass, "the same library sound in both");
 
@@ -105,7 +121,7 @@ fn capture_write_read_apply_round_trips() {
 #[test]
 fn a_missing_sound_leaves_the_part_failed_with_its_mix() {
     let d = data_dir("missing");
-    let Some(s) = session(&d) else { return };
+    let s = session(&d);
     let mut rack = s.capture_rack("Missing");
     rack.parts[0].volume = 81;
     rack.parts[1].sound = SoundRef::Plugin { component: "aumu zzzz nope".into() };

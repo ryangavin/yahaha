@@ -114,9 +114,11 @@ fn unknown_fields_round_trip() {
     let r = Rack::from_json(&v.to_string()).unwrap();
     assert_eq!(r.other["inserts"], json!([{ "fx": "tape" }]));
     assert_eq!(r.parts[2].other["macros"], json!({ "cutoff": 3 }));
-    assert_eq!(r.controls.knobs[5], ControlTarget::None, "a target this build doesn't know is none");
+    let newer = json!({ "kind": "pluginMacro", "part": 0, "param": 7 });
+    assert_eq!(r.controls.knobs[5], ControlTarget::Unknown(newer.clone()), "a target this build doesn't know is kept");
     r.save(&path).unwrap();
     let back: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(back["controls"]["knobs"][5], newer, "and written back verbatim");
     assert_eq!(back["inserts"], json!([{ "fx": "tape" }]));
     assert_eq!(back["parts"][2]["macros"], json!({ "cutoff": 3 }));
     assert_eq!(Rack::load(&path).unwrap(), r);

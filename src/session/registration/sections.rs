@@ -524,12 +524,7 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
                 kp.set_program(p, v.program().unwrap_or(0));
                 let r = match v {
                     VoiceRef::Plugin { id, name, state, sound, .. } => {
-                        let r = c.recall_part_plugin(p, id, name, state.as_deref(), sound.as_ref(), OnFail::Clear);
-                        // A preloaded instance is used up: the pool refills at the next pump.
-                        if !matches!(r, Ok(false)) {
-                            c.reg.warm_dirty = true;
-                        }
-                        r.map(|_| ())
+                        c.recall_part_plugin(p, id, name, state.as_deref(), sound.as_ref(), OnFail::Clear).map(|_| ())
                     }
                     VoiceRef::Gm { .. } => {
                         // A GM voice: no plugin from the Plugins tab (a library patch's own

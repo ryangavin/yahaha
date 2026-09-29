@@ -119,7 +119,7 @@ pub enum SoundRef {
 }
 
 /// What a controller does on the Rack knob page.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ControlTarget {
     /// Nothing.
@@ -137,10 +137,14 @@ pub enum ControlTarget {
     HarmonyArp,
     /// The split point.
     SplitPoint,
+    /// A target this build doesn't know (a newer build's), kept verbatim so it is written
+    /// back unchanged. It does nothing here.
+    #[serde(untagged)]
+    Unknown(Value),
 }
 
 /// The rack's controller map: faders 1-4 and knobs 1-8.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlMap {
     #[serde(deserialize_with = "targets")]
     pub faders: [ControlTarget; 4],
@@ -154,19 +158,19 @@ impl Default for ControlMap {
     /// are no rack targets: none.
     fn default() -> ControlMap {
         let level = |p: u8| ControlTarget::PartLevel { part: p };
-        let mut knobs = [ControlTarget::None; 8];
-        for p in 0..4u8 {
-            knobs[p as usize] = level(p);
-        }
+        let knobs = std::array::from_fn(|k| if k < 4 { level(k as u8) } else { ControlTarget::None });
         ControlMap { faders: std::array::from_fn(|p| level(p as u8)), knobs }
     }
 }
 
 /// A list of targets, read leniently: a target this build doesn't know (a newer build's)
-/// and a missing one are none, and extras are dropped.
+/// is kept verbatim as [`ControlTarget::Unknown`], a missing one is none, and extras are
+/// dropped.
 fn targets<'de, D: Deserializer<'de>, const N: usize>(d: D) -> Result<[ControlTarget; N], D::Error> {
     let v = Vec::<Value>::deserialize(d)?;
-    Ok(std::array::from_fn(|i| v.get(i).and_then(|t| serde_json::from_value(t.clone()).ok()).unwrap_or_default()))
+    Ok(std::array::from_fn(|i| {
+        v.get(i).map(|t| serde_json::from_value(t.clone()).unwrap_or_else(|_| ControlTarget::Unknown(t.clone()))).unwrap_or_default()
+    }))
 }
 
 impl Rack {

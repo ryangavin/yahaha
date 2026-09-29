@@ -39,6 +39,9 @@ impl Control {
             None => None,
         };
         self.sound_library_part_plugin(p, true);
+        // A preloaded instance is used up (by a Registration or a rack): the pool refills
+        // at the next pump.
+        self.reg.warm_dirty = true;
         let sound = sound.cloned().or_else(|| self.sound_tag_for_state(id, state.unwrap_or_default()));
         let voice = PluginVoice { id: id.to_string(), state: bytes, preset: None, sound };
         let r = self.assign_channel_plugin(ch, voice.clone());
