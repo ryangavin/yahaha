@@ -190,6 +190,8 @@ class UiStore {
   /** The Rack panel's drawer on Stage (docs/racks.md). */
   rack = $state(false)
   mixer = $state(false)
+  /** The Effects screen: the Reverb, Chorus and Delay blocks and the style's inserts. */
+  effects = $state(false)
   charts = $state(false)
   looper = $state(false)
   multipad = $state(false)
@@ -209,9 +211,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'rack' | 'mixer' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony') {
+  toggleDrawer(d: 'rack' | 'mixer' | 'effects' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony') {
     const open = !this[d]
-    this.rack = this.mixer = this.settings = this.charts = this.looper = this.multipad = this.harmony = false
+    this.rack = this.mixer = this.effects = this.settings = this.charts = this.looper = this.multipad = this.harmony = false
     this[d] = open
   }
 
@@ -251,6 +253,7 @@ class UiStore {
     if (this.settings) return !(this.settings = false)
     if (this.rack) return !(this.rack = false)
     if (this.mixer) return !(this.mixer = false)
+    if (this.effects) return !(this.effects = false)
     if (this.charts) return !(this.charts = false)
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)
