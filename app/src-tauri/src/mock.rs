@@ -418,7 +418,7 @@ impl MockSession {
                 ..EffectsState::initial()
             },
             home: HomeState::default(),
-            live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false, prompt: None },
+            live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default(), prompt: None },
             racks: Vec::new(),
             quick_racks: QuickRacksState::default(),
         };
@@ -2516,7 +2516,7 @@ mod tests {
                 m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
                 m.state.live_rack.modified = false;
             }
-            assert_eq!(m.state.live_rack, LiveRackState { name: "New rack".into(), id: None, modified: false, prompt: None });
+            assert_eq!(m.state.live_rack, LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default(), prompt: None });
             m.send(TransportCmd::StartStop);
             m.advance(bar_ms(&m) * 2.0);
             assert!(!m.state.live_rack.modified, "change {i}: not by the band");
@@ -2740,7 +2740,7 @@ mod tests {
         m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
         m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
         let id = m.state.racks[0].id.clone();
-        assert_eq!(m.state.live_rack, LiveRackState { name: "Ballad".into(), id: Some(id.clone()), modified: false, prompt: None });
+        assert_eq!(m.state.live_rack, LiveRackState { name: "Ballad".into(), id: Some(id.clone()), modified: false, controls: Default::default(), prompt: None });
 
         m.send(PartsCmd::SetPartVolume { part: 0, volume: 99 });
         assert!(m.state.live_rack.modified);
@@ -2752,6 +2752,19 @@ mod tests {
         m.send(RackCmd::LoadRack { id: id.clone(), discard: true });
         assert_eq!(m.state.keyboard_parts[0].volume, 30);
         assert!(!m.state.live_rack.modified);
+
+        // Save first: a failed save drops the held switch; a good one makes it.
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 40 });
+        m.send(RackCmd::NewRack { discard: false });
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        m.send(RackCmd::SaveRack { sound_names: Default::default() });
+        assert_eq!(m.state.live_rack.name, "Ballad", "no switch after a failed save");
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(RackCmd::NewRack { discard: false });
+        m.send(RackCmd::SaveRack { sound_names: Default::default() });
+        assert_eq!(m.state.live_rack.name, "New rack", "switched once saved");
+        m.send(RackCmd::LoadRack { id: id.clone(), discard: false });
+        assert_eq!(m.state.keyboard_parts[0].volume, 30);
 
         m.send(RackCmd::DuplicateRack { id: id.clone() });
         m.send(RackCmd::RenameRack { id: id.clone(), name: "Slow".into() });

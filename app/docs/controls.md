@@ -164,16 +164,10 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Bank +** | Shows the next bank of eight Quick Racks (A to B, say, up to H) on these buttons and pad page 4. Nothing loads until you press one. | — | `Shift+P` | Pad page 4 (Quick Racks), bottom row, pad 2 |
 | **Quick Racks bank** | The bank of eight Quick Racks on view, A to H. Bank − and Bank + step through them; in the Quick Racks drawer, click a letter to view that bank. | — | — | — |
 | **Clear** | Empties this Quick Rack button. The rack itself stays in your racks. | Regist Bank Edit: Delete | — | — |
-| **Rack** | One of your racks: click to load it, as a Quick Rack button does (with unsaved changes it asks first, in the Quick Racks bar). Its label, such as A1, is the Quick Rack button in the bank on view that holds it. | — | — | — |
-| **Save first** | Saves the live rack with its changes, then makes the switch you asked for. | — | — | — |
-| **Discard and switch** | Drops the live rack's unsaved changes and makes the switch. | — | — | — |
-| **Keep editing** | Cancels the switch: the live rack stays as it is, changes and all. | — | — | — |
+| **Rack** | One of your racks: click to load it, as a Quick Rack button does (with unsaved changes it asks first, in the Rack panel). Its label, such as A1, is the Quick Rack button in the bank on view that holds it. | — | — | — |
 | **Rack name** | The name to save the live rack under, as a new rack of yours. It then goes on the waiting Quick Rack button. | — | — | — |
 | **Save rack** | Saves the live rack (a new one under the name typed, when it has never been saved), then stores it on the waiting Quick Rack button. | — | — | — |
 | **Cancel** | Nothing is saved or stored: Store disarms and the button keeps what it held. | — | — | — |
-| **New sound name** | This part plays an edited preset, which becomes a new sound of yours when the rack is saved: give it a name. | — | — | — |
-| **Save with these names** | Saves the rack, each edited preset becoming a new sound of yours under the name typed. | — | — | — |
-| **Cancel** | Nothing is saved: the live rack keeps its changes. | — | — | — |
 
 ## Keyboard parts
 
@@ -196,11 +190,33 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Rescan plugins** | Looks for newly installed or removed instrument plugins. A ⚠ in the Sound Browser marks a plugin that failed to load last time. | — | — | — |
 | **Reload plugin** | Loads the selected part's plugin again, with its saved sound, after it stopped working or failed to load. The Launchkey button lights red while there is one to reload. | — | `S` | Panel fader page: button under fader 6 |
 | **Run in process** | Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load: a part already playing it keeps running where it is, and the button shows ↻ until the plugin loads again (pick it again, or the next start). A plugin preloaded for the Registration bank loads again in the new mode at once. | — | — | — |
-| **Sound** | What this part plays. Click to open the Sound Browser and pick a SoundFont preset, an instrument plugin or a saved sound. Under Manual Bass, Left plays the style's Bass voice instead, and this is the sound it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
 | **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 | **Library patch** | The part plays a patch from your sound library. Pick a GM voice instead to go back to it. | Voice Selection | — | — |
+
+## Rack panel
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Save rack** | Saves the rack over your own saved rack (a new rack has none yet: it becomes one of yours), with any edited sounds. Edited presets need a name first; you are asked here. Off when nothing changed. | Registration Memory › Save | — | — |
+| **Save as…** | Saves the rack as a new rack of yours, under a name you give. Opens a name field under the rack's name. | — | — | — |
+| **Rack name** | The new rack's name. It must differ from your other racks' names. | — | — | — |
+| **Save rack** | Saves the rack as a new rack under this name. It becomes the rack you are playing. | — | — | — |
+| **Cancel** | Closes the form without saving. The rack keeps its changes. | — | — | — |
+| **Sound name** | An edited factory, file or SoundFont preset is never overwritten: saving the rack saves it as a new sound of yours under this name. It starts from the preset's own name. | — | — | — |
+| **Save rack** | Saves the rack, with each edited preset as a new sound under the name you gave. | — | — | — |
+| **Save first** | Saves the rack's changes, then switches to the rack you asked for. | — | — | — |
+| **Discard and switch** | Drops the rack's unsaved changes and switches to the rack you asked for. | — | — | — |
+| **Keep editing** | Stays on this rack with its changes; nothing is switched. | — | — | — |
+| **Revert** | Puts the rack back as it was last loaded or saved, dropping the unsaved changes. Shown while a saved rack has changes. | — | — | — |
+| **Harmony / Arp type** | The Keyboard Harmony type or arpeggio pattern this rack plays, saved with the rack. The switch next to it turns Harmony/Arp on or off; the Harmony/Arp drawer has its settings. | Keyboard Harmony/Arpeggio type | — | — |
+| **Controller map** | Shows what Launchkey faders 1–4 and knobs 1–8 do while this rack is loaded, on the Rack knob page. It is saved with the rack. | — | — | — |
+| **Keyboard part** | Makes this part the one you edit: Voice −/+ and Library act on it, as the Launchkey's EDIT pads do. Clicking anywhere in the part does the same. | PART SELECT | — | Pad page 3 (OTS/Parts), bottom row, pads 5–8 (EDIT R1…L) |
+| **Sound** | The sound this part plays. Click to open Library › Sounds with this part as the target and pick another; the part keeps its level, pan, sends and octave. | Voice select (VOICE buttons) | — | — |
+| **Edit** | Opens the part's plugin window over the app. What you change there marks the sound "edited" until you save it. SoundFont sounds have no editor. | Voice Edit | — | — |
+| **Save sound** | Keeps the plugin edits in the sound: your own sound is updated; a factory preset is never overwritten and is saved as a new sound of yours instead. The part's mix is not part of the sound. | Voice Setting › Save | — | — |
+| **Replace…** | The plugin this part plays isn't installed, so the part is silent. Opens Library › Sounds with this part as the target: the sound you pick replaces it and the part keeps its level, pan, sends and octave. Nothing is saved until you save the rack; reinstalling the plugin brings the sound back. | — | — | — |
 
 ## Stage | Library
 
@@ -504,6 +520,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Launchkey** | Whether the Launchkey is connected in DAW mode, so its pads and buttons are arranger controls. | — | — | — |
 | **Unused fader** | On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under faders 6–8 |
 | **Unused pad** | This pad does nothing on this page and stays dark. | — | — | — |
+| **Part sound** | The sound this keyboard part plays: ● when its plugin has unsaved edits, ⚠ when its plugin is missing. Click to open Library › Sounds with this part as the target. | Voice name (Home screen) | — | — |
 
 ## Lead-sheet band
 
@@ -549,7 +566,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 |---|---|---|---|---|
 | **Styles** | Opens the style browser. Press again to close. | Style Selection | `Alt+S` (terminal: ) | — |
 | **Quick Racks** | Opens Library on its Racks tab: your racks to load, each with the Quick Rack button that holds it in the bank on view. Press again to go back to Stage. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
-| **Parts and OTS** | Opens the keyboard parts drawer with the style's One Touch Settings. Press again to close. | ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
+| **Rack** | Opens the Rack: what's under your hands (the four keyboard parts with their sounds and mix, the split, Harmony/Arp, transpose) and the style's One Touch Settings. Press again to close. | Voice Setting, ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
 | **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
 | **Effects** | Opens the Mixer, where the Reverb, Chorus and Variation effect blocks live. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
 | **Mixer** | Opens the full mixer. Press again to close. | Mixer | `Alt+M` (terminal: ) | — |
@@ -563,7 +580,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Keyboard parts and OTS** | Opens the detail of Right 1–3 and Left (voice, volume, octave, on/off) and the style's One Touch Settings. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the same controls |
+| **Rack** | Opens the Rack: Right 1–3 and Left with their sounds and mix, the split, Harmony/Arp, transpose, the controller map and the style's One Touch Settings. Alt+O too. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the part and OTS controls |
 | **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
 | **Charts** | Opens the iReal Pro chart player: import playlists, pick a song, and set how the band plays it. | — | — | — |
 | **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |

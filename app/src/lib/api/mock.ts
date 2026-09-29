@@ -23,7 +23,7 @@ import { MockRacks } from './mock-racks'
 import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  BREAK, CHORD_SETTLE_MAX_MS, defaultControlMap, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
@@ -284,7 +284,7 @@ export function initialState(): AppState {
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
     home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
-    liveRack: { name: 'New rack', id: null, modified: false, prompt: null },
+    liveRack: { name: 'New rack', id: null, modified: false, controls: defaultControlMap(), prompt: null },
     racks: [],
     quickRacks: emptyQuickRacks(),
   }
@@ -548,6 +548,18 @@ export class MockSession implements Session {
   dropouts(n: number) {
     if (!this.state.io.synth) return
     this.state.io.synth.dropouts += n
+    this.publish()
+  }
+
+  /** Part `part` plays the mock's missing plugin (MOCK_MISSING), as a restored rack whose
+   * plugin was uninstalled does: silent (failed), its mix kept (tests and the Rack panel). */
+  missingPlugin(part: number) {
+    const m = this.state.plugins.missing[0]
+    if (!m) return
+    this.state.keyboardParts[part & 3].plugin = {
+      id: m.id, name: m.name, manufacturer: m.manufacturer, status: 'failed', stage: null, error: `${m.name} isn't installed`,
+      outOfProcess: false, inProcessFallback: false, cpu: 0, overruns: 0, recentOverruns: 0, editor: false, missing: true,
+    }
     this.publish()
   }
 

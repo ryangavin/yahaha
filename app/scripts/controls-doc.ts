@@ -21,6 +21,7 @@ const GROUPS: [string, string][] = [
   ['ots', 'One Touch Settings'],
   ['quick', 'Quick Racks'],
   ['part', 'Keyboard parts'],
+  ['rack', 'Rack panel'],
   ['view', 'Stage | Library'],
   ['library', 'Library'],
   ['sounds', 'Sound Browser'],

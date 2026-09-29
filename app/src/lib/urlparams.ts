@@ -4,7 +4,7 @@
 //   ?theme=light   start in the light theme (not remembered)
 //   ?help=1        start in help mode
 //   ?tip=<key>     show the help-footer entry of the first control with that catalog key
-//   ?open=browser|settings|parts|mixer|charts|looper|multipad|harmony   open an overlay or drawer
+//   ?open=browser|settings|rack|mixer|charts|looper|multipad|harmony   open an overlay or drawer
 //   ?open=library&tab=racks|sounds|instruments|map   Library on that tab, loading into Right 1
 //                  (open=sounds: Library › Sounds; open=sound: Library › Style map; open=quick: Library › Racks)
 //   ?shift=1       latch the Launchkey mirror's Shift layer
@@ -29,7 +29,8 @@ export function applyUrlParams(search = location.search) {
   if (open === 'sounds') ui.openLibrary('sounds', 0)
   if (open === 'sound') ui.openLibrary('map')
   if (open === 'quick') ui.openLibrary('racks')
-  if (open === 'settings' || open === 'parts' || open === 'mixer' || open === 'charts' || open === 'looper' || open === 'multipad' || open === 'harmony') ui.toggleDrawer(open)
+  if (open === 'parts') ui.toggleDrawer('rack') // the Rack panel's old name
+  if (open === 'settings' || open === 'rack' || open === 'mixer' || open === 'charts' || open === 'looper' || open === 'multipad' || open === 'harmony') ui.toggleDrawer(open)
   if (p.get('shift') === '1') ui.shiftLatched = true
   const key = p.get('tip')
   if (key && isTipKey(key)) {

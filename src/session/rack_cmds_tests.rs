@@ -52,7 +52,7 @@ fn save_as_save_load_and_the_racks_list() {
 
     save_as(&s, "Ballad").unwrap();
     let ballad = entry(&s, "Ballad");
-    assert_eq!(live(&s), LiveRackState { name: "Ballad".into(), id: Some(ballad.id.clone()), modified: false, prompt: None });
+    assert_eq!(live(&s), LiveRackState { name: "Ballad".into(), id: Some(ballad.id.clone()), modified: false, controls: ControlMap::default(), prompt: None });
     assert_eq!(ballad.parts.len(), 4);
     assert_eq!(ballad.parts[0], gm_name(4), "each part names its sound");
     assert_eq!(ballad.on, vec![true, false, false, false]);
@@ -75,7 +75,7 @@ fn save_as_save_load_and_the_racks_list() {
     let loud = entry(&s, "Loud").id;
     s.send(RackCmd::LoadRack { id: ballad.id.clone(), discard: false }).unwrap();
     assert_eq!((volume(&s, 0), s.state().keyboard_parts[0].program), (60, 4));
-    assert_eq!(live(&s), LiveRackState { name: "Ballad".into(), id: Some(ballad.id.clone()), modified: false, prompt: None });
+    assert_eq!(live(&s), LiveRackState { name: "Ballad".into(), id: Some(ballad.id.clone()), modified: false, controls: ControlMap::default(), prompt: None });
     s.send(RackCmd::LoadRack { id: loud.clone(), discard: false }).unwrap();
     assert_eq!(volume(&s, 0), 20);
     s.advance(QUIET_NS * 3);
@@ -84,7 +84,7 @@ fn save_as_save_load_and_the_racks_list() {
 
     // Save with no rack of its own (a new rack) saves under its name.
     s.send(RackCmd::NewRack { discard: false }).unwrap();
-    assert_eq!(live(&s), LiveRackState { name: NEW_NAME.into(), id: None, modified: false, prompt: None });
+    assert_eq!(live(&s), LiveRackState { name: NEW_NAME.into(), id: None, modified: false, controls: ControlMap::default(), prompt: None });
     assert_eq!((volume(&s, 0), s.state().keyboard_parts[0].program), (100, 0), "a new rack starts on the defaults");
     s.send(RackCmd::SaveRack { sound_names: BTreeMap::new() }).unwrap();
     assert_eq!(rack_files(&d), vec!["Ballad", "Loud", NEW_NAME]);
@@ -143,7 +143,25 @@ fn switching_with_unsaved_changes_asks_unless_discarding() {
     // Discard and switch.
     s.send(RackCmd::LoadRack { id: ballad.clone(), discard: true }).unwrap();
     assert_eq!(volume(&s, 0), 30);
-    assert_eq!(live(&s), LiveRackState { name: "Ballad".into(), id: Some(ballad.clone()), modified: false, prompt: None });
+    assert_eq!(live(&s), LiveRackState { name: "Ballad".into(), id: Some(ballad.clone()), modified: false, controls: ControlMap::default(), prompt: None });
+
+    // Save first from the prompt: the engine makes the held switch once saved.
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 60 }).unwrap();
+    assert_eq!(s.send(RackCmd::NewRack { discard: false }), Err(CmdError::UnsavedChanges));
+    s.send(RackCmd::SaveRack { sound_names: BTreeMap::new() }).unwrap();
+    assert_eq!(live(&s).name, NEW_NAME, "switched after the save");
+    s.send(RackCmd::LoadRack { id: ballad.clone(), discard: false }).unwrap();
+    assert_eq!(volume(&s, 0), 60, "saved first");
+
+    // A Save first whose save fails drops the switch: a later save doesn't switch.
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 40 }).unwrap();
+    assert_eq!(s.send(RackCmd::NewRack { discard: false }), Err(CmdError::UnsavedChanges));
+    assert!(save_as(&s, "Ballad").is_err(), "the name is taken");
+    s.send(RackCmd::SaveRack { sound_names: BTreeMap::new() }).unwrap();
+    assert_eq!(live(&s).name, "Ballad", "no switch");
+    s.send(RackCmd::LoadRack { id: ballad.clone(), discard: true }).unwrap();
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 30 }).unwrap();
+    s.send(RackCmd::SaveRack { sound_names: BTreeMap::new() }).unwrap();
 
     // Save first, then switch: no question.
     s.send(PartsCmd::SetPartVolume { part: 0, volume: 50 }).unwrap();
@@ -170,7 +188,7 @@ fn a_hardware_switch_keeps_the_unsaved_rack_as_recovered() {
 
     s.load_rack_from_hardware(Some(&other)).unwrap();
     assert_eq!(volume(&s, 0), 111, "the switch went ahead");
-    assert_eq!(live(&s), LiveRackState { name: "Other".into(), id: Some(other.clone()), modified: false, prompt: None });
+    assert_eq!(live(&s), LiveRackState { name: "Other".into(), id: Some(other.clone()), modified: false, controls: ControlMap::default(), prompt: None });
     let recovered = format!("{RECOVERED}Ballad");
     let kept = entry(&s, &recovered);
     let file = Rack::load(&racks::path_for(&racks::dir(&d), &recovered)).unwrap();
@@ -220,7 +238,7 @@ fn revert_rename_duplicate_and_delete() {
     s.send(RackCmd::RenameRack { id: ballad.clone(), name: "Slow".into() }).unwrap();
     assert_eq!(entry(&s, "Slow").id, ballad);
     assert!(!rack_files(&d).contains(&"Ballad".to_string()));
-    assert_eq!(live(&s), LiveRackState { name: "Slow".into(), id: Some(ballad.clone()), modified: false, prompt: None });
+    assert_eq!(live(&s), LiveRackState { name: "Slow".into(), id: Some(ballad.clone()), modified: false, controls: ControlMap::default(), prompt: None });
     assert!(s.send(RackCmd::RenameRack { id: ballad.clone(), name: "Ballad copy".into() }).is_err(), "taken");
     // Case only: a rename of itself, even on a case-insensitive filesystem; one file.
     s.send(RackCmd::RenameRack { id: ballad.clone(), name: "slow".into() }).unwrap();
@@ -418,7 +436,7 @@ mod plugins {
         let names = BTreeMap::from([(1, "Soft Pad".to_string())]);
         s.send(RackCmd::SaveRackAs { name: "Pad".into(), sound_names: names }).unwrap();
         assert!(rack_files(&d).contains(&"Pad".to_string()), "saved first");
-        assert_eq!(live(&s), LiveRackState { name: NEW_NAME.into(), id: None, modified: false, prompt: None }, "then switched");
+        assert_eq!(live(&s), LiveRackState { name: NEW_NAME.into(), id: None, modified: false, controls: ControlMap::default(), prompt: None }, "then switched");
         drop(s);
         let _ = std::fs::remove_dir_all(&d);
     }

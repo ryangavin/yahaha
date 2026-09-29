@@ -6,19 +6,21 @@
   [Quick Racks ◀ A ▶] [1]…[8] [Store]        (each button: its rack's name under it, ✕ clears)
 
   The buttons light like pad page 4 (red loaded, blue stored, dark empty; all flashing
-  while Store is armed). When a switch or a Store asks something (unsaved changes, sound
-  names, a rack to save first) the question takes the buttons' place (RackPrompt).
+  while Store is armed). A Store waiting for a save asks in the buttons' place
+  (RackPrompt). The rack prompts (unsaved changes, sound names) are asked only in the Rack
+  panel: when one appears on Stage (a press here, a key, a pad) the bar opens the Rack
+  drawer so it's visible; in Library the Rack panel is docked already.
 
   State: quickRacks, liveRack. Commands: pressQuickRack, stepQuickRackBank,
-  toggleQuickRackStore, clearQuickRack (and the guard's answers, guard.svelte.ts).
+  toggleQuickRackStore, clearQuickRack.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { QUICK } from '../../help/actions'
   import { bankLetter, quickLabel, quickLook, quickName } from '../../lib/api/quick-racks'
-  import { app, clock } from '../../lib/store.svelte'
+  import { app, clock, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
-  import { guard } from './guard.svelte'
   import RackPrompt, { asking } from './RackPrompt.svelte'
 
   const q = $derived(app.state.quickRacks)
@@ -26,8 +28,14 @@
   const armed = { rgb: [127, 0, 0] as [number, number, number], level: 'bright' as const, anim: 'flash' as const }
   const ask = $derived(asking(app.state))
 
-  // A Save first that has gone through sends the switch it was for.
-  $effect(() => guard.settle(app.state))
+  // A rack prompt that appears on Stage opens the Rack drawer, where it is asked (in
+  // Library the Rack panel is docked). Only on its appearance, so closing the drawer sticks.
+  let asked = false
+  $effect(() => {
+    const now = app.state.liveRack.prompt !== null
+    if (now && !asked && ui.view !== 'library' && !ui.rack) untrack(() => ui.toggleDrawer('rack'))
+    asked = now
+  })
 </script>
 
 <section class="qbar" aria-label="Quick Racks">

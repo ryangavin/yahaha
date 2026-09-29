@@ -1,6 +1,6 @@
 // Quick Racks on the mock session (docs/racks.md item 6): the bar's buttons load racks and
 // light like pad page 4, Store puts the live rack on a button (saving it first when it has
-// to), the unsaved-changes guard asks, banks step, Clear empties; Library › Racks, page 4's pads
+// to), the unsaved-changes prompt asks in the Rack panel, banks step, Clear empties; Library › Racks, page 4's pads
 // and Shift + Track run the same commands.
 
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
@@ -42,6 +42,7 @@ afterEach(() => {
   cleanup()
   app.detach()
   ui.view = 'stage'
+  ui.rack = false
 })
 
 describe('Quick Racks bar', () => {
@@ -121,9 +122,9 @@ describe('Quick Racks bar', () => {
     expect(tipped('quick.1')).toHaveLength(1)
   })
 
-  it('a waiting Store asks names for edited presets, then saves and stores', async () => {
+  it('a waiting Store whose save needs sound names asks them in the Rack drawer, then saves and stores', async () => {
     const s = setup()
-    render(QuickBar)
+    render(App, { props: { session: s } })
     s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
     s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
     s.advance(5000)
@@ -132,18 +133,21 @@ describe('Quick Racks bar', () => {
     await storeAs(0, 'Grand')
     expect(s.state.liveRack.prompt).toMatchObject({ kind: 'soundNames', saveAs: 'Grand' })
     expect(s.state.quickRacks.storeWaiting).toBe(0)
-    const field = q<HTMLInputElement>('[data-tip="quick.sound_name"]')
+    // Asked once, in the Rack panel, which the bar opened.
+    expect(ui.rack).toBe(true)
+    expect(document.querySelectorAll('.qbar [data-tip^="rack."]')).toHaveLength(0)
+    const field = q<HTMLInputElement>('[data-tip="rack.sound_name"]')
     expect(field.value).toBe('Bright Grand')
     await fireEvent.input(field, { target: { value: 'My Grand' } })
-    await click(tipped('quick.sound_names_save')[0])
+    await click(tipped('rack.save_names')[0])
     expect(s.state.liveRack).toMatchObject({ name: 'Grand', modified: false, prompt: null })
     expect(s.state.keyboardParts[0].sound?.name).toBe('My Grand')
     expect(s.state.quickRacks.buttons[0]).toMatchObject({ name: 'Grand', loaded: true })
   })
 
-  it('a button loads its rack; with unsaved changes it asks: Keep editing, Discard and switch, Save first', async () => {
+  it('a button loads its rack; with unsaved changes the Rack drawer opens and asks: Keep editing, Discard and switch, Save first', async () => {
     const s = setup()
-    render(QuickBar)
+    render(App, { props: { session: s } })
     s.send({ type: 'setPartVoice', part: 0, program: 40 })
     await storeAs(0, 'Strings')
     const strings = s.state.liveRack.id!
@@ -154,18 +158,23 @@ describe('Quick Racks bar', () => {
     expect(s.state.liveRack.id).toBe(strings)
     expect(s.state.keyboardParts[0].program).toBe(40)
     expect(s.state.quickRacks.buttons[0].loaded).toBe(true)
+    expect(ui.rack).toBe(false)
 
     s.send({ type: 'newRack' })
     s.send({ type: 'setPartVoice', part: 0, program: 5 })
     flushSync()
     await click(tipped('quick.1')[0])
     expect(s.state.liveRack.prompt).toEqual({ kind: 'unsavedChanges', then: { kind: 'load', id: strings, name: 'Strings' } })
-    expect(q('.qbar').textContent).toContain('Switch to Strings?')
-    await click(tipped('quick.keep_editing')[0])
+    // The prompt is asked in one place: the Rack drawer, not the bar.
+    expect(ui.rack).toBe(true)
+    expect(q('.qbar').textContent).not.toContain('Strings?')
+    expect(document.querySelectorAll('[role="alert"]').length).toBeGreaterThan(0)
+    expect(tipped('rack.keep_editing')).toHaveLength(1)
+    await click(tipped('rack.keep_editing')[0])
     expect(s.state.liveRack).toMatchObject({ id: null, modified: true, prompt: null })
 
     await click(tipped('quick.1')[0])
-    await click(tipped('quick.discard')[0])
+    await click(tipped('rack.discard_switch')[0])
     expect(s.state.liveRack).toMatchObject({ id: strings, modified: false, prompt: null })
     expect(s.state.racks).toHaveLength(1)
 
@@ -173,8 +182,8 @@ describe('Quick Racks bar', () => {
     s.send({ type: 'setPartVoice', part: 0, program: 7 })
     flushSync()
     await click(tipped('quick.1')[0])
-    await click(tipped('quick.save_first')[0])
-    // The new rack is saved (as "New rack"), then the switch goes ahead.
+    await click(tipped('rack.save_first')[0])
+    // The new rack is saved (as "New rack"), then the engine makes the held switch.
     expect(s.state.racks.map((r) => r.name)).toEqual(['New rack', 'Strings'])
     expect(s.state.liveRack).toMatchObject({ id: strings, modified: false, prompt: null })
     expect(s.state.keyboardParts[0].program).toBe(40)
@@ -358,9 +367,11 @@ describe('Library › Racks', () => {
     expect(rack.map((b) => b.textContent)).toEqual([expect.stringContaining('Ballad')])
     expect(rack[0].textContent).toContain('A1')
     await click(rack[0])
-    // The guard asks in Library's Quick Racks bar.
-    expect(tipped('quick.discard')).toHaveLength(1)
-    await click(tipped('quick.discard')[0])
+    // The prompt is asked in the docked Rack panel, not the Quick Racks bar; no drawer opens.
+    expect(ui.rack).toBe(false)
+    expect(document.querySelector('.library-slot .qbar')!.textContent).not.toContain('Ballad?')
+    expect(tipped('rack.discard_switch')).toHaveLength(1)
+    await click(tipped('rack.discard_switch')[0])
     expect(s.state.liveRack).toMatchObject({ name: 'Ballad', modified: false })
   })
 })

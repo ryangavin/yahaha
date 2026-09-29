@@ -52,7 +52,7 @@ afterEach(() => {
   ui.view = 'stage'
   ui.libraryTab = 'sounds'
   ui.libraryPart = 0
-  ui.parts = false
+  ui.rack = false
   libraryNav.reset()
 })
 
@@ -84,11 +84,11 @@ describe('Stage | Library', () => {
     expect(ui.libraryTab).toBe('sounds')
     expect(ui.libraryPart).toBe(3)
     expect(q('.target button[aria-pressed="true"]')!.textContent).toBe('L')
-    ui.parts = true
+    ui.rack = true
     flushSync()
     await fireEvent.keyDown(window, { key: 'Escape' })
     flushSync()
-    expect(ui.parts).toBe(false)
+    expect(ui.rack).toBe(false)
     expect(ui.view).toBe('library')
     await altKey('b')
     flushSync()
@@ -101,6 +101,8 @@ describe('Stage | Library', () => {
     expect(labels[0]).toBe('Library')
     expect(labels).not.toContain('Sounds')
     expect(labels).not.toContain('Sound Library')
+    expect(labels).not.toContain('Parts & OTS')
+    expect(labels.filter((l) => l === 'Rack')).toHaveLength(1)
     await altKey('y')
     flushSync()
     expect(ui.view).toBe('library')
@@ -109,11 +111,11 @@ describe('Stage | Library', () => {
     expect(q('[data-overlay="sound"]')).toBeNull()
   })
 
-  it('a part\'s sound name in Parts & OTS opens Library › Sounds on that part', async () => {
+  it('a part\'s sound name in the Rack drawer opens Library › Sounds on that part', async () => {
     await setup()
-    ui.parts = true
+    ui.rack = true
     flushSync()
-    await click(all('.strip[aria-label="Right 3"] [data-tip="part.voice"]')[0])
+    await click(all('[aria-label="Right 3"] [data-tip="rack.sound"]')[0])
     expect(ui.view).toBe('library')
     expect(ui.libraryPart).toBe(2)
     expect(q('[data-overlay="sounds"]')).toBeNull()
