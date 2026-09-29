@@ -63,6 +63,8 @@
   import Harmony from './panels/harmony/Harmony.svelte'
   import MixerRow from './panels/mixer/MixerRow.svelte'
   import Effects from './panels/effects/Effects.svelte'
+  import ChannelView from './panels/channel/ChannelView.svelte'
+  import { channelNav } from './panels/channel/nav.svelte'
   import Looper from './panels/looper/Looper.svelte'
   import MultiPad from './panels/multipad/MultiPad.svelte'
   import RackPanel from './panels/rack/RackPanel.svelte'
@@ -90,9 +92,15 @@
 
   const message = $derived(app.state.message)
   const unmapped = $derived(app.state.io.unmapped)
+
+  /** Esc closes what's open over the stage first (handleKey), then the Channel view. */
+  function onKey(e: KeyboardEvent) {
+    handleKey(e)
+    if (e.key === 'Escape' && !e.defaultPrevented && channelNav.escape()) e.preventDefault()
+  }
 </script>
 
-<svelte:window onkeydown={handleKey} onkeyup={handleKeyUp} onblur={handleBlur} />
+<svelte:window onkeydown={onKey} onkeyup={handleKeyUp} onblur={handleBlur} />
 
 <div class="app">
   <Header />
@@ -110,10 +118,19 @@
     <main class="stage">
       <div class="stack">
         <!-- The mixer's details take the display's place, straight above the strips. -->
-        <div class="display-slot" class:hidden={ui.mixer}><LeadSheet /></div>
-        <!-- The mixer row, always shown, with the Launchkey mirror beside it. -->
+        <!-- A selected strip's Channel view (panels/channel) takes the display until closed. -->
+        <div class="display-slot" class:hidden={ui.mixer}>
+          {#if channelNav.open}
+            <ChannelView part={ui.selectedPart} onpart={(p) => channelNav.show(p)} onclose={() => channelNav.close()} />
+          {:else}
+            <LeadSheet />
+          {/if}
+        </div>
+        <!-- The mixer row, always shown, with the Launchkey mirror beside it. A strip's
+             name opens or closes its Channel view (seen before the strip handles it). -->
         <div class="mixer-line" class:details={ui.mixer}>
-          <div class="mixer-slot"><MixerRow /></div>
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the strip's own button takes the keys; Enter on it clicks) -->
+          <div class="mixer-slot" onclickcapture={(e) => channelNav.stripClick(e)}><MixerRow /></div>
           <div class="mirror-slot"><div class="mirror"><Launchkey /></div></div>
         </div>
         <!-- The knobs over the Quick Racks, knob n above rack n. -->

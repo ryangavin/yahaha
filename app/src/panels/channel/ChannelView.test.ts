@@ -67,7 +67,7 @@ describe('Channel view', () => {
     const name = session.state.mixer.styleParts[0].name
     expect(document.querySelector('h2')?.textContent).toBe(name)
     expect(control(`${name} pan`)).toBeNull()
-    expect(document.querySelector('[data-tip="channel.pan"]')).toBeNull()
+    expect(document.querySelector('[data-tip="mixer.channel.pan"]')).toBeNull()
     expect(document.querySelector('section.card[aria-label="Play"]')).toBeNull()
     expect(card('Style insert')).toBeTruthy()
     await fireEvent.keyDown(control(`${name} level`)!, { key: 'Home' })

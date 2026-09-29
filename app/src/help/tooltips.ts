@@ -1267,40 +1267,40 @@ const catalog = {
     launchkey: null,
   },
   // The Channel view (panels/channel): the selected strip's full channel strip in the display.
-  'channel.level': {
+  'mixer.channel.level': {
     title: 'Level',
     body: 'This part\'s level (its CC 7), 0–127. Drag up or down.',
     genos: 'Mixer › Volume',
     keys: [],
     launchkey: 'Panel faders 1–4 (keyboard parts); Style page faders 1–8 (Style parts)',
   },
-  'channel.pan': {
+  'mixer.channel.pan': {
     title: 'Pan',
     body: 'Where this part sits left to right (CC 10), 64 = centre. Drag up or down; double-click for centre.',
     genos: 'Mixer › Pan',
     keys: [],
     launchkey: null,
   },
-  'channel.prev': {
+  'mixer.channel.prev': {
     title: 'Previous part',
     body: 'Shows the part before this one in the Channel view (after Right 1 comes Phrase 2).',
     genos: null,
     keys: [],
     launchkey: null,
   },
-  'channel.next': {
+  'mixer.channel.next': {
     title: 'Next part',
     body: 'Shows the part after this one in the Channel view (after Phrase 2 comes Right 1).',
     genos: null,
     keys: [],
     launchkey: null,
   },
-  'channel.close': {
+  'mixer.channel.close': {
     title: 'Close the channel',
     body: 'Closes the Channel view and puts back what the display showed before. Esc, or clicking the selected strip again, does the same.',
     genos: null,
     keys: [],
-    app_keys: ['escape'],
+    app_keys: ['esc'],
     launchkey: null,
   },
   'fx.reverb_type': {

@@ -25,6 +25,7 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import FxKnob from '../mixer/FxKnob.svelte'
   import { dbText, GAIN_KNOB_MAX, gainKnob, HIGH_STEPS, hzText, knobGain, LOW_STEPS, stepOf, withEq } from '../mixer/eq'
+  import { PART_COLORS } from '../mixer/parts'
   import { octaveLabel } from '../parts/parts'
   import { INSERT_KINDS, INSERT_SETTING_TIPS, meterFrac, panText, STRIP_COUNT } from './channel'
 
@@ -78,14 +79,14 @@
   {@const name = info.name}
   <section class="channel" aria-label="{name} channel" class:style={sp !== null}>
     <header class="head">
-      <button type="button" class="nav mat-raised" aria-label="Previous part" use:tip={'channel.prev'} onclick={() => onpart((part + STRIP_COUNT - 1) % STRIP_COUNT)}>‹</button>
+      <button type="button" class="nav mat-raised" aria-label="Previous part" use:tip={'mixer.channel.prev'} onclick={() => onpart((part + STRIP_COUNT - 1) % STRIP_COUNT)}>‹</button>
       <div class="title">
-        <span class="swatch" aria-hidden="true"></span>
+        <span class="swatch" aria-hidden="true" style:--part={PART_COLORS[part]}></span>
         <h2>{name}</h2>
         <span class="sub">{kb ? 'Keyboard' : 'Style'} · Ch {info.channel}</span>
       </div>
-      <button type="button" class="nav mat-raised" aria-label="Next part" use:tip={'channel.next'} onclick={() => onpart((part + 1) % STRIP_COUNT)}>›</button>
-      <button type="button" class="nav close mat-raised" aria-label="Close channel view" use:tip={'channel.close'} onclick={onclose}>×</button>
+      <button type="button" class="nav mat-raised" aria-label="Next part" use:tip={'mixer.channel.next'} onclick={() => onpart((part + 1) % STRIP_COUNT)}>›</button>
+      <button type="button" class="nav close mat-raised" aria-label="Close channel view" use:tip={'mixer.channel.close'} onclick={onclose}>×</button>
     </header>
 
     <div class="sections">
@@ -93,7 +94,7 @@
         <h3>Level</h3>
         <div class="level-row">
           <div class="fader">
-            <Fader value={info.volume} tip="channel.level" label="{name} level" pickup={info.waiting} onchange={setVolume} />
+            <Fader value={info.volume} tip="mixer.channel.level" label="{name} level" pickup={info.waiting} onchange={setVolume} />
           </div>
           <div
             class="meter mat-well"
@@ -108,7 +109,7 @@
         </div>
         {#if kb}
           <div class="knobs">
-            <FxKnob value={kb.pan} tip="channel.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={(v) => app.send({ type: 'setPartPan', part, pan: v })} />
+            <FxKnob value={kb.pan} tip="mixer.channel.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={(v) => app.send({ type: 'setPartPan', part, pan: v })} />
           </div>
         {/if}
       </section>
@@ -261,8 +262,8 @@
     width: 0.35rem;
     height: 1.5rem;
     border-radius: 2px;
-    background: var(--accent);
-    box-shadow: 0 0 6px var(--accent);
+    background: var(--part, var(--accent));
+    box-shadow: 0 0 6px var(--part, var(--accent));
   }
   h2 {
     margin: 0;

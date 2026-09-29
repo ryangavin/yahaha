@@ -368,6 +368,11 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Insert setting 3** | The insert's third setting, named on the knob. Drag up or down; double-click for the type's default. | Mixer › Effect › Insertion Effect › Parameter | — | — |
 | **Insert setting 4** | The insert's fourth setting, where its type has one (the compressor's output). Drag up or down; double-click for the type's default. | Mixer › Effect › Insertion Effect › Parameter | — | — |
 | **Send level** | How much of this strip goes to this send effect, 0–127. Sends 1–3 are the part's reverb, chorus and delay sends. | Mixer › Effect › Send level | — | — |
+| **Level** | This part's level (its CC 7), 0–127. Drag up or down. | Mixer › Volume | — | Panel faders 1–4 (keyboard parts); Style page faders 1–8 (Style parts) |
+| **Pan** | Where this part sits left to right (CC 10), 64 = centre. Drag up or down; double-click for centre. | Mixer › Pan | — | — |
+| **Previous part** | Shows the part before this one in the Channel view (after Right 1 comes Phrase 2). | — | — | — |
+| **Next part** | Shows the part after this one in the Channel view (after Phrase 2 comes Right 1). | — | — | — |
+| **Close the channel** | Closes the Channel view and puts back what the display showed before. Esc, or clicking the selected strip again, does the same. | — | `Esc` (terminal: ) | — |
 | **Style volume** | The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part's CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. | Balance › Style (Mixer › Panel › Style) | — | Panel fader page: fader 5 |
 | **Multi Pad volume** | All four Multi Pads against the band, in one fader: 100 plays each pad at its own level, lower scales the pads' CC 7 down together (above 100 raises them, up to 127). | Balance › M.Pad (Mixer › Panel › Multi Pad) | — | Panel fader page: fader 6 |
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
@@ -426,6 +431,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Send parameter** | One of this send effect's parameters, named on the knob. Drag up or down; double-click for the type's default. | Mixer › Effect › Parameter | — | — |
 | **Send return** | How loud this send effect comes back into the mix, 0–127 (64 = 0 dB). | Mixer › Effect › Return level | — | — |
 | **Rack keeps this type** | Lit, the live rack keeps this send's type and brings it back when loaded, over the style's. Off, the style sets it. | — | — | — |
+| **Use style's** | Drops the live rack's type for this send, so the style sets it again. | — | — | — |
+| **New send type** | What the next added send effect plays. Add send adds it. | Mixer › Effect › Type | — | — |
 | **Master Compressor** | A compressor on the whole mix, after the effects and before the output: it evens out the dynamics, bringing loud passages down. Lit, it plays (not on the metronome); off, the mix is untouched. It stays as set until you change it, even after a restart. | Mixer › Master › Compressor | — | — |
 | **Master Compressor type** | The compressor's character: Natural (moderate), Rich (gentle, for acoustic music), Punchy (heavy and fast, for rock), Electronic (for dance music) or Loud (the most). Choosing one sets its Compression, Texture and Output. | Mixer › Master › Compressor type | — | — |
 | **Master editor** | Opens the Master Compressor's parameters and the Master EQ's eight bands. | Mixer › Master › Edit | — | — |
