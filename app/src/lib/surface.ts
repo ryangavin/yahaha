@@ -54,7 +54,7 @@ export function controlTip(c: SurfaceControl, shift: boolean): TipKey {
 /** The catalog entry for a fader. */
 export function faderTip(f: SurfaceFader): TipKey {
   if (!f.set) return 'launchkey.fader_unused'
-  if (f.set.type === 'setPartVolume') return tipFor(f.set)
+  if (f.set.type === 'setPartVolume' || f.set.type === 'setPartPan' || f.set.type === 'setPartSend' || f.set.type === 'setStylePartSend') return tipFor(f.set)
   if (f.set.type === 'setStylePartVolume') return 'mixer.style.volume'
   if (f.set.type === 'setStyleVolume') return 'mixer.style_level'
   if (f.set.type === 'setMultiPadVolume') return 'mixer.pad_level'
@@ -62,7 +62,13 @@ export function faderTip(f: SurfaceFader): TipKey {
   return 'mixer.master'
 }
 
-/** The command moving a fader to `v` sends. */
+/**
+ * The command moving a fader to `v` sends: its `set` with the value filled in, in the
+ * field that command names it (`pan`, `value` for a send, else `volume`). In a send layer
+ * the faders move pan or sends (#409).
+ */
 export function faderCmd(f: SurfaceFader, v: number): AppCmd | null {
-  return f.set ? ({ ...f.set, volume: v } as AppCmd) : null
+  if (!f.set) return null
+  const field = f.set.type === 'setPartPan' ? 'pan' : f.set.type === 'setPartSend' || f.set.type === 'setStylePartSend' ? 'value' : 'volume'
+  return { ...f.set, [field]: v } as AppCmd
 }

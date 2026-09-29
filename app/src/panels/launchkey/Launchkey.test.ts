@@ -109,6 +109,34 @@ describe('Launchkey mirror', () => {
     expect(session.state.mixer.styleParts[0].waiting).toBe(false)
   })
 
+  it('in a send layer the faders show and move the layer, not the volume, as the hardware does (#409)', async () => {
+    const { session } = setup()
+    session.send({ type: 'setPartSend', part: 0, send: 'reverb', value: 40 })
+    session.send({ type: 'setFaderLayer', layer: 'reverb' })
+    flushSync()
+    const vol = session.state.keyboardParts[0].volume
+    const f = document.querySelector<HTMLElement>('[data-tip="mixer.part.reverb"][role="slider"]')!
+    expect(f.getAttribute('aria-valuenow')).toBe('40')
+    f.focus()
+    await fireEvent.keyDown(f, { key: 'ArrowUp' })
+    expect(session.state.keyboardParts[0].reverb).toBeGreaterThan(40)
+    expect(session.state.keyboardParts[0].volume).toBe(vol)
+    // PAN: the part's pan; on the Style page, nothing (the Style parts have no pan).
+    session.send({ type: 'setFaderLayer', layer: 'pan' })
+    flushSync()
+    expect(document.querySelectorAll('[data-tip="mixer.part.pan"][role="slider"]')).toHaveLength(4)
+    session.send({ type: 'toggleFaderPage' })
+    flushSync()
+    expect(document.querySelectorAll('[data-tip="launchkey.fader_unused"][role="slider"]')).toHaveLength(8)
+    session.send({ type: 'setFaderLayer', layer: 'chorus' })
+    flushSync()
+    const s = document.querySelectorAll<HTMLElement>('[data-tip="mixer.style.chorus"][role="slider"]')
+    expect(s).toHaveLength(8)
+    s[2].focus()
+    await fireEvent.keyDown(s[2], { key: 'ArrowUp' })
+    expect(session.state.mixer.styleParts[2].sendsSet).toContain('chorus')
+  })
+
   it('Track buttons show the neighbouring styles, skipping unreadable files', () => {
     setup()
     const n = neighbours(LIBRARY, 0)
