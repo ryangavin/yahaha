@@ -225,6 +225,18 @@ fn the_audio_callback_does_not_allocate() {
     }
     parts.set_eq(0, PartEq { low_gain: 5, ..PartEq::FLAT });
     assert_eq!(run(&mut core, &mut feed, &[[0x80, 60, 0], [0x81, 48, 0]]), none, "part EQ, notes off");
+    // The Style parts' EQ (channels 9-16, `FxControl::style_eq`): the same, from the fx
+    // control.
+    assert_eq!(run(&mut core, &mut feed, &[[0x98, 60, 100], [0x9B, 48, 100]]), none, "notes for the Style EQ");
+    for (low, high) in [(6i8, -4i8), (-12, 12), (0, 0)] {
+        ctl.fx.set_style_eq(0, PartEq { low_gain: low, low_freq: 200, high_gain: high, high_freq: 4_000 });
+        ctl.fx.set_style_eq(3, PartEq { high_gain: low, ..PartEq::FLAT });
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "Style part EQ");
+        }
+    }
+    ctl.fx.set_style_eq(3, PartEq::FLAT);
+    assert_eq!(run(&mut core, &mut feed, &[[0x88, 60, 0], [0x8B, 48, 0]]), none, "Style part EQ, notes off");
     // A keyboard part's insert slot: on, its effect changed (a fade), off.
     assert_eq!(run(&mut core, &mut feed, &[[0x90, 60, 100]]), none, "a note for the insert");
     for (effect, on) in [(InsertEffect::Distortion, true), (InsertEffect::Rotary, true), (InsertEffect::Compressor, false)] {
