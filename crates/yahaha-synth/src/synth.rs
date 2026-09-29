@@ -49,6 +49,8 @@ mod routing;
 pub mod xg_part;
 #[cfg(test)]
 mod sound_tests;
+#[cfg(test)]
+mod strip_tests;
 mod stream;
 mod voicing;
 pub use rack::Rack;
