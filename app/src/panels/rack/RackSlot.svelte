@@ -5,16 +5,22 @@
   │ Sampler Deluxe  ● sound edited            [Edit] [Save sound] │
   │ ⚠ String Deluxe isn't installed, so this part is silent. [Replace…] │
   │ [On] Level ━━━━━━━━━━━━━━━━○━━ 100                            │
-  │ Pan ━━○━ C     Rev ━○━━ 50     Cho ○━━━ 10                     │
+  │ Pan ━━○━ C                   Rev ━○━━ 50                     │
+  │ Cho ○━━━ 10                  Dly ○━━━ 0     (S4–S6 when added) │
+  │ EQ Lo +3 @80   [Comp] [Natural▾]        [● Rotary] [○ None]  │
   │ Oct − 0 +   Voice − +          (a plugin:) [Reload] [In proc] │
   └───────────────────────────────────────────────────────────────┘
 
   Clicking anywhere in it makes it the part you edit (selectPart), as the Launchkey's EDIT
   pads do. Hovering or focusing it lights its fader on the mirror (lib/mirror). Every
-  control sends an existing part command; nothing here keeps state of its own.
+  control sends an existing part command, or for its channel strip (`part.strip`) a strip
+  command on strip `index`: the delay and send 4–6 levels (`setStripSend`), the compressor
+  (`setStripCompressorOn`, `…Preset`), and per insert chip its on/off (`setStripInsertOn`)
+  and a small popover with its type and settings (`setStripInsertKind`, `…Setting`).
+  Nothing here keeps state of its own but which popover is open.
 -->
 <script lang="ts">
-  import type { KeyboardPart } from '../../lib/api/types'
+  import { COMP_PRESETS, type CompPreset, type InsertType, type KeyboardPart } from '../../lib/api/types'
   import { mirror } from '../../lib/mirror.svelte'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
@@ -22,6 +28,7 @@
   import HSlider from '../settings/HSlider.svelte'
   import { inProcessPending, octaveLabel, onTip, pluginStatusLine, volumeTip } from '../parts/parts'
   import { isMissing, panLabel, soundName, type SoundBadge } from './rack'
+  import { addedSends, eqSummary, INSERT_KIND_OPTIONS, INSERT_SETTING_TIPS, settingFormat } from './strip'
 
   let {
     part,
@@ -59,6 +66,23 @@
   function toggleInProcess() {
     if (entry?.canRunInProcess) app.send({ type: 'setPluginInProcess', id: entry.id, inProcess: !entry.inProcess })
   }
+  // ── The part's channel strip (the mixer rework): strip `index` is keyboard part `index`. ──
+  const strip = $derived(part.strip)
+  const added = $derived(addedSends(app.state.effects.sends))
+  /** The insert slot whose settings popover is open; null when none. */
+  let openInsert = $state<number | null>(null)
+  const setSend = (send: number, level: number) => app.send({ type: 'setStripSend', strip: index, send, level })
+  const setInsertKind = (slot: number, kind: string) => app.send({ type: 'setStripInsertKind', strip: index, slot, kind: kind as InsertType })
+  const setInsertOn = (slot: number) => app.send({ type: 'setStripInsertOn', strip: index, slot, on: !strip.inserts[slot].on })
+  const setInsertSetting = (slot: number, setting: number, value: number) => app.send({ type: 'setStripInsertSetting', strip: index, slot, setting, value })
+  const toggleInsert = (slot: number) => (openInsert = openInsert === slot ? null : slot)
+  function popKey(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      openInsert = null
+    }
+  }
+
   const link = (on: boolean) => (mirror.panelFader = on ? index : mirror.panelFader === index ? null : mirror.panelFader)
   // Closing the drawer under the pointer never fires pointerleave: let go of the mirror.
   $effect(() => () => link(false))
@@ -129,7 +153,93 @@
     <span class="ctl"><span class="k">Cho</span>
       <HSlider value={part.chorus} tip="mixer.part.chorus" label="{part.name} chorus" onchange={(v) => app.send({ type: 'setPartSend', part: index, send: 'chorus', value: v })} />
     </span>
+    <span class="ctl"><span class="k">Dly</span>
+      <HSlider value={strip.sends[2] ?? part.variation} tip="mixer.part.variation" label="{part.name} delay" onchange={(v) => setSend(2, v)} />
+    </span>
+    {#each added as s (s.send)}
+      <span class="ctl"><span class="k" title="Send {s.send + 1}: {s.name}">S{s.send + 1}</span>
+        <HSlider value={strip.sends[s.send] ?? 0} tip="mixer.strip.send" label="{part.name} send {s.send + 1} ({s.name})" onchange={(v) => setSend(s.send, v)} />
+      </span>
+    {/each}
   </div>
+
+  <div class="strip">
+    <span class="eq" class:flat={eqSummary(strip.eq) === 'EQ flat'}>{eqSummary(strip.eq)}</span>
+    <span class="sep"></span>
+    <button
+      type="button"
+      class="mini mat-raised"
+      class:lit={strip.comp.on}
+      aria-pressed={strip.comp.on}
+      aria-label="{part.name} compressor"
+      use:tip={'mixer.strip.comp'}
+      onclick={() => app.send({ type: 'setStripCompressorOn', strip: index, on: !strip.comp.on })}>Comp</button
+    >
+    <select
+      class="comp"
+      aria-label="{part.name} compressor type"
+      value={strip.comp.preset}
+      use:tip={'mixer.strip.comp_type'}
+      onchange={(e) => app.send({ type: 'setStripCompressorPreset', strip: index, preset: e.currentTarget.value as CompPreset })}
+    >
+      {#each COMP_PRESETS as c (c.preset)}<option value={c.preset}>{c.name}{strip.comp.edited && c.preset === strip.comp.preset ? ' ●' : ''}</option>{/each}
+    </select>
+    <span class="grow"></span>
+    {#each strip.inserts as ins, slot (slot)}
+      <span class="chip" class:on={ins.on} class:empty={ins.kind === 'none'}>
+        <button
+          type="button"
+          class="led-btn"
+          aria-pressed={ins.on}
+          aria-label="{part.name} insert {slot + 1} on"
+          use:tip={'mixer.strip.insert_on'}
+          onclick={() => setInsertOn(slot)}><span class="led" class:on={ins.on} aria-hidden="true"></span></button
+        >
+        <button
+          type="button"
+          class="chip-name"
+          aria-expanded={openInsert === slot}
+          aria-haspopup="dialog"
+          aria-label="{part.name} insert {slot + 1}: {ins.name}"
+          use:tip={'rack.insert_chip'}
+          onclick={() => toggleInsert(slot)}>{ins.name}</button
+        >
+      </span>
+    {/each}
+  </div>
+
+  {#if openInsert !== null && strip.inserts[openInsert]}
+    {@const slot = openInsert}
+    {@const ins = strip.inserts[slot]}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape closes the popover from any control in it) -->
+    <div class="pop mat-raised" role="dialog" aria-label="{part.name} insert {slot + 1} settings" tabindex="-1" onkeydown={popKey}>
+      <div class="pophead">
+        <span class="k">Insert {slot + 1}</span>
+        <select aria-label="{part.name} insert {slot + 1} type" value={ins.kind} use:tip={'mixer.strip.insert_kind'} onchange={(e) => setInsertKind(slot, e.currentTarget.value)}>
+          {#if !INSERT_KIND_OPTIONS.some((o) => o.kind === ins.kind)}<option value={ins.kind} disabled>{ins.name}</option>{/if}
+          {#each INSERT_KIND_OPTIONS as o (o.kind)}<option value={o.kind}>{o.name}</option>{/each}
+        </select>
+        <span class="grow"></span>
+        <button type="button" class="mini mat-raised" use:tip={'rack.insert_close'} onclick={() => (openInsert = null)}>Done</button>
+      </div>
+      {#if ins.settings.length === 0}
+        <p class="none">No insert in this slot: pick a type.</p>
+      {/if}
+      {#each ins.settings as st, j (j)}
+        <span class="ctl"><span class="k">{st.name}</span>
+          <HSlider
+            value={st.value}
+            min={st.min}
+            max={st.max}
+            tip={INSERT_SETTING_TIPS[j] ?? INSERT_SETTING_TIPS[3]}
+            label="{part.name} insert {slot + 1} {st.name}"
+            format={settingFormat(st)}
+            onchange={(v) => setInsertSetting(slot, j, v)}
+          />
+        </span>
+      {/each}
+    </div>
+  {/if}
 
   <div class="more">
     <span class="k">Oct</span>
@@ -313,9 +423,88 @@
   }
   .mix {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: center;
     gap: 0.35rem 0.5rem;
+  }
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+  .eq {
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .eq.flat {
+    color: var(--muted);
+  }
+  select.comp {
+    min-height: 1.9rem;
+    font-size: 0.78rem;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--seam);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .chip.on {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .chip button {
+    min-height: 1.9rem;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.74rem;
+    cursor: pointer;
+  }
+  .chip.empty .chip-name {
+    color: var(--muted);
+  }
+  .led-btn {
+    padding: 0 0.4em;
+  }
+  .chip-name {
+    padding: 0 0.55em 0 0.2em;
+    white-space: nowrap;
+  }
+  .led {
+    display: inline-block;
+    width: 0.55em;
+    height: 0.55em;
+    border-radius: 50%;
+    background: var(--lamp-off);
+  }
+  .led.on {
+    background: var(--accent);
+    box-shadow: 0 0 5px var(--accent);
+  }
+  .pop {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid var(--seam);
+  }
+  .pophead {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .none {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
   }
   .ctl {
     display: grid;

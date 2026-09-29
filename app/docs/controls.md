@@ -219,6 +219,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Part insert setting** | The controller sets one setting of one of this part's insert slots, across its range. | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
 | **Part send** | The controller sets this part's level to one of the added send effects (4–6). | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
 | **Rotary fast/slow** | The controller switches every rotary insert fast (upper half) or slow (lower half). | Rotary Speaker speed (Slow/Fast) | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Insert slot** | The effect in this insert slot of the part's strip. Click to pick its type and set its settings; the lamp beside it turns it on or off. The rack saves both slots. | Mixer › Effect › Insertion Effect | — | — |
+| **Done** | Closes the insert settings (Escape does too). Every change there is already sent. | — | — | — |
 | **Keyboard part** | Makes this part the one you edit: Voice −/+ and Library act on it, as the Launchkey's EDIT pads do. Clicking anywhere in the part does the same. | PART SELECT | — | Pad page 3 (OTS/Parts), bottom row, pads 5–8 (EDIT R1…L) |
 | **Sound** | The sound this part plays. Click to open Library › Sounds with this part as the target and pick another; the part keeps its level, pan, sends and octave. | Voice select (VOICE buttons) | — | — |
 | **Edit** | Opens the part's plugin window over the app. What you change there marks the sound "edited" until you save it. SoundFont sounds have no editor. | Voice Edit | — | — |
