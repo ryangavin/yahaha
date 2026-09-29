@@ -115,6 +115,9 @@ pub struct LoadHandle {
     host: PluginHost,
     id: PluginId,
     taken: bool,
+    /// Tests: the load thread, to wait for one that was abandoned (`take_thread`).
+    #[cfg(test)]
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl LoadHandle {
@@ -127,6 +130,13 @@ impl LoadHandle {
     /// The mode it loads in (`LoadConfig::mode`, or what `choose_mode` chose), once looked up.
     pub fn mode(&self) -> Option<LoadMode> {
         self.shared.state.lock().unwrap().info.as_ref().map(|(_, m)| *m)
+    }
+
+    /// Tests: the load thread, once (join it to wait until it is done, abandoned or not).
+    #[cfg(test)]
+    #[cfg_attr(not(feature = "slow-tests"), allow(dead_code))]
+    pub(crate) fn take_thread(&mut self) -> Option<std::thread::JoinHandle<()>> {
+        self.thread.take()
     }
 
     pub fn elapsed(&self) -> Duration {
@@ -455,9 +465,10 @@ impl PluginHost {
             done: Condvar::new(),
         });
         let id = *id;
-        let handle = LoadHandle { shared: shared.clone(), started: Instant::now(), timeout: cfg.timeout, host: self.clone(), id, taken: false };
+        // The handle's: the load thread takes `cfg` and `shared`.
+        let (started, timeout, handle_shared) = (Instant::now(), cfg.timeout, shared.clone());
         let host = self.clone();
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name(format!("plugin-load {id}"))
             .spawn(move || {
                 let found = host.info(&id).and_then(|info| {
@@ -482,7 +493,19 @@ impl PluginHost {
                 finish(&shared, r);
             })
             .map_err(|e| anyhow!("could not start the load thread: {e}"))?;
-        Ok(handle)
+        // The load thread runs detached; tests keep it to wait for an abandoned one.
+        #[cfg(not(test))]
+        drop(thread);
+        Ok(LoadHandle {
+            shared: handle_shared,
+            started,
+            timeout,
+            host: self.clone(),
+            id,
+            taken: false,
+            #[cfg(test)]
+            thread: Some(thread),
+        })
     }
 
     /// Load and wait (up to the timeout). For tools and tests; the app uses `load_async`.

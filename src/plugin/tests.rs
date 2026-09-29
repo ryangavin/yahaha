@@ -208,19 +208,16 @@ fn a_load_past_its_deadline_times_out_and_is_abandoned() {
     let dir = std::env::temp_dir().join(format!("yahaha-plugin-abandon-{}", std::process::id()));
     let cache = dir.join("plugins.json");
     let _ = std::fs::remove_dir_all(&dir);
-    let h = PluginHost::new(Some(cache.clone())).load_async(&PluginId::DLS, LoadConfig { timeout: Duration::ZERO, ..Default::default() }).unwrap();
+    let mut h = PluginHost::new(Some(cache.clone())).load_async(&PluginId::DLS, LoadConfig { timeout: Duration::ZERO, ..Default::default() }).unwrap();
+    let thread = h.take_thread().expect("the load thread");
     assert!(matches!(h.progress(), LoadProgress::TimedOut(_)));
     let err = h.wait().err().expect("timed out");
     assert!(format!("{err}").contains("did not load"), "{err}");
     // The abandoned load thread gives up (disposing of anything it made) once past its
-    // lookup: wait for that, then give the rest of it a moment and make sure nothing
-    // blows up.
-    let t0 = std::time::Instant::now();
-    while !cache.exists() {
-        assert!(t0.elapsed() < Duration::from_secs(30), "the load thread never looked the plugin up");
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    std::thread::sleep(Duration::from_millis(20));
+    // lookup, without blowing up: wait for it to end, so it can't write the cache after
+    // the dir is removed.
+    thread.join().expect("the abandoned load thread ends cleanly");
+    assert!(cache.exists(), "the load thread looked the plugin up");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

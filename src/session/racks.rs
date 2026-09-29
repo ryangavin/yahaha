@@ -36,9 +36,12 @@ impl Session {
             drop(ctl);
             self.settle();
         } else {
-            self.inner.publish(&mut ctl, crate::rt::now_ns());
-            drop(ctl);
-            self.inner.shared.ctl_wake.signal();
+            // Pump and publish now, as `send` does, so `state()` straight after shows the
+            // rack, follow-ups included. The control thread publishes again only if the
+            // engine's snapshot then changes (the engine wakes it itself).
+            let now = crate::rt::now_ns();
+            ctl.pump(now);
+            self.inner.publish(&mut ctl, now);
         }
         problems
     }
