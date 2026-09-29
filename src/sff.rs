@@ -90,6 +90,10 @@ pub struct OtsPart {
     /// The XG multi part parameters the track sets for this part (mono/poly, velocity
     /// sense, controller depths, EQ...).
     pub xg: XgParams,
+    /// The XG insertion effect type (MSB, LSB) the track gives this part: its Insertion
+    /// Effect block (`F0 43 1n 4C 03 nn 00 mm ll F7`), block nn being the part (0-3) unless
+    /// the track assigns the block to another (`03 nn 0C pp`). None: the track sets none.
+    pub insert: Option<(u8, u8)>,
 }
 
 /// XG multi part parameters, `F0 43 1n 4C hh pp nn vv F7` (hh = 08 or 0A, pp = the part):
@@ -141,6 +145,20 @@ pub fn xg_multi_part(v: &[u8]) -> Option<(u8, u8, u8, u8)> {
         .then(|| (v[4], v[5], v[6], v[7]))
 }
 
+/// The Insertion Effect blocks (Genos: 1-28, numbered 0-27 in the SysEx).
+const INSERT_BLOCKS: usize = 28;
+
+/// An XG Insertion Effect block parameter change: (block, address, data) for
+/// `F0 43 1n 4C 03 nn aa dd.. F7`.
+fn xg_insert_block(v: &[u8]) -> Option<(u8, u8, &[u8])> {
+    match v {
+        [0xF0, 0x43, d, 0x4C, 0x03, nn, aa, data @ .., 0xF7] if d & 0xF0 == 0x10 && (*nn as usize) < INSERT_BLOCKS && !data.is_empty() => {
+            Some((*nn, *aa, data))
+        }
+        _ => None,
+    }
+}
+
 /// XG NRPN (MSB 1) to its `tone::TONE_CC` index: the OTS tracks write decay, release and
 /// vibrato this way (and cutoff, resonance, attack could be).
 fn tone_nrpn(lsb: u8) -> Option<usize> {
@@ -171,7 +189,9 @@ pub struct Ots {
 /// Pan and the reverb/chorus/variation sends are plain CC10/91/93/94 on the part's channel (the last one
 /// wins). So are the filter, EG, vibrato and portamento (`OtsPart::tone`), except that the
 /// tracks write some of them as XG NRPNs (MSB 1) instead: both are read, the last wins, as a
-/// receiver would take them. Pitch bend range is RPN 0; the XG part SysEx is kept per part.
+/// receiver would take them. Pitch bend range is RPN 0; the XG part SysEx is kept per part,
+/// and so is the XG Insertion Effect type (`OtsPart::insert`; the corpus tracks set blocks
+/// 0-3, one per part, and assign none elsewhere).
 /// Not read: fine tune (RPN 1, always centre in the corpus) and the Genos-own part SysEx
 /// (`43 73 01 5x`) beyond on/off and octave.
 pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
@@ -186,6 +206,8 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
         // was selected last (data entry goes to it).
         let mut rpn = [(0x7Fu8, 0x7Fu8); 4];
         let mut nrpn = [(0x7Fu8, 0x7Fu8, false); 4];
+        // The Insertion Effect blocks the track sets: type MSB, LSB and the part assigned.
+        let mut blocks = [(None::<u8>, None::<u8>, None::<u8>); INSERT_BLOCKS];
         for part in ots.parts.iter_mut() {
             part.volume = 100;
         }
@@ -230,6 +252,18 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
                         let (hh, pp, nn, vv) = xg_multi_part(v).unwrap_or_default();
                         ots.parts[pp as usize].xg.set(hh, nn, vv);
                     }
+                    Ev::Sysex(ref v) if xg_insert_block(v).is_some() => {
+                        let (nn, aa, data) = xg_insert_block(v).unwrap_or_default();
+                        let b = &mut blocks[nn as usize];
+                        for (k, &d) in data.iter().enumerate() {
+                            match aa as usize + k {
+                                0x00 => b.0 = Some(d),
+                                0x01 => b.1 = Some(d),
+                                0x0C => b.2 = Some(d),
+                                _ => {}
+                            }
+                        }
+                    }
                     Ev::Sysex(ref v) if v.len() == 10 && v[1..6] == [0x43, 0x73, 0x01, 0x50, 0x08] && v[6] < 4 => {
                         let part = &mut ots.parts[v[6] as usize];
                         match v[7] {
@@ -240,6 +274,15 @@ pub fn parse_ots(data: &[u8]) -> Vec<Ots> {
                     }
                     _ => {}
                 }
+            }
+        }
+        // Each part's insertion type: the first block on it (by block number) wins.
+        for (nn, &(msb, lsb, assigned)) in blocks.iter().enumerate() {
+            let part = assigned.map_or(nn, usize::from);
+            if let (Some(msb), Some(p)) = (msb, ots.parts.get_mut(part))
+                && p.insert.is_none()
+            {
+                p.insert = Some((msb, lsb.unwrap_or(0)));
             }
         }
         out.push(ots);
@@ -1337,12 +1380,37 @@ mod tests {
         assert_eq!(r2.bend_range, Some(12));
         assert_eq!(r2.xg.iter().collect::<Vec<_>>(), vec![(0x08, 0x05, 0), (0x0A, 0x40, 0x50)]);
         assert!(o[0].parts[0].xg.is_empty() && o[0].parts[0].tone == [None; crate::tone::TONE]);
+        assert!(o[0].parts.iter().all(|p| p.insert.is_none()), "no insertion SysEx");
+    }
+
+    /// An OTS track's Insertion Effect blocks: block n is part n (type MSB and LSB in one
+    /// message, or in two), unless the track assigns it to another part; the first block
+    /// on a part wins; a block past the parts sets nothing.
+    #[test]
+    fn ots_insertion_types_parse() {
+        let ins = |nn: u8, aa: u8, data: &[u8]| {
+            let mut m = vec![0x00, 0xF0, 6 + data.len() as u8, 0x43, 0x10, 0x4C, 0x03, nn, aa];
+            m.extend_from_slice(data);
+            m.push(0xF7);
+            m
+        };
+        let mut trk = Vec::new();
+        for m in [ins(0, 0x00, &[0x60, 0x10]), ins(1, 0x00, &[0x45]), ins(1, 0x01, &[0x11]), ins(2, 0x00, &[0x46, 0x00]), ins(2, 0x0C, &[3])] {
+            trk.extend_from_slice(&m);
+        }
+        trk.extend_from_slice(&ins(3, 0x00, &[0x4C, 0x00]));
+        trk.extend_from_slice(&ins(9, 0x00, &[0x49, 0x00]));
+        trk.extend_from_slice(&[0x00, 0xFF, 0x2F, 0]);
+        let o = parse_ots(&chunk(b"MTrk", &trk));
+        let got: Vec<_> = o[0].parts.iter().map(|p| p.insert).collect();
+        // Block 2 is assigned to Left (part 3) and comes before block 3: it wins there.
+        assert_eq!(got, vec![Some((0x60, 0x10)), Some((0x45, 0x11)), None, Some((0x46, 0x00))]);
     }
 
     /// Corpus counts (#238): how many OTS parts set each voice setting.
     #[test]
     fn corpus_ots_voice_settings() {
-        let (mut parts, mut tone, mut bend, mut xg, mut xg_max) = (0, [0; crate::tone::TONE], 0, 0, 0);
+        let (mut parts, mut tone, mut bend, mut xg, mut xg_max, mut inserts) = (0, [0; crate::tone::TONE], 0, 0, 0, 0);
         for p in crate::library::corpus_styles() {
             let s = Style::load(&p).unwrap_or_else(|e| panic!("{}: {e:#}", p.display()));
             for q in s.ots.iter().flat_map(|o| &o.parts) {
@@ -1353,14 +1421,15 @@ mod tests {
                 bend += q.bend_range.is_some() as usize;
                 xg += q.xg.len();
                 xg_max = xg_max.max(q.xg.len());
+                inserts += q.insert.is_some() as usize;
             }
         }
-        eprintln!("{parts} OTS parts: tone {tone:?} (by TONE_CC), bend range {bend}, {xg} XG part parameters (max {xg_max} per part)");
+        eprintln!("{parts} OTS parts: tone {tone:?} (by TONE_CC), bend range {bend}, {xg} XG part parameters (max {xg_max} per part), {inserts} insertion types");
         if parts == 0 {
             return;
         }
         assert!(xg_max < XG_MAX, "room to spare for XG parameters: {xg_max}");
-        assert_eq!((tone, bend), ([parts; crate::tone::TONE], parts), "every corpus OTS part sets them all");
+        assert_eq!((tone, bend, inserts), ([parts; crate::tone::TONE], parts, parts), "every corpus OTS part sets them all");
     }
 
     #[test]

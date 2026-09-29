@@ -38,6 +38,7 @@ RackPart {
   volume, pan, reverb, chorus, variation, octave,
   tone: ToneReg, bend_range,       // as PartReg stores today
   eq: PartEq,                      // channel-strip EQ (#247); absent = flat, flat not written
+  insert: PartInsert,              // insert slot { effect, on, amount }; absent = off, off at defaults not written
 }
 SoundRef = Library(id) | Font { file, bank, program }  // GM voices are font presets
 ```

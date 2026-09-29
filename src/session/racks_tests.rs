@@ -57,6 +57,31 @@ fn a_rack_carries_the_part_eq() {
     let _ = std::fs::remove_dir_all(&d2);
 }
 
+/// A keyboard part's insert slot: its three commands set it (the amount at most 127), the
+/// state shows it, a rack captures and applies it, and a rack without one turns it off.
+#[test]
+fn a_rack_carries_the_insert_slot() {
+    let (d1, d2) = (data_dir("insert-from"), data_dir("insert-to"));
+    let a = session(&d1);
+    let b = session(&d2);
+    a.send(PartsCmd::SetKeyboardInsertEffect { part: 3, effect: InsertEffect::AutoWah }).unwrap();
+    a.send(PartsCmd::SetKeyboardInsertOn { part: 3, on: true }).unwrap();
+    a.send(PartsCmd::SetKeyboardInsertAmount { part: 3, amount: 200 }).unwrap();
+    let want = PartInsert { effect: InsertEffect::AutoWah, on: true, amount: 127 };
+    assert_eq!(a.state().keyboard_parts[3].insert, want);
+    assert_eq!(a.state().keyboard_parts[0].insert, PartInsert::OFF);
+    let rack = a.capture_rack("Wah");
+    assert_eq!(rack.parts[3].insert, want);
+    assert!(b.apply_rack(&rack).is_empty());
+    assert_eq!(b.state().keyboard_parts[3].insert, want, "applied");
+    let mut old = rack.clone();
+    old.parts[3].insert = PartInsert::OFF;
+    assert!(b.apply_rack(&old).is_empty());
+    assert_eq!(b.state().keyboard_parts[3].insert, PartInsert::OFF, "a rack without one");
+    let _ = std::fs::remove_dir_all(&d1);
+    let _ = std::fs::remove_dir_all(&d2);
+}
+
 #[test]
 fn capture_write_read_apply_round_trips() {
     let (d1, d2) = (data_dir("rt-from"), data_dir("rt-to"));

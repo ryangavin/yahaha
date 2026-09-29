@@ -172,28 +172,7 @@ fn mid() -> u8 {
 }
 
 /// An insertion effect yahaha plays (`crate::fx::InsertKind`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum InsertEffect {
-    Distortion,
-    Compressor,
-    AutoWah,
-    Tremolo,
-    Rotary,
-}
-
-impl From<crate::fx::InsertKind> for InsertEffect {
-    fn from(k: crate::fx::InsertKind) -> InsertEffect {
-        use crate::fx::InsertKind as K;
-        match k {
-            K::Distortion | K::None => InsertEffect::Distortion,
-            K::Compressor => InsertEffect::Compressor,
-            K::AutoWah => InsertEffect::AutoWah,
-            K::Tremolo => InsertEffect::Tremolo,
-            K::Rotary => InsertEffect::Rotary,
-        }
-    }
-}
+pub use crate::fx::InsertEffect;
 
 impl EffectsState {
     /// The blocks with these types, return levels and band sends (by `FxBlock::index`).

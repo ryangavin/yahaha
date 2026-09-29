@@ -52,6 +52,10 @@ impl Control {
             }
             // The coefficients are computed here; the audio thread takes them (#247).
             PartsCmd::SetPartEq { part, eq } => parts.set_eq((part & 3) as usize, eq),
+            // The insert slot: the audio thread reads it once a buffer.
+            PartsCmd::SetKeyboardInsertEffect { part, effect } => parts.edit_insert((part & 3) as usize, |s| s.effect = effect),
+            PartsCmd::SetKeyboardInsertOn { part, on } => parts.edit_insert((part & 3) as usize, |s| s.on = on),
+            PartsCmd::SetKeyboardInsertAmount { part, amount } => parts.edit_insert((part & 3) as usize, |s| s.amount = amount.min(127)),
         }
         Ok(())
     }
@@ -91,6 +95,7 @@ impl Control {
                     chorus: kp.fx(p)[parts::CHORUS],
                     variation: kp.fx(p)[parts::VARIATION],
                     eq: kp.eq(p),
+                    insert: kp.insert(p),
                     fader: v.fader_hw[p],
                     plugin: self.channel_plugin_state(parts::CHANNEL[p]),
                     patch: self.part_patch_id(p),
