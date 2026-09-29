@@ -55,7 +55,7 @@ Genos Menu > Metronome (RM p.39): On/Off, Volume, Bell (on beat 1), Time Signatu
 - It clicks on every beat (a quarter note): with the style's beat lines while the band
   plays (the `on_beat` engine hook, woken exactly on the line), and free-running at the
   tempo while stopped, from when it was turned on or the band stopped.
-- **The click is a voice of the built-in synth** (`src/click.rs`), not a MIDI part: the
+- **The click is a voice of the built-in synth** (`crates/yahaha-core/src/click.rs`), not a MIDI part: the
   engine calls `Sink::click`, which `live::Out` sends to the synth's ring only, never the
   MIDI port. It takes no channel from the style or the keyboard parts.
 - Its volume is its own (`setMetronomeVolume`, 0–127, a squared curve peaking at

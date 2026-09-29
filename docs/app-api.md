@@ -1030,10 +1030,10 @@ Which button LEDs are lit, and in what colour:
 | Field | Type | Meaning |
 |---|---|---|
 | `label` | string | What it controls on this page, for example `RIGHT 1`, `BASS` or `MASTER`. Empty when unused: faders 5–8 on the Panel page, a Panel fader 1–4 the controller map sets to none, or the master fader without the synth. A Panel fader 1–4 the map gives another target shows that target's short knob name in capitals (`PANR2`, `HARMARP`, `SPLIT`). |
-| `value` | 0–127? | The level it controls (for another target, where it is in its range). Null when unused. |
-| `waiting` | bool | The level is waiting for the hardware fader (soft takeover). |
+| `value` | 0–127? | The level it controls (for another target, where it is in its range; in a send layer, the pan or send). Null when unused. |
+| `waiting` | bool | The value is waiting for the hardware fader (soft takeover). |
 | `position` | 0–127? | Where the hardware fader physically is, as last reported. It is the same physical fader on both pages. Null until it moves. |
-| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume`, `setStyleVolume`, `setMultiPadVolume`, `setMasterVolume`, or `moveRackFader` for a Panel fader the controller map gives another target; `volume` is 0 here). Null when unused. |
+| `set` | AppCmd? | What moving it sends: this command with its value filled in, 0 here. `volume` for `setPartVolume`, `setStylePartVolume`, `setStyleVolume`, `setMultiPadVolume`, `setMasterVolume`, or `moveRackFader` for a Panel fader the controller map gives another target. In a send layer (`mixer.faderLayer` not `volume`), faders follow the layer as the hardware faders do (as a Genos slider shows and sets its Slider Assign Type's parameter): Panel faders 1–4 send `setPartPan` (`pan`) or `setPartSend` (`value`), and the Style faders `setStylePartSend` (`value`); in PAN the Style faders are unused. Panel faders 5–6 and the master stay levels. Null when unused. |
 
 #### `surface.clock`
 Everything here is about time: the playing position, and the clock the pads flash on.

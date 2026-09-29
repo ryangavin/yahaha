@@ -1,17 +1,17 @@
 # Multi Pads
 
 Genos Multi Pads (docs/genos-features.md §7; OM p.59, p.74–75; RM p.12, p.64–68), wired
-into the engine and the app. The bank parser and the player core are in `src/multipad/`
+into the engine and the app. The bank parser and the player core are in `crates/yahaha-engine/src/multipad/`
 (`file.rs`, `player.rs`); this page is about how they play live.
 
 ## Where it lives
 
 | Layer | Code |
 |---|---|
-| Bank file parser, player core | `src/multipad/file.rs`, `player.rs` (pure, no threads) |
-| Bank list (`.pad` files in the style folders) | `src/multipad/library.rs` |
-| Synthetic banks (tests, dev mode, `yahaha pad --demo`) | `src/multipad/synthetic.rs` |
-| Engine: the player, its clock, the hooks | `src/engine/multipad.rs` (`hooks::Features::pads`) |
+| Bank file parser, player core | `crates/yahaha-engine/src/multipad/file.rs`, `player.rs` (pure, no threads) |
+| Bank list (`.pad` files in the style folders) | `crates/yahaha-engine/src/multipad/library.rs` |
+| Synthetic banks (tests, dev mode, `yahaha pad --demo`) | `crates/yahaha-engine/src/multipad/synthetic.rs` |
+| Engine: the player, its clock, the hooks | `crates/yahaha-engine/src/engine/multipad.rs` (`hooks::Features::pads`) |
 | Engine thread wiring | `live::Cmd::MultiPad`, `live::PadBank` ring in, old players out |
 | Commands, state | `src/api/multipad.rs`, `src/session/multipad.rs` |
 | Built-in synth voices (ch 5–8) | `synth::translate` |
@@ -127,7 +127,7 @@ Multi Pad panel has every control (see its tooltips).
 
 ## Testing without real banks
 
-No `.pad` file from an instrument is in the corpus. `src/multipad/synthetic.rs` writes
+No `.pad` file from an instrument is in the corpus. `crates/yahaha-engine/src/multipad/synthetic.rs` writes
 banks in the documented Tyros layout from original phrases; `yahaha pad --demo [out.pad]`
 writes the demo bank (Shaker Loop, Rise Arp, Bass Riff, Brass Hit) to try it live, and
 `yahaha pad <file>` prints what the parser makes of a real one.

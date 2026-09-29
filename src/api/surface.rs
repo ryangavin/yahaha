@@ -65,8 +65,10 @@ pub struct SurfaceFader {
     /// Where the hardware fader physically is (0-127), as last reported; None until it
     /// moves.
     pub position: Option<u8>,
-    /// What moving it sends: this command with `volume` filled in (`setPartVolume`,
-    /// `setStylePartVolume`, `setMasterVolume`; `volume` is 0 here). None: unused.
+    /// What moving it sends: this command with its value filled in (`volume` for
+    /// `setPartVolume`, `setStylePartVolume`, `setMasterVolume` and the like; `pan` for
+    /// `setPartPan` and `value` for `setPartSend` / `setStylePartSend`, the commands a send
+    /// fader layer gives it; 0 here). None: unused.
     pub set: Option<AppCmd>,
 }
 
