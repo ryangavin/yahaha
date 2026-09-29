@@ -90,6 +90,7 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             Function::ArpHold => super::HarmonyArpCmd::ToggleArpPedalHold.into(),
             Function::LeftHold => super::ChordCmd::ToggleLeftHold.into(),
             Function::Unison => super::TransportCmd::ToggleUnison.into(),
+            Function::RotaryFast => super::FxCmd::ToggleRotaryFast.into(),
             _ => return Err(format!("{} can't be run here", info.name)),
         },
         Effect::Control => match f {
@@ -159,6 +160,7 @@ pub fn function_set(f: Function, on: bool) -> Option<super::AppCmd> {
         Function::ArpHold => Some(super::HarmonyArpCmd::SetArpPedalHold { on }.into()),
         Function::LeftHold => Some(super::ChordCmd::SetLeftHold { on }.into()),
         Function::Unison => Some(super::TransportCmd::SetUnisonHeld { on }.into()),
+        Function::RotaryFast => Some(super::FxCmd::SetRotaryFast { on }.into()),
         _ => None,
     }
 }

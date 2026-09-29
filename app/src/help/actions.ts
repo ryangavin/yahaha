@@ -276,7 +276,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setInsertsOn': return 'fx.inserts'
     case 'setPartInsertOn': return 'fx.insert_part'
     case 'setPartInsertAmount': return 'fx.insert_amount'
-    case 'setRotaryFast': return 'fx.rotary_fast'
+    case 'setRotaryFast':
+    case 'toggleRotaryFast': return 'fx.rotary_fast'
     case 'setMasterCompressorOn': return 'fx.master_comp'
     case 'setMasterCompressorPreset': return 'fx.master_comp_type'
     case 'setMasterCompressorParam': return ({ compression: 'fx.master_comp_compression', texture: 'fx.master_comp_texture', output: 'fx.master_comp_output' } as const)[cmd.param]
@@ -298,6 +299,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setSendParam': return 'fx.send_param'
     case 'setSendReturn': return 'fx.send_return'
     case 'setRackSendOverride': return 'fx.send_rack_override'
+    case 'setStripTone': return ({
+      cutoff: 'mixer.channel.tone.cutoff', resonance: 'mixer.channel.tone.resonance', attack: 'mixer.channel.tone.attack', decay: 'mixer.channel.tone.decay', release: 'mixer.channel.tone.release',
+      vibratoRate: 'mixer.channel.tone.vibrato_rate', vibratoDepth: 'mixer.channel.tone.vibrato_depth', vibratoDelay: 'mixer.channel.tone.vibrato_delay',
+    } as const)[cmd.control]
+    case 'setStripMono': return 'mixer.channel.mono'
+    case 'setStripPortamento': return 'mixer.channel.portamento'
     // Racks (docs/racks.md): the Rack panel's controls; the rest open the Rack until the
     // Library Racks tab adds its own.
     case 'saveRack': return 'rack.save'

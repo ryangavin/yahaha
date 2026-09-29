@@ -442,7 +442,8 @@ scaled. A change glides in over about 30 ms.
 | `setInsertsOn` | `on` | The style's insertion effects (#269, `effects.inserts`) on or off, all together (default on). Off, every Style part plays dry. |
 | `setPartInsertOn` | `part`, `on` | *Superseded by `setStripInsertOn` (strip = `part` + 4, slot 0), which still sends this; it keeps working.* One Style part's (0–7) insertion effect on or off, until the next style. |
 | `setPartInsertAmount` | `part`, `amount` | *Superseded by `setStripInsertSetting` (strip = `part` + 4, slot 0, setting 0); still works.* One Style part's insertion effect amount, 0–127 (drive, squeeze, wah sensitivity, tremolo/rotary depth), until the next style. A part with no insert is refused. |
-| `setRotaryFast` | `on` | Every rotary insert at its fast speed or its slow one; it glides between them (about 1 s up, 2 s down). |
+| `setRotaryFast` | `on` | Every rotary insert at its fast speed or its slow one; it glides between them (about 1 s up, 2 s down). A Hold pedal on the assignable function `rotaryFast` ("Organ Rotary Slow/Fast", Voice, Switch) sends it: Fast while held. |
+| `toggleRotaryFast` | | Flips the rotary speed: fast to slow, slow to fast, gliding as `setRotaryFast`. The assignable function `rotaryFast` ("Organ Rotary Slow/Fast", Voice, Switch; RM p.140) runs it, from `triggerFunction` or a Toggle pedal. Example: `{"type":"toggleRotaryFast"}`. |
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. |
 | `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). |
@@ -588,6 +589,9 @@ mixer rework's DSP. A refused command changes nothing and returns `Failed` with 
 | `setSendParam` | `send`, `param` (an index into its `params`), `value` | One of the send effect's parameters, clamped; one its kind doesn't have is refused. On sends 0–2 it is `setEffectParam` (the block's parameter at that index). Example: `{"type":"setSendParam","send":2,"param":3,"value":60}`. |
 | `setSendReturn` | `send`, `level` 0–127 | The send effect's return level (64 = 0 dB). On sends 0–2 it is `setEffectReturn`. Example: `{"type":"setSendReturn","send":3,"level":80}`. |
 | `setRackSendOverride` | `send` 0–2, `on` | Whether the live rack overrides send `send`'s kind: on, the rack keeps the kind the send has now and brings it back when it loads, over the style's (`setByRack` in its SendState). Sends 3–5 are always the rack's and are refused. Example: `{"type":"setRackSendOverride","send":1,"on":true}`. |
+| `setStripTone` | `strip` 0–3, `control` `cutoff` \| `resonance` \| `attack` \| `decay` \| `release` \| `vibratoRate` \| `vibratoDepth` \| `vibratoDelay`, `value` 0–127 | One of a keyboard strip's voice settings, its filter, EG or vibrato: 64 is the voice's own. It is the part's CC74, 71, 73, 75, 72, 76, 77 or 78, the same setting an OTS or a rack sets (and the part's XG parameter for it, where an OTS set that). A Style strip (4–11) is refused. Example: `{"type":"setStripTone","strip":0,"control":"cutoff","value":80}`. |
+| `setStripMono` | `strip` 0–3, `on` | A keyboard strip's mono mode (its part's XG Mono/Poly): on, one note at a time. A Style strip is refused. Example: `{"type":"setStripMono","strip":1,"on":true}`. |
+| `setStripPortamento` | `strip` 0–3, `on`, `time` 0–127 | A keyboard strip's portamento: its part's switch (CC65) and time (CC5). A Style strip is refused. Example: `{"type":"setStripPortamento","strip":2,"on":true,"time":40}`. |
 
 **Strip compressor types** (threshold / ratio / attack / release / make-up). Editing a
 parameter keeps the type and sets `edited`.
@@ -609,7 +613,7 @@ sensitivity, depth), so an older insert keeps sounding the same. A kind a newer 
 |---|---|---|
 | none | None | (an empty slot) |
 | distortion | Distortion | Drive 0–127 (64), Tone 0–127 (64), Output 0–127 (100) |
-| compressor | Compressor | Squeeze 0–127 (64), Attack 1–80 ms (10), Release 10–1000 ms (200), Output 0–127 (100) |
+| compressor | Compressor | Squeeze 0–127 (64), Attack 1–80 ms (3), Release 10–1000 ms (150), Output 0–127 (100) |
 | autoWah | Auto Wah | Sensitivity 0–127 (64), Resonance 0–127 (64), Frequency 0–127 (32) |
 | tremolo | Tremolo | Depth 0–127 (64), Note 0–7 (2 = 1/8; the note values of `delayNote`), Shape 0–127 (0) |
 | rotary | Rotary | Depth 0–127 (64), Drive 0–127 (0), Balance 0–127 (64) |
@@ -853,8 +857,8 @@ Indices are 0-based unless a field says otherwise.
 #### StripState
 
 A part's channel strip (Channel strips and send effects, under AppCmd), on every keyboard
-part and Style part: `{ eq, comp, inserts, sends }`. A state without it reads as a flat,
-empty strip.
+part and Style part: `{ eq, comp, inserts, sends, tone, mono, portamento }`. A state
+without it reads as a flat, empty strip.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -862,6 +866,9 @@ empty strip.
 | `comp` | PartCompState | `{ on, preset, threshold, ratio, attack, release, makeup, edited }`: `setStripCompressorOn`, `setStripCompressorPreset` and `setStripCompressorParam`. `threshold` dB −48..0, `ratio` tenths 10–200, `attack` ms 1–100, `release` ms 10–1000, `makeup` dB 0–24; `preset` the type the parameters started from and `edited` whether they now differ from it. Off at Natural by default. Kept and shown; it doesn't play yet. |
 | `inserts` | InsertSlotState[2] | Insert 1 and insert 2, each `{ kind, name, on, settings }`: `kind` the insert kind (`none` for an empty slot), `name` as shown ("Auto Wah", "None"), `on` (`setStripInsertOn`), and `settings`, its kind's 2–4 settings in order (none for an empty slot), each a SettingState. Insert 1 is the part's older insert: a keyboard part's `insert`, a Style part's entry in `effects.inserts` while the style has one for it. Insert 2 doesn't play yet. |
 | `sends` | number[6] | Its level to sends 1–6, 0–127 (0 for a send that isn't there). `sends[0..3]` are the part's `reverb`, `chorus` and `variation`. |
+| `tone` | StripTone | `{ cutoff, resonance, attack, decay, release, vibratoRate, vibratoDepth, vibratoDelay }`, each 0–127, 64 (the voice's own) by default (`setStripTone`). Read from the part's voice settings, so an OTS, a rack or a voice change shows. A Style strip's stay at 64. |
+| `mono` | bool | Its part's mono mode (`setStripMono`), from the part's voice settings. A Style strip's is false. |
+| `portamento` | Portamento | `{ on, time }`: its part's portamento switch and time 0–127 (`setStripPortamento`), from the part's voice settings. Off, 0 by default; a Style strip's stays so. |
 
 SettingState, one setting of an insert or parameter of a send effect: `{ name, value, min,
 max, default, display }`: `value` in the setting's own unit, clamped to `min`–`max`;
@@ -1336,7 +1343,7 @@ kind, on/off and amount; still sent*): the loaded style's insertion effects, one
 `{ part, partName, name, effect, on, amount }`: `part` 0–7, `name` the XG type ("British Combo
 Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
 `rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
-(`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
+(`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`, `toggleRotaryFast`).
 `master`: the Master Compressor and Master EQ (see Effects), `{ compressor, eq }`.
 `compressor` is `{ on, preset, compression, texture, output, edited }`; `eq` is
 `{ on, preset, bands, edited }`, `bands` the eight `{ gain, freq, q, shelf }`, low to high.
@@ -1598,7 +1605,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
             ]
           }
         ],
-        "sends": [40, 0, 0, 30, 0, 0]
+        "sends": [40, 0, 0, 30, 0, 0],
+        "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+        "mono": false,
+        "portamento": {"on": false, "time": 0}
       },
       "plugin": {
         "id": "aumu dls  appl",
@@ -1640,7 +1650,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
         "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
         "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
-        "sends": [40, 0, 0, 0, 0, 0]
+        "sends": [40, 0, 0, 0, 0, 0],
+        "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+        "mono": false,
+        "portamento": {"on": false, "time": 0}
       },
       "patch": null
     },
@@ -1667,7 +1680,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
         "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
         "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
-        "sends": [40, 0, 0, 0, 0, 0]
+        "sends": [40, 0, 0, 0, 0, 0],
+        "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+        "mono": false,
+        "portamento": {"on": false, "time": 0}
       },
       "patch": null
     },
@@ -1694,7 +1710,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
         "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
         "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
-        "sends": [40, 0, 0, 0, 0, 0]
+        "sends": [40, 0, 0, 0, 0, 0],
+        "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+        "mono": false,
+        "portamento": {"on": false, "time": 0}
       },
       "patch": null
     }
@@ -1714,7 +1733,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
           "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
           "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
           "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
-          "sends": [40, 0, 0, 0, 0, 0]
+          "sends": [40, 0, 0, 0, 0, 0],
+          "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+          "mono": false,
+          "portamento": {"on": false, "time": 0}
         },
         "volume": 65,
         "waiting": false,
@@ -1730,7 +1752,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
           "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
           "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
           "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
-          "sends": [40, 0, 0, 0, 0, 0]
+          "sends": [40, 0, 0, 0, 0, 0],
+          "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+          "mono": false,
+          "portamento": {"on": false, "time": 0}
         },
         "volume": 70,
         "waiting": false,
@@ -1746,7 +1771,10 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
           "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
           "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
           "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
-          "sends": [40, 0, 0, 0, 0, 0]
+          "sends": [40, 0, 0, 0, 0, 0],
+          "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+          "mono": false,
+          "portamento": {"on": false, "time": 0}
         },
         "volume": 74,
         "waiting": false,

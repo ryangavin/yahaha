@@ -252,6 +252,31 @@ export type StripCmd =
   | { type: 'setSendReturn'; send: number; level: number }
   /** The live rack overrides send `send` (0-2)'s kind (keeps it and brings it back on load). */
   | { type: 'setRackSendOverride'; send: number; on: boolean }
+  /** One of a keyboard strip's (0-3) voice settings, 0-127 (64 = the voice's own). A Style strip (4-11) is refused. */
+  | { type: 'setStripTone'; strip: number; control: ToneControl; value: number }
+  /** A keyboard strip's (0-3) mono mode: one note at a time. A Style strip is refused. */
+  | { type: 'setStripMono'; strip: number; on: boolean }
+  /** A keyboard strip's (0-3) portamento switch and time (0-127). A Style strip is refused. */
+  | { type: 'setStripPortamento'; strip: number; on: boolean; time: number }
+
+/** A keyboard strip's voice setting (`setStripTone`): its filter, EG or vibrato. */
+export type ToneControl = 'cutoff' | 'resonance' | 'attack' | 'decay' | 'release' | 'vibratoRate' | 'vibratoDepth' | 'vibratoDelay'
+
+export const TONE_CONTROLS: ToneControl[] = ['cutoff', 'resonance', 'attack', 'decay', 'release', 'vibratoRate', 'vibratoDepth', 'vibratoDelay']
+
+/** A keyboard strip's filter, EG and vibrato, 0-127 each; 64 is the voice's own. */
+export type StripTone = Record<ToneControl, number>
+
+/** A keyboard strip's portamento: its switch and time (0-127). */
+export interface Portamento {
+  on: boolean
+  time: number
+}
+
+/** Every voice setting at the voice's own (64). */
+export function defaultTone(): StripTone {
+  return { cutoff: 64, resonance: 64, attack: 64, decay: 64, release: 64, vibratoRate: 64, vibratoDepth: 64, vibratoDelay: 64 }
+}
 
 /** What an insert slot plays, by its stable name. A newer build's kind comes through as its own name. */
 export type InsertType = 'none' | 'distortion' | 'compressor' | 'autoWah' | 'tremolo' | 'rotary' | 'phaser' | (string & {})
@@ -316,6 +341,12 @@ export interface StripState {
   inserts: InsertSlotState[]
   /** Its level to sends 1-6, 0-127 (a send that isn't there: 0). */
   sends: number[]
+  /** A keyboard strip's filter, EG and vibrato (`setStripTone`). A Style strip's stay at 64. */
+  tone: StripTone
+  /** A keyboard strip's mono mode (`setStripMono`). A Style strip's is false. */
+  mono: boolean
+  /** A keyboard strip's portamento (`setStripPortamento`). A Style strip's is off. */
+  portamento: Portamento
 }
 
 /** One send effect (`EffectsState.sends`). */
@@ -336,7 +367,7 @@ export interface SendState {
 }
 
 /** A strip before anything sets it (`StripState::default`): flat EQ, compressor off at
- * Natural, both insert slots empty, every send 0. */
+ * Natural, both insert slots empty, every send 0, the voice's own tone, poly, portamento off. */
 export function defaultStrip(): StripState {
   const empty = (): InsertSlotState => ({ kind: 'none', name: 'None', on: false, settings: [] })
   return {
@@ -344,6 +375,9 @@ export function defaultStrip(): StripState {
     comp: { on: false, preset: 'natural', threshold: -18, ratio: 25, attack: 10, release: 200, makeup: 3, edited: false },
     inserts: [empty(), empty()],
     sends: [0, 0, 0, 0, 0, 0],
+    tone: defaultTone(),
+    mono: false,
+    portamento: { on: false, time: 0 },
   }
 }
 
@@ -407,6 +441,8 @@ export type FxCmd =
   | { type: 'setPartInsertAmount'; part: number; amount: number }
   /** Every rotary insert fast or slow (the Leslie switch). */
   | { type: 'setRotaryFast'; on: boolean }
+  /** Flip the rotary speed (the Organ Rotary Slow/Fast button or Toggle pedal). */
+  | { type: 'toggleRotaryFast' }
   /** The Master Compressor on or off (`effects.master`). */
   | { type: 'setMasterCompressorOn'; on: boolean }
   /** The Master Compressor's type: its Compression, Texture and Output come with it. */
@@ -582,6 +618,14 @@ export type KnobFunction =
   | 'delayTime'
   | 'harmonyArp'
   | 'splitPoint'
+  /** A keyboard part's insert slot on or off (a controller map target). */
+  | 'insertOn'
+  /** One of a keyboard part's insert slot's settings, across its range. */
+  | 'insertSetting'
+  /** A keyboard part's level to an added send (4-6). */
+  | 'partSend'
+  /** The rotary speaker's speed: right fast, left slow. */
+  | 'rotaryFast'
 
 /** The Knob Assign page and its eight knobs. */
 export interface KnobsState {

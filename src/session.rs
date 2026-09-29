@@ -742,7 +742,7 @@ impl Control {
         };
         st.racks = self.rack_entries(&st.plugins);
         st.quick_racks = self.quick_racks_state();
-        self.strips.borrow_mut().fill(&mut st);
+        self.fill_strips(&mut st);
         st.home = self.home_state(&st);
         st
     }

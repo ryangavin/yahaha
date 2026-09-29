@@ -495,5 +495,12 @@
     "category": "style",
     "kind": "switch",
     "available": true
+  },
+  {
+    "id": "rotaryFast",
+    "name": "Organ Rotary Slow/Fast",
+    "category": "voice",
+    "kind": "switch",
+    "available": true
   }
 ]
