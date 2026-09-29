@@ -63,6 +63,7 @@ rack is app state, so it sits next to today's `plugin-parts.json` in
 | `<data>/quick-racks.json` | Banks A–H of 8 buttons, each a rack id or empty. |
 | `<data>/style-racks.json` | Per style file name: which of OTS 1–4 load a user rack instead. |
 | `<data>/sound-library.json` | Sounds (version 3: no defaults), the GM maps. |
+| `<data>/known-plugins.json` | The plugins yahaha has seen installed (id, name, vendor, whether still new), format `yahaha.known-plugins`, version 1: what makes a plugin New or Missing. |
 | `<app support>/live-rack.json` | The live rack, with unsaved edits and plugin states. Replaces `plugin-parts.json` in the same folder. |
 
 Every write is atomic. A file with a newer version than we know is refused and never

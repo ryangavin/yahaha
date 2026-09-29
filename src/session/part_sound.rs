@@ -12,7 +12,8 @@ pub(super) enum OnFail {
     /// Back to the GM voice: the plugin is forgotten.
     Clear,
     /// The plugin stays on the part as failed (retryable, saved), so the part's choice
-    /// survives; its GM voice plays meanwhile.
+    /// survives; its GM voice plays meanwhile, or nothing if the plugin isn't installed
+    /// (docs/racks.md, "Plugins coming and going").
     Keep,
 }
 
@@ -45,14 +46,24 @@ impl Control {
         let sound = sound.cloned().or_else(|| self.sound_tag_for_state(id, state.unwrap_or_default()));
         let voice = PluginVoice { id: id.to_string(), state: bytes, preset: None, sound };
         let r = self.assign_channel_plugin(ch, voice.clone());
+        let mut missing = false;
         if let Err(e) = &r {
             self.clear_channel_plugin(ch);
             if on_fail == OnFail::Keep {
+                // A plugin that isn't installed leaves the part silent (`mark_missing`).
+                missing = self.plugin_is_missing(id);
                 self.keep_failed_channel_plugin(ch, voice, e.clone());
             }
         }
         self.mark_plugins_dirty();
-        r.map(|_| true).map_err(|e| format!("{}: {name} can't play ({e}); it plays its GM voice", parts::NAMES[p]))
+        r.map(|_| true).map_err(|e| match missing {
+            true => {
+                // Named as it was last installed, if it was.
+                let name = self.channel_plugin_state(ch).map_or_else(|| name.to_string(), |s| s.name);
+                format!("{}: {name} is not installed; the part is silent until it is back", parts::NAMES[p])
+            }
+            false => format!("{}: {name} can't play ({e}); it plays its GM voice", parts::NAMES[p]),
+        })
     }
 
     /// A GM voice (or a library patch) put on part `p`: a plugin picked on the Plugins tab

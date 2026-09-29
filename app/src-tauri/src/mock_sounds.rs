@@ -166,7 +166,8 @@ impl MockSounds {
                 self.prefs.sound_categories.insert(id, category);
             }
             // The mock itself adds the patch (`MockSession::rule_patch`), as a map rule's.
-            SoundsCmd::AddToMySounds { .. } => {}
+            // The session mock does these itself (mock.rs `sounds_cmd`).
+            SoundsCmd::AddToMySounds { .. } | SoundsCmd::ReplacePartSound { .. } => {}
             SoundsCmd::ListPluginPresets { id } => {
                 let Some((plugin, None)) = parse_plugin_id(&id) else { return Err(format!("{id} is not a plugin")) };
                 let Some(entry) = st.plugins.list.iter().find(|p| p.id == plugin) else {

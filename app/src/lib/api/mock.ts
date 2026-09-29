@@ -1848,6 +1848,17 @@ export class MockSession implements Session {
         if ('error' in r) this.message(r.error, true)
         break
       }
+      case 'replacePartSound': {
+        // assignSound, then the part's mix as it was (a sound swap never touches it).
+        if (cmd.part < 0 || cmd.part > 3) {
+          this.message(`no keyboard part ${cmd.part} (0-3)`, true)
+          break
+        }
+        const { volume, pan, reverb, chorus, variation, octave, on } = this.state.keyboardParts[cmd.part]
+        this.cmd({ type: 'assignSound', part: cmd.part, id: cmd.id })
+        Object.assign(this.state.keyboardParts[cmd.part], { volume, pan, reverb, chorus, variation, octave, on })
+        break
+      }
       case 'setSoundFavourite':
       case 'auditionSound':
       case 'stopSoundAudition':
