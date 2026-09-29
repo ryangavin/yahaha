@@ -15,6 +15,9 @@
 #
 # Each commit is checked once:
 # - PRs into develop run on the PR.
+# - The develop merge queue runs on each queued group (the PR merged onto develop's tip plus
+#   anything queued ahead of it), so a combination that breaks never lands. Like PR runs,
+#   these restore develop's caches but don't save their own.
 # - A push to develop (a merged PR) runs again: it checks the merged result and seeds the
 #   develop caches that PR runs restore from (a PR's own cache is only visible to that PR).
 # - Release PRs (develop into main) don't run: their head is develop's tip, which the push
@@ -24,6 +27,8 @@ name: ci
 
 on:
   pull_request:
+    branches: [develop]
+  merge_group:
     branches: [develop]
   push:
     branches: [develop]
@@ -57,7 +62,7 @@ jobs:
           fetch-depth: 0
       - id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           rust=true
           web=true
