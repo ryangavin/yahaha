@@ -67,8 +67,8 @@ export function lamp(s: AppState, note: number): Pad {
 
 /** Where a pad is, in words: "Pad page 2 (Chord/Setup), top row, pad 3". */
 export function padLocation(page: PadPage, note: number): string {
-  const n = ['sections', 'chordSetup', 'otsParts', 'registration', 'multiPads'].indexOf(page) + 1
-  const name = ['Sections', 'Chord/Setup', 'OTS/Parts', 'Snapshots', 'Multi Pads'][n - 1]
+  const n = ['sections', 'chordSetup', 'otsParts', 'quickRacks', 'multiPads'].indexOf(page) + 1
+  const name = ['Sections', 'Chord/Setup', 'OTS/Parts', 'Quick Racks', 'Multi Pads'][n - 1]
   const row = note >= 112 ? 'bottom' : 'top'
   const col = (note >= 112 ? note - 112 : note - 96) + 1
   return `Pad page ${n} (${name}), ${row} row, pad ${col}`

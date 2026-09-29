@@ -41,6 +41,7 @@ impl Default for MockSounds {
                 plugin: MOCK_PRESETS_ID.into(),
                 listed: false,
                 presets: vec![user("Arco Strings", None), user("Upright Piano", Some("Pianos"))],
+                error: None,
             }],
         }
     }
@@ -156,7 +157,7 @@ impl MockSounds {
                 }
                 if let Some(patch) = id.strip_prefix("saved:") {
                     let p = st.sound_library.patches.iter().find(|p| p.patch.id == patch).map(|p| p.patch.clone()).ok_or_else(|| no(&id))?;
-                    let fields = PatchFields { name: p.name, category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults };
+                    let fields = PatchFields { name: p.name, category, tags: p.tags, favourite: p.favourite, source: p.source };
                     return Ok(Then::Run(vec![SoundLibraryCmd::UpdatePatch { id: p.id, patch: fields }.into()]));
                 }
                 if !id.starts_with("au:") {
@@ -165,21 +166,26 @@ impl MockSounds {
                 self.prefs.sound_categories.insert(id, category);
             }
             // The mock itself adds the patch (`MockSession::rule_patch`), as a map rule's.
-            SoundsCmd::AddToMySounds { .. } => {}
+            // The session mock does these itself (mock.rs `sounds_cmd`).
+            SoundsCmd::AddToMySounds { .. } | SoundsCmd::ReplacePartSound { .. } => {}
             SoundsCmd::ListPluginPresets { id } => {
                 let Some((plugin, None)) = parse_plugin_id(&id) else { return Err(format!("{id} is not a plugin")) };
-                if !st.plugins.list.iter().any(|p| p.id == plugin) {
+                let Some(entry) = st.plugins.list.iter().find(|p| p.id == plugin) else {
                     return Err(format!("no instrument Audio Unit {plugin} is installed"));
-                }
+                };
                 let at = match self.presets.iter().position(|l| l.plugin == plugin) {
                     Some(i) => i,
                     None => {
-                        self.presets.push(PluginPresetList { plugin: plugin.into(), listed: false, presets: vec![] });
+                        self.presets.push(PluginPresetList { plugin: plugin.into(), listed: false, presets: vec![], error: None });
                         self.presets.len() - 1
                     }
                 };
                 let l = &mut self.presets[at];
-                if !l.listed {
+                if !l.listed && l.error.is_none() && let Some(e) = &entry.last_error {
+                    // A plugin that does not load cannot list its presets (the engine's
+                    // listing fails the same way): the browser stops waiting.
+                    l.error = Some(e.clone());
+                } else if !l.listed && l.error.is_none() {
                     l.listed = true;
                     if plugin == MOCK_PRESETS_ID {
                         let factory = ["Init", "Bright Grand", "Brass Stabs"]
@@ -207,7 +213,7 @@ impl MockSounds {
                 let at = match self.presets.iter().position(|l| l.plugin == pl.id) {
                     Some(i) => i,
                     None => {
-                        self.presets.push(PluginPresetList { plugin: pl.id.clone(), listed: false, presets: vec![] });
+                        self.presets.push(PluginPresetList { plugin: pl.id.clone(), listed: false, presets: vec![], error: None });
                         self.presets.len() - 1
                     }
                 };
@@ -251,7 +257,12 @@ impl MockSounds {
             return Err(format!("no sound {id}"));
         }
         let same = |p: &&PatchInfo| match &source {
-            PatchSource::Plugin { component_id, origin, .. } if !origin.is_user() => p.patch.source.same_plugin_origin(component_id, origin),
+            // Or the sound with exactly its settings (Save as… with an .aupreset), as the
+            // session's.
+            PatchSource::Plugin { component_id, origin, state } if !origin.is_user() => {
+                p.patch.source.same_plugin_origin(component_id, origin)
+                    || (!state.is_empty() && matches!(&p.patch.source, PatchSource::Plugin { component_id: c, state: s, .. } if c == component_id && s == state))
+            }
             _ => p.patch.source == source,
         };
         if let Some(p) = st.sound_library.patches.iter().find(same) {
@@ -269,7 +280,7 @@ impl MockSounds {
                     category = self.prefs.preset_category(id, &q.name, q.folder.as_deref(), category);
                     name = format!("{} · {}", e.name, q.name);
                 }
-                let patch = PatchFields { name, category, tags: vec![], favourite: false, source, defaults: Default::default() };
+                let patch = PatchFields { name, category, tags: vec![], favourite: false, source };
                 SoundLibraryCmd::CreatePatch { patch }.into()
             }
         }))

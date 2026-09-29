@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file is the one place that says what must pass. CI on the pull request runs these commands, and it must pass before merge. There is no other required process.
+This file is the one place that says what must pass. CI on the pull request runs these commands, and it must pass before merge. There is no other required process. A PR that only changes Markdown docs skips them (`.github/workflows/ci.yml` says which files count).
 
 ## Checks
 
@@ -11,6 +11,8 @@ Run the ones that cover your change. Each command must exit 0.
 - `cargo test --profile test-fast --features plugins` on macOS, or `cargo test --profile test-fast` on Linux. This runs all of the Rust tests; on Linux, plugin hosting isn't built. Run it after any Rust change. To run a single test, add its name.
 - `cargo test` in `app/src-tauri`. These are the app shell's Rust tests, and on macOS they run with plugins. Run them when `app/src-tauri`, `src/api` or `src/session` changed. CI runs them on macOS; on Linux it only compile-checks the no-plugins version.
 - `npm run verify` in `app/`. This runs the type check, lint and web tests. Run it when anything under `app/` changed, after `npm ci` on a fresh checkout.
+- In bash, from the repo root: ``diff <(awk '/^## AppCmd/{f=1} /^### Result/{f=0} f && /^\| `/' docs/app-api.md | cut -d'|' -f2 | grep -o '`[^`]*`' | tr -d '`' | sort -u) <(awk '/^const EVERY_CMD/,/^\];/' tests/api_wire.rs | sed -n 's/^ *r#"{"type":"\([^"]*\)".*/\1/p' | sort -u)``. This checks that `EVERY_CMD` in `tests/api_wire.rs` names exactly the commands in the AppCmd tables of `docs/app-api.md`, and prints any difference. Run it when either file changed. CI runs it on every PR, docs-only ones included (the `api-doc` job). No code or test compiles in or reads a committed file under `docs/`; keep it that way, so a docs-only change can't change what CI tests.
+- `cargo run --no-default-features --example api_doc_check -- docs/app-api.md`. This checks that every `{"type": ...}` JSON example in `docs/app-api.md`, and its example `AppState`, parses into the app API's Rust types (`AppCmd`, `Event`, `AppState`) and serializes back unchanged; it prints each mismatch and exits 1. The doc is read at run time from the path given, never compiled in. Run it when `docs/app-api.md` or the API types in `src/api` changed. CI runs it on every PR, docs-only ones included (the `api-doc` job). Its own tests run with `cargo test`.
 
 The corpus tests need the git-ignored `corpus/` folder; in a worktree, symlink it from the main checkout. Without it they skip without failing, so a pass without the corpus doesn't cover them.
 
@@ -49,7 +51,7 @@ See "Developing on Linux" in README.md.
 
 ## Branches
 
-PRs target `develop`. `develop` merges into `main` only when the owner says so, with a merge commit.
+PRs target `develop` and are squash-merged. `develop` merges into `main` only when the owner says so, with a merge commit, so `main` keeps `develop`'s commits and the next release PR shows only new work. The rulesets enforce both: `develop` allows squash only, `main` allows merge commits only.
 
 ## Never commit
 

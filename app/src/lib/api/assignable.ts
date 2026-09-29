@@ -11,7 +11,7 @@ export const CATEGORY_NAMES: Record<AssignableFunction['category'], string> = {
   voice: 'Voice',
   style: 'Style',
   ots: 'One Touch Setting',
-  registration: 'Registration',
+  quickRacks: 'Quick Racks',
   overall: 'Overall',
   chordLooper: 'Chord Looper',
 }
@@ -70,8 +70,8 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
   if (/^main[ABCD]$/.test(id)) return { type: 'main', index: letter('main') }
   if (/^ending[123]$/.test(id)) return { type: 'ending', index: n('ending') - 1 }
   if (/^ots[1234]$/.test(id)) return { type: 'recallOts', index: n('ots') - 1 }
-  // Snapshots 1–8 of the bank on view; 9 and 10 run on into the next bank's 1 and 2.
-  if (/^regist([1-9]|10)$/.test(id)) return { type: 'pressSnapshot', slot: n('regist') - 1 }
+  // Quick Racks 1–8 of the bank on view; 9 and 10 run on into the next bank's 1 and 2.
+  if (/^regist([1-9]|10)$/.test(id)) return { type: 'pressQuickRack', slot: n('regist') - 1 }
   const parts: Record<string, number> = { right1OnOff: 0, right2OnOff: 1, right3OnOff: 2, leftOnOff: 3 }
   if (id in parts) return { type: 'togglePart', part: parts[id] }
   const simple: Record<string, AppCmd> = {
@@ -93,15 +93,13 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     sectionReset: { type: 'sectionReset' },
     transposeUp: { type: 'stepTranspose', keyboard: 0, master: 1 },
     transposeDown: { type: 'stepTranspose', keyboard: 0, master: -1 },
-    registBankNext: { type: 'stepRegistBank', delta: 1 },
-    registBankPrev: { type: 'stepRegistBank', delta: -1 },
-    snapshotBankNext: { type: 'stepSnapshotBank', delta: 1 },
-    snapshotBankPrev: { type: 'stepSnapshotBank', delta: -1 },
-    registNext: { type: 'stepRegist', delta: 1 },
-    registPrev: { type: 'stepRegist', delta: -1 },
-    registMemory: { type: 'toggleRegistMemory' },
-    registFreeze: { type: 'toggleFreeze' },
-    registSequence: { type: 'toggleRegistSequence' },
+    // Quick Racks, where the Genos has Registration Memory (docs/racks.md). The bank-file,
+    // Freeze and Sequence functions are not available.
+    snapshotBankNext: { type: 'stepQuickRackBank', delta: 1 },
+    snapshotBankPrev: { type: 'stepQuickRackBank', delta: -1 },
+    registNext: { type: 'stepQuickRack', delta: 1 },
+    registPrev: { type: 'stepQuickRack', delta: -1 },
+    registMemory: { type: 'toggleQuickRackStore' },
     chordLooperOnOff: { type: 'looperOnOff' },
     chordLooperRec: { type: 'looperRec' },
     fingeredOnBass: { type: 'setFingering', fingering: st.fingering === 'fingeredOnBass' ? 'fingered' : 'fingeredOnBass' },

@@ -15,6 +15,9 @@ export type SoundsCmd =
   | { type: 'stopSoundAudition' }
   /** Keyboard part `part` (0-3) plays the sound, by the route its source has. */
   | { type: 'assignSound'; part: number; id: string }
+  /** As assignSound, keeping the part's mix (level, pan, sends, octave, voice settings,
+   * bend range, on/off): Library › Replace… for a part whose plugin is missing. */
+  | { type: 'replacePartSound'; part: number; id: string }
   /** A plugin's, plugin preset's or saved sound's category (a SoundFont preset's is its GM family). */
   | { type: 'setSoundCategory'; id: string; category: PatchCategory }
   /** List a plugin's (`au:<id>`) presets: the browser expanded it. */
@@ -35,9 +38,10 @@ export interface SoundEntry {
   detail: string
   favourite: boolean
   recent: boolean
-  /** Plugins (and plugin presets) only. `presets`: how many it has, null while its factory
-   * presets were never listed (listPluginPresets). */
-  plugin: { format: string; lastError: string | null; presets?: number | null } | null
+  /** Plugins (and plugin presets) only. `presets`: how many it has, null (unknown) while
+   * its factory presets were never listed (listPluginPresets), even with .aupreset files
+   * in. `presetsError`: why listing them failed; not tried again until the next scan. */
+  plugin: { format: string; lastError: string | null; presets?: number | null; presetsError?: string } | null
   /** A plugin preset's plugin (`au:<id>`): listed under it. */
   parent?: string | null
 }
@@ -47,6 +51,8 @@ export interface PluginPresetList {
   plugin: string
   listed: boolean
   presets: { key: string; name: string; folder: string | null }[]
+  /** Listing its factory presets failed: why. */
+  error?: string
 }
 
 export interface SoundCatalog {

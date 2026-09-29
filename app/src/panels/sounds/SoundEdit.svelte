@@ -1,7 +1,7 @@
 <!--
   The selected library sound (a plugin sound, or a font preset in My Sounds), under the
-  Sounds list: rename, recategorise, tags, the defaults a part takes when it picks it,
-  duplicate and delete (asked first). This is what the Sound Library drawer's Patches tab
+  Sounds list: rename, recategorise, tags, duplicate and delete (asked first). A sound is
+  the raw instrument, with no mix of its own (docs/racks.md). This is what the Sound Library drawer's Patches tab
   was; it folded into the Sounds tab.
 
   Keys (from the filter): F2 renames (Enter keeps it, Esc goes back), Ctrl/⌘+Delete asks
@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
   import { tick } from 'svelte'
-  import { CATEGORY_LABELS, type PatchCategory, type PatchDefaults, type PatchFields, type PatchInfo } from '../../lib/api/sound-library'
+  import { CATEGORY_LABELS, type PatchCategory, type PatchFields, type PatchInfo } from '../../lib/api/sound-library'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -42,15 +42,8 @@
     deleteEl?.querySelector('button')?.focus()
   }
 
-  const fields = (p: PatchInfo): PatchFields => ({ name: p.name, category: p.category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults })
+  const fields = (p: PatchInfo): PatchFields => ({ name: p.name, category: p.category, tags: p.tags, favourite: p.favourite, source: p.source })
   const update = (change: Partial<PatchFields>) => app.send({ type: 'updatePatch', id: patch.id, patch: { ...fields(patch), ...change } })
-  const setDefault = (key: keyof PatchDefaults, v: number | null) => update({ defaults: { ...patch.defaults, [key]: v } })
-  function numberOrNull(e: Event & { currentTarget: HTMLInputElement }): number | null {
-    const t = e.currentTarget.value.trim()
-    if (t === '') return null
-    const n = Math.round(Number(t))
-    return Number.isFinite(n) ? Math.max(0, Math.min(127, n)) : null
-  }
   function commitName(el: HTMLInputElement) {
     const n = el.value.trim()
     if (n && n !== patch.name) update({ name: n })
@@ -125,20 +118,6 @@
         {/if}
       {/if}
     </div>
-    <div class="defaults">
-      {#each [['volume', 'Vol', 'sound.default_volume'], ['pan', 'Pan', 'sound.default_pan'], ['reverb', 'Rev', 'sound.default_reverb'], ['chorus', 'Cho', 'sound.default_chorus']] as const as [key, lab, t] (key)}
-        <label class="num">
-          <small class="engraved">{lab}</small>
-          <input type="number" min="0" max="127" placeholder="—" value={patch.defaults[key] ?? ''} use:tip={t} onchange={(e) => setDefault(key, numberOrNull(e))} onkeydown={enterBlurs} />
-        </label>
-      {/each}
-      <label class="num">
-        <small class="engraved">Oct</small>
-        <select value={String(patch.defaults.octave)} aria-label="Octave" use:tip={'sound.default_octave'} onchange={(e) => update({ defaults: { ...patch.defaults, octave: Number(e.currentTarget.value) } })}>
-          {#each [-2, -1, 0, 1, 2] as o (o)}<option value={String(o)}>{o > 0 ? `+${o}` : o}</option>{/each}
-        </select>
-      </label>
-    </div>
   {/if}
 </section>
 
@@ -182,20 +161,5 @@
   .ask {
     color: var(--accent);
     white-space: nowrap;
-  }
-  .defaults {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0.35rem;
-  }
-  .num {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-  .num input,
-  .num select {
-    width: 100%;
-    min-width: 0;
   }
 </style>

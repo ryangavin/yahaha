@@ -11,6 +11,13 @@
 //!   number, or an `.aupreset` file by path; docs/sound-browser.md). A version 1 file
 //!   reads as it is: every plugin patch in it is a `user` sound. Version 2 is written so a
 //!   version-1 build refuses the file instead of saving over it and dropping the origins.
+//! - 3: a sound is the raw instrument (docs/racks.md): patches have no `defaults`. An
+//!   older file's sound volumes move onto the map rules that name the sound (each rule
+//!   global or per style gets the sound's volume as its own level, see
+//!   [`ProgramMap::family_volumes`]), so no Style part's level changes; its pan, reverb,
+//!   chorus and octave defaults (keyboard parts only) are dropped. The session copies the
+//!   older file aside (`sound-library.v<N>.json`, [`backup_name`]) before it first saves
+//!   over it, so nothing is lost.
 //!
 //! Export writes a bundle (`{ "kind": "yahaha-sound-bundle", "fonts": [...], "library":
 //! {...} }`): the library as above plus the SoundFont file names it plays. Import reads a
@@ -26,10 +33,43 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 /// The format version this build writes.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// The file name in the data folder.
 pub const FILE_NAME: &str = "sound-library.json";
+
+/// Where an older library file (format `version`, a bare array counting as 1) is copied
+/// before this build first saves over it: `sound-library.v2.json` beside it for a
+/// version 2 file.
+pub fn backup_name(version: u32) -> String {
+    format!("sound-library.v{version}.json")
+}
+
+/// The format version of a library file's text: its `version`, 1 for a bare array. None
+/// when it isn't one.
+pub fn file_version(text: &str) -> Option<u32> {
+    match serde_json::from_str::<serde_json::Value>(text).ok()? {
+        serde_json::Value::Array(_) => Some(1),
+        serde_json::Value::Object(o) => o.get("version").and_then(|v| v.as_u64()).map(|v| v.min(u32::MAX as u64) as u32),
+        _ => None,
+    }
+}
+
+/// A version 1 or 2 file's sound volumes (`defaults.volume`, capped at 127), by patch id;
+/// the first patch with an id wins, as a rule naming it finds the first.
+fn old_volumes(patches: Option<&serde_json::Value>) -> Vec<(String, u8)> {
+    let mut v: Vec<(String, u8)> = Vec::new();
+    for p in patches.and_then(|p| p.as_array()).into_iter().flatten() {
+        let Some(id) = p.get("id").and_then(|x| x.as_str()) else { continue };
+        if v.iter().any(|(i, _)| i == id) {
+            continue;
+        }
+        if let Some(vol) = p.get("defaults").and_then(|d| d.get("volume")).and_then(|x| x.as_u64()) {
+            v.push((id.to_string(), vol.min(127) as u8));
+        }
+    }
+    v
+}
 
 /// The `kind` of an export bundle (`SoundLibrary::to_bundle_json`).
 pub const BUNDLE_KIND: &str = "yahaha-sound-bundle";
@@ -80,6 +120,7 @@ impl SoundLibrary {
         let v: serde_json::Value = serde_json::from_str(text).context("not JSON")?;
         let mut lib = match &v {
             serde_json::Value::Array(_) => {
+                // A bare list has no maps, so its sounds' volumes have no rule to go to.
                 let patches: Vec<Patch> = serde_json::from_value(v).context("a patch list")?;
                 SoundLibrary { patches, ..SoundLibrary::default() }
             }
@@ -91,7 +132,17 @@ impl SoundLibrary {
                 if version == 0 {
                     bail!("format 0 is not a sound library");
                 }
-                serde_json::from_value(v).context("a sound library")?
+                let volumes = if version < 3 { old_volumes(o.get("patches")) } else { Vec::new() };
+                let mut lib: SoundLibrary = serde_json::from_value(v).context("a sound library")?;
+                // Version 3: each sound's volume onto the rules that name it (before
+                // `normalize`, which may give a duplicate id a new one).
+                for (id, vol) in &volumes {
+                    lib.map.set_volume_of(id, *vol);
+                    for m in lib.style_maps.values_mut() {
+                        m.set_volume_of(id, *vol);
+                    }
+                }
+                lib
             }
             _ => bail!("not a sound library"),
         };
@@ -148,9 +199,19 @@ impl SoundLibrary {
 
     /// Load from `path`; a missing file is an empty library.
     pub fn load(path: &Path) -> Result<SoundLibrary> {
+        SoundLibrary::load_versioned(path).map(|(lib, _)| lib)
+    }
+
+    /// Load from `path` as `load` does, with the format version the file had (None: no
+    /// file). A version below [`VERSION`] means the file is to be copied aside
+    /// ([`backup_older`]) before it is first saved over.
+    pub fn load_versioned(path: &Path) -> Result<(SoundLibrary, Option<u32>)> {
         match std::fs::read_to_string(path) {
-            Ok(text) => SoundLibrary::from_json(&text).with_context(|| format!("{}", path.display())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SoundLibrary::default()),
+            Ok(text) => {
+                let lib = SoundLibrary::from_json(&text).with_context(|| format!("{}", path.display()))?;
+                Ok((lib, file_version(&text)))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((SoundLibrary::default(), None)),
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
         }
     }
@@ -198,7 +259,7 @@ impl SoundLibrary {
         let name = if name.trim().is_empty() { "Sound".to_string() } else { name.to_string() };
         let id = new_id(&name, self.patches.iter().map(|p| p.id.as_str()));
         let source = PatchSource::Plugin { component_id: component.to_string(), state: state.unwrap_or_default(), origin };
-        self.patches.push(Patch { id: id.clone(), name, category, tags: Vec::new(), favourite: false, source, defaults: Default::default() });
+        self.patches.push(Patch { id: id.clone(), name, category, tags: Vec::new(), favourite: false, source });
         Some(id)
     }
 
@@ -230,8 +291,8 @@ impl SoundLibrary {
             .map(Patch::tag)
     }
 
-    /// Ids unique and non-empty, names non-empty, defaults in range, every rule naming a
-    /// patch that exists.
+    /// Ids unique and non-empty, names non-empty, rule levels in range, every rule naming
+    /// a patch that exists.
     pub fn normalize(&mut self) {
         self.patches.truncate(MAX_PATCHES);
         let mut seen: Vec<String> = Vec::new();
@@ -242,7 +303,6 @@ impl SoundLibrary {
             if p.id.is_empty() || seen.contains(&p.id) {
                 p.id = new_id(&p.name, seen.iter().map(String::as_str));
             }
-            p.defaults = p.defaults.clamped();
             seen.push(p.id.clone());
         }
         let ids: Vec<String> = seen;
@@ -299,8 +359,10 @@ impl SoundLibrary {
                 let to = |id: &str| table.iter().find(|(o, _)| o == id).map(|(_, n)| n.clone());
                 ProgramMap {
                     families: m.families.clone().map(|f| f.and_then(|id| to(&id))),
-                    overrides: m.overrides.iter().filter_map(|o| Some(super::ProgramOverride { program: o.program, patch: to(&o.patch)? })).collect(),
+                    family_volumes: m.family_volumes,
+                    overrides: m.overrides.iter().filter_map(|o| Some(super::ProgramOverride { program: o.program, patch: to(&o.patch)?, volume: o.volume })).collect(),
                     drums: m.drums.as_deref().and_then(to),
+                    drums_volume: m.drums_volume,
                 }
             };
             merge_map(&mut self.map, &rewrite(&other.map));
@@ -315,17 +377,31 @@ impl SoundLibrary {
 }
 
 fn merge_map(into: &mut ProgramMap, from: &ProgramMap) {
+    // A rule comes with its level.
     for (f, p) in from.families.iter().enumerate() {
         if p.is_some() {
             into.families[f] = p.clone();
+            into.family_volumes[f] = from.family_volumes[f];
         }
     }
     for o in &from.overrides {
-        into.set_override(o.program, Some(o.patch.clone()));
+        into.set_override_rule(o.program, Some(o.clone()));
     }
     if from.drums.is_some() {
         into.drums = from.drums.clone();
+        into.drums_volume = from.drums_volume;
     }
+}
+
+/// Copy the older library file at `path` (format `version`) to [`backup_name`] beside it,
+/// before this build first saves over it. A backup already there is kept, never replaced:
+/// it is the first copy; a file gone since has nothing to copy. Returns the backup's path.
+pub fn backup_older(path: &Path, version: u32) -> Result<std::path::PathBuf> {
+    let bak = path.with_file_name(backup_name(version));
+    if !bak.exists() && path.exists() {
+        std::fs::copy(path, &bak).with_context(|| format!("copying {} to {}", path.display(), bak.display()))?;
+    }
+    Ok(bak)
 }
 
 /// The key a style's own map is stored under: its file name.

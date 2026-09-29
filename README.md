@@ -8,7 +8,7 @@ yahaha doesn't ship any styles or sounds. You add two things yourself (both fold
 - **Styles:** put `.sty/.prs/.sst` files in `corpus/`. Free ones are available from Yamaha, PSR Tutorial, and Sand, Software and Sound. Encrypted Expansion Packs (`.cpi`/`.ppi`) are not supported.
 - **SoundFont (optional):** put a General MIDI `.sf2` in `soundfonts/`, for example [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS).
 
-macOS only; it uses CoreMIDI and CoreAudio directly.
+macOS only; it uses CoreMIDI and CoreAudio directly. The app also runs on an iPad (see [iPad](#ipad)).
 
 ## Run
 
@@ -52,6 +52,46 @@ Options:
 - Keyboards and the Launchkey can be plugged in and out while yahaha runs: a new keyboard is heard (by the `--input`/`--all-inputs` rules), and a Launchkey plugged back in goes back to DAW mode with its pads and LEDs. `yahaha fake-device` makes a Launchkey-like device from another process for trying it.
 - `--top` (or `YAHAHA_TOP=1`) shows a live performance view instead of the front panel. Its header has the process's memory; the audio callback's average, p99 and worst time against the buffer's deadline and its load; the dropout counts; the voices; the callback's stages; the synth rings' depth; the engine's wake timing and queues; and MIDI input latency. Below that is one row per part (the keyboard parts, the Style parts, the Multi Pads) with its source (SoundFont or plugin), voices, peak level and render time, and one row per effect block. It refreshes every second, and `q` quits. The desktop app launched from a terminal takes the same flag or variable and draws the view in that terminal. Collection costs nothing measurable while the view is off. `yahaha bench-audio <style> <font.sf2> --top` prints one frame of the view for an offline run.
 - `--chord-settle MS` sets the chord-settle window (0–30 ms, default 10): while the style plays, it follows a chord once the chord has held still this long, so a rolled chord is one change, not two. Also in the app's Settings › Chord.
+
+## iPad
+
+The desktop app (`app/`) also builds for iPad as a Tauri iOS app. You build it on a Mac and install it over USB or Wi-Fi. The Launchkey plugs into the iPad's USB-C port, directly or through a hub.
+
+**Prerequisites (once):**
+- Xcode with the iOS platform installed (Xcode › Settings › Components), and `sudo xcode-select -s /Applications/Xcode.app`.
+- Your Apple ID signed in under Xcode › Settings › Accounts. A free account works; its builds expire after 7 days, so you rebuild and reinstall then. The team is set in `app/src-tauri/tauri.conf.json` (`bundle.iOS.developmentTeam`); change it to your own team ID.
+- The iPad trusted by this Mac (plug it in and tap **Trust**), and **Developer Mode** on (Settings › Privacy & Security › Developer Mode, then restart the iPad). The Developer Mode switch only appears after the iPad has been connected to Xcode once: open Xcode › Window › Devices and Simulators with it plugged in.
+- `rustup target add aarch64-apple-ios`
+- CocoaPods: `brew install cocoapods`
+- The Tauri CLI: `cargo install tauri-cli --version "^2" --locked`
+- `npm ci` in `app/`
+
+**Build, install and launch:**
+
+```bash
+cd app
+cargo tauri ios build --target aarch64
+xcrun devicectl list devices                  # the Identifier column is the device's UDID
+xcrun devicectl device install app --device <UDID> src-tauri/gen/apple/build/yahaha-app_iOS.xcarchive/Products/Applications/yahaha.app
+xcrun devicectl device process launch --terminate-existing --device <UDID> dev.yahaha.app
+```
+
+`--device` also takes the iPad's name as `devicectl list devices` shows it. `ios build` makes a release build, signed with your development certificate. After the first install, iPadOS may ask you to trust the developer in Settings › General › VPN & Device Management.
+
+`cargo tauri ios run --release` doesn't work yet: tauri-cli (2.9.6 and later) builds and signs the app, then fails at the export step with `Couldn't load -exportOptionsPlist The file ".tmpXXXXXX" couldn't be opened` (tauri-apps/tauri#14593). Install with `devicectl` as above instead.
+
+**Styles and SoundFonts:** the app reads them from its Documents folder, `Documents/yahaha/styles` and `Documents/yahaha/soundfonts`, which it creates on first launch. In the Files app they are **On My iPad › yahaha › yahaha › styles** and **soundfonts**: copy `.sty/.prs/.sst` files and `.sf2` files there, then restart the app. With no styles it runs a demo band with no sound. From the Mac:
+
+```bash
+xcrun devicectl device copy to --device <UDID> --domain-type appDataContainer --domain-identifier dev.yahaha.app \
+  --source corpus/MyStyles --destination Documents/yahaha/styles/MyStyles
+xcrun devicectl device copy to --device <UDID> --domain-type appDataContainer --domain-identifier dev.yahaha.app \
+  --source soundfonts/GeneralUser-GS.sf2 --destination Documents/yahaha/soundfonts/GeneralUser-GS.sf2
+```
+
+**Limits on iPad:**
+- No plugins: plugin hosting isn't built for iOS, so every part plays through the built-in SoundFont synth.
+- Memory: every `.sf2` in `soundfonts/` is loaded whole into RAM, and iPadOS closes an app that uses much more than about half of the iPad's memory. A GM font like GeneralUser GS (about 30 MB) is fine; a font of several hundred MB, or several large fonts, can get the app closed on launch on an iPad with 4–8 GB. Keep only the fonts you use in the folder.
 
 ## Ableton setup (once)
 
@@ -121,7 +161,7 @@ Pressing the current Main again plays its fill. With Auto Fill on, switching Mai
 - The on/off pads are lit while the part is on. The lit Edit pad is the part whose voice Voice −/+ (`9`/`0`) changes.
 - The accompaniment parts are muted with the buttons under the faders on the Style fader page, or `z`…`,`.
 
-**Page 4 · Snapshots** (orange): Snapshots 1–8 of the snapshot bank on view (top row); Bank −/+ (the snapshot bank: A, B, …), File −/+ (the bank file), Store, Freeze, Regist −/+ (bottom row) (docs/registration.md).
+**Page 4 · Quick Racks** (orange): Quick Racks 1–8 of the bank on view (top row: red is the loaded rack, blue a rack, dark empty); Bank −/+ (A–H), two dark pads, Store (then press a button to put the current rack on it), a dark pad, Rack −/+ (the previous/next rack in the bank) (bottom row) (docs/racks.md). With unsaved changes, a pad switches anyway and keeps them as a "Recovered" rack.
 
 **Page 5 · Multi Pads** (yellow):
 
@@ -227,8 +267,8 @@ The screen shows `sus` beside each part the pedal is holding.
 - `F9` fader page Panel / Style
 - `J` Harmony/Arpeggio on/off · `L` next Harmony type or arpeggio · `*` Arpeggio Hold
 - `s` reload the edited part's plugin after it stopped or failed to load (the Panel mixer shows each part's plugin, its CPU and slow renders)
-- `Q W E R T Y U I` (with Shift) Snapshots 1–8 · `O P` (with Shift) snapshot bank −/+ · `F5` Store (the next snapshot stores) · `F6` Freeze
-- `F7 F8` Regist −/+ (the Registration Sequence) · `F11 F12` bank file −/+ (on macOS, F11 is Show Desktop until you turn that shortcut off in System Settings › Keyboard) · `< >` previous/next Playlist record
+- `Q W E R T Y U I` (with Shift) Quick Racks 1–8 · `O P` (with Shift) Quick Racks bank −/+ · `F5` Store (the next Quick Rack stores the current rack)
+- `F7 F8` previous/next rack in the Quick Racks bank (also Shift + < Track / Track >)
 - `←/→` previous/next style, in the style browser's order (folder, then name)
 - `enter` open the style browser (see below)
 - `tab` / `shift+tab` next/previous pad page
@@ -310,7 +350,7 @@ The engine, the runtime and the app API are the `yahaha` library. A `Session` ow
 - `yahaha dump <style>`: sections, channels, and CASM rules.
 - `yahaha sim <style> "C Am7 F G7"`: offline render, one chord per bar, printed per part.
 - `yahaha render <style> "C Am7 F G7" <font.sf2> <out.wav>`: the same played through the built-in SoundFont synth into a 48 kHz WAV, for listening tests. Keep the WAVs off the repo (they are the style's patterns). `YAHAHA_VEL_FILTER=off` (here, with `play`, or for the app) turns off velocity → tone: the SF2 default velocity → filter cutoff modulator and the SoundFont's own, which yahaha bakes into the SoundFont as it loads (#203, `src/synth/font.rs`).
-- `yahaha capture-kit <out-dir> [--clock-ppm N] [style]...`: writes the Genos-owner reference capture kit, with a chord-script MIDI file per style and instructions (`docs/capture-kit/`). `--clock-ppm` runs the files that much faster, for an instrument whose clock drifts past a style's tolerance.
+- `yahaha capture-kit <out-dir> [--clock-ppm N] [style]...`: writes the Genos-owner reference capture kit, with a chord-script MIDI file per style and instructions (`src/capture-kit/`). `--clock-ppm` runs the files that much faster, for an instrument whose clock drifts past a style's tolerance.
 - `yahaha capture-import <recording.mid> <style>`: compares a hardware recording of that kit with what yahaha plays, bar by bar and part by part. `--golden tests/reference` turns a verified recording into a reference digest (`tests/reference/README.md`).
 - `yahaha oracle corpus/ [--pairs | --scores | --diff tests/oracle/scores.txt]`: scores our chord conversion against the authors' own major/minor source channels (docs/oracle.md). Counts only.
 - `yahaha bench <style> [spin_us]`: latency benchmark using virtual ports.

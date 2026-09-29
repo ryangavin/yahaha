@@ -2,9 +2,8 @@
 
 use crate::api::*;
 use crate::fingering::Fingering;
-use crate::launchkey::{Level, Page};
 use crate::registration::{Group, Groups, PlaylistSort, Record, RecordTarget, SequenceEnd};
-use crate::session::{Options, Port, Session};
+use crate::session::{Options, Session};
 use std::path::{Path, PathBuf};
 
 const MS: u64 = 1_000_000;
@@ -356,55 +355,6 @@ fn banks_save_step_and_the_sequence_runs_into_the_next_bank() {
     assert_eq!(s.state().registration.buttons[1].name, "Verse");
     s.send(RegistrationCmd::ClearRegist { index: 1 }).unwrap();
     assert!(!s.state().registration.buttons[1].stored);
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
-fn launchkey_page_4_recalls_and_memorizes() {
-    let Some((s, dir)) = session("pads") else { return };
-    s.send(PadsCmd::SetPadPage { page: Page::Registration }).unwrap();
-    let st = s.state();
-    assert_eq!(st.pads.pads[0].label, "SNAP 1");
-    assert_eq!(st.pads.pads[0].action, Some(AppCmd::Registration(RegistrationCmd::PressSnapshot { slot: 0 })));
-    assert_eq!((st.registration.snapshot_bank, st.registration.snapshot_banks), (0, 1));
-    assert_eq!(st.registration.buttons.len(), 8, "Bank A");
-    // Bank +, then Store and pad 2: Snapshot B2 (index 9).
-    s.midi_in(Port::Pads, &[0x90, 113, 100]);
-    assert_eq!(s.state().registration.snapshot_bank, 1);
-    s.midi_in(Port::Pads, &[0x90, 116, 100]);
-    assert!(s.state().registration.memory);
-    s.midi_in(Port::Pads, &[0x90, 97, 100]);
-    let st = s.state();
-    assert!(!st.registration.memory);
-    assert!(st.registration.buttons[9].stored);
-    assert_eq!((st.registration.snapshot_banks, st.registration.buttons.len()), (2, 16));
-    assert_eq!(st.registration.selected, Some(9));
-    assert_eq!(st.pads.pads[1].level, Level::Bright, "B2 lit on the pads");
-    assert_eq!(st.pads.pads[0].level, Level::Off, "B1 is empty");
-    // Bank + again: one empty bank past the last (C), and no further.
-    s.midi_in(Port::Pads, &[0x90, 113, 100]);
-    s.midi_in(Port::Pads, &[0x90, 113, 100]);
-    assert_eq!(s.state().registration.snapshot_bank, 2);
-    // Bank - twice: A; pressing pad 1 there does not touch B.
-    s.midi_in(Port::Pads, &[0x90, 112, 100]);
-    s.midi_in(Port::Pads, &[0x90, 112, 100]);
-    assert_eq!(s.state().registration.snapshot_bank, 0);
-    // Snapshot Bank +/- as assignable functions (a pedal): the same path as the pads.
-    s.send(crate::api::ControllersCmd::TriggerFunction { function: crate::controllers::Function::SnapshotBankNext }).unwrap();
-    assert_eq!(s.state().registration.snapshot_bank, 1);
-    s.send(crate::api::ControllersCmd::TriggerFunction { function: crate::controllers::Function::SnapshotBankPrev }).unwrap();
-    assert_eq!(s.state().registration.snapshot_bank, 0);
-    // Recalling B2 by index (a sequence step, the app) brings the pads to Bank B.
-    s.send(RegistrationCmd::RecallRegist { index: 9 }).unwrap();
-    assert_eq!(s.state().registration.snapshot_bank, 1);
-    // Emptying B2 shrinks the file back to Bank A, and the view with it.
-    s.send(RegistrationCmd::ClearRegist { index: 9 }).unwrap();
-    let st = s.state();
-    assert_eq!((st.registration.snapshot_banks, st.registration.snapshot_bank), (1, 1), "B stays on view, as the one empty bank");
-    assert!(s.send(RegistrationCmd::SelectSnapshotBank { bank: 2 }).is_err());
-    // The Freeze pad.
-    s.midi_in(Port::Pads, &[0x90, 117, 100]);
-    assert!(s.state().registration.freeze);
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -1134,14 +1084,13 @@ fn patch_session(test: &str) -> Option<(Session, PathBuf)> {
     Some((s, dir))
 }
 
-fn add_patch(s: &Session, name: &str, program: u8, volume: u8) -> String {
+fn add_patch(s: &Session, name: &str, program: u8) -> String {
     let patch = PatchFields {
         name: name.into(),
         category: crate::patches::Category::guess(0, program),
         tags: vec![],
         favourite: false,
         source: PatchSource::SoundFont { file: "Test.sf2".into(), bank: 0, program },
-        defaults: PatchDefaults { volume: Some(volume), octave: 1, ..PatchDefaults::default() },
     };
     s.send(SoundLibraryCmd::CreatePatch { patch }).unwrap();
     s.state().sound_library.last_added.clone().unwrap()
@@ -1156,10 +1105,10 @@ fn part_sound(s: &Session, p: usize) -> (Option<String>, u8, u8, i8) {
 #[test]
 fn a_parts_library_patch_is_registered() {
     let Some((s, dir)) = patch_session("patch") else { return };
-    let piano = add_patch(&s, "Stage Piano", 1, 80);
-    let strings = add_patch(&s, "Warm Strings", 48, 70);
-    // Button 1: Right 1 on its own patch (the registration's level and octave, not the
-    // patch's defaults); button 2: Right 1 on a GM voice.
+    let piano = add_patch(&s, "Stage Piano", 1);
+    let strings = add_patch(&s, "Warm Strings", 48);
+    // Button 1: Right 1 on its own patch, with the registration's level and octave;
+    // button 2: Right 1 on a GM voice.
     s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(piano.clone()) }).unwrap();
     s.send(PartsCmd::SetPartVolume { part: 0, volume: 99 }).unwrap();
     s.send(PartsCmd::SetPartOctave { part: 0, octave: 0 }).unwrap();
@@ -1207,7 +1156,7 @@ fn a_parts_library_patch_is_registered() {
 #[test]
 fn a_bank_without_patches_recalls_the_gm_voice() {
     let Some((s, dir)) = patch_session("oldpatch") else { return };
-    let piano = add_patch(&s, "Stage Piano", 1, 80);
+    let piano = add_patch(&s, "Stage Piano", 1);
     s.send(PartsCmd::SetPartVoice { part: 0, program: 24 }).unwrap();
     s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
     save(&s, "Old");
@@ -1248,59 +1197,6 @@ fn registration_stores_left_hold() {
 /// #200: Regist +/− from a pedal step the bank's stored buttons with no sequence
 /// programmed, and the sequence while it is on; Regist 1–10, Memory, Freeze and Sequence
 /// On/Off are assignable too (RM p.114, p.141).
-#[test]
-fn a_pedal_steps_the_registrations() {
-    use crate::controllers::{ControlType, Function};
-    let Some((s, dir)) = session("pedal") else { return };
-    let trigger = |function| s.send(ControllersCmd::TriggerFunction { function });
-    assert!(trigger(Function::RegistNext).is_err(), "an empty bank: it says so");
-    for (i, program) in [(0, 10), (2, 30), (5, 60)] {
-        s.send(PartsCmd::SetPartVoice { part: 0, program }).unwrap();
-        s.send(RegistrationCmd::MemorizeRegist { index: i }).unwrap();
-    }
-    // Pedal 2 (CC 66) is Regist +.
-    let pedal = ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::RegistNext, control_type: ControlType::HoldA, reverse: false, range: Default::default() };
-    s.send(pedal).unwrap();
-    let press = || {
-        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
-        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
-        s.advance(MS);
-    };
-    // The last memorize selected button 6, the last stored: Regist + stays there.
-    press();
-    assert_eq!(s.state().registration.selected, Some(5));
-    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-    s.advance(MS);
-    press();
-    let st = s.state();
-    assert_eq!((st.registration.selected, st.keyboard_parts[0].program), (Some(2), 30), "empty button 2 skipped");
-    press();
-    assert_eq!(s.state().keyboard_parts[0].program, 60);
-    trigger(Function::RegistPrev).unwrap();
-    s.advance(MS);
-    assert_eq!(s.state().keyboard_parts[0].program, 30);
-    // With the sequence on and programmed, Regist + follows the sequence instead.
-    s.send(RegistrationCmd::SetRegistSequence { steps: vec![5, 0], end: SequenceEnd::Stop }).unwrap();
-    trigger(Function::RegistSequence).unwrap();
-    assert!(s.state().registration.sequence.on);
-    press();
-    assert_eq!(s.state().keyboard_parts[0].program, 60);
-    press();
-    assert_eq!(s.state().keyboard_parts[0].program, 10);
-    // Regist 1–10 press the button; Memory arms Memorize; Freeze toggles.
-    trigger(Function::Regist3).unwrap();
-    s.advance(MS);
-    assert_eq!(s.state().keyboard_parts[0].program, 30);
-    trigger(Function::RegistMemory).unwrap();
-    assert!(s.state().registration.memory);
-    trigger(Function::Regist10).unwrap();
-    let st = s.state();
-    assert!(!st.registration.memory && st.registration.buttons[9].stored, "Memory, then Regist 10, memorizes");
-    trigger(Function::RegistFreeze).unwrap();
-    assert!(s.state().registration.freeze);
-    let _ = std::fs::remove_dir_all(dir);
-}
-
 /// Style Dynamics: a stored level recalls, across the style load that maxes it.
 #[test]
 fn registration_recalls_the_dynamics_level() {

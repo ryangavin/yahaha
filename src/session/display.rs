@@ -11,7 +11,7 @@
 use super::Control;
 use crate::api::{
     AppCmd, AppState, ChordCmd, HarmonyArpCmd, LibraryCmd, LooperCmd, LooperMode, MixerCmd, MultiPadCmd, OtsCmd, PadLamp, PadsCmd, PartsCmd,
-    PlaylistCmd, RegistrationCmd, StyleSettingsCmd, TransportCmd,
+    QuickRackCmd, StyleSettingsCmd, TransportCmd,
 };
 use crate::launchkey::{self, Level, Touch};
 use crate::parts::FaderPage;
@@ -169,7 +169,6 @@ fn value_of(cmd: &AppCmd, level: Level, st: &AppState) -> String {
         AppCmd::Mixer(MixerCmd::ToggleFaderPage | MixerCmd::SetFaderPage { .. }) => format!("{:?}", st.mixer.fader_page),
         AppCmd::Pads(PadsCmd::SetPadPage { .. } | PadsCmd::CyclePadPage { .. }) => st.pads.page_name.clone(),
         AppCmd::Library(LibraryCmd::StepStyle { .. }) => st.style.name.clone(),
-        AppCmd::Playlist(PlaylistCmd::StepPlaylist { .. }) => st.playlist.current.and_then(|i| st.playlist.records.get(i)).map_or_else(|| st.style.name.clone(), |r| r.record.name.clone()),
         AppCmd::Chord(c) => match c {
             ChordCmd::SetFingering { .. } | ChordCmd::NextFingering => st.chord.fingering_name.clone(),
             ChordCmd::ToggleUpper | ChordCmd::SetUpper { .. } => if st.chord.upper { "Upper" } else { "Lower" }.into(),
@@ -182,19 +181,11 @@ fn value_of(cmd: &AppCmd, level: Level, st: &AppState) -> String {
         },
         AppCmd::Ots(OtsCmd::RecallOts { index }) => format!("OTS {}", index + 1),
         AppCmd::Ots(OtsCmd::ToggleOtsLink) => on(st.ots.link),
-        AppCmd::Registration(c) => match c {
-            RegistrationCmd::PressRegist { index } if st.registration.memory => format!("Store {}", crate::registration::snapshot_label(*index as usize)),
-            RegistrationCmd::PressSnapshot { slot } if st.registration.memory => {
-                format!("Store {}", crate::registration::snapshot_label(st.registration.snapshot_bank as usize * crate::registration::SLOTS + *slot as usize))
-            }
-            RegistrationCmd::PressRegist { .. } | RegistrationCmd::PressSnapshot { .. } | RegistrationCmd::StepRegistSequence { .. } => {
-                st.registration.selected.map_or_else(|| "-".into(), |i| format!("Snap {}", crate::registration::snapshot_label(i as usize)))
-            }
-            RegistrationCmd::StepSnapshotBank { .. } => format!("Bank {}", crate::registration::bank_letter(st.registration.snapshot_bank as usize)),
-            RegistrationCmd::ToggleRegistMemory => on(st.registration.memory),
-            RegistrationCmd::ToggleFreeze => on(st.registration.freeze),
-            RegistrationCmd::StepRegistBank { .. } => st.registration.bank.name.clone(),
-            _ => level_text(level),
+        AppCmd::QuickRacks(c) => match c {
+            QuickRackCmd::PressQuickRack { .. } | QuickRackCmd::StepQuickRack { .. } => st.live_rack.name.clone(),
+            QuickRackCmd::StepQuickRackBank { .. } => format!("Bank {}", crate::racks::quick::bank_letter(st.quick_racks.bank as usize)),
+            QuickRackCmd::ToggleQuickRackStore => on(st.quick_racks.store),
+            QuickRackCmd::ClearQuickRack { .. } => "Cleared".into(),
         },
         AppCmd::Looper(LooperCmd::LooperOnOff | LooperCmd::LooperRec) => match st.looper.mode {
             LooperMode::Off if st.looper.has_data => "Off",
@@ -237,12 +228,8 @@ fn level_text(level: Level) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::{Options, Port, Session};
-
-    fn session() -> Option<Session> {
-        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        p.exists().then(|| Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap())
-    }
+    use crate::session::testing::session;
+    use crate::session::{Port, Session};
 
     fn shown(s: &Session) -> Option<Text> {
         s.display_shown()
@@ -252,7 +239,7 @@ mod tests {
     /// fed Launchkey messages.
     #[test]
     fn touched_controls_show_what_they_did() {
-        let Some(s) = session() else { return };
+        let s = session();
         let text = |a: &str, b: &str, c: &str| Some((a.to_string(), b.to_string(), c.to_string()));
         // A tempo button.
         s.midi_in(Port::Pads, &[0xB0, launchkey::SCENE_CC, 127]);

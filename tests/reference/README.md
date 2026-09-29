@@ -1,13 +1,13 @@
 # Reference captures
 
-Digests of what real hardware (a Genos or Genos2) played for the capture script `docs/capture-kit/capture.script`. Owners record them with the capture kit (`docs/capture-kit/README.md`), and `yahaha capture-import` turns them into these files. They are the ground truth for the M2 chord-to-note work. The golden snapshots in `tests/golden` only pin down what yahaha does now.
+Digests of what real hardware (a Genos or Genos2) played for the capture script `src/capture-kit/capture.script`. Owners record them with the capture kit (`src/capture-kit/README.md`), and `yahaha capture-import` turns them into these files. They are the ground truth for the M2 chord-to-note work. The golden snapshots in `tests/golden` only pin down what yahaha does now.
 
 | File | Contents |
 | --- | --- |
 | `<style file>.digest` | The recording in the golden digest format (`tests/golden/README.md`), with two differences: the bar lines hold only the script's steps, not yahaha's sections (the instrument does not send its own), and every part lists all its notes before hashing, drums included (which parts play as written depends on the section). So a change to yahaha's section timing changes a reference comparison only through the notes. Each part line is its channel, name and a 64-bit FNV-1a hash. No notes. |
 | `<style file>.known` | The `bar N chX` keys where yahaha differed from the recording when it was imported, one per line. `#` starts a comment. |
 
-`capture::tests::reference_captures` plays the capture script on each style in `corpus/` that has a digest here. It fails on any bar and part that differs from the recording unless that key is listed in the `.known` file or the bar and part are timing-sensitive (`docs/capture-kit/README.md`): there the hardware may have played either outcome, so neither the test nor the `.known` list counts them. It also reports listed keys that now match, so they can be removed from the list. The test is skipped when the style is not in the corpus.
+`capture::tests::reference_captures` plays the capture script on each style in `corpus/` that has a digest here. It fails on any bar and part that differs from the recording unless that key is listed in the `.known` file or the bar and part are timing-sensitive (`src/capture-kit/README.md`): there the hardware may have played either outcome, so neither the test nor the `.known` list counts them. It also reports listed keys that now match, so they can be removed from the list. The test is skipped when the style is not in the corpus.
 
 ## Adding a recording
 

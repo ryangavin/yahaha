@@ -85,6 +85,7 @@ export function pluginLoads(parts: KeyboardPart[], id: string): { part: number; 
 export function scanLine(p: PluginEntry, e: SoundEntry | undefined, listing: boolean): string {
   if (p.lastError) return `⚠ ${p.lastError}`
   if (listing) return 'listing presets…'
+  if (e?.plugin?.presetsError) return `⚠ presets not listed: ${e.plugin.presetsError}`
   const n = e?.plugin?.presets
   return n == null ? 'presets not listed yet' : `${n} preset${n === 1 ? '' : 's'}`
 }

@@ -3,7 +3,8 @@
 // its commands and `derive` after every change (the usage list, part voice names).
 
 import fixture from './mock-fixture.json'
-import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, originOfPresetKey, sameOrigin, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
+import { partSound } from './part-sound'
+import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, originOfPresetKey, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
 import type { AppState } from './types'
 
 const GM: string[] = fixture.gm
@@ -52,6 +53,21 @@ export function resolveProgram(global: ProgramMap, style: ProgramMap | null, dru
   return { patch: null, rule: 'fallback', fromStyle: false }
 }
 
+/** A family's rule, as `ProgramMap::set_family`: another patch drops the rule's level. */
+function setFamily(m: ProgramMap, family: number, patch: string | null) {
+  if (m.families[family] !== patch && m.familyVolumes) {
+    m.familyVolumes[family] = null
+    if (m.familyVolumes.every((v) => v === null)) delete m.familyVolumes
+  }
+  m.families[family] = patch
+}
+
+/** The drum rule, as `ProgramMap::set_drums`. */
+function setDrums(m: ProgramMap, patch: string | null) {
+  if (m.drums !== patch) delete m.drumsVolume
+  m.drums = patch
+}
+
 function sf(id: string, name: string, bank: number, program: number, extra: Partial<PatchInfo> = {}): PatchInfo {
   return {
     id,
@@ -60,7 +76,6 @@ function sf(id: string, name: string, bank: number, program: number, extra: Part
     tags: [],
     favourite: false,
     source: { kind: 'soundFont', file: SF2, bank, program },
-    defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 },
     available: true,
     note: null,
     ...extra,
@@ -71,8 +86,8 @@ function sf(id: string, name: string, bank: number, program: number, extra: Part
 export function initialSoundLibrary(): SoundLibraryState {
   const patches: PatchInfo[] = [
     sf('stage-grand', 'Stage Grand', 0, 0, { favourite: true, tags: ['bright'] }),
-    sf('warm-rhodes', 'Warm Rhodes', 0, 4, { favourite: true, defaults: { volume: 96, pan: null, reverb: 40, chorus: 30, octave: 0 } }),
-    sf('finger-bass', 'Finger Bass', 0, 33, { defaults: { volume: 100, pan: 64, reverb: 10, chorus: null, octave: 0 } }),
+    sf('warm-rhodes', 'Warm Rhodes', 0, 4, { favourite: true }),
+    sf('finger-bass', 'Finger Bass', 0, 33),
     sf('studio-kit', 'Studio Kit', 128, 0),
     sf('silk-strings', 'Silk Strings', 0, 48, { tags: ['warm'] }),
     sf('brass-section', 'Brass Section', 0, 61),
@@ -90,9 +105,11 @@ export function initialSoundLibrary(): SoundLibraryState {
   map.families[6] = 'silk-strings'
   map.families[7] = 'brass-section'
   map.families[11] = 'soft-pad'
+  // Rule levels, as a version 2 library's sound volumes migrate (src/patches/store.rs).
+  map.familyVolumes = map.families.map((_, i) => (i === 4 ? 100 : null))
   map.overrides = [
-    { program: 4, patch: 'warm-rhodes' },
-    { program: 5, patch: 'warm-rhodes' },
+    { program: 4, patch: 'warm-rhodes', volume: 96 },
+    { program: 5, patch: 'warm-rhodes', volume: 96 },
   ]
   map.drums = 'studio-kit'
   return {
@@ -163,9 +180,11 @@ export class MockSoundLibrary {
 
   private forget(id: string) {
     for (const m of [this.sl.map, ...this.styleMaps.values()]) {
-      m.families = m.families.map((f) => (f === id ? null : f))
+      m.families.forEach((f, i) => {
+        if (f === id) setFamily(m, i, null)
+      })
       m.overrides = m.overrides.filter((o) => o.patch !== id)
-      if (m.drums === id) m.drums = null
+      if (m.drums === id) setDrums(m, null)
     }
     this.parts = this.parts.map((p) => (p === id ? null : p))
   }
@@ -182,7 +201,7 @@ export class MockSoundLibrary {
    * part's own patch goes. */
   partPlugin(part: number, picked: boolean) {
     this.pluginSound[part & 3] = null
-    this.edited[part & 3] = false
+    this.knob[part & 3] = this.savedKnob[part & 3] = 0
     if (!picked && !this.pluginParts[part & 3]) return
     this.pluginParts[part & 3] = null
     this.parts[part & 3] = null
@@ -190,28 +209,35 @@ export class MockSoundLibrary {
 
   /** The Sound a Plugins-tab plugin plays on each part (a preset's, or Save as…'s). */
   private pluginSound: (SoundTag | null)[] = [null, null, null, null]
-  /** The part's plugin was edited since its sound loaded (the editor closed, O3). */
-  private edited = [false, false, false, false]
+  /** The mock plugin window's one knob on each part, and where its sound left it: the
+   * part is edited while they differ (the session compares state fingerprints). */
+  private knob = [0, 0, 0, 0]
+  private savedKnob = [0, 0, 0, 0]
 
-  /** A plugin preset picked on a part: its one library sound (added once, found again by
-   * its origin), as the session's `link_voice_sound`. */
+  /** A plugin preset picked on a part: the part plays the preset itself, named by its
+   * catalog id, and no library record is made (as the session's
+   * `PluginVoice::name_preset_sound`). */
   presetSound(part: number, componentId: string, key: string, name: string) {
-    const origin = originOfPresetKey(key)
-    if (!origin) return
-    const found = this.sl.patches.find((p) => p.source.kind === 'plugin' && p.source.componentId === componentId && sameOrigin(p.source.origin, origin))
-    const id = found?.id ?? this.add({ name, category: 'synthLead', tags: [], favourite: false, source: { kind: 'plugin', componentId, state: '', origin }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } })
-    this.pluginSound[part & 3] = { id: `saved:${id}`, name: found?.name ?? name }
+    if (!originOfPresetKey(key)) return
+    this.pluginSound[part & 3] = { id: `au:${componentId}#${key}`, name }
   }
 
-  /** The part's plugin editor closed: its sound counts as edited (no state to fingerprint). */
-  pluginEdited(part: number) {
+  /** The mock plugin window turned its knob to `value`: the part shows as edited at once
+   * unless that is where its sound left it (as the session's reads while a window is open). */
+  pluginWindow(part: number, value: number) {
+    this.knob[part & 3] = value
+  }
+
+  /** The demo window's edit: the knob one step off its sound's value, or back onto it. */
+  pluginWindowDemo(part: number): number {
     const p = part & 3
-    this.edited[p] = !!this.pluginParts[p] || !!this.pluginSound[p]
+    return this.knob[p] === this.savedKnob[p] ? this.savedKnob[p] + 1 : this.savedKnob[p]
   }
 
-  /** The library sound part `p` plays through its plugin, if any. */
+  /** The library sound part `p` plays through its plugin, if any (a preset is none). */
   private pluginSoundId(p: number): string | null {
-    return this.pluginParts[p] ?? this.pluginSound[p]?.id.replace(/^saved:/, '') ?? null
+    const tag = this.pluginSound[p]?.id
+    return this.pluginParts[p] ?? (tag?.startsWith('saved:') ? tag.slice(6) : null)
   }
 
   /** Whether part `part` plays a plugin the Plugins tab picked (not a plugin patch's). */
@@ -289,9 +315,8 @@ export class MockSoundLibrary {
           ? (q.source.origin?.kind ?? 'user') === 'user' && kp.plugin?.id === q.source.componentId
           : !kp.plugin)
         if (!q || !own) return this.cmd({ type: 'saveSoundAs', part: c.part, name: null }, running)
-        q.defaults.volume = kp.volume
-        q.defaults.octave = kp.octave
-        this.edited[p] = false
+        // The sound takes the plugin's state (the knob), never the part's mix.
+        this.savedKnob[p] = this.knob[p]
         break
       }
       case 'saveSoundAs':
@@ -304,32 +329,34 @@ export class MockSoundLibrary {
         const id = own ?? resolveProgram(sl.map, style, false, kp.program).patch
         const base = id ? sl.patches.find((p) => p.id === id) : null
         const plugin = kp.plugin && kp.plugin.status !== 'failed' ? kp.plugin : null
-        const blank = { volume: null, pan: null, reverb: null, chorus: null, octave: 0 }
         let f: PatchFields = base
-          ? { name: base.name, category: base.category, tags: [...base.tags], favourite: false, source: structuredClone(base.source), defaults: { ...base.defaults } }
-          : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program }, defaults: blank }
+          ? { name: base.name, category: base.category, tags: [...base.tags], favourite: false, source: structuredClone(base.source) }
+          : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program } }
         if (plugin) {
           const source = { kind: 'plugin' as const, componentId: plugin.id, state: '' }
           const same = base?.source.kind === 'plugin' && base.source.componentId === plugin.id
-          f = same ? { ...f, source } : { name: plugin.name, category: base?.category ?? guessCategory(0, kp.program), tags: [], favourite: false, source, defaults: blank }
+          // A plugin playing a named Sound (a preset): the new sound takes its name.
+          const named = this.pluginSound[c.part & 3]?.name.trim() ? this.pluginSound[c.part & 3]!.name : null
+          f = same ? { ...f, source } : { name: named ?? plugin.name, category: base?.category ?? guessCategory(0, kp.program), tags: [], favourite: false, source }
         }
-        f.defaults.volume = kp.volume
-        f.defaults.octave = kp.octave
         if (c.name?.trim()) f.name = c.name
         const added = this.add(f)
+        // Save as… on a SoundFont part: the part takes it as its own patch (not Left
+        // playing Manual Bass), so a second Save updates it.
+        if (c.type === 'saveSoundAs' && f.source.kind === 'soundFont' && !kp.plugin && !kp.playsBass) this.parts[c.part & 3] = added
         // A part playing a plugin plays the new sound, not edited (O3).
         if (f.source.kind === 'plugin') {
           const i = c.part & 3
           if (this.pluginParts[i]) this.parts[i] = this.pluginParts[i] = added
           else this.pluginSound[i] = { id: `saved:${added}`, name: f.name }
-          this.edited[i] = false
+          this.savedKnob[i] = this.knob[i]
         }
         break
       }
       case 'addPresetAsPatch': {
         if (!FONTS.includes(c.file)) return `no SoundFont ${c.file} in the SoundFont folder`
         const name = c.name?.trim() || presetsOf(c.file).find((p) => p.bank === c.bank && p.program === c.program)?.name || `${c.file} ${c.bank}:${c.program + 1}`
-        this.add({ name, category: guessCategory(c.bank, c.program), tags: [], favourite: false, source: { kind: 'soundFont', file: c.file, bank: c.bank, program: c.program }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } })
+        this.add({ name, category: guessCategory(c.bank, c.program), tags: [], favourite: false, source: { kind: 'soundFont', file: c.file, bank: c.bank, program: c.program } })
         break
       }
       case 'auditionPatch':
@@ -350,31 +377,28 @@ export class MockSoundLibrary {
       case 'setFamilyRule':
         if (c.family < 0 || c.family > 15) return `no GM family ${c.family} (0-15)`
         if (!has(c.patch)) return `no patch ${c.patch} in the sound library`
-        this.map(c.style).families[c.family] = c.patch
+        setFamily(this.map(c.style), c.family, c.patch)
         break
       case 'setProgramOverride': {
         if (!has(c.patch)) return `no patch ${c.patch} in the sound library`
         const m = this.map(c.style)
+        // The same patch keeps the rule's level; another drops it.
+        const volume = m.overrides.find((o) => o.program === c.program && o.patch === c.patch)?.volume
         m.overrides = m.overrides.filter((o) => o.program !== c.program)
-        if (c.patch) m.overrides = [...m.overrides, { program: c.program & 127, patch: c.patch }].sort((a, b) => a.program - b.program)
+        if (c.patch) m.overrides = [...m.overrides, { program: c.program & 127, patch: c.patch, ...(volume === undefined ? {} : { volume }) }].sort((a, b) => a.program - b.program)
         break
       }
       case 'setDrumRule':
         if (!has(c.patch)) return `no patch ${c.patch} in the sound library`
-        this.map(c.style).drums = c.patch
+        setDrums(this.map(c.style), c.patch)
         break
       case 'clearStyleMap':
         this.styleMaps.delete(sl.styleKey)
         break
       case 'setPartPatch': {
         if (!has(c.id)) return `no patch ${c.id} in the sound library`
-        const kp = this.get().keyboardParts[c.part & 3]
+        // The part keeps its mix: a sound has none.
         this.parts[c.part & 3] = c.id
-        const d = sl.patches.find((p) => p.id === c.id)?.defaults
-        if (d) {
-          if (d.volume !== null) kp.volume = d.volume
-          kp.octave = d.octave
-        }
         break
       }
       case 'setPortSendsMapped':
@@ -439,20 +463,22 @@ export class MockSoundLibrary {
       return q ? { id: `saved:${q.id}`, name: q.name } : null
     }
     sl.gmMap = gmMapRows(sl.patches, sl.map, style, FONTS)
+    const names = {
+      font: (f: FontPreset) => presetsOf(f.file).find((x) => x.bank === f.bank && x.program === f.program)?.name ?? null,
+      gm: (program: number) => GM[program],
+    }
     st.keyboardParts.forEach((p, i) => {
       p.patch = this.parts[i]
-      // Now playing (O3): the plugin's sound, else its own or the map's patch.
-      const sound = p.plugin
-        ? (this.pluginParts[i] ? tag(this.pluginParts[i]) : this.pluginSound[i])
-        : tag((p.playsBass ? null : this.parts[i]) ?? resolveProgram(sl.map, style, false, p.program).patch)
-      if (sound) p.sound = sound
+      // What actually sounds, named as the engine names it (`api::part_sound`).
+      const pluginSound = this.pluginParts[i] ? tag(this.pluginParts[i]) : this.pluginSound[i]
+      // Under Manual Bass, Left plays the mock style's Bass voice (Finger Bass).
+      const of = { plugin: p.plugin, pluginSound, own: p.playsBass ? null : this.parts[i], program: p.playsBass ? 33 : p.program }
+      const named = partSound(of, sl.patches, sl.gmMap, names)
+      if (named.sound) p.sound = named.sound
       else delete p.sound
-      if (sound && p.plugin && this.edited[i]) p.soundEdited = true
+      p.voiceName = named.voiceName
+      if (p.plugin && pluginSound && this.knob[i] !== this.savedKnob[i]) p.soundEdited = true
       else delete p.soundEdited
-      if (p.playsBass) return
-      const own = name(this.parts[i])
-      const mapped = name(resolveProgram(sl.map, style, false, p.program).patch)
-      p.voiceName = own ?? mapped ?? GM[p.program]
     })
   }
 }

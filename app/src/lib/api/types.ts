@@ -6,7 +6,6 @@
 // change this file and `app/src-tauri/src/api.rs` to match; components only see these
 // types and the `Session` interface.
 
-import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
 import type { SoundLibraryCmd, SoundLibraryState, SoundTag } from './sound-library'
 import type { SoundsCmd, SoundsState } from './sounds'
 export type * from './sound-library'
@@ -17,7 +16,7 @@ export type Fingering =
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
 /** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration' | 'multiPads'
+export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'quickRacks' | 'multiPads'
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -169,9 +168,6 @@ export type AppCmd =
   | ChartCmd
   // Style settings (`styleSettings`)
   | StyleSettingsCmd
-  // Registration Memory and the Playlist (lib/api/registration.ts)
-  | RegistrationCmd
-  | PlaylistCmd
   // Chord Looper (docs/chord-looper.md)
   | { type: 'looperRec' }
   | { type: 'looperOnOff' }
@@ -206,6 +202,48 @@ export type AppCmd =
   | KnobsCmd
   // The effect bus (#204): see EffectsState below.
   | FxCmd
+  // Racks (docs/racks.md): see RackEntry and LiveRackState below.
+  | RackCmd
+  // Quick Racks (docs/racks.md): see QuickRacksState below.
+  | QuickRackCmd
+
+/** The Quick Racks commands (docs/app-api.md › Quick Racks). `slot` is a button of the bank
+ * on view, 0-7. */
+export type QuickRackCmd =
+  /** Press a button. With Store armed, store the live rack on it (a rack with unsaved
+   * changes, or one never saved, waits for the save: `quickRacks.storeWaiting`). Otherwise
+   * load its rack as `loadRack` does, with the same guard and `discard`. Slots 8 and 9 run
+   * on into the next bank's 1 and 2 (the Regist 9-10 pedal functions). */
+  | { type: 'pressQuickRack'; slot: number; discard?: boolean }
+  /** Bank −/+: view the previous/next bank (A-H; it stops at either end). */
+  | { type: 'stepQuickRackBank'; delta: number }
+  /** Store: arm (or disarm) it for the next button press. Disarming lets a waiting button go. */
+  | { type: 'toggleQuickRackStore' }
+  /** Empty button `slot` of bank `bank` (0 = A). */
+  | { type: 'clearQuickRack'; bank: number; slot: number }
+  /** Previous/next rack in the bank on view: the stored button before/after the lit one
+   * (from none: + the first, − the last; it stops at either end), loaded as
+   * `pressQuickRack` loads. */
+  | { type: 'stepQuickRack'; delta: number; discard?: boolean }
+
+/** The rack commands (docs/app-api.md › Racks). A rack is named by its stable `id`. */
+export type RackCmd =
+  /** A new rack. With unsaved changes and no `discard`, nothing changes: `liveRack.prompt` asks. */
+  | { type: 'newRack'; discard?: boolean }
+  /** Load the user's rack `id`; the same guard as `newRack`. */
+  | { type: 'loadRack'; id: string; discard?: boolean }
+  /** Save over the live rack's own rack (none: as a new one), with its edited sounds.
+   * `soundNames` names, by part (0-3), the new sounds edited presets become. */
+  | { type: 'saveRack'; soundNames?: Record<number, string> }
+  | { type: 'saveRackAs'; name: string; soundNames?: Record<number, string> }
+  /** Discard the changes: load the live rack's own rack again. */
+  | { type: 'revertRack' }
+  | { type: 'renameRack'; id: string; name: string }
+  | { type: 'duplicateRack'; id: string }
+  /** Refused for the loaded rack. */
+  | { type: 'deleteRack'; id: string }
+  /** Keep editing: `liveRack.prompt` goes. */
+  | { type: 'dismissRackPrompt' }
 
 /** The effect bus's blocks (#204; docs/app-api.md › Effects). */
 export type FxCmd =
@@ -440,7 +478,13 @@ export type HarmonyArpCmd =
 /** Style Track Mute order (RM p.148). A: Rhythm 2 first; B: Chord 1 first. */
 export type TrackMuteOrder = 'a' | 'b'
 
-export type CmdError = { kind: 'busy' } | { kind: 'failed'; message: string }
+export type CmdError =
+  | { kind: 'busy' }
+  | { kind: 'failed'; message: string }
+  /** A rack switch would lose unsaved changes; `liveRack.prompt` asks. */
+  | { kind: 'unsavedChanges' }
+  /** A rack save needs names for new sounds; `liveRack.prompt` lists the parts. */
+  | { kind: 'needsSoundNames' }
 
 /** Stop Accompaniment: what a chord sounds on with the band stopped and Sync Start off. */
 export type StopAcmpMode = 'off' | 'style' | 'fixed'
@@ -1148,10 +1192,6 @@ export interface AppState {
   chart: ChartState
   /** Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length. */
   styleSettings: StyleSettingsState
-  /** Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence. */
-  registration: RegistrationState
-  /** The Playlist. */
-  playlist: PlaylistState
   /** The Chord Looper. */
   looper: LooperState
   metronome: MetronomeState
@@ -1177,6 +1217,95 @@ export interface AppState {
   effects: EffectsState
   /** What the Home screen shows: read-only, derived from the rest. */
   home: HomeState
+  /** The live rack (docs/racks.md): its name, the saved rack it came from, unsaved changes. */
+  liveRack: LiveRackState
+  /** The user's racks (`<data>/Racks`), by name: Library › Racks. */
+  racks: RackEntry[]
+  /** Quick Racks: the bank on view, its eight buttons, Store. */
+  quickRacks: QuickRacksState
+}
+
+/** Quick Racks, as the bar and pad page 4 show them. */
+export interface QuickRacksState {
+  /** The bank on view, 0-based (0 = A). */
+  bank: number
+  /** The eight buttons of the bank on view. */
+  buttons: QuickRackButton[]
+  /** Store is armed: the next button press stores the live rack. */
+  store: boolean
+  /** A button of the bank on view (0-7) waiting for the live rack to be saved (`saveRack` /
+   * `saveRackAs`) before it is stored there; null when none. */
+  storeWaiting: number | null
+  /** Quick Racks can't be changed: the file is from a newer yahaha, or there is no data folder. */
+  readOnly: boolean
+}
+
+/** One Quick Rack button. */
+export interface QuickRackButton {
+  /** The rack's id; null when empty. */
+  rack: string | null
+  /** The rack's name; empty when the button is empty or its rack is gone. */
+  name: string
+  /** It names a rack that isn't in `racks` any more. */
+  missing: boolean
+  /** Its rack is the live rack's (`liveRack.id`): lit. */
+  loaded: boolean
+}
+
+/** The live rack: what's under the player's hands now, autosaved and restored on boot. */
+export interface LiveRackState {
+  /** The saved rack's name, "Restored" (the first start after racks came in), or "New rack". */
+  name: string
+  /** The id of the saved rack it came from; null when none. */
+  id: string | null
+  /** Changed since it was loaded or saved: a sound, the mix, the split, Harmony/Arp, the transpose, the controller map, or a plugin edit. */
+  modified: boolean
+  /** Its controller map: Launchkey faders 1-4 and knobs 1-8 on the Rack knob page. */
+  controls: ControlMap
+  /** A rack command waiting for the player's answer; null when none. */
+  prompt: RackPrompt | null
+}
+
+/** What a controller does on the Rack knob page (`racks::ControlTarget`); `part` 0-3.
+ * A kind this build doesn't know (a newer build's) is passed through as it is. */
+export type ControlTarget =
+  | { kind: 'none' }
+  | { kind: 'partLevel' | 'partPan' | 'partReverb' | 'partChorus'; part: number }
+  | { kind: 'harmonyArp' }
+  | { kind: 'splitPoint' }
+
+/** A rack's controller map: four fader targets and eight knob targets. */
+export interface ControlMap {
+  faders: ControlTarget[]
+  knobs: ControlTarget[]
+}
+
+/** A new rack's map (`ControlMap::default`): the parts' levels on faders 1-4 and knobs 1-4. */
+export function defaultControlMap(): ControlMap {
+  const level = (part: number): ControlTarget => ({ kind: 'partLevel', part })
+  return { faders: [0, 1, 2, 3].map(level), knobs: [...[0, 1, 2, 3].map(level), ...Array.from({ length: 4 }, (): ControlTarget => ({ kind: 'none' }))] }
+}
+
+/** What a refused rack command asks. */
+export type RackPrompt =
+  /** Unsaved changes: Save first, Discard and switch (`discard: true`), or Keep editing (`dismissRackPrompt`). */
+  | { kind: 'unsavedChanges'; then: RackSwitch }
+  /** Edited presets become new sounds: send the save again with `soundNames`. `saveAs`: the
+   * rack name `saveRackAs` had, null for `saveRack`. */
+  | { kind: 'soundNames'; parts: { part: number; suggested: string }[]; saveAs: string | null }
+
+export type RackSwitch = { kind: 'load'; id: string; name: string } | { kind: 'new' }
+
+/** One of the user's racks. */
+export interface RackEntry {
+  id: string
+  name: string
+  /** The sound each part plays, by name: Right 1, Right 2, Right 3, Left. */
+  parts: string[]
+  /** Which parts are on. */
+  on: boolean[]
+  /** A part's sound is on a missing plugin. */
+  needsAttention: boolean
 }
 
 // ── Instrument plugins (docs/plugin-hosting.md) ──────────────────────────
@@ -1197,8 +1326,11 @@ export type PluginCmd =
   | { type: 'setPluginInProcess'; id: string; inProcess: boolean }
   /** Load a part's plugin again after it stopped or failed (null: the selected part). */
   | { type: 'reloadPartPlugin'; part: number | null }
+  /** The player opened plugin `id` (Library › Instruments): it is no longer new. */
+  | { type: 'markPluginSeen'; id: string }
 
-/** loading: still on the SoundFont; failed: back on it; muted: the plugin crashed. */
+/** loading: still on the SoundFont; failed: back on it (silent when `missing`); muted:
+ * the plugin crashed. */
 export type PluginStatus = 'loading' | 'playing' | 'failed' | 'muted'
 
 export interface PartPlugin {
@@ -1224,6 +1356,9 @@ export interface PartPlugin {
   preset?: string | null
   /** That preset's catalog key (`f:3`, `u:<path>`). */
   presetKey?: string | null
+  /** The plugin isn't installed: the part is silent (status failed), its mix and sound
+   * kept, until the plugin is back and scanned. */
+  missing: boolean
 }
 
 export interface PluginEntry {
@@ -1238,6 +1373,29 @@ export interface PluginEntry {
   inProcess: boolean
   /** It can run in yahaha's process: every AUv2, and an AUv3 that allows it. */
   canRunInProcess: boolean
+  /** Found by a scan for the first time and not opened or played since (markPluginSeen). */
+  new: boolean
+  /** How many of the user's racks, and library sounds, play it. */
+  racks: number
+  sounds: number
+}
+
+/** A plugin that isn't installed (any more) while racks or sounds may still use it. */
+export interface MissingPlugin {
+  id: string
+  /** As it was last installed; the id and '' if it never was here. */
+  name: string
+  manufacturer: string
+  racks: number
+  sounds: number
+}
+
+/** A user rack with parts whose sound's plugin is missing. */
+export interface RackAttention {
+  id: string
+  name: string
+  /** 0-3: Right 1, Right 2, Right 3, Left. */
+  parts: number[]
 }
 
 export interface PluginsState {
@@ -1245,6 +1403,10 @@ export interface PluginsState {
   available: boolean
   scanning: boolean
   list: PluginEntry[]
+  /** Installed before and not now, or used by racks or sounds and not installed. */
+  missing: MissingPlugin[]
+  /** The user's racks that need attention (Library › Racks, Needs attention). */
+  needsAttention: RackAttention[]
 }
 
 // ── Controllers (docs/controllers.md) ────────────────────────────────────
@@ -1261,10 +1423,10 @@ export type BendRange = 'upper' | 'lower' | 'full'
 export interface AssignableFunction {
   id: FunctionId
   name: string
-  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall' | 'chordLooper'
+  category: 'voice' | 'style' | 'ots' | 'quickRacks' | 'overall' | 'chordLooper'
   /** switch: Control Type applies; trigger: fires on the press; continuous: an expression pedal. */
   kind: 'switch' | 'trigger' | 'continuous'
-  /** yahaha has it (Registration Bank +/− not yet). */
+  /** yahaha has it (not the Registration bank files, Freeze or Sequence). */
   available: boolean
 }
 
@@ -1463,7 +1625,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'sections', name: 'Sections' },
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
-  { id: 'registration', name: 'Snapshots' },
+  { id: 'quickRacks', name: 'Quick Racks' },
   { id: 'multiPads', name: 'Multi Pads' },
 ]
 

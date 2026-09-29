@@ -1,17 +1,24 @@
 <!--
   The 8 faders + master and the button under each, rendered from the surface state: what
   each fader controls on the active page, its level, the soft-takeover mark and where the
-  hardware fader physically is; each button's function (and Shift function) and light.
+  hardware fader physically is; each button's function (and Shift function) and light. On
+  the Panel page, faders 1–4 also name their part's sound (● edited, ⚠ plugin missing):
+  clicking it opens the Sound Browser on that part.
 -->
 <script lang="ts">
   import type { ControlId, SurfaceState } from '../../lib/api/types'
-  import { app } from '../../lib/store.svelte'
+  import { app, ui } from '../../lib/store.svelte'
   import { mirror } from '../../lib/mirror.svelte'
   import { faderCmd, faderTip } from '../../lib/surface'
+  import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
+  import { isMissing, soundLabel } from '../rack/rack'
   import Control from './Control.svelte'
 
   let { surface }: { surface: SurfaceState } = $props()
+
+  const panel = $derived(app.state.mixer.faderPage === 'panel')
+  const parts = $derived(app.state.keyboardParts)
 
   const BUTTONS: ControlId[] = [
     'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4',
@@ -43,6 +50,21 @@
           if (cmd) app.send(cmd)
         }}
       />
+      <!-- Panel page, faders 1–4: the part's sound (docs/racks.md "Screens"); a blank row elsewhere keeps the faders level. -->
+      {#if panel && i < 4 && parts[i]}
+        {@const p = parts[i]}
+        <button
+          type="button"
+          class="sname"
+          class:edited={p.soundEdited}
+          class:missing={isMissing(p)}
+          aria-label="{p.name} sound: {soundLabel(p)}"
+          use:tip={'launchkey.fader_sound'}
+          onclick={() => ui.openLibrary('sounds', i)}>{soundLabel(p)}</button
+        >
+      {:else}
+        <span class="sname blank" aria-hidden="true"></span>
+      {/if}
       <Control {surface} id={BUTTONS[i]} legend="" showLabel={i === 8} />
     </div>
   {/each}
@@ -57,9 +79,46 @@
   }
   .strip {
     display: grid;
-    grid-template-rows: 1fr auto;
-    gap: 0.55em;
+    grid-template-rows: 1fr auto auto;
+    gap: 0.4em;
     min-width: 0;
+  }
+  /* The part's sound under its fader: click to change it. */
+  /* Two lines, so "Silk Strings" reads whole at any size; longer names end in …. */
+  .sname {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    height: 2.3em;
+    min-width: 0;
+    padding: 0 0.1em;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--muted);
+    font-family: var(--font-display);
+    font-size: 0.68em;
+    font-weight: 600;
+    line-height: 1.15;
+    text-align: center;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  button.sname:hover,
+  button.sname:focus-visible {
+    color: var(--ink);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .sname.edited {
+    color: var(--accent);
+  }
+  .sname.missing {
+    color: var(--danger, #e66);
+  }
+  .sname.blank {
+    cursor: default;
   }
   /* Highlighted from a drawer (lib/mirror). Static: nothing here animates. */
   .strip {

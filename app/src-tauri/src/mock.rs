@@ -9,6 +9,10 @@ use std::time::Instant;
 
 #[path = "mock_multipad.rs"]
 mod multipad;
+#[path = "mock_quick.rs"]
+mod quick;
+#[path = "mock_racks.rs"]
+mod racks;
 #[path = "mock_sound.rs"]
 mod sound;
 #[path = "mock_sounds.rs"]
@@ -21,7 +25,6 @@ use yahaha::fingering::Fingering;
 use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
 use yahaha::parts::{self, FaderPage};
 
-use crate::mock_regist::{Effect, MockRegist};
 use crate::mock_looper::{self, MockLooper};
 
 const FIXTURE: &str = include_str!("../../src/lib/api/mock-fixture.json");
@@ -53,6 +56,21 @@ struct FixtureStyle {
 struct Fixture {
     gm: Vec<String>,
     styles: Vec<FixtureStyle>,
+}
+
+/// What the live rack holds, as the state shows it (docs/racks.md): the keyboard parts'
+/// sounds and mix, the split, the keyboard transpose and Harmony/Arp. As mock.ts's
+/// `liveRackView`.
+fn live_rack_view(s: &AppState) -> serde_json::Value {
+    let parts: Vec<_> = s
+        .keyboard_parts
+        .iter()
+        .map(|p| {
+            let plugin = p.plugin.as_ref().map(|x| x.id.clone());
+            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, plugin, p.sound, p.sound_edited])
+        })
+        .collect();
+    serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp])
 }
 
 const INTROS: [&str; 3] = ["Intro A", "Intro B", "Intro C"];
@@ -170,8 +188,8 @@ pub struct MockSession {
     fade_left: f64,
     /// A Hold pedal holds Unison on (`setUnisonHeld`).
     unison_held: bool,
-    /// Registration Memory and the Playlist (in memory).
-    regist: MockRegist,
+    /// Quick Racks (mock_quick.rs).
+    quick: quick::MockQuick,
     /// The Chord Looper, as the engine runs it (mock_looper.rs).
     looper: MockLooper,
     /// Multi Pads (mock_multipad.rs).
@@ -185,6 +203,8 @@ pub struct MockSession {
     sounds: sounds::MockSounds,
     /// Knob Assign pages (#197): the engine's own model.
     knobs: yahaha::knobs::Knobs,
+    /// The user's racks (mock_racks.rs).
+    racks: racks::MockRacks,
 }
 
 impl Default for MockSession {
@@ -398,8 +418,10 @@ impl MockSession {
                 ..EffectsState::initial()
             },
             home: HomeState::default(),
+            live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default(), prompt: None },
+            racks: Vec::new(),
+            quick_racks: QuickRacksState::default(),
         };
-        let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
             state,
             gm,
@@ -424,13 +446,14 @@ impl MockSession {
             settings: StyleSettings::default(),
             fade_left: 0.0,
             unison_held: false,
-            regist: MockRegist::new(&songs),
+            quick: Default::default(),
             looper: MockLooper::default(),
             pads: multipad::MockPads::default(),
             controllers: Controllers::new(),
             sound: sound::MockSound::default(),
             sounds: sounds::MockSounds::default(),
             knobs: Default::default(),
+            racks: Default::default(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -468,6 +491,18 @@ impl MockSession {
     }
 
     fn sounds_cmd(&mut self, c: SoundsCmd) {
+        // Replace…: assignSound, then the part's mix as it was (a sound swap never touches it).
+        if let SoundsCmd::ReplacePartSound { part, id } = c {
+            if part > 3 {
+                return self.message(format!("no keyboard part {part} (0-3)"), true);
+            }
+            let k = &self.state.keyboard_parts[part as usize];
+            let mix = (k.volume, k.pan, k.reverb, k.chorus, k.variation, k.octave, k.on);
+            self.sounds_cmd(SoundsCmd::AssignSound { part, id });
+            let k = &mut self.state.keyboard_parts[part as usize];
+            (k.volume, k.pan, k.reverb, k.chorus, k.variation, k.octave, k.on) = mix;
+            return;
+        }
         // Add to my sounds: the entry's library patch, added once (a saved sound is in).
         if let SoundsCmd::AddToMySounds { id } = &c {
             if !id.starts_with("saved:") && !id.starts_with("sf:") && !id.starts_with("au:") {
@@ -532,8 +567,8 @@ impl MockSession {
                 self.sound.part_plugin(part as usize, false);
                 self.state.keyboard_parts[(part & 3) as usize].plugin = None;
             }
-            // The editor closed: the mock takes it as an edit (O3's "edited" badge).
-            PluginCmd::SavePartPluginState { part } => self.sound.plugin_edited(part as usize),
+            // The editor closed: "edited" already shows what its window changed.
+            PluginCmd::SavePartPluginState { .. } => {}
             PluginCmd::RescanPlugins => {}
             PluginCmd::ReloadPartPlugin { part } => {
                 let part = match part {
@@ -548,6 +583,10 @@ impl MockSession {
                     Some((PluginStatus::Loading, _, plugin)) => self.message(format!("{name}'s {plugin} is still loading"), true),
                 }
             }
+            PluginCmd::MarkPluginSeen { id } => match self.state.plugins.list.iter_mut().find(|p| p.id == id) {
+                Some(e) => e.new = false,
+                None => self.message(format!("no instrument Audio Unit {id} is installed"), true),
+            },
             PluginCmd::SetPluginInProcess { id, in_process } => {
                 let Some(e) = self.state.plugins.list.iter_mut().find(|p| p.id == id) else {
                     return self.message(format!("no instrument Audio Unit {id} is installed"), true);
@@ -576,7 +615,7 @@ impl MockSession {
         // AUSampler plays the heavy plugin: a high CPU share and a few slow renders.
         let heavy = failed.is_none() && e.id == MOCK_HEAVY_ID;
         self.state.keyboard_parts[part & 3].plugin = Some(PartPlugin {
-            id: e.id,
+            id: e.id.clone(),
             name: e.name.clone(),
             manufacturer: e.manufacturer.clone(),
             status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
@@ -590,7 +629,14 @@ impl MockSession {
             editor: failed.is_none(),
             preset: None,
             preset_key: None,
+            missing: false,
         });
+        // Played: no longer new.
+        if failed.is_none()
+            && let Some(p) = self.state.plugins.list.iter_mut().find(|p| p.id == e.id)
+        {
+            p.new = false;
+        }
         if let Some(err) = failed {
             self.message(format!("{} didn't load: {err}", e.name), true);
         } else if fallback {
@@ -645,6 +691,43 @@ impl MockSession {
             left -= 20.0;
         }
         self.bump(&before)
+    }
+
+    /// The mock plugin window on keyboard part `part` turned its knob to `value`: the part
+    /// shows as edited at once unless that is its sound's setting (the engine reads an open
+    /// window's plugin state about every half second). True if anything changed.
+    pub fn plugin_window(&mut self, part: u8, value: i32) -> bool {
+        let playing = self.state.keyboard_parts[(part & 3) as usize].plugin.as_ref().is_some_and(|p| p.status == PluginStatus::Playing);
+        if !playing {
+            return false;
+        }
+        let before = self.state.clone();
+        self.sound.plugin_window(part as usize, value);
+        self.bump(&before)
+    }
+
+    /// The demo has no real plugin window: opening one (`open_plugin_editor`) turns its
+    /// knob one step off the sound's setting, and opening it again turns it back, so the
+    /// "edited" badge shows and clears without the real host.
+    pub fn open_plugin_window(&mut self, part: u8) {
+        let p = (part & 3) as usize;
+        let Some(name) = self.state.keyboard_parts[p].plugin.as_ref().filter(|q| q.status == PluginStatus::Playing).map(|q| q.name.clone()) else {
+            let before = self.state.clone();
+            self.message("the part is not playing a plugin", true);
+            self.bump(&before);
+            return;
+        };
+        let v = self.sound.plugin_window_demo(p);
+        self.plugin_window(part, v);
+        let kp = &self.state.keyboard_parts[p];
+        let turned = match (&kp.sound, kp.sound_edited) {
+            (None, _) => String::new(),
+            (Some(_), true) => "; the demo turned its knob off the sound's setting".into(),
+            (Some(_), false) => "; the demo turned its knob back to the sound's setting".into(),
+        };
+        let before = self.state.clone();
+        self.message(format!("{name}'s window is the desktop app's{turned}"), false);
+        self.bump(&before);
     }
 
     /// Run a command; true if anything changed.
@@ -707,6 +790,13 @@ impl MockSession {
 
     fn bump(&mut self, before: &AppState) -> bool {
         self.derive();
+        // The live rack: any change to what it holds sets modified (the session's
+        // `pump_live_rack`).
+        if live_rack_view(&self.state) != live_rack_view(before) && !self.racks.clean {
+            self.state.live_rack.modified = true;
+        }
+        self.racks.clean = false;
+        self.state.racks = self.racks.entries();
         // The clock as read when the state last changed: time passing alone changes nothing.
         let clock = &mut self.state.surface.clock;
         *clock = clock.at(before.surface.clock.at_ms);
@@ -1172,9 +1262,9 @@ impl MockSession {
                 Some(s) => s as usize == i,
                 None => p.on || p.plays_bass,
             };
-            p.voice_name = if p.plays_bass { "Finger Bass".into() } else { self.gm[p.program as usize].clone() };
         }
-        self.sound.derive(st, &self.gm);
+        // The parts' sounds and voice names.
+        self.sound.derive(st);
         self.sounds.derive(st);
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
             p.muted_by_manual_bass = i == 2 && mb;
@@ -1193,9 +1283,9 @@ impl MockSession {
         let t = &mut st.transport;
         t.landing = (t.running && (fill_like(&t.queued) || fill_like(&t.section))).then(|| MAINS[t.main as usize % 4].into());
         st.transport.lamps = pads_for(st, Page::Sections);
-        self.regist.fill(st);
         st.home = crate::mock_home::home(st);
-        st.pads.pads = if st.pads.page == Page::Registration { self.regist.pads() } else { pads_for(st, st.pads.page) };
+        st.pads.pads = pads_for(st, st.pads.page);
+        self.quick.fill(st, &self.racks.entries());
         self.anchor_clocks();
         self.state.surface = self.surface();
     }
@@ -1224,7 +1314,7 @@ impl MockSession {
         let st = &self.state;
         let page = st.pads.page;
         let styles = self.library.entries.len() > 1;
-        let songs = self.regist.has_songs();
+        let quick_racks = st.quick_racks.buttons.iter().any(|b| b.rack.is_some());
         let fader_page = st.mixer.fader_page;
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
@@ -1246,7 +1336,7 @@ impl MockSession {
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 Control::Act(Action::Style(_)) if !styles => None,
-                Control::Act(Action::Playlist(_)) if !songs => None,
+                Control::Act(Action::QuickRackStep(_)) if !quick_racks => None,
                 Control::Act(a) => Some(a.into()),
             }
         };
@@ -1275,8 +1365,8 @@ impl MockSession {
         for (id, cc, label, shift_label) in [
             ("padBankUp", lk::PAD_UP_CC, "PAGE ▲", "LEFT"),
             ("padBankDown", lk::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
-            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", "◀ SONG"),
-            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", "SONG ▶"),
+            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", "◀ RACK"),
+            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", "RACK ▶"),
             ("play", lk::PLAY_CC, "PLAY", "RESET"),
             ("stop", lk::STOP_CC, "STOP", "FADE"),
             ("scene", lk::SCENE_CC, "TEMPO +", "RTG SHORT"),
@@ -1992,6 +2082,10 @@ impl MockSession {
                 None => self.message(format!("Style part {part} has no insertion effect"), true),
             },
             AppCmd::Fx(FxCmd::SetRotaryFast { on }) => self.state.effects.rotary_fast = on,
+            AppCmd::Rack(c) => {
+                self.rack_cmd(c.clone());
+                self.quick_after_rack_cmd(&c);
+            }
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Fx(FxCmd::SetPadSend { block, level }) => self.state.effects.blocks[block.index()].pad_send = level.min(127),
@@ -2034,14 +2128,9 @@ impl MockSession {
                 };
                 self.state.dynamics = c.apply(now).into();
             }
-            AppCmd::Registration(c) => {
-                let fx = self.regist.registration_cmd(c, &self.state);
-                self.run_regist(fx);
-            }
-            AppCmd::Playlist(c) => {
-                let fx = self.regist.playlist_cmd(c, &self.state);
-                self.run_regist(fx);
-            }
+            AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
+            // Off the wire (Quick Racks replaced them): the app can't send these.
+            AppCmd::Registration(_) | AppCmd::Playlist(_) => self.message("Registrations are gone: Quick Racks replace them", true),
             AppCmd::MultiPad(c) => {
                 let running = self.state.transport.running;
                 if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
@@ -2103,26 +2192,6 @@ impl MockSession {
                 Ok(self.state.sound_library.last_added.clone())
             }
         }
-    }
-
-    /// A recall's style load and Main press (OTS Link held off: the registration's voices
-    /// win), then the rest of it.
-    fn run_regist(&mut self, fx: Vec<Effect>) {
-        let tempo = self.state.transport.tempo;
-        for e in fx {
-            match e {
-                Effect::LoadStyle(path) => self.cmd(AppCmd::Library(LibraryCmd::LoadStylePath { path })),
-                Effect::Main(index) => {
-                    let link = self.state.ots.link;
-                    self.state.ots.link = false;
-                    self.cmd(AppCmd::Transport(TransportCmd::Main { index }));
-                    self.state.ots.link = link;
-                }
-                Effect::Message(text, error) => self.message(text, error),
-                Effect::Cmd(c) => self.cmd(c),
-            }
-        }
-        self.regist.apply_pending(&mut self.state, tempo);
     }
 
     fn set_upper(&mut self, on: bool) {
@@ -2291,8 +2360,8 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             }
             v
         }
-        // Page 4 comes from the Registration mock (`MockRegist::pads`).
-        Page::Registration | Page::MultiPads => vec![],
+        // Page 4 comes from the Quick Racks mock (`MockQuick::fill`).
+        Page::QuickRacks | Page::MultiPads => vec![],
     }
 }
 
@@ -2382,30 +2451,122 @@ mod tests {
         60000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64
     }
 
-    /// Now playing (O3): a preset names its sound; the editor closing marks it edited;
-    /// Save as… plays the new sound, not edited; Save keeps the same one.
+    /// Now playing (O3): a preset names its sound (no library record: docs/racks.md "One
+    /// save makes one record"); a value changed in its window marks it edited at once, and
+    /// changing it back clears that; Save makes one sound named after the preset, which the
+    /// part then plays; Save again keeps the same one.
     #[test]
     fn a_part_shows_its_sound_edited_and_saved() {
         let mut m = MockSession::new();
         m.send(SoundsCmd::ListPluginPresets { id: format!("au:{}", sounds::MOCK_PRESETS_ID) });
+        let n = m.state.sound_library.patches.len();
         m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
+        assert_eq!(m.state.sound_library.patches.len(), n, "picking a preset adds no record");
         let tag = m.state.keyboard_parts[0].sound.clone().expect("the preset's sound");
         assert_eq!(tag.name, "Bright Grand");
-        assert!(tag.id.starts_with("saved:") && !m.state.keyboard_parts[0].sound_edited);
+        assert_eq!(tag.id, format!("au:{}#f:1", sounds::MOCK_PRESETS_ID));
+        assert!(!m.state.keyboard_parts[0].sound_edited);
+        // Closing the window alone is no edit.
         m.send(PluginCmd::SavePartPluginState { part: 0 });
+        assert!(!m.state.keyboard_parts[0].sound_edited);
+        assert!(m.plugin_window(0, 5));
         assert!(m.state.keyboard_parts[0].sound_edited);
-        // A factory preset's sound is not overwritten: Save is Save as….
-        let n = m.state.sound_library.patches.len();
+        assert!(m.plugin_window(0, 0));
+        assert!(!m.state.keyboard_parts[0].sound_edited, "undone");
+        // The demo window: opening it edits, opening it again undoes that.
+        m.open_plugin_window(0);
+        assert!(m.state.keyboard_parts[0].sound_edited);
+        m.open_plugin_window(0);
+        assert!(!m.state.keyboard_parts[0].sound_edited);
+        m.plugin_window(0, 5);
+        assert!(m.state.keyboard_parts[0].sound_edited);
+        // A factory preset is not overwritten: Save makes one sound named after it.
         m.send(SoundLibraryCmd::SaveSound { part: 0 });
         assert_eq!(m.state.sound_library.patches.len(), n + 1);
         let mine = m.state.keyboard_parts[0].sound.clone().unwrap();
-        assert!(mine.id != tag.id && !m.state.keyboard_parts[0].sound_edited);
-        m.send(PluginCmd::SavePartPluginState { part: 0 });
+        assert!(mine.id != tag.id && mine.name == "Bright Grand" && !m.state.keyboard_parts[0].sound_edited);
+        m.plugin_window(0, 7);
+        assert!(m.state.keyboard_parts[0].sound_edited);
         m.send(SoundLibraryCmd::SaveSound { part: 0 });
         assert_eq!((m.state.sound_library.patches.len(), m.state.keyboard_parts[0].sound.clone()), (n + 1, Some(mine)));
         assert!(!m.state.keyboard_parts[0].sound_edited);
+        // Saved at 7: that is the sound's setting now.
+        m.plugin_window(0, 5);
+        assert!(m.state.keyboard_parts[0].sound_edited);
+        m.plugin_window(0, 7);
+        assert!(!m.state.keyboard_parts[0].sound_edited);
         m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("Mine 2".into()) });
         assert_eq!(m.state.keyboard_parts[0].sound.as_ref().map(|t| t.name.as_str()), Some("Mine 2"));
+    }
+
+    /// The live rack (docs/racks.md): a new rack, modified by a mix, split or Harmony/Arp
+    /// change, or a plugin edit; not by the band playing.
+    #[test]
+    fn the_live_rack_is_modified_by_a_change_to_what_it_holds() {
+        let changes: [&dyn Fn(&mut MockSession); 4] = [
+            &|m| drop(m.send(PartsCmd::SetPartVolume { part: 0, volume: 12 })),
+            &|m| drop(m.send(ChordCmd::SetSplit { note: 48 })),
+            &|m| drop(m.send(HarmonyArpCmd::SetHarmonyArpOn { on: true })),
+            &|m| drop(m.plugin_window(0, 5)),
+        ];
+        for (i, change) in changes.iter().enumerate() {
+            let mut m = MockSession::new();
+            if i == 3 {
+                m.send(SoundsCmd::ListPluginPresets { id: format!("au:{}", sounds::MOCK_PRESETS_ID) });
+                m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
+                m.state.live_rack.modified = false;
+            }
+            assert_eq!(m.state.live_rack, LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default(), prompt: None });
+            m.send(TransportCmd::StartStop);
+            m.advance(bar_ms(&m) * 2.0);
+            assert!(!m.state.live_rack.modified, "change {i}: not by the band");
+            change(&mut m);
+            assert!(m.state.live_rack.modified, "change {i} sets modified");
+        }
+    }
+
+    /// Every part names what actually sounds, as the engine does (`api::part_sound`): a
+    /// preset by its preset (its catalog row); a sound the user saved as the library names
+    /// it now; a failed plugin by the SoundFont voice that plays.
+    #[test]
+    fn a_part_names_what_actually_sounds() {
+        let mut m = MockSession::new();
+        let id = sounds::MOCK_PRESETS_ID;
+        m.send(SoundsCmd::ListPluginPresets { id: format!("au:{id}") });
+        m.send(PluginCmd::SetPartPluginPreset { part: 0, id: id.into(), preset: "f:1".into() });
+        let p0 = |m: &MockSession| m.state.keyboard_parts[0].clone();
+        assert_eq!((p0(&m).sound.map(|t| t.id), p0(&m).voice_name), (Some(format!("au:{id}#f:1")), "Sampler Deluxe · Bright Grand".to_string()));
+        // Renamed, then deleted: the part follows the library.
+        m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("My Grand".into()) });
+        let saved = p0(&m).sound.unwrap().id;
+        let patch_id = saved.strip_prefix("saved:").unwrap().to_string();
+        let p = m.state.sound_library.patches.iter().find(|p| p.patch.id == patch_id).unwrap().patch.clone();
+        let fields = PatchFields { name: "Renamed".into(), category: p.category, tags: p.tags, favourite: p.favourite, source: p.source };
+        m.send(SoundLibraryCmd::UpdatePatch { id: patch_id.clone(), patch: fields });
+        assert_eq!((p0(&m).sound.map(|t| t.name), p0(&m).voice_name), (Some("Renamed".to_string()), "Renamed".to_string()));
+        m.send(SoundLibraryCmd::DeletePatch { id: patch_id });
+        assert_ne!(p0(&m).sound.map(|t| t.id), Some(saved));
+        assert!(!p0(&m).voice_name.contains("Renamed"));
+        // A plugin that failed: the SoundFont voice (the GM map's), not the plugin.
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: "aumu Mock Demo".into(), state: None });
+        let p1 = m.state.keyboard_parts[1].clone();
+        assert_eq!(p1.plugin.map(|p| p.status), Some(PluginStatus::Failed));
+        let row = m.state.sound_library.gm_map.iter().find(|r| r.program == Some(p1.program)).unwrap().resolved.sound.clone();
+        assert_eq!(p1.sound.map(|t| t.id), row);
+        assert!(!p1.voice_name.contains("Broken Synth"));
+    }
+
+    /// One save makes one record (docs/racks.md): Save on a part playing a GM voice makes
+    /// one sound, which the part then plays, so saving again updates it.
+    #[test]
+    fn saving_a_gm_voice_part_again_makes_no_copy() {
+        let mut m = MockSession::new();
+        let n = m.state.sound_library.patches.len();
+        for _ in 0..3 {
+            m.send(SoundLibraryCmd::SaveSound { part: 2 });
+        }
+        assert_eq!(m.state.sound_library.patches.len(), n + 1);
+        assert_eq!(m.state.keyboard_parts[2].patch.as_ref(), m.state.sound_library.patches.last().map(|p| &p.patch.id));
     }
 
     #[test]
@@ -2571,6 +2732,73 @@ mod tests {
         assert!(m.state.keyboard_parts[0].plugin.is_none(), "OTS");
     }
 
+    /// The rack commands (docs/racks.md, "Saving"), as the session does them: save as, the
+    /// unsaved-changes guard, load, rename, duplicate, delete (never the loaded rack).
+    #[test]
+    fn rack_commands_and_the_switching_guard() {
+        let mut m = MockSession::new();
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        let id = m.state.racks[0].id.clone();
+        assert_eq!(m.state.live_rack, LiveRackState { name: "Ballad".into(), id: Some(id.clone()), modified: false, controls: Default::default(), prompt: None });
+
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 99 });
+        assert!(m.state.live_rack.modified);
+        m.send(RackCmd::NewRack { discard: false });
+        assert_eq!(m.state.live_rack.prompt, Some(RackPrompt::UnsavedChanges { then: RackSwitch::New }));
+        assert_eq!(m.state.keyboard_parts[0].volume, 99, "nothing changed");
+        m.send(RackCmd::DismissRackPrompt);
+        assert_eq!(m.state.live_rack.prompt, None);
+        m.send(RackCmd::LoadRack { id: id.clone(), discard: true });
+        assert_eq!(m.state.keyboard_parts[0].volume, 30);
+        assert!(!m.state.live_rack.modified);
+
+        // Save first: a failed save drops the held switch; a good one makes it.
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 40 });
+        m.send(RackCmd::NewRack { discard: false });
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        m.send(RackCmd::SaveRack { sound_names: Default::default() });
+        assert_eq!(m.state.live_rack.name, "Ballad", "no switch after a failed save");
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(RackCmd::NewRack { discard: false });
+        m.send(RackCmd::SaveRack { sound_names: Default::default() });
+        assert_eq!(m.state.live_rack.name, "New rack", "switched once saved");
+        m.send(RackCmd::LoadRack { id: id.clone(), discard: false });
+        assert_eq!(m.state.keyboard_parts[0].volume, 30);
+
+        m.send(RackCmd::DuplicateRack { id: id.clone() });
+        m.send(RackCmd::RenameRack { id: id.clone(), name: "Slow".into() });
+        assert_eq!(m.state.racks.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["Ballad copy", "Slow"]);
+        assert_eq!(m.state.live_rack.name, "Slow");
+        m.send(RackCmd::DeleteRack { id: id.clone() });
+        assert_eq!(m.state.racks.len(), 2, "not the loaded rack");
+        let copy = m.state.racks[0].id.clone();
+        m.send(RackCmd::DeleteRack { id: copy });
+        assert_eq!(m.state.racks.len(), 1);
+    }
+
+    /// New and missing plugins (docs/racks.md): a new plugin stops being new once opened or
+    /// played; Replace… keeps the part's mix.
+    #[test]
+    fn new_plugins_and_replacing_a_sound() {
+        let mut m = MockSession::new();
+        let new = |m: &MockSession| m.state.plugins.list.iter().filter(|p| p.new).map(|p| p.id.clone()).collect::<Vec<_>>();
+        assert_eq!(new(&m), [MOCK_FALLBACK_ID]);
+        assert_eq!(m.state.plugins.missing.len(), 1);
+        assert_eq!(m.state.plugins.missing[0].racks, 1);
+        assert_eq!(m.state.plugins.needs_attention.len(), 1);
+        assert_eq!((m.state.plugins.needs_attention[0].id.as_str(), &m.state.plugins.needs_attention[0].parts[..]), ("strings-night", &[1u8][..]));
+        m.send(PluginCmd::MarkPluginSeen { id: MOCK_FALLBACK_ID.into() });
+        assert!(new(&m).is_empty());
+        m.send(PluginCmd::MarkPluginSeen { id: "aumu nope nope".into() });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        m.send(PartsCmd::SetPartVolume { part: 1, volume: 33 });
+        m.send(PartsCmd::SetPartOctave { part: 1, octave: -1 });
+        m.send(SoundsCmd::ReplacePartSound { part: 1, id: "saved:stage-grand".into() });
+        let k = &m.state.keyboard_parts[1];
+        assert_eq!((k.patch.as_deref(), k.volume, k.octave), (Some("stage-grand"), 33, -1));
+    }
+
     /// The sound catalog (#117): every preset, plugin and saved sound; assigning routes
     /// by source, as the session does.
     #[test]
@@ -2623,6 +2851,23 @@ mod tests {
         assert_eq!(m.state.keyboard_parts, before, "nothing plays it");
         m.send(SoundsCmd::AddToMySounds { id: "sf:FluidR3_GM.sf2:9:9".into() });
         assert_eq!(m.state.sound_library.patches.len(), n + 2);
+    }
+
+    /// A plugin's preset count is unknown (None) until its factory presets are listed, even
+    /// with its .aupreset files in; a listing that fails ends with its reason and no count.
+    #[test]
+    fn plugin_preset_counts_are_honest_and_a_failed_listing_ends() {
+        let mut m = MockSession::new();
+        let info = |m: &MockSession, id: &str| m.sounds().entries.into_iter().find(|e| e.id == id).and_then(|e| e.plugin).unwrap();
+        let sampler = format!("au:{}", sounds::MOCK_PRESETS_ID);
+        assert_eq!(info(&m, &sampler).presets, None, "two .aupreset files are not its count");
+        m.send(SoundsCmd::ListPluginPresets { id: sampler.clone() });
+        assert_eq!(info(&m, &sampler).presets, Some(5));
+        let broken = "au:aumu Mock Demo";
+        m.send(SoundsCmd::ListPluginPresets { id: broken.into() });
+        let b = info(&m, broken);
+        assert_eq!((b.presets, b.presets_error.as_deref()), (None, Some("timed out after 20.0 s")));
+        assert!(m.state.sounds.listing_presets.is_empty());
     }
 
     /// AU presets, as mock-sounds.ts: the fake sampler's .aupreset files list from the
@@ -2782,24 +3027,24 @@ mod tests {
         assert!(m.state.controllers.sustain);
         m.send(SystemCmd::Panic);
         assert!(!m.state.controllers.sustain);
-        // Registration Bank +: the REGIST BANK [+] button loads the next demo bank.
-        let before = m.state.registration.bank.path.clone();
+        // Registration Bank + is gone (no bank files): it says so.
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
-        assert!(m.state.registration.bank.path.is_some());
-        assert_ne!(m.state.registration.bank.path, before);
-        // Snapshot Bank +/−: the BANK -/+ pads' command (`StepSnapshotBank`).
-        let view = m.state.registration.snapshot_bank;
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("not in yahaha")));
+        // Snapshot Bank +/− step the Quick Racks bank, as the BANK -/+ pads.
         m.send(ControllersCmd::TriggerFunction { function: Function::SnapshotBankNext });
-        assert_eq!(m.state.registration.snapshot_bank, view + 1);
+        assert_eq!(m.state.quick_racks.bank, 1);
         m.send(ControllersCmd::TriggerFunction { function: Function::SnapshotBankPrev });
-        assert_eq!(m.state.registration.snapshot_bank, view);
-        // Regist + (#200): the demo bank's first stored button, then the next one.
-        m.send(RegistrationCmd::SetRegistSequenceOn { on: false });
+        assert_eq!(m.state.quick_racks.bank, 0);
+        // Regist 1 and Regist + load Quick Racks.
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        m.send(QuickRackCmd::ToggleQuickRackStore);
+        m.send(QuickRackCmd::PressQuickRack { slot: 2, discard: false });
+        m.send(RackCmd::NewRack { discard: true });
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });
-        let first = m.state.registration.selected;
-        assert!(first.is_some());
-        m.send(ControllersCmd::TriggerFunction { function: Function::Regist1 });
-        assert_eq!(m.state.registration.selected, Some(0));
+        assert_eq!(m.state.live_rack.name, "Ballad");
+        m.send(RackCmd::NewRack { discard: true });
+        m.send(ControllersCmd::TriggerFunction { function: Function::Regist3 });
+        assert!(m.state.quick_racks.buttons[2].loaded);
     }
 
     #[test]
@@ -2996,65 +3241,39 @@ mod tests {
         assert_eq!((c3.running, c3.bar, c3.beat, c3.phase), (false, 1, 1, 0.0));
     }
 
+    /// Quick Racks as the session does them: Store (after a save when unsaved), press
+    /// through the guard, bank −/+, page 4, Shift + Track.
     #[test]
-    fn registration_recalls_lights_page_4_and_the_playlist_steps() {
+    fn quick_racks_store_press_and_light_page_4() {
         let mut m = MockSession::new();
-        assert_eq!(m.state.registration.bank.name, "Friday Gig");
-        assert_eq!(m.state.registration.buttons.len(), 16, "Friday Gig has Banks A and B");
-        m.send(RegistrationCmd::RecallRegist { index: 3 });
-        assert_eq!(m.state.registration.selected, Some(3));
-        assert_eq!(m.state.transport.tempo, 132.0);
-        assert_eq!(m.state.keyboard_parts[0].program, 26);
-        m.send(PadsCmd::SetPadPage { page: Page::Registration });
-        assert_eq!(m.state.pads.pads.len(), 16);
-        assert_eq!((m.state.pads.pads[3].rgb, m.state.pads.pads[0].rgb), ([127, 0, 0], [0, 40, 127]));
-        assert_eq!(m.state.pads.pads[7].level, Level::Off);
-        assert_eq!((m.state.pads.pads[0].label.as_str(), m.state.pads.pads[12].label.as_str()), ("SNAP 1", "STORE"));
-        // Bank +, Store, then snapshot 2: B2.
-        m.send(RegistrationCmd::StepSnapshotBank { delta: 1 });
-        assert_eq!(m.state.registration.snapshot_bank, 1);
-        assert_eq!(m.state.pads.pads[0].level, Level::Bright, "B1 (a ten-button bank's 9) is stored");
-        m.send(RegistrationCmd::ToggleRegistMemory);
+        m.send(QuickRackCmd::ToggleQuickRackStore);
+        m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: false });
+        assert_eq!(m.state.quick_racks.store_waiting, Some(1), "an unsaved rack waits for its save");
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        let q = &m.state.quick_racks;
+        assert_eq!((q.store, q.store_waiting, q.buttons[1].name.as_str(), q.buttons[1].loaded), (false, None, "Ballad", true));
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: false });
+        assert!(matches!(m.state.live_rack.prompt, Some(RackPrompt::UnsavedChanges { .. })), "the guard");
+        m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: true });
+        assert!(!m.state.live_rack.modified);
+        m.send(PadsCmd::SetPadPage { page: Page::QuickRacks });
+        let pads = &m.state.pads.pads;
+        assert_eq!(pads.len(), 16);
+        assert_eq!((pads[1].rgb, pads[0].level), ([127, 0, 0], Level::Off));
+        assert_eq!((pads[0].label.as_str(), pads[12].label.as_str(), pads[10].label.as_str()), ("QUICK 1", "STORE", ""));
+        assert_eq!(pads[1].action, Some(AppCmd::QuickRacks(QuickRackCmd::PressQuickRack { slot: 1, discard: false })));
+        m.send(QuickRackCmd::StepQuickRackBank { delta: 1 });
+        assert_eq!((m.state.quick_racks.bank, m.state.quick_racks.buttons[1].rack.clone()), (1, None));
+        m.send(QuickRackCmd::ToggleQuickRackStore);
         assert!(m.state.pads.pads.iter().take(8).all(|p| p.anim == Anim::Flash));
-        m.send(RegistrationCmd::PressSnapshot { slot: 1 });
-        assert!(m.state.registration.buttons[9].stored);
-        assert_eq!(m.state.registration.selected, Some(9));
-        // Shift + Track steps the playlist: its first record recalls Friday Gig [1].
+        let track = |m: &MockSession| m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().shift_action.clone();
+        assert_eq!(track(&m), None, "Shift + Track is dark on a bank with no rack");
+        m.send(QuickRackCmd::StepQuickRackBank { delta: -1 });
         let tl = m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().clone();
-        assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("SONG ▶", Some(AppCmd::Playlist(PlaylistCmd::StepPlaylist { delta: 1 }))));
-        m.send(PlaylistCmd::StepPlaylist { delta: 1 });
-        assert_eq!((m.state.playlist.current, m.state.registration.selected), (Some(0), Some(0)));
-        assert_eq!(m.state.transport.tempo, 72.0);
-    }
-
-    /// As the session's `harmonyArp` registrable: Memorize stores Keyboard Harmony/Arpeggio,
-    /// a recall puts it back (not the pedal's Arpeggio Hold), Freeze leaves it.
-    #[test]
-    fn registration_stores_harmony_arpeggio() {
-        let mut m = MockSession::new();
-        m.send(HarmonyArpCmd::SetArpPattern { index: 4 });
-        m.send(HarmonyArpCmd::SetHarmonyArpOn { on: true });
-        m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 60 });
-        let want = m.state.harmony_arp.clone();
-        m.send(RegistrationCmd::MemorizeRegist { index: 5 });
-        let scramble = |m: &mut MockSession| {
-            m.send(HarmonyArpCmd::SetHarmonyType { index: 1 });
-            m.send(HarmonyArpCmd::SetHarmonyArpOn { on: false });
-            m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 100 });
-        };
-        scramble(&mut m);
-        m.send(HarmonyArpCmd::SetArpPedalHold { on: true });
-        m.send(RegistrationCmd::RecallRegist { index: 5 });
-        let mut got = m.state.harmony_arp.clone();
-        assert!(got.arp.pedal_hold, "the pedal's, not recalled");
-        got.arp.pedal_hold = false;
-        assert_eq!(got, want);
-        scramble(&mut m);
-        let scrambled = m.state.harmony_arp.clone();
-        m.send(RegistrationCmd::SetFreezeGroup { group: yahaha::registration::Group::HarmonyArp, on: true });
-        m.send(RegistrationCmd::SetFreeze { on: true });
-        m.send(RegistrationCmd::RecallRegist { index: 5 });
-        assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+        assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("RACK ▶", Some(AppCmd::QuickRacks(QuickRackCmd::StepQuickRack { delta: 1, discard: false }))));
+        m.send(QuickRackCmd::ClearQuickRack { bank: 0, slot: 1 });
+        assert_eq!(m.state.quick_racks.buttons[1].rack, None);
     }
 
     /// Knob Assign pages (#197): a turn runs its function's command, as the session's.
@@ -3097,44 +3316,6 @@ mod tests {
         let d = &m.state.dynamics;
         assert_eq!((d.level, d.accent, d.accent_threshold, d.touch, d.control), (127, true, 1, true, true));
         assert_eq!((d.accent_mode, d.accent_source), (yahaha::engine::AccentMode::Fill, yahaha::engine::AccentSource::Both));
-    }
-
-    /// As the session's Parameter Lock: a locked group keeps the player's setting through
-    /// a recall; the other groups are recalled.
-    #[test]
-    fn param_lock_keeps_locked_groups_through_a_recall() {
-        let mut m = MockSession::new();
-        m.send(ChordCmd::SetSplit { note: 60 });
-        m.send(ChordCmd::SetFingering { fingering: yahaha::fingering::Fingering::Fingered });
-        m.send(RegistrationCmd::MemorizeRegist { index: 4 });
-        m.send(ChordCmd::SetSplit { note: 50 });
-        m.send(ChordCmd::SetFingering { fingering: yahaha::fingering::Fingering::SingleFinger });
-        m.send(ParamLockCmd::SetParamLock { item: LockItem::SplitPoint, on: true });
-        assert!(m.state.param_locks.split_point && !m.state.param_locks.fingering_type);
-        m.send(RegistrationCmd::RecallRegist { index: 4 });
-        assert_eq!(m.state.chord.split, 50, "locked");
-        assert_eq!(m.state.chord.fingering, yahaha::fingering::Fingering::Fingered, "not locked");
-    }
-
-    /// Save As names files as the session does ("A:B" is "A_B") and, like the Mac's file
-    /// system, ignores case: your own bank in another case is renamed, not refused.
-    #[test]
-    fn save_as_uses_the_session_file_names() {
-        let mut m = MockSession::new();
-        let save = |m: &mut MockSession, name: &str, overwrite: bool| m.send(RegistrationCmd::SaveRegistBank { name: Some(name.into()), overwrite });
-        m.send(RegistrationCmd::NewRegistBank);
-        save(&mut m, "A_B", false);
-        m.send(RegistrationCmd::NewRegistBank);
-        save(&mut m, "A:B", false);
-        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("already exists")));
-        assert_eq!(m.state.registration.bank.path, None);
-        m.send(RegistrationCmd::NewRegistBank);
-        save(&mut m, "Mine", false);
-        save(&mut m, "MINE", false);
-        let r = &m.state.registration;
-        assert!(r.bank.path.as_deref().is_some_and(|p| p.ends_with("/MINE.regist.json")));
-        assert_eq!(r.banks.iter().filter(|b| b.name.eq_ignore_ascii_case("mine")).count(), 1);
-        assert!(r.bank.position.is_some());
     }
 
     #[test]
@@ -3374,6 +3555,9 @@ fn mock_plugins() -> PluginsState {
         last_error: last_error.map(Into::into),
         in_process: false,
         can_run_in_process: format == "AUv2",
+        new: false,
+        racks: 0,
+        sounds: 0,
     };
     PluginsState {
         available: true,
@@ -3382,8 +3566,13 @@ fn mock_plugins() -> PluginsState {
             e("aumu dls  appl", "DLSMusicDevice", "Apple", "AUv2", None),
             e("aumu samp appl", "AUSampler", "Apple", "AUv2", None),
             e("aumu Mock Demo", "Broken Synth", "Example Audio", "AUv3", Some("timed out after 20.0 s")),
-            e(MOCK_FALLBACK_ID, "Tiny Synth", "Example Audio", "AUv2", None),
+            // Found by the last scan for the first time: new until opened or played.
+            PluginEntry { new: true, ..e(MOCK_FALLBACK_ID, "Tiny Synth", "Example Audio", "AUv2", None) },
             e(sounds::MOCK_PRESETS_ID, "Sampler Deluxe", "Fake Instruments", "AUv2", None),
         ],
+        // Installed before, gone now (docs/racks.md, "Plugins coming and going").
+        missing: vec![MissingPlugin { id: "aumu Str1 Fake".into(), name: "String Deluxe".into(), manufacturer: "Fake Instruments".into(), racks: 1, sounds: 0 }],
+        // The saved rack that plays it (Library › Racks, Needs attention).
+        needs_attention: vec![RackAttention { id: "strings-night".into(), name: "Strings Night".into(), parts: vec![1] }],
     }
 }

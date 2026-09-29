@@ -61,7 +61,6 @@ fn fields(name: &str, bank: u16, program: u8) -> PatchFields {
         tags: vec![],
         favourite: false,
         source: PatchSource::SoundFont { file: SF2.into(), bank, program },
-        defaults: PatchDefaults::default(),
     }
 }
 
@@ -144,11 +143,10 @@ fn edits_reorder_duplicate_and_refuse_bad_input() {
     s.send(SoundLibraryCmd::SetPatchFavourite { id: a.clone(), favourite: true }).unwrap();
     let mut f = fields("Warm Pad", 0, 89);
     f.tags = vec!["warm".into()];
-    f.defaults.volume = Some(250);
     s.send(SoundLibraryCmd::UpdatePatch { id: a.clone(), patch: f }).unwrap();
     let st = s.state();
     let p = st.sound_library.patches.iter().find(|p| p.patch.id == a).unwrap();
-    assert_eq!((p.patch.name.as_str(), p.patch.defaults.volume, p.patch.tags.len()), ("Warm Pad", Some(127), 1));
+    assert_eq!((p.patch.name.as_str(), p.patch.tags.len()), ("Warm Pad", 1));
     assert!(!p.available && p.note.as_deref().unwrap().contains("not in the SoundFont folder"), "no SoundFont folder here");
     // Bad input is refused and nothing changes.
     assert!(s.send(SoundLibraryCmd::SetFamilyRule { family: 16, patch: None, style: false }).is_err());
@@ -203,16 +201,16 @@ fn a_styles_own_map_wins_and_stays_with_the_style() {
 }
 
 #[test]
-fn a_keyboard_part_takes_its_patch_and_defaults() {
+fn a_keyboard_part_takes_its_patch_and_keeps_its_mix() {
     let Some((s, data)) = session("part", &["SlowWalker.T552.sty"], true) else { return };
-    let mut f = fields("Stage Piano", 0, 1);
-    f.defaults = PatchDefaults { volume: Some(80), pan: Some(40), reverb: Some(30), chorus: None, octave: 1 };
-    s.send(SoundLibraryCmd::CreatePatch { patch: f }).unwrap();
+    s.send(SoundLibraryCmd::CreatePatch { patch: fields("Stage Piano", 0, 1) }).unwrap();
     let id = s.state().sound_library.last_added.clone().unwrap();
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 55 }).unwrap();
+    s.send(PartsCmd::SetPartOctave { part: 0, octave: -1 }).unwrap();
     s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(id.clone()) }).unwrap();
     let st = s.state();
     let r1 = &st.keyboard_parts[0];
-    assert_eq!((r1.patch.as_deref(), r1.voice_name.as_str(), r1.volume, r1.octave), (Some(id.as_str()), "Stage Piano", 80, 1));
+    assert_eq!((r1.patch.as_deref(), r1.voice_name.as_str(), r1.volume, r1.octave), (Some(id.as_str()), "Stage Piano", 55, -1));
     let routes = s.inner.shared.routes.clone();
     assert_eq!(routes.part(0).map(|r| r.program), Some(1));
     // A GM voice picked for the part: its own patch goes.
@@ -228,7 +226,40 @@ fn a_keyboard_part_takes_its_patch_and_defaults() {
     let p = st.sound_library.patches.last().unwrap();
     assert_eq!(p.patch.name, "My Strings");
     assert_eq!(p.patch.source, PatchSource::SoundFont { file: SF2.into(), bank: 0, program: 48 });
-    assert_eq!(p.patch.defaults.volume, Some(st.keyboard_parts[1].volume));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// One save makes one record (docs/racks.md "Saving"): Save on a part playing a GM voice
+/// makes one sound named after the voice, which the part then plays, so saving it again
+/// updates that sound rather than adding copies. The same for a voice the map sends to a
+/// patch: the first Save copies it once.
+#[test]
+fn saving_a_part_again_and_again_makes_one_record() {
+    let Some((s, data)) = session("save-once", &["SlowWalker.T552.sty"], true) else { return };
+    let n = s.state().sound_library.patches.len();
+    let program = s.state().keyboard_parts[1].program;
+    for _ in 0..3 {
+        s.send(SoundLibraryCmd::SaveSound { part: 1 }).unwrap();
+    }
+    let st = s.state();
+    assert_eq!(st.sound_library.patches.len(), n + 1, "one record for three saves");
+    let p = &st.sound_library.patches.last().unwrap().patch;
+    assert_eq!((p.name.as_str(), &p.source), (gm_name(program), &PatchSource::SoundFont { file: SF2.into(), bank: 0, program }));
+    assert_eq!(st.keyboard_parts[1].patch.as_deref(), Some(p.id.as_str()), "the part plays the new sound");
+    assert_eq!(s.inner.shared.routes.part(1).map(|r| r.program), Some(program));
+
+    // A GM voice the map sends to a patch: Save copies it once.
+    let mapped = add(&s, "Lush Strings", 0, 50);
+    let family = s.state().keyboard_parts[2].program / 8;
+    s.send(SoundLibraryCmd::SetFamilyRule { family, patch: Some(mapped.clone()), style: false }).unwrap();
+    let n = s.state().sound_library.patches.len();
+    s.send(SoundLibraryCmd::SaveSound { part: 2 }).unwrap();
+    s.send(SoundLibraryCmd::SaveSound { part: 2 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.sound_library.patches.len(), n + 1);
+    let copy = &st.sound_library.patches.last().unwrap().patch;
+    assert_ne!(copy.id, mapped);
+    assert_eq!((copy.name.as_str(), st.keyboard_parts[2].patch.as_deref()), ("Lush Strings", Some(copy.id.as_str())));
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -251,7 +282,6 @@ fn saving_a_part_saves_the_patch_the_map_plays() {
     assert_ne!(p.id, id);
     assert_eq!((p.name.as_str(), &p.tags), ("Lush Strings", &vec!["warm".to_string()]));
     assert_eq!(p.source, PatchSource::SoundFont { file: OTHER.into(), bank: 0, program: 50 }, "the mapped patch's sound");
-    assert_eq!(p.defaults.volume, Some(st.keyboard_parts[1].volume));
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -317,41 +347,184 @@ fn a_newer_library_file_is_left_alone() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
-/// A Style part the style sets no level for takes its patch's CC7 (the mixer shows it);
-/// one the style sets keeps the style's.
-#[test]
-fn a_patch_volume_fills_in_where_the_style_sets_none() {
-    let p = root().join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !p.exists() {
-        return;
+/// The generated style's parts (channels 9-16): bank MSB, program, and the CC7 its setup
+/// sets (None: none, so a map rule's level may fill in).
+const GEN_PARTS: [(u8, u8, Option<u8>); 8] = [
+    (127, 0, None),     // Rhythm 1
+    (127, 0, None),     // Rhythm 2
+    (0, 33, None),      // Bass
+    (0, 0, None),       // Chord 1
+    (0, 25, None),      // Chord 2
+    (0, 89, Some(45)),  // Pad
+    (0, 61, Some(50)),  // Phrase 1
+    (0, 73, None),      // Phrase 2
+];
+
+/// A minimal SFF2 style made here (no Yamaha data): its channel setup (GEN_PARTS) and one
+/// bar of Main A, every part playing a note on beat 1.
+fn gen_style_bytes() -> Vec<u8> {
+    fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut v = id.to_vec();
+        v.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        v.extend_from_slice(body);
+        v
     }
-    let style = crate::sff::Style::load(&p).unwrap();
-    let mut prep = crate::engine::Prepared::new(&style);
-    let mut sl = SoundLib::open(None);
-    let pat = crate::patches::Patch {
-        id: "b".into(),
-        name: "B".into(),
-        category: patches::Category::Bass,
-        tags: vec![],
-        favourite: false,
-        source: PatchSource::SoundFont { file: SF2.into(), bank: 0, program: 33 },
-        defaults: PatchDefaults { volume: Some(77), ..PatchDefaults::default() },
-    };
-    sl.lib.patches.push(pat);
-    for f in 0..16 {
-        sl.lib.map.set_family(f, Some("b".into()));
+    let text = |s: &str| [&[0xFF, 0x06, s.len() as u8][..], s.as_bytes()].concat();
+    let mut trk = Vec::new();
+    for e in [text("SFF2"), text("SInt")] {
+        trk.push(0);
+        trk.extend(e);
     }
-    sl.lib.map.drums = Some("b".into());
-    let styled = prep.setups[0].mix;
-    prep.setups[0].mix_set = 0b1111_0000;
-    sl.prepare(&mut prep, "x");
-    for (part, &style_level) in styled.iter().enumerate() {
-        if prep.setups[0].voices[8 + part].is_none() {
-            continue;
+    for (i, &(msb, program, cc7)) in GEN_PARTS.iter().enumerate() {
+        let ch = 8 + i as u8;
+        trk.extend_from_slice(&[0, 0xB0 | ch, 0, msb, 0, 0xB0 | ch, 32, 0, 0, 0xC0 | ch, program]);
+        if let Some(v) = cc7 {
+            trk.extend_from_slice(&[0, 0xB0 | ch, 7, v]);
         }
-        let want = if part >= 4 { style_level } else { 77 };
-        assert_eq!(prep.setups[0].mix[part], want, "part {part}");
     }
+    // A bar (384 ticks at 96 PPQ) later: Main A, a quarter note on every part.
+    trk.extend_from_slice(&[0x83, 0x00]);
+    trk.extend(text("Main A"));
+    for ch in 8..16u8 {
+        trk.extend_from_slice(&[0, 0x90 | ch, 60, 100]);
+    }
+    for (i, ch) in (8..16u8).enumerate() {
+        trk.extend_from_slice(&[if i == 0 { 0x60 } else { 0 }, 0x80 | ch, 60, 0]);
+    }
+    trk.extend_from_slice(&[0x82, 0x20, 0xFF, 0x2F, 0]);
+    let mut out = chunk(b"MThd", &[0, 0, 0, 1, 0, 96]);
+    out.extend(chunk(b"MTrk", &trk));
+    out
+}
+
+/// A version 2 library (sounds with `defaults`) for the generated style: a kit, bass and
+/// pad sound with volumes on global rules, a keys sound with a volume on the style's own
+/// rule (`Gen.sty`), and a guitar sound with none.
+const V2_LIBRARY: &str = r#"{
+  "version": 2,
+  "patches": [
+    {"id": "kit", "name": "Kit", "source": {"kind": "soundFont", "file": "Test.sf2", "bank": 128, "program": 0}, "defaults": {"volume": 90, "octave": 0}},
+    {"id": "bass", "name": "Bass", "source": {"kind": "soundFont", "file": "Test.sf2", "bank": 0, "program": 33}, "defaults": {"volume": 77, "pan": 20, "reverb": 10, "chorus": 5, "octave": -1}},
+    {"id": "keys", "name": "Keys", "source": {"kind": "soundFont", "file": "Test.sf2", "bank": 0, "program": 4}, "defaults": {"volume": 66, "octave": 1}},
+    {"id": "pad", "name": "Pad", "source": {"kind": "soundFont", "file": "Test.sf2", "bank": 0, "program": 89}, "defaults": {"volume": 55, "octave": 0}},
+    {"id": "gtr", "name": "Guitar", "source": {"kind": "soundFont", "file": "Test.sf2", "bank": 0, "program": 25}, "defaults": {"volume": null, "octave": 0}}
+  ],
+  "map": {"families": [null, null, null, "gtr", "bass", null, null, null, null, null, null, "pad", null, null, null, null], "drums": "kit"},
+  "styleMaps": {"Gen.sty": {"overrides": [{"program": 0, "patch": "keys"}]}}
+}"#;
+
+/// The Style part levels (CC7) the generated style gets from `lib` under style key `key`.
+fn gen_style_levels(lib_dir: &Path, key: &str) -> [u8; 8] {
+    let style = crate::sff::parse(&gen_style_bytes()).unwrap();
+    let mut prep = crate::engine::Prepared::new(&style);
+    let mut sl = SoundLib::open(Some(lib_dir));
+    assert_eq!(sl.load_error(), None);
+    sl.prepare(&mut prep, key);
+    assert!(prep.setups.iter().all(|s| s.mix == prep.setups[0].mix));
+    prep.setups[0].mix
+}
+
+/// Style part levels don't change (docs/racks.md "Migration"): a version 2 library's
+/// sound volumes now come from the map rules that name the sounds, so every Style part
+/// the style sets no level for plays at the level its sound's `defaults.volume` gave it
+/// (global and per-style rules), and one the style sets keeps the style's.
+#[test]
+fn a_version_2_library_keeps_every_style_part_level() {
+    let dir = folder("v2-levels");
+    std::fs::write(dir.join(patches::FILE_NAME), V2_LIBRARY).unwrap();
+    // The levels version 2 gave: the kit's 90 on both drum parts, the bass's 77, the keys'
+    // 66 by the style's own override, no level on the guitar's rule (the GM default 100),
+    // the pad's 55 losing to the style's own 45, and the style's 50.
+    assert_eq!(gen_style_levels(&dir, "Gen.sty"), [90, 90, 77, 66, 100, 45, 50, 100]);
+    // Another style: no style rule, so Chord 1 has the GM default.
+    assert_eq!(gen_style_levels(&dir, "Other.sty"), [90, 90, 77, 100, 100, 45, 50, 100]);
+    // The file itself is not touched by reading it.
+    assert_eq!(std::fs::read_to_string(dir.join(patches::FILE_NAME)).unwrap(), V2_LIBRARY);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An offline session on the generated style (loaded), with the test SoundFonts, in a
+/// fresh data folder `folder(tag)` (made by the caller, so it may hold a library file).
+fn gen_session(data: &Path) -> Session {
+    let style = data.join("styles/Gen.sty");
+    std::fs::create_dir_all(style.parent().unwrap()).unwrap();
+    std::fs::write(&style, gen_style_bytes()).unwrap();
+    let opts = Options { paths: vec![style], data_dir: Some(data.to_path_buf()), sf2: Some(data.join("sf").join(SF2)), ..Options::default() };
+    let s = Session::offline(opts).unwrap();
+    load(&s, "Gen.sty");
+    s
+}
+
+/// The first save of a migrated library copies the version 2 file to
+/// `sound-library.v2.json` first, once; the file is then version 3, every sound kept with
+/// no defaults, and its volumes on the rules.
+#[test]
+fn the_version_2_file_is_backed_up_once_before_the_first_save() {
+    let data = folder("v2-backup");
+    let file = data.join(patches::FILE_NAME);
+    let bak = data.join("sound-library.v2.json");
+    std::fs::write(&file, V2_LIBRARY).unwrap();
+    {
+        let s = gen_session(&data);
+        let st = s.state();
+        assert_eq!(st.sound_library.patches.len(), 5, "every sound kept");
+        assert_eq!((st.sound_library.map.family_volumes[4], st.sound_library.map.drums_volume), (Some(77), Some(90)));
+        assert_eq!(st.sound_library.style_map.overrides[0].volume, Some(66));
+        s.send(SoundLibraryCmd::SetPatchFavourite { id: "bass".into(), favourite: true }).unwrap();
+        assert_eq!(std::fs::read_to_string(&bak).unwrap(), V2_LIBRARY, "the version 2 file, as it was");
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(saved["version"], 3);
+        assert_eq!(saved["patches"].as_array().unwrap().len(), 5);
+        assert!(saved["patches"].as_array().unwrap().iter().all(|p| p.get("defaults").is_none()));
+        assert_eq!(saved["map"]["familyVolumes"][4], 77);
+        assert_eq!(saved["styleMaps"]["Gen.sty"]["overrides"][0]["volume"], 66);
+        s.send(SoundLibraryCmd::SetPatchFavourite { id: "bass".into(), favourite: false }).unwrap();
+        assert_eq!(std::fs::read_to_string(&bak).unwrap(), V2_LIBRARY, "written once");
+    }
+    // Next boot: a version 3 file, nothing more to back up.
+    let s = gen_session(&data);
+    s.send(SoundLibraryCmd::SetPatchFavourite { id: "pad".into(), favourite: true }).unwrap();
+    assert_eq!(std::fs::read_to_string(&bak).unwrap(), V2_LIBRARY);
+    assert!(!data.join("sound-library.v3.json").exists());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// A sound is the raw instrument: assigning one leaves the part's mix alone, saving the
+/// part over its own sound leaves the sound's record as it was (a SoundFont sound has no
+/// state to take), and an audition plays at the fixed neutral level.
+#[test]
+fn saving_or_assigning_a_sound_never_touches_mix() {
+    let data = folder("no-mix");
+    let s = gen_session(&data);
+    let id = add(&s, "My Piano", 0, 0);
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 33 }).unwrap();
+    s.send(PartsCmd::SetPartOctave { part: 0, octave: 2 }).unwrap();
+    s.send(PartsCmd::SetPartPan { part: 0, pan: 20 }).unwrap();
+    s.send(SoundLibraryCmd::SetPartPatch { part: 0, id: Some(id.clone()) }).unwrap();
+    let r1 = |s: &Session| {
+        let k = s.state().keyboard_parts[0].clone();
+        (k.patch, k.volume, k.octave, k.pan)
+    };
+    assert_eq!(r1(&s), (Some(id.clone()), 33, 2, 20), "the part keeps its mix");
+    let record = |s: &Session| s.state().sound_library.patches.iter().find(|p| p.patch.id == id).unwrap().patch.clone();
+    let before = record(&s);
+    let text_before = std::fs::read_to_string(data.join(patches::FILE_NAME)).unwrap();
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 110 }).unwrap();
+    s.send(PartsCmd::SetPartOctave { part: 0, octave: -2 }).unwrap();
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    assert_eq!(s.state().sound_library.patches.len(), 1, "saved over its own sound");
+    assert_eq!(record(&s), before, "the record is unchanged");
+    assert_eq!(std::fs::read_to_string(data.join(patches::FILE_NAME)).unwrap(), text_before, "and so is the file");
+    assert!(!text_before.contains("defaults") && !text_before.contains("volume"));
+    // Save as…: a new sound, with no mix either; the part keeps its own.
+    s.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("Copy".into()) }).unwrap();
+    assert!(!std::fs::read_to_string(data.join(patches::FILE_NAME)).unwrap().contains("volume"));
+    assert_eq!((r1(&s).1, r1(&s).2), (110, -2));
+    // An audition plays at the neutral level, whatever the part's.
+    s.send(SoundLibraryCmd::AuditionPatch { id: id.clone() }).unwrap();
+    assert_eq!(s.inner.lock().sound.audition.as_ref().map(|a| a.volume), Some(100));
+    s.send(SoundLibraryCmd::StopPatchAudition).unwrap();
+    let _ = std::fs::remove_dir_all(&data);
 }
 
 /// The hand-over race (#109): a style chosen after the engine has taken over the style
@@ -481,7 +654,6 @@ fn a_bundle_round_trips_into_another_data_folder() {
         tags: vec!["mine".into()],
         favourite: true,
         source: patches::PatchSource::plugin("aumu Smp7 Fake", state.clone()),
-        defaults: Default::default(),
     };
     let gone = patches::Patch { id: "gone".into(), name: "Gone Pad".into(), source: patches::PatchSource::SoundFont { file: "Gone.sf2".into(), bank: 0, program: 88 }, ..fake.clone() };
     a.inner.lock().sound.lib.patches.extend([fake.clone(), gone.clone()]);
@@ -522,7 +694,7 @@ fn a_bundle_round_trips_into_another_data_folder() {
 fn a_merge_import_keeps_a_newer_file() {
     let Some((_, data)) = session("b5", &["SlowWalker.T552.sty"], false) else { return };
     let file = data.join(patches::FILE_NAME);
-    let newer = r#"{"version": 3, "patches": [], "fancyNewThing": [1,2,3]}"#;
+    let newer = r#"{"version": 4, "patches": [], "fancyNewThing": [1,2,3]}"#;
     std::fs::write(&file, newer).unwrap();
     let small = data.join("share.json");
     std::fs::write(&small, r#"[{"id":"x","name":"X","source":{"kind":"soundFont","file":"a.sf2","bank":0,"program":1}}]"#).unwrap();
@@ -533,7 +705,7 @@ fn a_merge_import_keeps_a_newer_file() {
     assert_eq!(s.state().sound_library.patches.len(), 1, "the import is in the session");
     s.send(SoundLibraryCmd::ImportSoundLibrary { path: small.display().to_string(), replace: true, maps: false }).unwrap();
     assert_eq!(std::fs::read_to_string(file.with_extension("json.bak")).unwrap(), newer, "kept beside");
-    assert!(std::fs::read_to_string(&file).unwrap().contains("\"version\": 2"));
+    assert!(std::fs::read_to_string(&file).unwrap().contains("\"version\": 3"));
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -574,7 +746,6 @@ fn font_ids_are_recycled_only_when_unused() {
         tags: vec![],
         favourite: false,
         source: PatchSource::SoundFont { file: "f3.sf2".into(), bank: 0, program: 0 },
-        defaults: PatchDefaults::default(),
     });
     assert_eq!(sl.font_id("new.sf2"), Some(4), "the first id nothing uses");
     assert_eq!(sl.font_id("new.sf2"), Some(4));
@@ -582,4 +753,34 @@ fn font_ids_are_recycled_only_when_unused() {
     // Every id in use: none to give.
     sl.rack_fonts = (0..MAX_FONTS).map(|i| if i == 4 { "new.sf2".to_string() } else { format!("f{i}.sf2") }).collect();
     assert_eq!(sl.font_id("other.sf2"), None);
+}
+
+/// A backup that can't be written blocks the save: the older file stays as it was.
+#[cfg(unix)]
+#[test]
+fn a_failed_backup_leaves_the_older_file_untouched() {
+    let data = folder("v2-backup-fail");
+    let file = data.join(patches::FILE_NAME);
+    std::fs::write(&file, V2_LIBRARY).unwrap();
+    // The backup's path is a link into a folder that doesn't exist: the copy fails.
+    std::os::unix::fs::symlink(data.join("missing/x.json"), data.join("sound-library.v2.json")).unwrap();
+    let s = gen_session(&data);
+    let _ = s.send(SoundLibraryCmd::SetPatchFavourite { id: "bass".into(), favourite: true });
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), V2_LIBRARY, "not saved over");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// A version 1 file and a bare patch list are both backed up as `sound-library.v1.json`.
+#[test]
+fn version_1_and_bare_files_back_up_as_v1() {
+    for (tag, text) in [("v1-obj", r#"{"version": 1, "patches": []}"#), ("v1-bare", "[]")] {
+        let data = folder(tag);
+        std::fs::write(data.join(patches::FILE_NAME), text).unwrap();
+        let s = gen_session(&data);
+        add(&s, "Bass", 0, 33);
+        assert_eq!(std::fs::read_to_string(data.join("sound-library.v1.json")).unwrap(), text, "{tag}");
+        drop(s);
+        let _ = std::fs::remove_dir_all(&data);
+    }
 }

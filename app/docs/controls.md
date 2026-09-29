@@ -145,68 +145,29 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **OTS Link** | When on, your hands' sounds follow the band: pressing Main A, B, C or D also recalls OTS 1, 2, 3 or 4. Changing style recalls the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
 | **OTS Link timing** | When OTS Link swaps the setting while the band plays: when the band reaches the Main you pressed (At Main Section Change, the default), or as soon as you press it (Immediate). Change it in Settings, Style. | OTS Link Timing | — | — |
 
-## Registration Memory
+## Quick Racks
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Previous Snapshot** | Recalls the Snapshot before the one selected: the Sequence order when Registration Sequence is on, else the previous stored button. | Registration − (foot pedal) | — | — |
-| **Next Snapshot** | Recalls the Snapshot after the one selected: the Sequence order when Registration Sequence is on, else the next stored button. | Registration + (foot pedal) | — | — |
-| **Snapshot 1** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [1] | `Shift+Q` | Pad page 4 (Snapshots), top row, pad 1 |
-| **Snapshot 2** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [2] | `Shift+W` | Pad page 4 (Snapshots), top row, pad 2 |
-| **Snapshot 3** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [3] | `Shift+E` | Pad page 4 (Snapshots), top row, pad 3 |
-| **Snapshot 4** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [4] | `Shift+R` | Pad page 4 (Snapshots), top row, pad 4 |
-| **Snapshot 5** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [5] | `Shift+T` | Pad page 4 (Snapshots), top row, pad 5 |
-| **Snapshot 6** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [6] | `Shift+Y` | Pad page 4 (Snapshots), top row, pad 6 |
-| **Snapshot 7** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [7] | `Shift+U` | Pad page 4 (Snapshots), top row, pad 7 |
-| **Snapshot 8** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [8] | `Shift+I` | Pad page 4 (Snapshots), top row, pad 8 |
-| **Store** | Arms Store: the next snapshot you press stores the whole panel (the ticked Store groups) in it, replacing what it held. The snapshots flash while it waits. Press Store again to cancel. | MEMORY | `F5` | Pad page 4 (Snapshots), bottom row, pad 5 |
-| **Freeze** | While on, recalling a registration leaves the ticked Freeze groups as they are: freeze Style to change voices without changing the band, or Tempo to keep your tempo. | FREEZE | `F6` | Pad page 4 (Snapshots), bottom row, pad 6 |
-| **Regist −** | Steps back through the bank's Registration Sequence and recalls that button. Works only while the sequence is on. | Registration Sequence − (Regist − pedal) | `F7` | Pad page 4 (Snapshots), bottom row, pad 7 |
-| **Regist +** | Steps forward through the bank's Registration Sequence and recalls that button, like a pedal on stage. At the end it stops, starts again, or moves to the next bank, as the sequence says. | Registration Sequence + (Regist + pedal) | `F8` | Pad page 4 (Snapshots), bottom row, pad 8 |
-| **File −** | Loads the previous bank file in the Registration folder, on its Bank A. Its snapshots light up but nothing is recalled until you press one. | REGIST BANK − | `F11` | Pad page 4 (Snapshots), bottom row, pad 3 |
-| **File +** | Loads the next bank file in the Registration folder, on its Bank A. Its snapshots light up but nothing is recalled until you press one. | REGIST BANK + | `F12` | Pad page 4 (Snapshots), bottom row, pad 4 |
-| **Bank file** | The bank file in use: its snapshots, eight per bank (A, B, …), and its Registration Sequence. Pick another file from the Registration folder; a star means it has changes that aren't saved yet. | Registration Bank Selection | — | — |
-| **Bank −** | Shows the previous eight snapshots (Bank B to A, say) on these buttons and the pads. Nothing is recalled until you press one. | — | `Shift+O` | Pad page 4 (Snapshots), bottom row, pad 1 |
-| **Bank +** | Shows the next eight snapshots (Bank A to B, say) on these buttons and the pads, up to one empty bank past the last one in use, to store into. Nothing is recalled until you press one. | — | `Shift+P` | Pad page 4 (Snapshots), bottom row, pad 2 |
-| **Snapshot bank** | The bank of eight snapshots on view (A, B, …). Recalling a snapshot from another bank, with the sequence or Regist +/−, brings its bank on view. | — | — | — |
-| **Registration and Playlist** | Opens the Registration panel: what each button holds, renaming and clearing, the Memory and Freeze groups, the Registration Sequence and the Playlist. | Regist Bank Info / Edit, Regist Sequence, Regist Freeze, PLAYLIST | — | — |
-| **Registration panel page** | Switches between the bank file's snapshots, the Store and Freeze groups, the Registration Sequence and the Playlist. | — | — | — |
-| **New bank** | Starts a new, empty bank. Give it a name and save it to keep it; unsaved changes to the bank in use are dropped. | Regist Bank: New | — | — |
-| **Save bank** | Saves the bank to its file in the Registration folder, or under the name you typed as a new file. If another bank already has that name, nothing is saved: pick another name, or use Overwrite. Once a bank has a file, memorizing, renaming and sequence edits save themselves. | Regist Bank: Save | — | — |
-| **Overwrite bank** | Another bank already has the name you typed. Overwrite replaces that bank's file with this bank; what it held is lost. | Regist Bank: Save (overwrite) | — | — |
-| **Bank name** | The name to save the bank under. Saving with a new name makes a new file and leaves the old one as it was. A name another bank already has is refused, unless you choose Overwrite. | — | — | — |
-| **Button contents** | What this button holds: its style, tempo and the voices of Right 1–3 and Left. Click it to recall it. | Regist Bank Info | — | — |
-| **Store here** | Stores the panel as it is now in this snapshot (the ticked Store groups), replacing what it held. | MEMORY + [1]–[10] | — | — |
-| **Rename** | Renames this button. The name shows in the Registration bar and in playlists. | Regist Bank Edit: Rename | — | — |
-| **Clear** | Empties this button. Its lamp goes dark. | Regist Bank Edit: Delete | — | — |
-| **Store group** | Ticked groups are what Store keeps in a snapshot; a recall only changes what the snapshot stored. Untick Tempo, say, for snapshots that should keep whatever tempo you are playing. | Registration Memory window (items to register) | — | — |
-| **Freeze group** | Ticked groups stay as they are when you recall a registration, while Freeze is on. Style also covers the section, the Style mixer, the split, the fingering and the Left part, as on the Genos. | Regist Freeze display | — | — |
-| **Registration Sequence** | Turns the Registration Sequence on, so Regist + and Regist − step through the bank's sequence. As on the Genos this is a panel setting, not part of the bank: it stays as it is when you change banks, and yahaha remembers it between sessions. | Registration Sequence On/Off | — | — |
-| **Add step** | Adds this button to the end of the sequence. A button can come more than once. | Registration Sequence: Insert | — | — |
-| **Sequence step** | A step of the sequence: the button it recalls. Click to take it out of the sequence; the ringed step is the one last recalled. | Registration Sequence: Delete | — | — |
-| **Clear sequence** | Removes every step from the sequence. | Registration Sequence: Clear | — | — |
-| **At the end** | What Regist + does after the last step: Stop does nothing more, Top starts again at the first step, Next bank moves on to the next bank file and its first step. | Registration Sequence end (Stop / Top / Next) | — | — |
-
-## Playlist
-
-| control | what it does | Genos | key | Launchkey |
-|---|---|---|---|---|
-| **Previous song** | Loads the playlist record before the one in use: its bank and button, or its style. | Playlist (previous record) | `<` | Shift + < Track button |
-| **Next song** | Loads the next playlist record: its bank and button, or its style. Step through a set list this way without looking at the screen. | Playlist (next record) | `>` | Shift + Track > button |
-| **Playlist record** | A song in the set list. Click it to load its bank (and recall its button) or its style; the lit one is the song in use. A struck-out name means its file is gone. | Playlist Record (Load) | — | — |
-| **Playlist** | The set list in use. Pick another playlist file from the Playlists folder; a star means it has unsaved changes. | Playlist File Selection | — | — |
-| **New playlist** | Starts a new, empty set list. Unsaved changes to the one in use are dropped. | Playlist: New | — | — |
-| **Save playlist** | Saves the set list in the order shown (a sorted list is saved sorted, and goes back to Normal), to its file or under the name you typed. A name another playlist already has is refused: pick another, or use Overwrite. | Playlist: Save | — | — |
-| **Overwrite playlist** | Another playlist already has the name you typed. Overwrite replaces that playlist's file with this set list. | Playlist: Save (overwrite) | — | — |
-| **Playlist name** | The name to save the set list under. A new name makes a new file; another playlist's name needs Overwrite. | — | — | — |
-| **Add this bank** | Adds the bank in use to the end of the set list, recalling the button that is lit. The bank must be saved first. | Add Record: Select from Registration Bank | — | — |
-| **Add this style** | Adds the loaded style to the end of the set list, for a song that needs only the style. | — | — | — |
-| **Append playlist** | Adds every record of another playlist file to the end of this one. | Add Record: Append Playlist | — | — |
-| **Button to recall** | Which button of the bank this record recalls after loading it, or none to only load the bank. | Record Edit: Load Regist Memory | — | — |
-| **Move up** | Moves the record one place up the set list. Off while the list is sorted. | Playlist: Up | — | — |
-| **Move down** | Moves the record one place down the set list. Off while the list is sorted. | Playlist: Down | — | — |
-| **Delete record** | Takes the record out of the set list; its bank or style file is not touched. Off while the list is sorted. | Playlist: Delete | — | — |
-| **Sort** | Shows the set list in its own order, A to Z or Z to A. Saving while sorted saves that order. | Playlist: Sort (A to Z) | — | — |
+| **Quick Rack 1** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [1] | `Shift+Q` | Pad page 4 (Quick Racks), top row, pad 1 |
+| **Quick Rack 2** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [2] | `Shift+W` | Pad page 4 (Quick Racks), top row, pad 2 |
+| **Quick Rack 3** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [3] | `Shift+E` | Pad page 4 (Quick Racks), top row, pad 3 |
+| **Quick Rack 4** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [4] | `Shift+R` | Pad page 4 (Quick Racks), top row, pad 4 |
+| **Quick Rack 5** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [5] | `Shift+T` | Pad page 4 (Quick Racks), top row, pad 5 |
+| **Quick Rack 6** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [6] | `Shift+Y` | Pad page 4 (Quick Racks), top row, pad 6 |
+| **Quick Rack 7** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [7] | `Shift+U` | Pad page 4 (Quick Racks), top row, pad 7 |
+| **Quick Rack 8** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [8] | `Shift+I` | Pad page 4 (Quick Racks), top row, pad 8 |
+| **Store** | Arms Store: the next Quick Rack button you press gets the live rack, replacing what it held. The buttons flash while it waits; a rack with unsaved changes, or one never saved, is saved first. Press Store again to cancel. | MEMORY | `F5` | Pad page 4 (Quick Racks), bottom row, pad 5 |
+| **Previous rack** | Loads the rack on the stored button before the lit one in the bank on view (with none lit, the last). It stops at the first; with unsaved changes it asks first. | Registration − (foot pedal) | `F7` | Pad page 4 (Quick Racks), bottom row, pad 7; Shift + < Track button |
+| **Next rack** | Loads the rack on the stored button after the lit one in the bank on view (with none lit, the first). It stops at the last; with unsaved changes it asks first. | Registration + (foot pedal) | `F8` | Pad page 4 (Quick Racks), bottom row, pad 8; Shift + Track > button |
+| **Bank −** | Shows the previous bank of eight Quick Racks (B to A, say) on these buttons and pad page 4. Nothing loads until you press one. | — | `Shift+O` | Pad page 4 (Quick Racks), bottom row, pad 1 |
+| **Bank +** | Shows the next bank of eight Quick Racks (A to B, say, up to H) on these buttons and pad page 4. Nothing loads until you press one. | — | `Shift+P` | Pad page 4 (Quick Racks), bottom row, pad 2 |
+| **Quick Racks bank** | The bank of eight Quick Racks on view, A to H. Bank − and Bank + step through them; in the Quick Racks drawer, click a letter to view that bank. | — | — | — |
+| **Clear** | Empties this Quick Rack button. The rack itself stays in your racks. | Regist Bank Edit: Delete | — | — |
+| **Rack** | One of your racks: click to load it, as a Quick Rack button does (with unsaved changes it asks first, in the Rack panel). Its label, such as A1, is the Quick Rack button in the bank on view that holds it. | — | — | — |
+| **Rack name** | The name to save the live rack under, as a new rack of yours. It then goes on the waiting Quick Rack button. | — | — | — |
+| **Save rack** | Saves the live rack (a new one under the name typed, when it has never been saved), then stores it on the waiting Quick Rack button. | — | — | — |
+| **Cancel** | Nothing is saved or stored: Store disarms and the button keeps what it held. | — | — | — |
 
 ## Keyboard parts
 
@@ -229,11 +190,70 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Rescan plugins** | Looks for newly installed or removed instrument plugins. A ⚠ in the Sound Browser marks a plugin that failed to load last time. | — | — | — |
 | **Reload plugin** | Loads the selected part's plugin again, with its saved sound, after it stopped working or failed to load. The Launchkey button lights red while there is one to reload. | — | `S` | Panel fader page: button under fader 6 |
 | **Run in process** | Runs this plugin inside yahaha instead of in its own process: a little less CPU for the lightest plugins, but if the plugin crashes, yahaha goes with it. It is remembered for the plugin and applies from its next load: a part already playing it keeps running where it is, and the button shows ↻ until the plugin loads again (pick it again, or the next start). A plugin preloaded for the Registration bank loads again in the new mode at once. | — | — | — |
-| **Sound** | What this part plays. Click to open the Sound Browser and pick a SoundFont preset, an instrument plugin or a saved sound. Under Manual Bass, Left plays the style's Bass voice instead, and this is the sound it goes back to. | Voice select (VOICE buttons) | — | Pad page 3 (OTS/Parts): the Edit pads (bottom row, pads 5–8) pick the part, Voice −/+ (top row, pads 7–8) step its voice |
 | **Layer** | The Right parts that are on all sound together on every key above the split: that's a layer. Turn on Right 1 and Right 2 to stack, for example, piano and strings. | PART ON/OFF (Right 1–3 layered) | `5` `6` `7` | Panel fader page: buttons under faders 1–3 |
 | **Left hand** | Left plays the keys at and below the split point, with its own voice. Under Manual Bass it plays the style's Bass voice there instead, and the band's own bass goes quiet. | Split Point (Left) | — | — |
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 | **Library patch** | The part plays a patch from your sound library. Pick a GM voice instead to go back to it. | Voice Selection | — | — |
+
+## Rack panel
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Save rack** | Saves the rack over your own saved rack (a new rack has none yet: it becomes one of yours), with any edited sounds. Edited presets need a name first; you are asked here. Off when nothing changed. | Registration Memory › Save | — | — |
+| **Save as…** | Saves the rack as a new rack of yours, under a name you give. Opens a name field under the rack's name. | — | — | — |
+| **Rack name** | The new rack's name. It must differ from your other racks' names. | — | — | — |
+| **Save rack** | Saves the rack as a new rack under this name. It becomes the rack you are playing. | — | — | — |
+| **Cancel** | Closes the form without saving. The rack keeps its changes. | — | — | — |
+| **Sound name** | An edited factory, file or SoundFont preset is never overwritten: saving the rack saves it as a new sound of yours under this name. It starts from the preset's own name. | — | — | — |
+| **Save rack** | Saves the rack, with each edited preset as a new sound under the name you gave. | — | — | — |
+| **Save first** | Saves the rack's changes, then switches to the rack you asked for. | — | — | — |
+| **Discard and switch** | Drops the rack's unsaved changes and switches to the rack you asked for. | — | — | — |
+| **Keep editing** | Stays on this rack with its changes; nothing is switched. | — | — | — |
+| **Revert** | Puts the rack back as it was last loaded or saved, dropping the unsaved changes. Shown while a saved rack has changes. | — | — | — |
+| **Harmony / Arp type** | The Keyboard Harmony type or arpeggio pattern this rack plays, saved with the rack. The switch next to it turns Harmony/Arp on or off; the Harmony/Arp drawer has its settings. | Keyboard Harmony/Arpeggio type | — | — |
+| **Controller map** | Shows what Launchkey faders 1–4 and knobs 1–8 do while this rack is loaded, on the Rack knob page. It is saved with the rack. | — | — | — |
+| **Keyboard part** | Makes this part the one you edit: Voice −/+ and Library act on it, as the Launchkey's EDIT pads do. Clicking anywhere in the part does the same. | PART SELECT | — | Pad page 3 (OTS/Parts), bottom row, pads 5–8 (EDIT R1…L) |
+| **Sound** | The sound this part plays. Click to open Library › Sounds with this part as the target and pick another; the part keeps its level, pan, sends and octave. | Voice select (VOICE buttons) | — | — |
+| **Edit** | Opens the part's plugin window over the app. What you change there marks the sound "edited" until you save it. SoundFont sounds have no editor. | Voice Edit | — | — |
+| **Save sound** | Keeps the plugin edits in the sound: your own sound is updated; a factory preset is never overwritten and is saved as a new sound of yours instead. The part's mix is not part of the sound. | Voice Setting › Save | — | — |
+| **Replace…** | The plugin this part plays isn't installed, so the part is silent. Opens Library › Sounds with this part as the target: the sound you pick replaces it and the part keeps its level, pan, sends and octave. Nothing is saved until you save the rack; reinstalling the plugin brings the sound back. | — | — | — |
+
+## Stage | Library
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Stage** | Shows the stage: the lead sheet, the Launchkey and the keys. Esc in Library comes back here too. | — | `Alt+B` (terminal: ) | — |
+| **Library** | Shows Library in place of the stage: racks, sounds, instruments and the style map. The band and the drawers keep working while it is open. | Voice Selection | `Alt+B` (terminal: ) | — |
+
+## Library
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Racks** | The live rack (what is under your hands, autosaved) and the racks that need attention. Loading and saving racks comes next. | Registration Memory | — | — |
+| **Sounds** | Every sound a keyboard part can play: yours, plugin presets and SoundFont voices, by category. Click one to hear it on the target part. | Voice Selection | — | — |
+| **Instruments** | Your plugins and SoundFonts, with New and Missing ones marked. Browse lists an instrument's sounds; + New sound starts from a blank plugin. | — | — | — |
+| **Style map** | The program map that makes every style play your sounds instead of the GM voices it asks for, and Add from SoundFont. | — | `Alt+Y` (terminal: ) | — |
+| **Loads into** | The keyboard part that Sounds and Instruments load into. It starts on the part you came from; switch it here without leaving Library. | PART SELECT | — | — |
+| **Back to Stage** | Closes Library and shows the stage again. Nothing is lost: the live rack keeps what you picked. | — | `Esc` | — |
+| **Search sounds** | Narrows the list by name, instrument or category. ↑ ↓ step through the list and play each sound on the target part; Enter plays the selected one. | — | — | — |
+| **Sound list** | Click a sound to hear it on the target part at once. ↑ ↓ step and play, Enter plays the selected one, Ctrl+D stars it. | Voice Selection | — | — |
+| **Sound** | Click to play it on the target part at once. ▶ marks what the target part plays, and R1…L which parts play it; the badge says Mine, Factory (a plugin preset) or SoundFont. | Voice Selection | — | — |
+| **All** | Your sounds, every plugin with its listed presets, and the SoundFont voice the map plays for each GM program. Instruments › Browse lists every preset of one instrument. | — | — | — |
+| **Mine** | Only the sounds in My Sounds: the ones you saved or copied. | User | — | — |
+| **Factory** | Only plugins and their own presets. | Preset | — | — |
+| **SoundFont** | Only SoundFont voices. | — | — | — |
+| **Starred** | Only the sounds you starred. Combines with the other chips. | Favorite | — | — |
+| **Instrument filter** | The list shows only this instrument's sounds (from Instruments › Browse). Click to show every instrument again. | — | — | — |
+| **Category** | Shows only this category. The number is how many sounds the other filters leave in it. | Voice category | — | — |
+| **Copy to My Sounds** | Keeps this sound in My Sounds, where you can rename it, file it and find it under Mine. | — | — | — |
+| **Browse** | Opens Sounds showing only this instrument, with every one of its presets. | — | — | — |
+| **+ New sound** | Loads a blank instance of this plugin on the target part and opens its window. Save as… keeps what you make. | — | — | — |
+| **More** | The plugin's housekeeping: the category its sounds file under, whether it runs in yahaha's process, and its window. | — | — | — |
+| **Show racks** | Opens Racks with Needs attention on: the racks with parts on this missing plugin. Those parts are silent until you pick a new sound or reinstall it. | — | — | — |
+| **Needs attention** | Shows only the racks with a part whose plugin is missing. Those parts stay silent until you replace their sound or reinstall the plugin. | — | — | — |
+| **Live rack** | What is under your hands now, with its four parts' sounds. It autosaves, so it comes back when yahaha starts; ● means changed since it was loaded. | — | — | — |
+| **Rack that needs attention** | A saved rack with a part whose plugin is missing. Loading racks comes next; the rack itself is kept as it is. | — | — | — |
+| **Coming next** | New, save, save as and revert arrive with the rack commands. Until then the live rack autosaves, so nothing you pick is lost. | — | — | — |
 
 ## Sound Browser
 
@@ -244,16 +264,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **All sounds** | The sounds the GM map plays for each program and the drums, every plugin sound and everything in My Sounds. A font's other presets and a plugin's factory presets are under that instrument's chip. | Voice Selection | — | — |
 | **Favourites** | The sounds you starred. | Voice Selection › Favorite tab | — | — |
 | **Recent** | The last 20 sounds you picked for a part, most recent first. | Voice Selection › history | — | — |
-| **My Sounds** | Your sounds: every plugin sound and every preset you added, each with its volume, octave, pan and sends (and a plugin's own settings). Select one to rename, recategorise or delete it under the list. | Voice Selection › User tab | — | — |
-| **Save as…** | Names what this part plays now and saves it as a new sound: its preset or plugin (with the plugin's current settings), volume and octave. The part then plays the new sound, shown selected in My Sounds. | Voice Setting › Save | — | — |
-| **Save** | Saves what this part plays now over the sound it plays: the plugin's current settings (what its editor changed), volume and octave. The "edited" mark goes. A factory preset or an .aupreset file is never overwritten: Save keeps it as a new sound instead, as Save as… does. | Voice Setting › Save | — | — |
+| **My Sounds** | Your sounds: every plugin sound and every preset you added (a plugin sound with its own settings). A sound has no volume, octave, pan or sends: those belong to the part. Select one to rename, recategorise or delete it under the list. | Voice Selection › User tab | — | — |
+| **Save as…** | Names what this part plays now and saves it as a new sound: its preset or plugin (with the plugin's current settings). The part keeps its own volume, octave, pan and sends. The part then plays the new sound, shown selected in My Sounds. | Voice Setting › Save | — | — |
+| **Save** | Saves what this part plays now over the sound it plays: the plugin's current settings (what its editor changed), never the part's volume, octave, pan or sends. The "edited" mark goes. A factory preset or an .aupreset file is never overwritten: Save keeps it as a new sound instead, as Save as… does. | Voice Setting › Save | — | — |
 | **Instrument** | Every sound of one SoundFont or plugin: all the font's presets, or the plugin's factory presets, its .aupreset files and your sounds made with it. The first time, a plugin loads once in the background to list its factory presets. | Voice Selection › sub-category | — | — |
 | **Edited** | The part's plugin no longer plays the sound as it was loaded: its editor changed it. Save keeps the change in the sound (or as a new one for a factory preset), Save as… keeps it as a new sound. | Voice Edit (unsaved) | — | — |
 | **New sound's name** | The name of the new sound Save as… makes. Enter saves it, Esc cancels. | Voice Setting › Save › Name | — | — |
 | **Save as a new sound** | Saves what the part plays now as a new sound in My Sounds, which the part then plays. | Voice Setting › Save | — | — |
 | **Delete** | Deletes the sound for good. Map rules that name it are removed. | — | — | — |
 | **Keep** | Keeps the sound and goes back to the list. | — | — | — |
-| **Details** | Shows the sound's tags and the defaults a part takes when it picks it: volume, pan, reverb, chorus and octave. | Voice Setting | — | — |
+| **Details** | Shows the sound's tags and where it comes from. A sound has no level, pan, sends or octave of its own: those belong to the part. | Voice Setting | — | — |
 | **Also as .aupreset** | Also keeps what this part's plugin plays now as a preset of the plugin: a standard .aupreset in ~/Library/Audio/Presets that Logic and MainStage read too. Pick its category; if a preset of that name exists, yahaha asks before replacing it. | Voice Setting › Save | — | — |
 | **Preset name** | The new preset's name, also its file name. If a preset of that name exists, yahaha asks before replacing it (the file is shared with Logic and MainStage). Enter saves, Esc cancels. | — | — | — |
 | **Preset category** | The category the new preset is listed under in the browser. Kept by yahaha; the .aupreset file itself is not changed. | — | — | — |
@@ -455,17 +475,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Stop audition** | Stops the sound playing on its own. | — | — | — |
 | **Move up** | Moves the patch one place up in your list. | — | — | — |
 | **Move down** | Moves the patch one place down in your list. | — | — | — |
-| **Duplicate** | Adds a copy of the patch right after it, for example the same sound with other defaults. | — | — | — |
+| **Duplicate** | Adds a copy of the patch right after it, for example to keep the same plugin with another state. | — | — | — |
 | **Delete** | Asks (Ctrl/⌘+Delete in the Sound Browser too), then deletes the sound from My Sounds. Map rules that name it are removed, and a part playing it goes back to its GM voice. | — | — | — |
 | **Name** | The sound's name, as the Sound Browser, the parts and the map show it. F2 in the Sound Browser gets here; Enter renames it, Esc keeps the old name. | — | — | — |
 | **Category** | The Genos voice category the sound is listed under. | Voice category | — | — |
 | **Tags** | Words to find the patch by, separated by commas. Press Enter to keep them. | — | — | — |
-| **Volume** | The part's CC7 when you pick the patch for a keyboard part; a Style part takes it only when the style sets no level of its own. Blank leaves the level alone. | Voice Set: Volume | — | — |
-| **Pan** | The pan (CC10, 64 = centre) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Pan | — | — |
-| **Reverb** | The reverb send (CC91) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Reverb | — | — |
-| **Chorus** | The chorus send (CC93) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Chorus | — | — |
-| **Octave** | The octave shift a keyboard part takes when it picks the patch. | Voice Set: Octave | — | — |
-| **Play on a part** | Picks the patch for that keyboard part, with its defaults. The part's voice picker has the same list. | Voice Selection | — | — |
+| **Play on a part** | Picks the patch for that keyboard part. The part keeps its own level, pan, sends and octave. The part's voice picker has the same list. | Voice Selection | — | — |
 | **Save part's sound** | Saves a keyboard part's sound as a new patch (Save as…): its plugin with its current settings, its own patch, or its GM voice on the synth's SoundFont, with its volume and octave. | — | — | — |
 | **Global / this style** | Which map the rules edit: the global one every style uses, or this style's own rules, which win over it. This style's map is kept in your library, not in the style file. | — | — | — |
 | **Family rule** | The sound these eight GM programs play, with every bank variation of them. Click to pick one from Sounds: any SoundFont preset or plugin sound. Blank: the program falls through to auto, the best preset in your SoundFonts. | — | — | — |
@@ -495,7 +510,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Pad Bank ▲** | Goes to the previous pad page, stopping at page 1, so a few presses always take you home. Lit in the page's colour when there's a page to go to. With Shift: Left on/off. | — | `PgUp` (terminal: `Shift+Tab`) | Pad Bank ▲ (left of the pads) |
 | **Pad Bank ▼** | Goes to the next pad page, stopping at page 4. Lit in the page's colour when there's a page to go to. With Shift: OTS Link on/off. | — | `PgDn` (terminal: `Tab`) | Pad Bank ▼ (left of the pads) |
 | **Pad page 5: Multi Pads** | Multi Pads 1–4 in the Genos lamp colours (blue has data, red playing, flashing red Synchro Start standby, amber waiting for the bar line) and STOP on the top row; SELECT + pad (Synchro Start) and STOP + pad on the bottom row. The other pads are yellow. | MULTI PAD CONTROL | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
-| **Pad page 4: Registration** | Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
+| **Pad page 4: Quick Racks** | Quick Racks 1–8 of the bank on view on the top row (red loaded, blue stored, dark empty; all flashing while Store is armed); Bank −/+, Store and Rack −/+ on the bottom row. The other pads are orange. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 
 ## Launchkey
 
@@ -505,6 +520,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Launchkey** | Whether the Launchkey is connected in DAW mode, so its pads and buttons are arranger controls. | — | — | — |
 | **Unused fader** | On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under faders 6–8 |
 | **Unused pad** | This pad does nothing on this page and stays dark. | — | — | — |
+| **Part sound** | The sound this keyboard part plays: ● when its plugin has unsaved edits, ⚠ when its plugin is missing. Click to open Library › Sounds with this part as the target. | Voice name (Home screen) | — | — |
 
 ## Lead-sheet band
 
@@ -548,31 +564,30 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Sound Browser** | Opens the Sound Browser for the selected keyboard part (Right 1 if none): every preset, plugin and saved sound. Press again to close. | Voice Selection | `Alt+B` (terminal: ) | — |
 | **Styles** | Opens the style browser. Press again to close. | Style Selection | `Alt+S` (terminal: ) | — |
-| **Registrations** | Opens the Registration panel: bank, groups, sequence and playlist. Press again to close. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
-| **Parts and OTS** | Opens the keyboard parts drawer with the style's One Touch Settings. Press again to close. | ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
+| **Quick Racks** | Opens Library on its Racks tab: your racks to load, each with the Quick Rack button that holds it in the bank on view. Press again to go back to Stage. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
+| **Rack** | Opens the Rack: what's under your hands (the four keyboard parts with their sounds and mix, the split, Harmony/Arp, transpose) and the style's One Touch Settings. Press again to close. | Voice Setting, ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
 | **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
 | **Effects** | Opens the Mixer, where the Reverb, Chorus and Variation effect blocks live. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
 | **Mixer** | Opens the full mixer. Press again to close. | Mixer | `Alt+M` (terminal: ) | — |
 | **Chord Looper** | Opens the Chord Looper. Press again to close. | Menu › Chord Looper | `Alt+L` (terminal: ) | — |
 | **Charts** | Opens the iReal Pro chart player. Press again to close. | — | `Alt+C` (terminal: ) | — |
 | **Harmony/Arp** | Opens the Keyboard Harmony and Arpeggio panel. Press again to close. | HARMONY/ARPEGGIO | `Alt+H` (terminal: ) | — |
-| **Sound Library** | Opens your sound library and program map. Press again to close. | — | `Alt+Y` (terminal: ) | — |
+| **Library** | Switches between the stage and Library, where you pick racks, sounds and instruments. Library opens loading into the selected part (Right 1 if none). | Voice Selection | `Alt+B` (terminal: ) | — |
 | **Settings** | Opens the settings. Press again to close. | — | `Alt+T` (terminal: ) | — |
 
 ## Panels around the hardware view
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Keyboard parts and OTS** | Opens the detail of Right 1–3 and Left (voice, volume, octave, on/off) and the style's One Touch Settings. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the same controls |
+| **Rack** | Opens the Rack: Right 1–3 and Left with their sounds and mix, the split, Harmony/Arp, transpose, the controller map and the style's One Touch Settings. Alt+O too. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the part and OTS controls |
 | **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
 | **Charts** | Opens the iReal Pro chart player: import playlists, pick a song, and set how the band plays it. | — | — | — |
 | **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |
 | **Chord Looper** | Opens the Chord Looper: record a chord progression, loop it, and keep it in one of eight memories. | Menu › Chord Looper | — | — |
 | **Close** | Closes this panel. The band keeps playing. | — | `Esc` | — |
 | **Multi Pads** | Opens the Multi Pads: four short phrases from a pad bank that you trigger over the band, and the bank list. | MULTI PAD CONTROL | — | — |
-| **Sound Library** | Opens your sound library: a short list of patches, and the program map that makes every style play them instead of the GM voices it asks for. | Voice Selection (your own list) | — | — |
+| **Library** | Opens Library on Sounds, loading into the selected part: click a sound to hear it on that part at once. | Voice Selection | `Alt+B` (terminal: ) | — |
 
 ## Settings
 
@@ -637,7 +652,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Pedal function** | What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, the Registration bank, tempo, transpose or a part on/off. | Assignable › Foot Pedal | — | The pedal plugged into the sustain jack |
+| **Pedal function** | What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, a Quick Rack, tempo, transpose or a part on/off. | Assignable › Foot Pedal | — | The pedal plugged into the sustain jack |
 | **Pedal CC** | The control change this pedal listens for on the keyboards: the Launchkey's sustain jack sends CC 64. Clear it and the pedal listens to nothing. Bank select (0, 32), the modulation wheel (1), data entry (6, 38), volume (7), (N)RPN (98-101) and the channel mode messages (120-127) can't be used. | — | — | The sustain jack (CC 64) |
 | **Learn** | Press this, then the pedal: it takes that pedal's CC. Press again to stop waiting. | — | — | The sustain jack (CC 64) |
 | **Try** | Runs the pedal's function now, as a press would. Sustain, Sostenuto and Soft switch on or off, and stay that way until you press Try again. Modulation and Pitch Bend follow the pedal, so there is nothing to try here. | — | — | — |

@@ -30,7 +30,6 @@
 
 pub mod mock;
 mod mock_home;
-mod mock_regist;
 mod mock_looper;
 
 #[cfg(not(target_os = "ios"))]
@@ -190,14 +189,15 @@ fn close_stale_editors(app: &tauri::AppHandle, s: &yahaha::Session) {
     }
 }
 
-/// Open keyboard part `part`'s plugin editor (or bring it to the front). The mock has no
-/// plugins: it says so in the message line.
+/// Open keyboard part `part`'s plugin editor (or bring it to the front). While it is open,
+/// the engine reads the plugin's state about every half second, so an edit there shows as
+/// "edited" at once. The mock has no real plugins: its demo window turns a knob.
 #[cfg(target_os = "macos")]
 #[tauri::command]
 fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
     let target = match &**backend {
         Backend::Live(s) => s.plugin_editor(part).ok_or_else(|| failed("the part is not playing a plugin"))?,
-        Backend::Mock(_) => return Err(failed("the demo session has no plugins")),
+        Backend::Mock(m) => return Ok(open_mock_plugin_window(m, part, &app)),
     };
     let part = part & 3;
     app.run_on_main_thread(move || {
@@ -226,12 +226,25 @@ fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandl
     .map_err(failed)
 }
 
-/// Plugins are macOS only: nothing to open here.
+/// Plugins are macOS only: only the demo's window opens here.
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-#[allow(unused_variables)]
 fn open_plugin_editor(part: u8, backend: State<'_, Shared>, app: tauri::AppHandle) -> Result<(), Value> {
-    Err(failed("plugins are macOS only"))
+    match &**backend {
+        Backend::Mock(m) => Ok(open_mock_plugin_window(m, part, &app)),
+        Backend::Live(_) => Err(failed("plugins are macOS only")),
+    }
+}
+
+/// The demo's plugin window ([`mock::MockSession::open_plugin_window`]): it turns a knob,
+/// so the part's "edited" badge shows (or clears) without the real host.
+fn open_mock_plugin_window(m: &std::sync::Mutex<mock::MockSession>, part: u8, app: &tauri::AppHandle) {
+    let Ok(mut m) = m.lock() else { return };
+    let version = m.state.version;
+    m.open_plugin_window(part);
+    if m.state.version != version {
+        let _ = app.emit("yahaha", yahaha::Event::StateChanged { version: m.state.version });
+    }
 }
 
 /// Close keyboard part `part`'s plugin editor and keep the plugin's settings with the part

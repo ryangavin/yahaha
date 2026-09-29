@@ -14,6 +14,53 @@ describe('mock session', () => {
     expect(m.state.transport.section).toBe('Main A')
   })
 
+  it('the live rack: a new rack, modified by a mix, split or Harmony/Arp change but not by the band', () => {
+    for (const cmd of [
+      { type: 'setPartVolume', part: 0, volume: 12 },
+      { type: 'setSplit', note: 48 },
+      { type: 'setHarmonyArpOn', on: true },
+    ] as const) {
+      const m = new MockSession({ manual: true })
+      expect(m.state.liveRack).toMatchObject({ name: 'New rack', id: null, modified: false, prompt: null })
+      expect(m.state.liveRack.controls.faders).toEqual([0, 1, 2, 3].map((part) => ({ kind: 'partLevel', part })))
+      expect(m.state.liveRack.controls.knobs.slice(4)).toEqual(Array(4).fill({ kind: 'none' }))
+      m.send({ type: 'startStop' })
+      m.advance(bar(m) * 2)
+      expect(m.state.liveRack.modified).toBe(false)
+      m.send(cmd)
+      expect(m.state.liveRack.modified).toBe(true)
+    }
+  })
+
+  it('rack commands: save as, the unsaved-changes guard, load, rename, duplicate, delete', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setPartVolume', part: 0, volume: 30 })
+    m.send({ type: 'saveRackAs', name: 'Ballad' })
+    const id = m.state.racks[0].id
+    expect(m.state.racks.map((r) => r.name)).toEqual(['Ballad'])
+    expect(m.state.liveRack).toMatchObject({ name: 'Ballad', id, modified: false, prompt: null })
+
+    m.send({ type: 'setPartVolume', part: 0, volume: 99 })
+    m.send({ type: 'newRack' })
+    expect(m.state.liveRack.prompt).toEqual({ kind: 'unsavedChanges', then: { kind: 'new' } })
+    expect(m.state.keyboardParts[0].volume).toBe(99)
+    m.send({ type: 'dismissRackPrompt' })
+    expect(m.state.liveRack.prompt).toBeNull()
+    m.send({ type: 'loadRack', id, discard: true })
+    expect(m.state.keyboardParts[0].volume).toBe(30)
+    expect(m.state.liveRack.modified).toBe(false)
+
+    m.send({ type: 'duplicateRack', id })
+    m.send({ type: 'renameRack', id, name: 'Slow' })
+    expect(m.state.racks.map((r) => r.name)).toEqual(['Ballad copy', 'Slow'])
+    expect(m.state.liveRack.name).toBe('Slow')
+    m.send({ type: 'deleteRack', id })
+    expect(m.state.racks).toHaveLength(2)
+    expect(m.state.message?.error).toBe(true)
+    m.send({ type: 'deleteRack', id: m.state.racks[0].id })
+    expect(m.state.racks.map((r) => r.name)).toEqual(['Slow'])
+  })
+
   it('a queued Main takes over at the next bar', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'startStop' })
@@ -209,69 +256,6 @@ describe('mock session', () => {
     expect(seen[1].version).toBeGreaterThan(seen[0].version)
   })
 
-  it('Registration stores Keyboard Harmony/Arpeggio, as the harmonyArp registrable', () => {
-    const m = new MockSession({ manual: true })
-    m.send({ type: 'setArpPattern', index: 4 })
-    m.send({ type: 'setHarmonyArpOn', on: true })
-    m.send({ type: 'setHarmonyVolume', volume: 60 })
-    const want = structuredClone(m.state.harmonyArp)
-    m.send({ type: 'memorizeRegist', index: 5 })
-    const scramble = () => {
-      m.send({ type: 'setHarmonyType', index: 1 })
-      m.send({ type: 'setHarmonyArpOn', on: false })
-      m.send({ type: 'setHarmonyVolume', volume: 100 })
-    }
-    scramble()
-    m.send({ type: 'setArpPedalHold', on: true })
-    m.send({ type: 'recallRegist', index: 5 })
-    // The pedal's Arpeggio Hold is not recalled.
-    expect(m.state.harmonyArp).toEqual({ ...want, arp: { ...want.arp, pedalHold: true } })
-    scramble()
-    const scrambled = structuredClone(m.state.harmonyArp)
-    m.send({ type: 'setFreezeGroup', group: 'harmonyArp', on: true })
-    m.send({ type: 'setFreeze', on: true })
-    m.send({ type: 'recallRegist', index: 5 })
-    expect(m.state.harmonyArp).toEqual(scrambled)
-  })
-
-  it('Left Hold is a switch Registration stores (#202)', () => {
-    const m = new MockSession({ manual: true })
-    m.send({ type: 'setLeftHold', on: true })
-    m.send({ type: 'memorizeRegist', index: 2 })
-    m.send({ type: 'toggleLeftHold' })
-    expect(m.state.chord.leftHold).toBe(false)
-    m.send({ type: 'recallRegist', index: 2 })
-    expect(m.state.chord.leftHold).toBe(true)
-  })
-
-  it('a Regist + pedal steps the stored buttons, or the sequence while it is on (#200)', () => {
-    const m = new MockSession({ manual: true })
-    m.send({ type: 'newRegistBank' })
-    for (const [index, program] of [[0, 10], [2, 30], [5, 60]]) {
-      m.send({ type: 'setPartVoice', part: 0, program })
-      m.send({ type: 'memorizeRegist', index })
-    }
-    m.send({ type: 'recallRegist', index: 0 })
-    m.send({ type: 'triggerFunction', function: 'registNext' })
-    expect(m.state.registration.selected).toBe(2)
-    m.send({ type: 'triggerFunction', function: 'registNext' })
-    m.send({ type: 'triggerFunction', function: 'registNext' })
-    expect(m.state.registration.selected).toBe(5)
-    m.send({ type: 'triggerFunction', function: 'registPrev' })
-    expect(m.state.keyboardParts[0].program).toBe(30)
-    m.send({ type: 'setRegistSequence', steps: [5, 0], end: 'stop' })
-    m.send({ type: 'setRegistSequenceOn', on: true })
-    m.send({ type: 'triggerFunction', function: 'registNext' })
-    m.send({ type: 'triggerFunction', function: 'registNext' })
-    expect(m.state.registration.selected).toBe(0)
-    m.send({ type: 'triggerFunction', function: 'regist3' })
-    expect(m.state.registration.selected).toBe(2)
-    m.send({ type: 'triggerFunction', function: 'registFreeze' })
-    expect(m.state.registration.freeze).toBe(true)
-    m.send({ type: 'triggerFunction', function: 'registSequence' })
-    expect(m.state.registration.sequence.on).toBe(false)
-  })
-
   it('a plugin sound exports as an .aupreset; a second export needs overwrite (D5, #307)', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'exportSoundPreset', id: 'keys-au' })
@@ -306,20 +290,6 @@ describe('mock session', () => {
     expect(m.state.looper.banks.map((b) => b.name)).toEqual(['Ballads', 'Songs'])
     m.send({ type: 'loadLooperBank', path: songs })
     expect(m.state.looper.bankName).toBe('Songs')
-  })
-
-  it('Parameter Lock keeps a locked group through a registration recall', () => {
-    const m = new MockSession({ manual: true })
-    m.send({ type: 'setSplit', note: 60 })
-    m.send({ type: 'setFingering', fingering: 'fingered' })
-    m.send({ type: 'memorizeRegist', index: 4 })
-    m.send({ type: 'setSplit', note: 50 })
-    m.send({ type: 'setFingering', fingering: 'singleFinger' })
-    m.send({ type: 'setParamLock', item: 'splitPoint', on: true })
-    expect(m.state.paramLocks).toEqual({ splitPoint: true, fingeringType: false })
-    m.send({ type: 'recallRegist', index: 4 })
-    expect(m.state.chord.split).toBe(50)
-    expect(m.state.chord.fingering).toBe('fingered')
   })
 
   it('Kbd Harmony/Arpeggio and Arpeggio Hold are control-side switches, as the engine keeps them', () => {

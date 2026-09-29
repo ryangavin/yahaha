@@ -373,8 +373,8 @@ MainStage list them, and each preset is a sound of its own.
 - **Loading.** `PluginVoice::preset` names the preset (`f:<number>` or `u:<path>`, and its
   name). A factory preset loads by number (`LoadConfig::factory_preset`,
   `kAudioUnitProperty_PresentPreset`) while the voice has no state; once it plays, its
-  state is read (as the autosave does) so the part, a Registration and plugin-parts.json
-  keep the sound itself. An `.aupreset` is the unit's ClassInfo dictionary, so it is read
+  state is read (as the autosave does) so the part, a Registration and the live rack
+  (`live-rack.json`, which replaced plugin-parts.json) keep the sound itself. An `.aupreset` is the unit's ClassInfo dictionary, so it is read
   on the control side and restored as the voice's state. Each part has its own instance
   through the usual load, rack swap and 5 ms crossfade; nothing new touches the audio
   thread.

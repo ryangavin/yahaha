@@ -58,23 +58,13 @@ export function sameOrigin(a: PluginOrigin | undefined, b: PluginOrigin): boolea
   return a.kind === 'factory' ? b.kind === 'factory' && a.number === b.number : b.kind === 'file' && a.path === b.path
 }
 
-/** Sent as CCs when the patch is picked (0–127 or null: leave as is). */
-export interface PatchDefaults {
-  volume: number | null
-  pan: number | null
-  reverb: number | null
-  chorus: number | null
-  /** −2..2 */
-  octave: number
-}
-
+/** A sound is the raw instrument: it has no mix (docs/racks.md). */
 export interface PatchFields {
   name: string
   category: PatchCategory
   tags: string[]
   favourite: boolean
   source: PatchSource
-  defaults: PatchDefaults
 }
 
 export interface Patch extends PatchFields {
@@ -90,8 +80,14 @@ export interface PatchInfo extends Patch {
 export interface ProgramMap {
   /** 16 GM families (family i = programs 8i..8i+7): a patch id or null. */
   families: (string | null)[]
-  overrides: { program: number; patch: string }[]
+  /** Each family rule's level (CC7, 0–127): what a Style part resolving by the rule takes
+   * when the style sets none. Absent when no rule has one. */
+  familyVolumes?: (number | null)[]
+  /** `volume`: the override's level, as `familyVolumes`. */
+  overrides: { program: number; patch: string; volume?: number }[]
   drums: string | null
+  /** The drum rule's level, as `familyVolumes`. */
+  drumsVolume?: number
 }
 
 export type RuleKind = 'drums' | 'override' | 'family' | 'fallback'

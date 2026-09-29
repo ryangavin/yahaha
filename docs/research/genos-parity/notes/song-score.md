@@ -85,7 +85,7 @@ Stills: none needed (see above).
   make one: no pad recorder (Multi Pad Creator is out of scope, §F) and no import of a
   MIDI file as a pad; only `yahaha pad --demo` writes synthetic banks.
 - A MIDI file's chord events cannot be imported as a chart; Chord SysEx is only read by
-  the capture kit (`docs/capture-kit/README.md`).
+  the capture kit (`src/capture-kit/README.md`).
 
 ## Gaps
 

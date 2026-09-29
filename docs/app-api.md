@@ -183,7 +183,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
 | `setFaderLayer` | `layer`: `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | The fader layer (the mixer's VOL · PAN · REV · CHO · DLY): what the faders move across the parts. Volume: each part's CC7 (as always). A send layer: Panel faders 1–4 move Right 1–3 and Left's pan / CC91 / CC93 / CC94 (as `setPartPan` / `setPartSend`, with soft takeover); Style faders 1–8 move the Style parts' reverb / chorus / delay sends (as `setStylePartSend`, with soft takeover; the Style parts have no pan, so PAN leaves them alone). Faders 5–6 on the Panel page stay the Style and Multi Pad levels, and the master fader stays the master. On the Launchkey, **Shift + the master fader's button** steps the layer; the button alone still switches the page. |
 | `stepFaderLayer` | `delta` | The next/previous fader layer, wrapping (VOL → PAN → REV → CHO → DLY → VOL). |
-| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The Launchkey pad page. |
+| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `quickRacks` \| `multiPads` | The Launchkey pad page (`registration`, page 4's old name, is still read as `quickRacks`). |
 | `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
 | `setSynthMuted` / `toggleSynthMute` | `on` | Mutes the synth audio. |
@@ -247,62 +247,14 @@ left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session'
 | `setChartEnding` | `index` | The Ending 0–2 after the last bar, or `null`: the band stops at the end of the last bar. |
 | `setChartAutoStyle` | `on` | Load the suggested style whenever a song is chosen. |
 
-### Registration Memory (Snapshots)
+### Registration Memory and the Playlist: gone
 
-The Genos's Registration Memory buttons are **Snapshots**: eight per **snapshot bank**
-(Bank A, B, … up to H) in a bank file. `index` is a snapshot's place in the bank file,
-0-based: `bank * 8 + slot` (0 = A1, 9 = B2, up to 63 = H8). A bank file from before
-snapshots (ten buttons) loads with its buttons 1–8 as Bank A and 9–10 as B1–B2, the same
-indices, so its sequence and playlist records still point at them. The MEMORY button is
-**Store**; the wire names keep the Genos words (`pressRegist`, `toggleRegistMemory`,
-`registration.memory`). Groups are `style`, `voice`,
-`harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl`, `assignable`
-(the Genos Freeze groups; docs/registration.md lists what each covers).
-
-| Command | Fields | Does |
-|---|---|---|
-| `pressRegist` | `index` | A snapshot button: recalls it, or stores into it while Store is armed. The pads follow to its snapshot bank. |
-| `pressSnapshot` | `slot` 0–7 | Snapshot `slot` of the snapshot bank on view (`snapshotBank`), as `pressRegist` (the Launchkey pads and the `regist1`–`regist8` assignable functions send this; `regist9`/`regist10` run on into the next bank's 1–2). |
-| `stepSnapshotBank` | `delta` | Snapshot bank −/+: views the previous/next eight. It stops at Bank A and at one empty bank past the last stored one (at most H), to store into. |
-| `selectSnapshotBank` | `bank` 0–7 | Views snapshot bank `bank` (0 = A). Refused past the one empty bank after the last stored one. |
-| `recallRegist` | `index` | Recalls a button: the groups it memorized, less the frozen ones while Freeze is on. The style comes first; when it changes, the rest follows once the new style plays (at once when stopped, at the next bar line when playing; `registration.pending` meanwhile). Refused if the button is empty. |
-| `memorizeRegist` | `index` | Stores the panel (the `memorizeGroups`) in a button, replacing what it held. A saved bank is written to its file at once. |
-| `toggleRegistMemory` | | The STORE button (the Genos's MEMORY): the next `pressRegist`/`pressSnapshot` stores. |
-| `setMemorizeGroup` | `group`, `on` | Ticks a group in the Memory window. |
-| `clearRegist` | `index` | Empties a button. |
-| `renameRegist` | `index`, `name` | Renames a button. |
-| `stepRegistBank` | `delta` | REGIST BANK −/+: the previous/next bank file in the folder (stops at the ends). Loading a bank recalls nothing. |
-| `selectRegistBank` | `path` | Loads a bank file. |
-| `newRegistBank` | | A new, empty, unsaved bank. |
-| `saveRegistBank` | `name` (null: its own file), `overwrite`? | Saves the bank; with a name, as a file of that name in the folder. Refused when another bank already has that file, unless `overwrite: true`. Fails without a data folder. |
-| `setFreeze` / `toggleFreeze` | `on` | Registration Freeze. |
-| `setFreezeGroup` | `group`, `on` | Ticks a group on the Freeze display: it stays unchanged on recall while Freeze is on. |
-| `setRegistSequence` | `steps` (snapshot indices 0–63), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
-| `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
-| `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
-| `stepRegist` | `delta` | Regist +/− from a pedal (the `registNext`/`registPrev` assignable functions): the sequence's next/previous step while it is on and has steps, else the bank's next/previous stored button (empty ones skipped; from none, + the first and − the last; it stops at either end). Refused when the bank has nothing stored. |
-
-### Playlist
-
-Record `index` is a record's position in the playlist file (`PlaylistRow.index`), whatever
-the display order. A record is `{ "name", "kind": "bank", "path", "regist"? }` (a bank
-file, and the button to recall after loading it) or `{ "name", "kind": "style", "path" }`.
-
-| Command | Fields | Does |
-|---|---|---|
-| `newPlaylist` | | A new, empty, unsaved playlist. |
-| `loadPlaylist` | `path` | Opens a playlist file. |
-| `savePlaylist` | `name` (null: its own file), `overwrite`? | Saves in the displayed order and sets the sort back to `normal`; with a name, as a file of that name in the folder (refused when another playlist has it, unless `overwrite: true`). |
-| `addPlaylistRecord` | `record` | Adds a record at the end (at most 2,500). An empty name takes the file's. |
-| `addCurrentBank` | | Adds the bank in use (it must be saved), recalling the lit button. |
-| `addCurrentStyle` | | Adds the loaded style. |
-| `appendPlaylist` | `path` | Adds every record of another playlist file. |
-| `setPlaylistRecord` | `index`, `record` | Replaces a record (Record Edit). |
-| `movePlaylistRecord` | `index`, `delta` | Up (−1) / Down (+1). Refused while sorted. |
-| `deletePlaylistRecord` | `index` | Refused while sorted. |
-| `setPlaylistSort` | `sort`: `normal` \| `aToZ` \| `zToA` | Display order. |
-| `loadPlaylistRecord` | `index` | Loads its bank and recalls its button, or loads its style. |
-| `stepPlaylist` | `delta` | Loads the previous/next record in display order (Shift + Track ◀/▶). Does nothing on an empty playlist. |
+[Quick Racks](#quick-racks) replace Registration Memory (docs/racks.md, "Migration"). The
+Registration commands (`pressRegist`, `pressSnapshot`, `stepSnapshotBank`,
+`toggleRegistMemory`, `toggleFreeze`, `stepRegistBank`, `stepRegistSequence`, `stepRegist`
+and the rest) and the Playlist's (`newPlaylist` … `stepPlaylist`) are refused as unknown
+commands, and `registration` and `playlist` are no longer in the state. Registration bank
+and playlist files stay on disk, unread; they aren't imported.
 
 ### Chord Looper
 
@@ -368,10 +320,11 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 | Command | Fields | Does |
 |---|---|---|
 | `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, a plugin that was playing keeps the part; otherwise the part plays its SoundFont voice (`failed`, with the `error`), and picking the plugin again with a null `state` retries it with the state it kept (a restore that timed out, or a plugin reinstalled since, comes back as saved; go back to the SoundFont voice first to start it fresh). A state over 64 MB is refused. Fails at once for an unknown id or with no synth. |
-| `setPartPluginPreset` | `part` 0–3, `id`, `preset` | Plays the part on one of plugin `id`'s AU presets: `preset` is its key (`f:<number>` for a factory preset, set with `kAudioUnitProperty_PresentPreset`; `u:<path>` for an `.aupreset` the scan listed, restored as the plugin's ClassInfo state). The part gets an instance of its own, so one plugin can play a different preset on every part. Loads as `setPartPlugin` does; `keyboardParts[i].plugin.preset` / `presetKey` name it. The part's saved voice keeps it (plugin-parts.json, with the state read once it plays); Registration and Snapshots store the plugin's state as for any plugin, with its sound's id and name. Once it plays, the preset is a library sound (docs/sound-browser.md): the part's saved voice names it (`sound`: `{ id, name }`), and a factory preset's state is captured into it. `assignSound` with a preset id sends it. |
+| `setPartPluginPreset` | `part` 0–3, `id`, `preset` | Plays the part on one of plugin `id`'s AU presets: `preset` is its key (`f:<number>` for a factory preset, set with `kAudioUnitProperty_PresentPreset`; `u:<path>` for an `.aupreset` the scan listed, restored as the plugin's ClassInfo state). The part gets an instance of its own, so one plugin can play a different preset on every part. Loads as `setPartPlugin` does; `keyboardParts[i].plugin.preset` / `presetKey` name it. The live rack keeps it (`liveRack`, with the state read once it plays); Registration and Snapshots store the plugin's state as for any plugin, with its sound's id and name. Once it plays, the part plays the preset itself (docs/racks.md "Saving"): `keyboardParts[i].sound` and the part's saved voice name it by its catalog id (`{ "id": "au:<component id>#<key>", "name" }`). Picking a preset adds no library record; `saveSound` makes one. `assignSound` with a preset id sends it. |
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
 | `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
-| `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). |
+| `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). After it (and after the start-up scan), plugins found for the first time are `new`, plugins seen before that are gone are in `plugins.missing`, keyboard parts whose plugin is gone go silent, and parts whose plugin is back play it again with the state they kept (docs/racks.md, "Plugins coming and going"). |
+| `markPluginSeen` | `id` | The player opened plugin `id` (Library › Instruments): it is no longer `new` (kept in `<data>/known-plugins.json`). Playing it on any part does the same. Fails for a plugin that isn't installed. |
 | `reloadPartPlugin` | `part` 0–3 or null | Loads the part's plugin again with its saved preset after it stopped working (`muted`) or failed to load (`failed`); null is the part selected for editing. Fails when the part has no plugin, or it is playing or still loading. The TUI's `s` and the Launchkey's Panel fader button 6 send it; that button is red while the selected part's plugin needs it. |
 | `setPluginInProcess` | `id`, `inProcess` | Runs plugin `id` in yahaha's process (`true`) or in its own (`false`, the default for third-party plugins). In process saves the IPC cost per render for the lightest plugins, but a crash in the plugin takes yahaha down. Kept in the scan cache (across rescans and plugin updates) and shown as `plugins.list[i].inProcess`. It applies from the plugin's next load; a part playing it now keeps running where it is (the message line says so). Fails for an unknown id, or for an AUv3 that only runs out of process (`canRunInProcess` false). |
 
@@ -410,24 +363,24 @@ every change. A patch id that doesn't exist fails the command.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `createPatch` | `patch`: PatchFields | Adds a patch at the end of the list; its new id is `soundLibrary.lastAdded`. PatchFields: `name`, `category`, `tags`, `favourite`, `source`, `defaults` (see [`soundLibrary`](#soundlibrary)). |
-| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source, defaults); the id stays. |
+| `createPatch` | `patch`: PatchFields | Adds a patch at the end of the list; its new id is `soundLibrary.lastAdded`. PatchFields: `name`, `category`, `tags`, `favourite`, `source` (see [`soundLibrary`](#soundlibrary)). A sound is the raw instrument: it has no mix (docs/racks.md); an older client's `defaults` is ignored. |
+| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source); the id stays. |
 | `deletePatch` | `id` | Deletes it. Map rules that name it go; a keyboard part playing it goes back to its GM voice. |
 | `duplicatePatch` | `id` | A copy ("… copy") right after it, with a new id. |
 | `movePatch` | `id`, `to` | Moves it to position `to` (0-based) in the list. |
 | `setPatchFavourite` | `id`, `favourite` | Marks or unmarks a favourite. |
-| `saveSound` | `part` 0–3 | Save: what a keyboard part plays now over the Sound it plays (`keyboardParts[i].sound`): a plugin sound's state (read afresh, landing a moment later, as `saveSoundAs`), and its volume and octave as the defaults. The part keeps its plugin instance, and `soundEdited` clears. Only the user's own sounds are overwritten: a factory preset's or an `.aupreset` file's sound, a sound of another plugin, or a part that plays no named sound is saved as a new one instead (`saveSoundAs`). |
-| `saveSoundAs` | `part` 0–3, `name` or null | Save as…: what a keyboard part plays as a new Sound, as `savePartAsPatch` describes. A part playing a plugin then plays the new sound (`keyboardParts[i].sound` names it, not edited); a part whose own patch was a plugin sound gets the new patch, on the same instance. |
-| `savePartAsPatch` | `part` 0–3, `name` or null | The old "Save as patch", kept for older clients: `saveSoundAs`. Saves what a keyboard part plays as a new patch: its plugin (component id and its state as its editor left it; a playing plugin's state is read afresh and lands in the patch a moment later), else the patch it plays (its own, or the one the program map sends its GM voice to), else its GM voice on the synth's SoundFont. Its volume and octave become the defaults. |
+| `saveSound` | `part` 0–3 | Save: what a keyboard part plays now over the Sound it plays (`keyboardParts[i].sound`): a plugin sound's state (read afresh, landing a moment later, as `saveSoundAs`); never the part's mix (volume, octave, pan, sends), which stays the part's. The part keeps its plugin instance, and `soundEdited` clears. Only the user's own sounds are overwritten: a factory preset's or an `.aupreset` file's sound, a sound of another plugin, or a part that plays no named sound is saved as a new one instead (`saveSoundAs`), named after the preset or voice it plays (not the plugin), which the part then plays: a second `saveSound` updates it, so one save makes one record. |
+| `saveSoundAs` | `part` 0–3, `name` or null | Save as…: what a keyboard part plays as a new Sound, as `savePartAsPatch` describes. A part playing a plugin then plays the new sound (`keyboardParts[i].sound` names it, not edited); a part whose own patch was a plugin sound gets the new patch, on the same instance. A part playing a SoundFont sound (a GM voice, or the patch the map gives it) takes the new sound as its own patch (`keyboardParts[i].patch`), except Left playing Manual Bass. |
+| `savePartAsPatch` | `part` 0–3, `name` or null | The old "Save as patch", kept for older clients: `saveSoundAs`. Saves what a keyboard part plays as a new patch: its plugin (component id and its state as its editor left it; a playing plugin's state is read afresh and lands in the patch a moment later), else the patch it plays (its own, or the one the program map sends its GM voice to), else its GM voice on the synth's SoundFont. The part's mix is not saved: a sound has none. |
 | `addPresetAsPatch` | `file`, `bank`, `program`, `name` or null | Adds a SoundFont preset (`browseSoundFont`) as a patch, named after the preset and categorised from its bank and program. |
-| `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped. A plugin patch first loads its plugin there (#91's rack), then plays; the plugin goes when the audition ends. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
+| `auditionPatch` | `id` | Plays the patch on its own for about 3 s (an arpeggio and a chord; a drum kit plays a beat), on channel 16 of the built-in synth, which the band is not using while stopped, at a fixed level (CC7 100) for every sound. A plugin patch first loads its plugin there (#91's rack), then plays; the plugin goes when the audition ends. Refused while the band plays (like `auditionStyle`); `soundLibrary.auditioning` names it. |
 | `auditionPreset` | `file`, `bank`, `program` | The same for a SoundFont preset, before adding it. A SoundFont the synth hasn't loaded loads first. |
 | `stopPatchAudition` | | Ends the audition now. |
-| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). In the three rule commands `patch` may also be a [sound catalog](#sound-catalog) id: a saved sound's patch, or a preset or plugin, which becomes a library patch the first time (a plugin with its default preset). |
+| `setFamilyRule` | `family` 0–15, `patch` or null, `style` | A GM family (programs 8·family … 8·family+7) plays `patch`; null clears the rule. `style`: the current style's own map instead of the global one (may be left out: false). In the three rule commands `patch` may also be a [sound catalog](#sound-catalog) id: a saved sound's patch, or a preset or plugin, which becomes a library patch the first time (a plugin with its default preset). A rule given another patch loses its level (`familyVolumes`, an override's `volume`, `drumsVolume`); the same patch keeps it. |
 | `setProgramOverride` | `program` 0–127, `patch` or null, `style` | One GM program plays `patch`, whatever its family's rule. |
 | `setDrumRule` | `patch` or null, `style` | The drum parts (Rhythm 1 and 2, and any part on a Yamaha drum kit bank, MSB 126/127) play `patch`. |
 | `clearStyleMap` | | Forgets the current style's own map. |
-| `setPartPatch` | `part` 0–3, `id` or null | A keyboard part plays a library patch; its defaults (volume, octave, pan, reverb and chorus sends) go to the part as CCs. Null: back to its GM voice (through the map). `setPartVoice`, `stepVoice` and an OTS recall that gives the part a voice also end it. A plugin patch loads its plugin with the patch's state, as `setPartPlugin` does (the part's `plugin` shows it loading, then playing); leaving the patch takes that plugin away. `setPartPlugin` (and `clearPartPlugin` while a plugin patch plays) ends the part's patch; a SoundFont patch picked over a `setPartPlugin` plugin ends that plugin. |
+| `setPartPatch` | `part` 0–3, `id` or null | A keyboard part plays a library patch; the part keeps its own volume, octave, pan and sends (a sound has no mix). Null: back to its GM voice (through the map). `setPartVoice`, `stepVoice` and an OTS recall that gives the part a voice also end it. A plugin patch loads its plugin with the patch's state, as `setPartPlugin` does (the part's `plugin` shows it loading, then playing); leaving the patch takes that plugin away. `setPartPlugin` (and `clearPartPlugin` while a plugin patch plays) ends the part's patch; a SoundFont patch picked over a `setPartPlugin` plugin ends that plugin. |
 | `setPortSendsMapped` | `on` | The `yahaha` MIDI port gets the mapped bank and program for the band's program changes the map sends to a SoundFont patch, instead of the style's own (default off: the port mirrors the style). |
 | `browseSoundFont` | `file` or null | Lists a SoundFont's presets in `soundLibrary.browse` (a file in `io.soundFonts`); null closes the list. |
 | `importSoundLibrary` | `path`, `replace`, `maps` | Reads a library file (a full library, or a bare list of patches). Its patches are added (ids that clash get new ones); `maps`: its program maps' rules are added too; `replace`: it replaces the library instead. `replace` and `maps` may be left out (false). |
@@ -590,8 +543,9 @@ folder.
 | `auditionSound` | `id` | Plays the sound on its own for about 3 s, as `auditionPatch` does (a plugin plays its default preset). Refused while the band plays. `sounds.auditioning` names it. |
 | `stopSoundAudition` | | Stops the audition. |
 | `assignSound` | `part` 0–3, `id` | The keyboard part plays the sound. A preset of the synth's main font (`io.soundFontFile`, bank 0) becomes the part's voice (`setPartVoice`). A preset of another font becomes a saved sound (the library's patch for it, added once) and plays as `setPartPatch`. A plugin plays as `setPartPlugin` (its default preset), and a saved sound as `setPartPatch`. The sound goes to the top of the Recents (20 kept). |
+| `replacePartSound` | `part` 0–3, `id` | Library › Replace… (for a part whose plugin is missing, or any part): the part plays sound `id` as `assignSound` does, and keeps its mix — level, pan, sends, octave, voice settings, bend range and on/off stay as they were, whatever the sound's defaults (docs/racks.md: swapping a sound never touches the mix). Nothing is saved until the rack is. |
 | `setSoundCategory` | `id`, `category` | A plugin's or plugin preset's category (until set: a plugin's is guessed from its name and maker, a preset's from its name and folder, else its plugin's), or a saved sound's (its patch's). A preset's category is its GM family: refused. |
-| `listPluginPresets` | `id` (`au:<component id>`) | The browser expanded a plugin: list its AU presets. Its `.aupreset` files (in `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/` and `/Library/Audio/Presets/...`) are listed at every scan; its factory presets (`kAudioUnitProperty_FactoryPresets`) need an instance, so a plugin no load has read yet is loaded once in the background (`sounds.listingPresets` has it meanwhile) and they are cached with the scan. The catalog moves when they are in: presets are entries `au:<component id>#f:<number>` (factory) and `au:<component id>#u:<path>` (file), with `parent` the plugin's id; the plugin's `plugin.presets` counts them (null until the factory presets were read). A rescan (`rescanPlugins`) lists everything again. |
+| `listPluginPresets` | `id` (`au:<component id>`) | The browser expanded a plugin: list its AU presets. Its `.aupreset` files (in `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/` and `/Library/Audio/Presets/...`) are listed at every scan; its factory presets (`kAudioUnitProperty_FactoryPresets`) need an instance, so a plugin no load has read yet is loaded once in the background (`sounds.listingPresets` has it meanwhile) and they are cached with the scan. The catalog moves when they are in: presets are entries `au:<component id>#f:<number>` (factory) and `au:<component id>#u:<path>` (file), with `parent` the plugin's id; the plugin's `plugin.presets` counts them (null until the factory presets were read). Placeholder factory presets (no name, a blank one, `<disabled>` and the like, repeats of a name) are never listed. A listing always ends: if it fails, times out (30 s) or gets no list, the plugin's `plugin.presetsError` says why, and it is not tried again until the next scan. A rescan (`rescanPlugins`) lists everything again. |
 | `addToMySounds` | `id` | The Instruments tab's "Add to my sounds": adds catalog entry `id` (a font preset `sf:…`, a plugin `au:<component id>`, or a plugin preset `au:<component id>#<key>`) to the sound library, once: the same patch a part or a map rule gets for it (a factory preset's state is captured when it first plays). Nothing plays it. A `saved:` id is in already, so nothing changes. Fails for an id not in the catalog. |
 | `savePartAsPluginPreset` | `part` 0–3, `name`, `category`, `overwrite`? | Saves what the part's plugin plays now (its editor's changes: a Kontakt instrument loaded there, say) as `<name>.aupreset` in `~/Library/Audio/Presets/<Manufacturer>/<Plugin>/`, the standard file Logic and MainStage read. A preset of that name that exists already is refused unless `overwrite` is true (the app asks "Replace '<name>'?" first, as Logic does). It lists under the plugin, filed under `category` (kept in `sound-settings.json`; the file is not changed), and the part then plays it. The state is read and written off the control thread. Fails when the part's plugin is not playing. |
 
@@ -600,6 +554,56 @@ The list itself is fetched, not in the state: see [`sounds`](#sounds).
 The program map's rule commands (`setFamilyRule`, `setProgramOverride`, `setDrumRule`) also
 take a catalog id as their `patch`, so the map's pickers pick from the same list.
 
+### Racks
+The user's racks (docs/racks.md, "Saving"): `<data>/Racks/<name>.rack.json`, named by a
+stable `id` (a rename keeps it). The list is [`racks`](#racks); the rack playing now is
+[`liveRack`](#liverack). Loading or saving a rack leaves the live rack that rack
+(`name`, `id`), unmodified, and autosaves it. Every command fails with no data folder,
+except `newRack`.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `newRack` | `discard`? | A new rack: every keyboard part on its default GM voice (Right 1 Grand Piano, Right 2 Strings, Right 3 Brass, Left Strings) with level 100, pan centre and dry sends, only Right 1 on, octave 0, no voice settings, bend range 2; the split F#2, no keyboard transpose, Harmony/Arpeggio off (its settings kept) and the default controller map. `liveRack` becomes `New rack` with no id. With unsaved changes (`liveRack.modified`) and no `discard: true`, nothing changes: it returns `{"kind":"unsavedChanges"}` and `liveRack.prompt` asks. |
+| `loadRack` | `id`, `discard`? | Loads the user's rack `id`: its parts' sounds and mix, split, Harmony/Arpeggio, keyboard transpose and controller map (as `applyRack`). A sound that can't play is reported in `message` and the rest still loads. The same guard as `newRack`. Fails for an unknown id or a rack that can't be read. |
+| `saveRack` | `soundNames`? | Save rack: writes the live rack over its own rack (the one `liveRack.id` names); a live rack with none (`New rack`, `Restored`, or its rack deleted) is saved as a new rack under its name (`Name 2`… if taken). Edited sounds are saved in the same step: a part whose plugin was edited (`soundEdited`) and plays the user's own sound saves over that sound (as `saveSound`); one playing a factory preset, an `.aupreset` file or a sound that isn't the user's becomes a new sound of the user's (as `saveSoundAs`), which needs a name in `soundNames` (`{"1": "Soft Pad"}`, by part). Without one, nothing is saved: it returns `{"kind":"needsSoundNames"}` and `liveRack.prompt` lists the parts. Each sound is one record, and the rack names it with no edit of its own. A plugin picked with no sound (its default) keeps its settings in the rack, with no sound made. Factory sounds are never overwritten. |
+| `saveRackAs` | `name`, `soundNames`? | Save as…: the live rack as a new rack called `name`, with its edited sounds as `saveRack`. Fails for an empty name or one another rack has. |
+| `revertRack` | | Discards the live rack's changes: loads its own rack again, with no question. Fails when it has none. |
+| `renameRack` | `id`, `name` | Renames rack `id` (its file follows; the id stays, so Quick Racks keep it). Renaming the loaded rack renames the live rack too, leaving `modified` as it was. Fails for an empty name or one another rack has. |
+| `duplicateRack` | `id` | Copies rack `id` as `<name> copy` (`<name> copy 2`… if taken), with a new id. |
+| `deleteRack` | `id` | Deletes rack `id`'s file. Refused for the loaded rack (`liveRack.id`): load another first. |
+| `dismissRackPrompt` | | Keep editing: clears `liveRack.prompt`; nothing else changes. |
+
+The Launchkey and pedals, which have no dialog, switch racks with
+`Session::load_rack_from_hardware`: unsaved changes are kept as a rack of the user's,
+`Recovered: <name>` (numbered if taken, edited plugin states kept as the parts' edits, no
+sound saved), and the switch goes ahead. If that rack can't be written, nothing changes.
+
+### Quick Racks
+The one-press rack buttons (docs/racks.md): banks A–H of eight, each one of the user's
+racks (by `id`, so a rename keeps it) or empty, kept in `<data>/quick-racks.json` (format
+`yahaha.quick-racks`, version 1, written atomically; a file from a newer yahaha, or one that
+can't be read, is never saved over and leaves Quick Racks read-only). The bar, Launchkey
+pad page 4 and the pedals play them; the state is [`quickRacks`](#quickracks). `slot` is
+a button of the bank on view, 0–7.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `pressQuickRack` | `slot`, `discard`? | Not armed: loads the button's rack as `loadRack` does, with the same guard (`{"kind":"unsavedChanges"}` and `liveRack.prompt`; `discard: true` switches anyway). Armed (`toggleQuickRackStore`): stores the live rack on the button and disarms. A live rack with unsaved changes, or never saved, isn't stored yet: `quickRacks.storeWaiting` holds the button until `saveRack` / `saveRackAs` succeeds, which stores the saved rack there. Fails for an empty button, or one whose rack is gone. Slots 8 and 9 run on into the next bank's 1 and 2 (the `regist9`/`regist10` pedal functions). |
+| `stepQuickRackBank` | `delta` | Bank −/+: views the previous/next bank. It stops at A and at H. |
+| `toggleQuickRackStore` | | Store: arms or disarms it for the next press. Disarming lets a waiting button go. |
+| `clearQuickRack` | `bank` 0–7, `slot` 0–7 | Empties a button. |
+| `stepQuickRack` | `delta`, `discard`? | Previous/next rack in the bank on view: the stored button before/after the lit one (from none, + the first and − the last; it stops at either end), loaded as `pressQuickRack` loads. Fails when the bank has no racks. |
+
+`deleteRack` empties every button naming that rack; `dismissRackPrompt`, or loading
+another rack, lets a waiting button go.
+
+From the Launchkey (pad page 4, Shift + Track ◀ ▶), the pedals (`regist1`–`regist10`,
+`registNext`/`registPrev`, `registMemory`, `snapshotBankNext`/`snapshotBankPrev`) and the
+terminal keys, which have no dialog, a press with unsaved changes switches anyway and keeps
+them as a `Recovered: <name>` rack (as `Session::load_rack_from_hardware`), and Store needs
+a saved, unmodified rack (otherwise it says so and disarms). `Session::hardware(action)`
+runs a Launchkey action that way.
+
 ### Result: `CmdError`
 
 `send` returns `Ok(())` or one of these errors:
@@ -607,6 +611,10 @@ take a catalog id as their `patch`, so the map's pickers pick from the same list
   again.
 - `{"kind":"failed","message":"…"}`: refused or failed. The same text is in
   `state.message`.
+- `{"kind":"unsavedChanges"}`: `loadRack` or `newRack` would lose the live rack's unsaved
+  changes. Nothing changed; `liveRack.prompt` holds the switch.
+- `{"kind":"needsSoundNames"}`: `saveRack` or `saveRackAs` would make new sounds that
+  need names. Nothing was saved; `liveRack.prompt` lists the parts.
 
 `Ok` means the control side has applied the command, and `state()` straight after
 `send` already shows it. For engine commands (sections, tempo, mute, Style volume), a
@@ -704,17 +712,17 @@ Indices are 0-based unless a field says otherwise.
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The Launchkey fader has moved but not yet reached `volume`. The terminal UI shows ↕. |
 | `program` | 0–127 | The part's GM voice. |
-| `voiceName` | string | What its channel plays: its own patch's name, the patch its GM voice maps to, or the GM voice. For Left under Manual Bass, that is the Style's Bass voice. |
+| `voiceName` | string | The name of what actually sounds, as `sound` resolves it: a plugin preset (or a factory or file preset's sound) reads "<plugin> · <preset>" ("Sampler Deluxe · Warm Keys"), a sound of the user's by its name, a bare plugin by the plugin's name; otherwise (no plugin, or one that failed and plays the SoundFont) the SoundFont patch or font preset's name, or the GM voice's when nothing covers it. For Left under Manual Bass, that is the Style's Bass voice. |
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `pan` | 0–127 | Pan (CC10): 0 left, 64 centre, 127 right. 64 until something sets it (`setPartPan`, a library patch, an OTS). |
 | `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. They go out again after a Panic, a Reset All Controllers from the keyboard, or a new synth. |
 | `variation` | 0–127 | Variation send depth (CC94): the effect bus's tempo delay. 0 until something sets it. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
-| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
+| `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened), `missing` (the plugin isn't installed: the last scan did not find it. The status is `failed`, the part is silent rather than on its SoundFont voice, and its mix, sound and saved state are kept; once the plugin is back and the plugins are scanned again, it loads as it was. A plugin that is installed but fails to load is not missing). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
-| `sound` | SoundTag? | What's playing (docs/sound-browser.md): `{ id, name }` of the Sound the part plays: its plugin's sound (a preset's, a library sound's, or one a Registration recalled), else its own patch or the one the map sends its GM voice to. Absent for a plugin state no sound names (a bare plugin, or a recalled state that matches no sound) and a GM voice no patch covers. The footer reads "<name> plays <instrument> · <sound.name>". |
-| `soundEdited` | bool? | Its plugin's state no longer matches `sound`: edited in the plugin's editor, or a recalled or restored state that isn't the sound's. Absent when false. Checked by fingerprint on the autosave's schedule (every 30 s, and at every explicit state read), off the audio thread. `saveSound` or `saveSoundAs` clears it. |
+| `sound` | SoundTag? | What's playing (docs/sound-browser.md): `{ id, name }` of the Sound the part plays, as a Sounds catalog id, named as the library names it now (a rename or delete shows at once). A plugin that is loading, playing or muted: the preset it was given (`au:<component>#<key>`, unless its sound is another library sound, one the user saved), else its library sound (`saved:<id>`), else the bare plugin (`au:<component>`). No plugin, or one that failed (it plays the SoundFont): its own SoundFont patch (`saved:<id>`), else what the GM map resolves its voice to, the auto-fill included (`saved:<id>` or `sf:<file>:<bank>:<program>`). Absent for a GM voice nothing covers (or one the map gives a plugin sound no plugin plays). The Sounds dialog marks this row ▶; its footer reads "<name> plays <instrument> · <sound.name>". |
+| `soundEdited` | bool? | Its plugin's state no longer matches `sound`: edited in the plugin's editor, or a recalled or restored state that isn't the sound's. Absent when false. Checked by fingerprint off the audio thread: about every half second while the part's plugin window is open (so an edit there shows within about a second, and undoing it clears it), otherwise on the autosave's schedule (every 30 s) and at every explicit state read. `saveSound` or `saveSoundAs` clears it. The demo session's plugin window turns a knob when opened, and back when opened again. |
 
 ### `mixer`
 | Field | Type | Meaning |
@@ -754,7 +762,7 @@ control's meaning, and every LED as the hardware shows it.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `page` | `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The current Launchkey pad page. |
+| `page` | `sections` \| `chordSetup` \| `otsParts` \| `quickRacks` \| `multiPads` | The current Launchkey pad page. Page 4, Quick Racks: top row Quick Racks 1–8 of the bank on view (red: the loaded rack, blue: a rack, dark: empty; all flashing while Store is armed); bottom row Bank −, Bank +, two dark pads, Store, a dark pad, Rack −, Rack + (`stepQuickRack`). |
 | `pageName`, `pageNumber` (1-based), `pageCount` | | For example `Chord/Setup`, 2, 3. |
 | `pads` | Pad[16] | This page: the top row (notes 96–103), then the bottom row (112–119). |
 | `connected` | bool | A Launchkey DAW port is connected. It is set once, at start: see the limitation below. |
@@ -1003,34 +1011,6 @@ The settings the `Style settings` commands set.
 | `swingGrid` | 8, 16 | The swing grid. Default 8. |
 | `sectionTempo` | bool | The tempo changes written inside sections play (`setSectionTempo`). Default on. |
 
-### `registration`
-
-| Field | Type | Meaning |
-|---|---|---|
-| `bank` | object | The bank in use: `name`, `path` (null until saved), `dirty` (changed since loaded or saved), `position` (its place in `banks`). |
-| `banks` | {name, path}[] | The bank files in the folder, in order. |
-| `folder` | string? | Where banks are saved (`<data dir>/Registration`); null when saving is off. |
-| `buttons` | RegistButton[] | Every snapshot of the bank file, by index: whole snapshot banks of eight, through the one on view. `index`, `stored`, `name`, `groups` (what it memorized), `style` (name)?, `tempo`?, `voices` ({name, on} for Right 1, Right 2, Right 3, Left; empty when it stores no parts). |
-| `selected` | 0–63? | The snapshot last recalled or stored (the red lamp), by index. |
-| `memory` | bool | Store is armed. |
-| `snapshotBank` | 0–7 | The snapshot bank on view (0 = Bank A): the pads press its eight. It follows a recall. |
-| `snapshotBanks` | 1–8 | Snapshot banks the file holds (enough for its last stored snapshot). |
-| `memorizeGroups`, `freezeGroups` | Group[] | The ticked groups. |
-| `freeze` | bool | Registration Freeze is on. |
-| `sequence` | object | `on`, `steps` (buttons), `end` (`stop` \| `top` \| `next`), `position` (the step last recalled)? |
-| `pending` | bool | A recall waits for its style to take over (the bar line). |
-
-### `playlist`
-
-| Field | Type | Meaning |
-|---|---|---|
-| `name`, `path`?, `dirty` | | The playlist in use. |
-| `sort` | `normal` \| `aToZ` \| `zToA` | Display order. |
-| `records` | PlaylistRow[] | In display order: `index` (file position), `record`, `missing` (its file isn't there). |
-| `current` | number? | The record last loaded (file position). |
-| `playlists` | {name, path}[] | The playlist files in the folder. |
-| `folder` | string? | Where playlists are saved (`<data dir>/Playlists`). |
-
 ### `looper`
 The Chord Looper.
 
@@ -1063,7 +1043,9 @@ The instrument plugin host.
 |---|---|---|
 | `available` | bool | Plugins can be used: the build hosts them and the built-in synth runs. |
 | `scanning` | bool | A scan is running. |
-| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null), `inProcess` (the player chose to run it in yahaha's process: `setPluginInProcess`), `canRunInProcess` (every AUv2, and an AUv3 that allows it). |
+| `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null), `inProcess` (the player chose to run it in yahaha's process: `setPluginInProcess`), `canRunInProcess` (every AUv2, and an AUv3 that allows it), `new` (a scan found it for the first time and it hasn't been opened or played since: `markPluginSeen`; the first scan ever marks nothing new), `racks` (how many of the user's racks, `<data>/Racks/*.rack.json`, have a part that plays it), `sounds` (how many sound library sounds play it). |
+| `missing` | MissingPlugin[] | Plugins that were installed before and aren't now, and plugins the user's racks or sounds use that aren't installed, by name: `id`, `name` and `manufacturer` (as last installed; the id and `""` if it never was here), `racks`, `sounds`. Empty until the first scan is in. A plugin seen before stays known (`<data>/known-plugins.json`), so reinstalling it doesn't make it `new`. |
+| `needsAttention` | RackAttention[] | The user's racks that need attention, by file name: a part's sound (a plugin, or a library sound) is on a missing plugin. `id`, `name`, `parts` (those parts, 0–3). The racks folder is read after each scan and within 2 s of a change. Nothing is rewritten. |
 
 ### `multiPad`
 Multi Pads (docs/multipad.md).
@@ -1098,10 +1080,10 @@ The sound library (docs/sound-library.md).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `defaults`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state", "origin"? }` (the Audio Unit's id, as #91 writes it, and its state, base64). A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset's `state` is empty until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound, adding it once. `defaults`: `volume`, `pan`, `reverb`, `chorus` (0–127 or null) and `octave` (−2..2). |
+| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state", "origin"? }` (the Audio Unit's id, as #91 writes it, and its state, base64). A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset's `state` is empty until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound (or a plugin sound with exactly the preset's settings, such as the one saved with an `.aupreset` by Save as…), adding it once. A patch has no mix settings (docs/racks.md). |
 | `categories` | object[] | The Genos voice categories in display order: `id` (`piano`, `ePiano`, `organ`, `guitar`, `bass`, `strings`, `brass`, `saxWoodwind`, `synthLead`, `pad`, `choir`, `drumsPerc`, `sfx`) and `label`. |
 | `families` | string[16] | The GM family names; family `i` is programs 8i … 8i+7. |
-| `map` | ProgramMap | The global map: `families` (16 patch ids or null), `overrides` (`{ program, patch }`, by program) and `drums` (a patch id or null). |
+| `map` | ProgramMap | The global map: `families` (16 patch ids or null), `overrides` (`{ program, patch, volume? }`, by program) and `drums` (a patch id or null). Each rule may have a level: `familyVolumes` (16 levels or null, absent when none has one), an override's `volume`, and `drumsVolume` (absent: none). A rule's level (CC7, 0–127) is what a Style part that resolves by the rule takes when the style sets no level of its own (the mixer shows it); a library of format 2 or older had it on the sound, and it moved onto every rule naming the sound. |
 | `styleMap` | ProgramMap | The current style's own map (empty: none). Its rules win over the global map's; what it leaves unset falls through. |
 | `styleKey` | string | What the style's own map is stored under: its file name. |
 | `usage` | ProgramUse[] | Every program the current style sends its parts (its setup and every section), by channel: `channel` (9–16), `part`, `msb`, `lsb`, `program`, `gmProgram` (what the map looks up), `voice` (the voice without the library), `drums`, `patch` (null: the fallback), `rule` (`drums` \| `override` \| `family` \| `fallback`), `fromStyle`, `plays` (the patch's name, or the voice). |
@@ -1139,7 +1121,7 @@ Each entry has:
 | `source` | `soundFont` \| `plugin` \| `saved` | Where it comes from. |
 | `detail` | string | The SoundFont file, the plugin's maker, or what a saved sound plays (its file or component id). |
 | `favourite`, `recent` | bool | In the Favourites, in the Recents. |
-| `plugin` | object? | Plugins only: `format` (`AUv2` \| `AUv3`) and `lastError` (the last load's error, or null). |
+| `plugin` | object? | Plugins only: `format` (`AUv2` \| `AUv3`), `lastError` (the last load's error, or null), `presets` (how many presets it has, once its factory presets were read; null while unknown, even with `.aupreset` files listed) and `presetsError` (left out unless listing its factory presets failed: why; it is not tried again until the next plugin scan). |
 
 Entries are in this order: presets by file, then bank and program; plugins by maker, then
 name; saved sounds in the library's order.
@@ -1183,7 +1165,7 @@ Read-only: what the Home screen shows, derived from the rest of the state (no co
 |---|---|---|
 | `mains` | HomeMain[4] | Main A–D: `name`, `present`, `bars` (pattern length), `stepsPerBar` (sixteenths: 16 in 4/4), `density` (note-ons per step over the whole pattern, `bars × stepsPerBar` entries), `lanes` (`kick`, `snare`, `hats`, `bass`: the first bar, the loudest velocity per step, 0 = none), `fill` (`name` "Fill In AA", `present`, `bars`, `active`: queued or playing), `current` (the Main the style is on). Worked out once when the style loads. |
 | `progress` | object | `running`, `bar`, `beat` (1-based), `bars` (the section's length; null when stopped), `beatsPerBar`, `fraction` (0–1 through the section, at beat resolution). |
-| `snapshot` | object? | The snapshot last recalled or stored: `index`, `label` ("A3"), `name`, `bank` (the bank file's name). |
+| `snapshot` | object? | Always null now that Quick Racks replaced Registration Memory (it goes with the Registration code). It was the snapshot last recalled or stored: `index`, `label` ("A3"), `name`, `bank`. |
 | `ots` | object? | The OTS applied last: `index` (0–3), `name`. |
 | `bandSends` | HomeSend[3] | Reverb, Chorus, Delay: `block`, `name`, `effectName`, `level` (the band send, as `setBandSend`). |
 
@@ -1206,6 +1188,65 @@ plays as, null if nothing is near it), or null when the style sets none; and `fo
 Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
 `rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
 (`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
+
+### `liveRack`
+The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
+plugin states included. `{ name, id, modified, controls, prompt }`.
+- `name`: the saved rack's it came from; `Restored` on the first start after racks came in
+  (made from the old `plugin-parts.json` and the parts); `New rack` when it came from none.
+- `id`: the saved rack it came from, or null.
+- `modified`: something it holds changed since it was loaded or saved: a keyboard part's
+  sound, level, pan, sends, octave, voice settings, bend range or switch, the split, the
+  keyboard transpose, Harmony/Arp, the controller map, or a plugin edit (`soundEdited`).
+  It shows at once (a Launchkey fader within the control thread's next 10 ms). Loading or
+  saving a rack clears it (the rack commands, docs/racks.md).
+- `controls`: its controller map, `{ faders, knobs }`: four and eight targets for
+  Launchkey faders 1–4 and knobs 1–8 on the Rack knob page. A target is `{ "kind": "none" }`,
+  `partLevel`, `partPan`, `partReverb` or `partChorus` with `part` 0–3, `harmonyArp` or
+  `splitPoint`; a target a newer build wrote is passed through as it is. A new rack has the
+  four parts' levels on faders 1–4 and knobs 1–4, and none on knobs 5–8. The Rack panel
+  shows it.
+- `prompt`: a rack command waiting for the player's answer, or null. It is set when a
+  command is refused for it, and cleared by `dismissRackPrompt` or once a rack is loaded
+  or saved.
+  - `{ "kind": "unsavedChanges", "then": { "kind": "load", "id", "name" } }` (or
+    `"then": { "kind": "new" }`): `loadRack` / `newRack` with unsaved changes. The app
+    offers Save first (`saveRack` or `saveRackAs` while this prompt is up: the engine holds
+    the switch and makes it once the save is done, through a `soundNames` prompt if one
+    comes; a save that fails drops it, so the app never sends the switch itself), Discard and switch (the switch with
+    `discard: true`) and Keep editing (`dismissRackPrompt`).
+  - `{ "kind": "soundNames", "parts": [{ "part", "suggested" }], "saveAs" }`: `saveRack`
+    (`saveAs` null) or `saveRackAs` (`saveAs` the rack's name) found edited presets that
+    become new sounds. `suggested` is the preset's name. Send the save again with
+    `soundNames`.
+
+A live session autosaves the live rack to `~/Library/Application Support/yahaha/live-rack.json`
+(atomically, off the control and audio threads: a second after the last change, or at most
+ten seconds after the first unsaved one, and on stop with the plugins' states read afresh)
+and applies it at the next start, so the parts sound and mix as before quitting, saved or
+not. A file that can't be read is moved aside (`live-rack.json.bak`) and the session starts
+on its defaults; one a newer yahaha wrote is left alone and not saved over. An offline
+session keeps no live rack unless `Options::live_rack` names a file.
+
+### `racks`
+The user's racks (`<data>/Racks/*.rack.json`), by file name, for Library › Racks. Each is
+`{ id, name, parts, on, needsAttention }`: `parts` names the sound each keyboard part plays
+(Right 1, Right 2, Right 3, Left: the library sound's name, the SoundFont preset's or GM
+voice's, or the plugin's), `on` says which parts are on, and `needsAttention` is true when a
+part's sound is on a missing plugin (`plugins.needsAttention` names the parts). The folder
+is read at start, after each rack command, after each plugin scan, and within 2 s of a
+change on disk. A rack that can't be read is not listed.
+
+### `quickRacks`
+[Quick Racks](#quick-racks), as the bar and pad page 4 show them.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bank` | 0–7 | The bank on view (0 = A). |
+| `buttons` | QuickRackButton[] | Its eight buttons: `rack` (the rack's id; null when empty), `name` (the rack's; empty when the button is empty or its rack is gone), `missing` (it names a rack that isn't in `racks`), `loaded` (its rack is `liveRack.id`: lit). |
+| `store` | bool | Store is armed: the next press stores the live rack. |
+| `storeWaiting` | 0–7? | A button of the bank on view waiting for the live rack to be saved before it is stored there. |
+| `readOnly` | bool | Quick Racks can't be changed: no data folder, or the file is from a newer yahaha (or can't be read). |
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1256,12 +1297,11 @@ Fill In BB queued, with OTS 1 recalled. Some lists are shortened here:
 - `styleParts` has 8.
 - `ots.settings` lists every OTS in the style.
 - `surface.controls` has 17 and `surface.faders` has 9.
-- `registration.buttons` has 8.
 
 The `library`, `surface.trackPrev`/`trackNext`, the master fader and `io` show what a
 live session reports with a library folder, a Launchkey and the synth.
 
-Unabridged fixtures from `yahaha state-json` are in `docs/fixtures/`: `state.json` (SlowWalker,
+Unabridged fixtures from `yahaha state-json` are in `tests/fixtures/`: `state.json` (SlowWalker,
 after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
 
 ```json
@@ -1370,7 +1410,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "cpu": 0.015625,
         "overruns": 0,
         "recentOverruns": 0,
-        "editor": true
+        "editor": true,
+        "missing": false
       },
       "patch": null
     },
@@ -1696,61 +1737,6 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "swingGrid": 8,
     "sectionTempo": true
   },
-  "registration": {
-    "bank": { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "dirty": false, "position": 0 },
-    "banks": [
-      { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json" },
-      { "name": "Jazz Set", "path": "/Users/me/Documents/yahaha/Registration/Jazz Set.regist.json" }
-    ],
-    "folder": "/Users/me/Documents/yahaha/Registration",
-    "buttons": [
-      {
-        "index": 0,
-        "stored": true,
-        "name": "SlowWalker",
-        "groups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
-        "style": "SlowWalker",
-        "tempo": 91.0,
-        "voices": [
-          { "name": "Grand Piano", "on": true },
-          { "name": "Strings", "on": false },
-          { "name": "Brass Section", "on": false },
-          { "name": "Strings", "on": false }
-        ]
-      },
-      { "index": 1, "stored": false, "name": "", "groups": [], "style": null, "tempo": null, "voices": [] }
-    ],
-    "selected": 0,
-    "memory": false,
-    "snapshotBank": 0,
-    "snapshotBanks": 1,
-    "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
-    "freeze": false,
-    "freezeGroups": ["tempo"],
-    "sequence": { "on": true, "steps": [0, 2, 1], "end": "next", "position": 0 },
-    "pending": false
-  },
-  "playlist": {
-    "name": "Friday",
-    "path": "/Users/me/Documents/yahaha/Playlists/Friday.playlist.json",
-    "dirty": false,
-    "sort": "normal",
-    "records": [
-      {
-        "index": 0,
-        "record": { "name": "Opener", "kind": "bank", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "regist": 0 },
-        "missing": false
-      },
-      {
-        "index": 1,
-        "record": { "name": "SlowWalker", "kind": "style", "path": "/Users/me/Styles/MOX_v2/SlowWalker.T552.sty" },
-        "missing": false
-      }
-    ],
-    "current": 0,
-    "playlists": [{ "name": "Friday", "path": "/Users/me/Documents/yahaha/Playlists/Friday.playlist.json" }],
-    "folder": "/Users/me/Documents/yahaha/Playlists"
-  },
   "looper": {
     "mode": "looping",
     "hasData": true,
@@ -1797,7 +1783,13 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "available": true,
     "scanning": false,
     "list": [
-      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null, "inProcess": false, "canRunInProcess": true }
+      { "id": "aumu dls  appl", "name": "DLSMusicDevice", "manufacturer": "Apple", "version": "1.0.0", "format": "AUv2", "lastError": null, "inProcess": false, "canRunInProcess": true, "new": false, "racks": 1, "sounds": 2 }
+    ],
+    "missing": [
+      { "id": "aumu Smp7 Fake", "name": "Sampler Deluxe", "manufacturer": "Fake Instruments", "racks": 1, "sounds": 1 }
+    ],
+    "needsAttention": [
+      { "id": "r5f3a2c1d-0", "name": "Ballad", "parts": [1] }
     ]
   },
   "multiPad": {
@@ -1852,7 +1844,6 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "tags": ["warm"],
         "favourite": true,
         "source": { "kind": "soundFont", "file": "GeneralUser-GS.sf2", "bank": 0, "program": 33 },
-        "defaults": { "volume": 100, "pan": null, "reverb": 20, "chorus": null, "octave": 0 },
         "available": true,
         "note": null
       },
@@ -1863,7 +1854,6 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "tags": [],
         "favourite": false,
         "source": { "kind": "plugin", "componentId": "aumu dls  appl", "state": "" },
-        "defaults": { "volume": null, "pan": null, "reverb": null, "chorus": null, "octave": 0 },
         "available": false,
         "note": "needs plugin hosting (#91)"
       }
@@ -1872,6 +1862,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "families": ["Piano", "Chromatic Perc.", "Organ", "Guitar", "Bass", "Strings", "Ensemble", "Brass", "Reed", "Pipe", "Synth Lead", "Synth Pad", "Synth FX", "Ethnic", "Percussive", "Sound FX"],
     "map": {
       "families": [null, null, null, null, "my-bass", null, null, null, null, null, null, null, null, null, null, null],
+      "familyVolumes": [null, null, null, null, 100, null, null, null, null, null, null, null, null, null, null, null],
       "overrides": [{ "program": 4, "patch": "keys" }],
       "drums": null
     },
@@ -1948,6 +1939,33 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "inserts": [], "insertsOn": true, "rotaryFast": false
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "snapshot": null, "ots": null, "bandSends": [] },
+  "liveRack": {
+    "name": "Restored", "id": null, "modified": true,
+    "controls": {
+      "faders": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }],
+      "knobs": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }]
+    },
+    "prompt": null
+  },
+  "racks": [
+    { "id": "r5f3a2c1d-0", "name": "Ballad", "parts": ["Grand Piano", "Sampler Deluxe", "Brass Section", "Strings"], "on": [true, true, false, true], "needsAttention": true }
+  ],
+  "quickRacks": {
+    "bank": 0,
+    "buttons": [
+      { "rack": "r5f3a2c1d-0", "name": "Ballad", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": "r1b2c3d4e-1", "name": "", "missing": true, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false }
+    ],
+    "store": false,
+    "storeWaiting": null,
+    "readOnly": false
+  },
   "message": null
 }
 ```

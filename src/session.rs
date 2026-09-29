@@ -41,6 +41,7 @@ mod keyboard;
 mod knobs;
 mod leds;
 mod library;
+mod live_rack;
 mod looper;
 mod looper_banks;
 mod metronome;
@@ -50,10 +51,15 @@ mod offline;
 mod ots;
 mod pads;
 mod param_lock;
+mod part_sound;
 mod parts;
+mod plugin_presence;
 mod plugins;
 mod playlist;
 mod preview;
+mod quick_racks;
+mod racks;
+mod rack_cmds;
 mod registration;
 mod settings;
 mod style_change;
@@ -63,10 +69,13 @@ mod sounds;
 mod style_settings;
 mod surface;
 mod system;
+#[cfg(test)]
+pub(crate) mod testing;
 mod transport;
 
 pub use chart::chart_song;
 pub use library::library_entry;
+pub use live_rack::default_live_rack_path;
 pub use plugins::{PluginVoice, VoicePreset};
 pub use preview::AUDITION_CHORDS;
 pub use settings::choose_keys;
@@ -134,6 +143,16 @@ pub struct Options {
     /// the sound library (`sound-library.json`) are saved. None: they can't be saved (tests, `state-json`). `default_data_dir()` is
     /// the usual one.
     pub data_dir: Option<PathBuf>,
+    /// The live rack's file (session/live_rack.rs): it autosaves there and comes back from
+    /// there at start. None: a live session uses `default_live_rack_path()`; an offline
+    /// session keeps none.
+    pub live_rack: Option<PathBuf>,
+    /// `split` was given on this launch (`--split`): it wins over the restored live rack's
+    /// split (which then shows modified). Not given: the live rack's split applies.
+    pub split_given: bool,
+    /// `transpose.keyboard` was given on this launch (`--transpose`): it wins over the
+    /// restored live rack's transpose, as `split_given` does for the split.
+    pub transpose_given: bool,
 }
 
 /// The usual data folder: `~/Documents/yahaha` (banks and playlists are the user's files,
@@ -161,6 +180,9 @@ impl Default for Options {
             transpose: Transpose::default(),
             chord_settle_ms: crate::engine::CHORD_SETTLE_DEFAULT_MS,
             data_dir: None,
+            live_rack: None,
+            split_given: false,
+            transpose_given: false,
         }
     }
 }
@@ -332,8 +354,20 @@ struct Control {
     sound: sound_library::SoundLib,
     /// `sound-settings.json` (session/gm_auto.rs), where the catalog keeps its settings.
     sound_settings: Option<PathBuf>,
+    /// The loaded rack's controller map (session/racks.rs): what a rack applied sets and a
+    /// capture reads. The Rack knob page will play it.
+    rack_controls: crate::racks::ControlMap,
+    /// The live rack: its name, where it came from, modified, its autosave.
+    live_rack: live_rack::LiveRack,
     /// The sound catalog (#117).
     sounds: sounds::Sounds,
+    /// New and missing plugins, and what uses each (session/plugin_presence.rs).
+    presence: plugin_presence::Presence,
+    /// Quick Racks: the buttons, the bank on view, Store (session/quick_racks.rs).
+    quick: quick_racks::QuickCtl,
+    /// The command being applied came from the Launchkey or a pedal, which have no dialog
+    /// (a rack switch keeps unsaved changes as a Recovered rack instead of asking).
+    hardware: bool,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -400,6 +434,12 @@ impl Control {
             AppCmd::Dynamics(c) => self.dynamics_cmd(c),
             AppCmd::Knobs(c) => self.knobs_cmd(c),
             AppCmd::Fx(c) => self.fx_cmd(c),
+            AppCmd::Rack(c) => {
+                let r = self.rack_cmd(c.clone());
+                self.quick_after_rack_cmd(&c, r.is_ok());
+                r
+            }
+            AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
         }
     }
 
@@ -419,7 +459,7 @@ impl Control {
             looper: self.looper_lamp(),
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
-            regist: self.regist_panel(),
+            quick: self.quick_panel(),
         }
     }
 
@@ -443,7 +483,7 @@ impl Control {
         self.drain_snapshots();
         // Launchkey pad/button actions: the same commands as their keyboard shortcuts.
         while let Ok(a) = self.act_rx.pop() {
-            let _ = self.apply(a.into());
+            let _ = self.apply_hardware(a);
         }
         self.pump_ots_link();
         self.pump_pedal_releases();
@@ -475,7 +515,9 @@ impl Control {
         self.pump_index();
         self.pump_multipad();
         self.pump_plugins(now);
+        self.pump_plugin_presence(now);
         self.pump_sound_library(now);
+        self.pump_live_rack(now);
     }
 
     /// The state: each feature builds its part, in `AppState`'s order.
@@ -516,7 +558,7 @@ impl Control {
             message: self.message.clone(),
             looper: self.looper_state(),
             metronome: self.metronome_state(),
-            plugins: self.plugins_state(),
+            plugins: self.plugins_app_state(),
             sound_library: self.sound_library_state(),
             param_locks: self.param_lock_state(),
             sounds: self.sounds_state(),
@@ -524,7 +566,12 @@ impl Control {
             knobs: self.knobs_state(),
             effects: self.effects_state(),
             home: Default::default(),
+            live_rack: self.live_rack_state(),
+            racks: Vec::new(),
+            quick_racks: Default::default(),
         };
+        st.racks = self.rack_entries(&st.plugins);
+        st.quick_racks = self.quick_racks_state();
         st.home = self.home_state(&st);
         st
     }
@@ -722,11 +769,19 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         fx: fx_settings,
         display: Default::default(),
         sound_settings: gm_auto::settings_file(opts.data_dir.as_deref()),
+        rack_controls: Default::default(),
+        live_rack: Default::default(),
+        presence: plugin_presence::Presence::open(opts.data_dir.as_deref()),
+        quick: quick_racks::QuickCtl::open(opts.data_dir.as_deref()),
+        hardware: false,
     };
     let mut control = control;
     control.list_sound_fonts();
     if let Some(e) = control.sound.load_error().map(str::to_string) {
         control.say(format!("Sound library not loaded (it will not be saved over): {e}"), true);
+    }
+    if let Some(e) = control.quick.load_error().map(str::to_string) {
+        control.say(format!("Quick Racks not loaded (they will not be saved over): {e}"), true);
     }
     Ok((shared, Assembled { control, engine: EngineLoopParts { engine, io: ch.io }, input }))
 }
@@ -795,7 +850,8 @@ impl Session {
             std::thread::Builder::new().name("yahaha-engine".into()).spawn(move || live::run_engine(engine, io, sh))?;
         p.control.shared.parts.set_bass_program(synth::style_bass_program(p.control.info.voices[10]));
         p.control.sync_manual_bass();
-        p.control.restore_plugin_parts();
+        p.control.start_plugins();
+        p.control.restore_live_rack(opts.live_rack.clone().or_else(default_live_rack_path), &opts);
 
         let inner = Arc::new(Inner::new(shared, p.control));
         let i2 = inner.clone();
@@ -948,7 +1004,7 @@ impl Session {
             if let Some(leds) = self.inner.lock().leds.as_mut() {
                 leds.off();
             }
-            self.inner.lock().save_plugin_states_on_stop();
+            self.inner.lock().save_live_rack_on_stop();
             if let Some(s) = live.synth {
                 let _ = s.stop.send(SynthMsg::Stop);
                 let _ = s.thread.join();
@@ -959,6 +1015,7 @@ impl Session {
             if let Some(o) = ctl.offline.as_mut() {
                 o.engine.stop();
             }
+            ctl.save_live_rack_on_stop();
         }
         self.inner.notify(&[Event::Stopped]);
     }

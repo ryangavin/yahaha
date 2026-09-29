@@ -63,7 +63,8 @@ export class MockSounds {
         detail: p.manufacturer,
         favourite: this.favourites.has(id),
         recent: recent(id),
-        plugin: { format: p.format, lastError: p.lastError, presets: list && (list.listed || list.presets.length) ? list.presets.length : null },
+        // Its .aupreset files alone are not its count: unknown until listed.
+        plugin: { format: p.format, lastError: p.lastError, presets: list?.listed ? list.presets.length : null, ...(list?.error ? { presetsError: list.error } : {}) },
         parent: null,
       })
       for (const q of list?.presets ?? []) {
@@ -108,12 +109,18 @@ export class MockSounds {
     }
     // The session mock adds the patch itself (`patchFor`), as a map rule's.
     if (c.type === 'addToMySounds') return {}
+    // The session mock does it too (assignSound, keeping the part's mix).
+    if (c.type === 'replacePartSound') return {}
     if (c.type === 'listPluginPresets') {
       const au = parsePluginId(c.id)
       if (!au || au.key !== null) return { error: `${c.id} is not a plugin` }
-      if (!st.plugins.list.some((p) => p.id === au.plugin)) return { error: `no instrument Audio Unit ${au.plugin} is installed` }
+      const entry = st.plugins.list.find((p) => p.id === au.plugin)
+      if (!entry) return { error: `no instrument Audio Unit ${au.plugin} is installed` }
       const l = this.list(au.plugin)
-      if (!l.listed) {
+      // A plugin that does not load cannot list its presets (the engine's listing fails
+      // the same way): the browser stops waiting.
+      if (!l.listed && !l.error && entry.lastError) l.error = entry.lastError
+      else if (!l.listed && !l.error) {
         l.listed = true
         if (au.plugin === MOCK_PRESETS_ID) l.presets.unshift(...['Init', 'Bright Grand', 'Brass Stabs'].map((name, n) => ({ key: `f:${n}`, name, folder: null })))
       }
@@ -151,7 +158,7 @@ export class MockSounds {
       case 'setSoundCategory': {
         if (saved) {
           const p = st.soundLibrary.patches.find((q) => q.id === saved)!
-          return { run: [{ type: 'updatePatch', id: saved, patch: { name: p.name, category: c.category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults } }] }
+          return { run: [{ type: 'updatePatch', id: saved, patch: { name: p.name, category: c.category, tags: p.tags, favourite: p.favourite, source: p.source } }] }
         }
         if (!c.id.startsWith('au:')) return { error: "a preset's category is its GM family" }
         this.categories.set(c.id, c.category)
@@ -190,7 +197,10 @@ export class MockSounds {
     const have = st.soundLibrary.patches.find((p) =>
       pre
         ? p.source.kind === 'soundFont' && p.source.file === pre.file && p.source.bank === pre.bank && p.source.program === pre.program
-        : p.source.kind === 'plugin' && p.source.componentId === plugin && (origin ? sameOrigin(p.source.origin, origin) : p.source.state === state && !p.source.origin),
+        : p.source.kind === 'plugin' &&
+          p.source.componentId === plugin &&
+          // Its preset's sound, or (as the session's) the one with exactly its settings.
+          (origin ? sameOrigin(p.source.origin, origin) || (state !== '' && p.source.state === state) : p.source.state === state && !p.source.origin),
     )
     if (have) return { patch: have.id }
     if (pre) run({ type: 'addPresetAsPatch', file: pre.file, bank: pre.bank, program: pre.program, name: null })
@@ -203,7 +213,7 @@ export class MockSounds {
         category = this.categories.get(id) ?? guessWords(`${q.name} ${q.folder ?? ''}`) ?? category
         name = `${e.name} · ${q.name}`
       }
-      run({ type: 'createPatch', patch: { name, category, tags: [], favourite: false, source: { kind: 'plugin', componentId: e.id, state, ...(origin ? { origin } : {}) }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } } })
+      run({ type: 'createPatch', patch: { name, category, tags: [], favourite: false, source: { kind: 'plugin', componentId: e.id, state, ...(origin ? { origin } : {}) } } })
     }
     return { patch: st.soundLibrary.lastAdded ?? '' }
   }

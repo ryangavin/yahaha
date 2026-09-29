@@ -1,18 +1,21 @@
 //! The app API's JSON wire format (docs/app-api.md) is a contract with the app's
 //! TypeScript types and its fixtures: however `AppCmd` and `AppState` are organised in
-//! Rust, what goes over the wire must not change. These tests read the documented forms
-//! and check that they go through the Rust types and come back out byte for byte.
+//! Rust, what goes over the wire must not change. These tests take one of every command
+//! and the fixtures in tests/fixtures, and check that they go through the Rust types and
+//! come back out byte for byte. Nothing here reads docs/: CI checks separately that
+//! EVERY_CMD names exactly the commands docs/app-api.md documents, and
+//! examples/api_doc_check.rs checks the doc's JSON examples (AGENTS.md, Checks).
 
 use serde_json::Value;
-use yahaha::api::{AppState, LibraryList};
+use yahaha::api::{AppState, CmdError, LibraryList};
 use yahaha::{AppCmd, Event};
 
-const DOC: &str = include_str!("../docs/app-api.md");
-const STATE: &str = include_str!("../docs/fixtures/state.json");
-const LIBRARY: &str = include_str!("../docs/fixtures/library.json");
+const STATE: &str = include_str!("fixtures/state.json");
+const LIBRARY: &str = include_str!("fixtures/library.json");
 
 /// One of every command, in the exact form `serde_json::to_string` writes it (the tag
-/// first, then the fields in declaration order).
+/// first, then the fields in declaration order). Keep one command per line, starting
+/// `r#"{"type":"<name>"`: CI's docs check reads the names from these lines.
 const EVERY_CMD: &[&str] = &[
     // Sections and transport
     r#"{"type":"intro","index":1}"#,
@@ -151,47 +154,6 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setChartIntro","index":0}"#,
     r#"{"type":"setChartEnding","index":null}"#,
     r#"{"type":"setChartAutoStyle","on":false}"#,
-    // Registration Memory
-    r#"{"type":"pressRegist","index":0}"#,
-    r#"{"type":"recallRegist","index":9}"#,
-    r#"{"type":"memorizeRegist","index":2}"#,
-    r#"{"type":"toggleRegistMemory"}"#,
-    r#"{"type":"pressSnapshot","slot":7}"#,
-    r#"{"type":"stepSnapshotBank","delta":-1}"#,
-    r#"{"type":"selectSnapshotBank","bank":1}"#,
-    r#"{"type":"setMemorizeGroup","group":"voice","on":false}"#,
-    r#"{"type":"clearRegist","index":3}"#,
-    r#"{"type":"renameRegist","index":3,"name":"Verse"}"#,
-    r#"{"type":"stepRegistBank","delta":1}"#,
-    r#"{"type":"selectRegistBank","path":"banks/Gig.regist.json"}"#,
-    r#"{"type":"newRegistBank"}"#,
-    r#"{"type":"saveRegistBank","name":"Gig"}"#,
-    r#"{"type":"saveRegistBank","name":null}"#,
-    r#"{"type":"saveRegistBank","name":"Gig","overwrite":true}"#,
-    r#"{"type":"setFreeze","on":true}"#,
-    r#"{"type":"toggleFreeze"}"#,
-    r#"{"type":"setFreezeGroup","group":"tempo","on":true}"#,
-    r#"{"type":"setRegistSequence","steps":[2,0,5],"end":"next"}"#,
-    r#"{"type":"setRegistSequenceOn","on":true}"#,
-    r#"{"type":"toggleRegistSequence"}"#,
-    r#"{"type":"stepRegistSequence","delta":-1}"#,
-    r#"{"type":"stepRegist","delta":1}"#,
-    // Playlist
-    r#"{"type":"newPlaylist"}"#,
-    r#"{"type":"loadPlaylist","path":"lists/Friday.playlist.json"}"#,
-    r#"{"type":"savePlaylist","name":"Friday"}"#,
-    r#"{"type":"savePlaylist","name":"Friday","overwrite":true}"#,
-    r#"{"type":"addPlaylistRecord","record":{"name":"Opener","kind":"bank","path":"banks/Gig.regist.json","regist":0}}"#,
-    r#"{"type":"addPlaylistRecord","record":{"name":"Blues","kind":"style","path":"styles/x.sty"}}"#,
-    r#"{"type":"addCurrentBank"}"#,
-    r#"{"type":"addCurrentStyle"}"#,
-    r#"{"type":"appendPlaylist","path":"lists/Other.playlist.json"}"#,
-    r#"{"type":"setPlaylistRecord","index":1,"record":{"name":"Ballad","kind":"bank","path":"banks/Gig.regist.json"}}"#,
-    r#"{"type":"movePlaylistRecord","index":2,"delta":-1}"#,
-    r#"{"type":"deletePlaylistRecord","index":0}"#,
-    r#"{"type":"setPlaylistSort","sort":"aToZ"}"#,
-    r#"{"type":"loadPlaylistRecord","index":4}"#,
-    r#"{"type":"stepPlaylist","delta":1}"#,
     // Chord Looper
     r#"{"type":"looperRec"}"#,
     r#"{"type":"looperOnOff"}"#,
@@ -236,6 +198,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPluginInProcess","id":"aumu dls  appl","inProcess":true}"#,
     r#"{"type":"reloadPartPlugin","part":null}"#,
     r#"{"type":"reloadPartPlugin","part":2}"#,
+    r#"{"type":"markPluginSeen","id":"aumu Smp7 Fake"}"#,
     // Keyboard Harmony / Arpeggio
     r#"{"type":"toggleHarmonyArp"}"#,
     r#"{"type":"setHarmonyArpOn","on":true}"#,
@@ -255,8 +218,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setArpVelocity","mode":"fixed","velocity":90}"#,
     r#"{"type":"setArpKeepKeyOn","on":false}"#,
     // Sound library
-    r#"{"type":"createPatch","patch":{"name":"My Bass","category":"bass","tags":["warm"],"favourite":false,"source":{"kind":"soundFont","file":"GeneralUser-GS.sf2","bank":0,"program":33},"defaults":{"volume":100,"pan":null,"reverb":20,"chorus":null,"octave":-1}}}"#,
-    r#"{"type":"updatePatch","id":"keys","patch":{"name":"Keys","category":"ePiano","tags":[],"favourite":true,"source":{"kind":"plugin","componentId":"aumu dls  appl","state":"AAE="},"defaults":{"volume":null,"pan":64,"reverb":null,"chorus":null,"octave":0}}}"#,
+    r#"{"type":"createPatch","patch":{"name":"My Bass","category":"bass","tags":["warm"],"favourite":false,"source":{"kind":"soundFont","file":"GeneralUser-GS.sf2","bank":0,"program":33}}}"#,
+    r#"{"type":"updatePatch","id":"keys","patch":{"name":"Keys","category":"ePiano","tags":[],"favourite":true,"source":{"kind":"plugin","componentId":"aumu dls  appl","state":"AAE="}}}"#,
     r#"{"type":"deletePatch","id":"my-bass"}"#,
     r#"{"type":"duplicatePatch","id":"my-bass"}"#,
     r#"{"type":"movePatch","id":"my-bass","to":0}"#,
@@ -291,6 +254,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"auditionSound","id":"au:aumu Xf2X XFER"}"#,
     r#"{"type":"stopSoundAudition"}"#,
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
+    r#"{"type":"replacePartSound","part":1,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
     r#"{"type":"listPluginPresets","id":"au:aumu Nik2 -NI-"}"#,
     r#"{"type":"addToMySounds","id":"sf:GM.sf2:0:5"}"#,
@@ -325,60 +289,49 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartInsertOn","part":3,"on":false}"#,
     r#"{"type":"setPartInsertAmount","part":3,"amount":100}"#,
     r#"{"type":"setRotaryFast","on":true}"#,
+    r#"{"type":"newRack"}"#,
+    r#"{"type":"newRack","discard":true}"#,
+    r#"{"type":"loadRack","id":"r5f3a2c1d-0"}"#,
+    r#"{"type":"loadRack","id":"r5f3a2c1d-0","discard":true}"#,
+    r#"{"type":"saveRack"}"#,
+    r#"{"type":"saveRack","soundNames":{"1":"Soft Pad"}}"#,
+    r#"{"type":"saveRackAs","name":"Ballad"}"#,
+    r#"{"type":"saveRackAs","name":"Ballad","soundNames":{"0":"My Keys","3":"My Bass"}}"#,
+    r#"{"type":"revertRack"}"#,
+    r#"{"type":"renameRack","id":"r5f3a2c1d-0","name":"Slow Ballad"}"#,
+    r#"{"type":"duplicateRack","id":"r5f3a2c1d-0"}"#,
+    r#"{"type":"deleteRack","id":"r5f3a2c1d-0"}"#,
+    r#"{"type":"dismissRackPrompt"}"#,
+    // Quick Racks
+    r#"{"type":"pressQuickRack","slot":0}"#,
+    r#"{"type":"pressQuickRack","slot":7,"discard":true}"#,
+    r#"{"type":"stepQuickRackBank","delta":-1}"#,
+    r#"{"type":"toggleQuickRackStore"}"#,
+    r#"{"type":"clearQuickRack","bank":2,"slot":5}"#,
+    r#"{"type":"stepQuickRack","delta":1}"#,
+    r#"{"type":"stepQuickRack","delta":-1,"discard":true}"#,
 ];
 
-fn type_of(json: &str) -> String {
-    let v: Value = serde_json::from_str(json).unwrap();
-    v["type"].as_str().unwrap().to_string()
-}
-
-/// The command names in the doc's AppCmd tables (the first column of each row).
-fn documented_cmds() -> Vec<String> {
-    let start = DOC.find("\n## AppCmd").expect("AppCmd section");
-    let end = start + DOC[start..].find("\n### Result").expect("Result section");
-    let mut names = Vec::new();
-    for line in DOC[start..end].lines().filter(|l| l.starts_with("| `")) {
-        let first = line[2..].split('|').next().unwrap();
-        for name in first.split('`').skip(1).step_by(2) {
-            names.push(name.to_string());
-        }
+/// Quick Racks replaced Registration Memory and the Playlist (docs/racks.md,
+/// "Migration"): their commands are no longer on the wire.
+#[test]
+fn registration_and_playlist_commands_are_refused() {
+    for gone in [
+        r#"{"type":"pressRegist","index":0}"#,
+        r#"{"type":"pressSnapshot","slot":7}"#,
+        r#"{"type":"stepSnapshotBank","delta":-1}"#,
+        r#"{"type":"toggleRegistMemory"}"#,
+        r#"{"type":"toggleFreeze"}"#,
+        r#"{"type":"stepRegistBank","delta":1}"#,
+        r#"{"type":"selectRegistBank","path":"banks/Gig.regist.json"}"#,
+        r#"{"type":"stepRegistSequence","delta":-1}"#,
+        r#"{"type":"stepRegist","delta":1}"#,
+        r#"{"type":"newPlaylist"}"#,
+        r#"{"type":"stepPlaylist","delta":1}"#,
+    ] {
+        let e = serde_json::from_str::<AppCmd>(gone).expect_err(gone).to_string();
+        assert!(e.contains("unknown variant"), "{gone}: {e}");
     }
-    names
-}
-
-/// Every `{"type": ...}` object written out in the doc (inline examples and the example
-/// state's actions), as its text.
-fn documented_objects() -> Vec<&'static str> {
-    let mut out = Vec::new();
-    let b = DOC.as_bytes();
-    let mut i = 0;
-    while let Some(off) = DOC[i..].find('{') {
-        let s = i + off;
-        let rest = DOC[s + 1..].trim_start();
-        if rest.starts_with("\"type\"") {
-            let mut depth = 0;
-            let mut j = s;
-            while j < b.len() {
-                match b[j] {
-                    b'{' => depth += 1,
-                    b'}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-                j += 1;
-            }
-            let text = &DOC[s..=j];
-            if serde_json::from_str::<Value>(text).is_ok() {
-                out.push(text);
-            }
-        }
-        i = s + 1;
-    }
-    out
 }
 
 #[test]
@@ -392,35 +345,6 @@ fn every_command_round_trips_byte_for_byte() {
         assert_eq!(cmd2, cmd);
         assert_eq!(serde_json::to_value(&cmd2).unwrap(), v);
     }
-}
-
-#[test]
-fn the_command_list_is_the_documented_one() {
-    let mut doc = documented_cmds();
-    doc.sort();
-    doc.dedup();
-    let mut ours: Vec<String> = EVERY_CMD.iter().map(|j| type_of(j)).collect();
-    ours.sort();
-    ours.dedup();
-    assert_eq!(ours, doc, "EVERY_CMD must list exactly the commands docs/app-api.md documents");
-}
-
-#[test]
-fn documented_examples_round_trip() {
-    let objs = documented_objects();
-    assert!(objs.len() >= 10, "found {} examples", objs.len());
-    let mut cmds = 0;
-    for text in objs {
-        let v: Value = serde_json::from_str(text).unwrap();
-        if let Ok(cmd) = serde_json::from_value::<AppCmd>(v.clone()) {
-            assert_eq!(serde_json::to_value(&cmd).unwrap(), v, "{text}");
-            cmds += 1;
-        } else {
-            let e: Event = serde_json::from_value(v.clone()).unwrap_or_else(|e| panic!("{text}: neither AppCmd nor Event: {e}"));
-            assert_eq!(serde_json::to_value(e).unwrap(), v, "{text}");
-        }
-    }
-    assert!(cmds >= 10);
 }
 
 #[test]
@@ -463,15 +387,18 @@ fn state_fixture_round_trips_byte_for_byte() {
     assert_eq!(strip(&out), strip(LIBRARY));
 }
 
+
 #[test]
-fn example_state_in_the_doc_round_trips() {
-    let start = DOC.find("## Example `AppState`").unwrap();
-    let body = &DOC[start..];
-    let s = body.find("```json\n").unwrap() + "```json\n".len();
-    let e = s + body[s..].find("```").unwrap();
-    let v: Value = serde_json::from_str(&body[s..e]).unwrap();
-    let st: AppState = serde_json::from_value(v.clone()).unwrap();
-    assert_eq!(serde_json::to_value(&st).unwrap(), v);
+fn cmd_errors_keep_their_form() {
+    for (e, json) in [
+        (CmdError::Busy, r#"{"kind":"busy"}"#),
+        (CmdError::Failed("no".into()), r#"{"kind":"failed","message":"no"}"#),
+        (CmdError::UnsavedChanges, r#"{"kind":"unsavedChanges"}"#),
+        (CmdError::NeedsSoundNames, r#"{"kind":"needsSoundNames"}"#),
+    ] {
+        assert_eq!(serde_json::to_string(&e).unwrap(), json);
+        assert_eq!(serde_json::from_str::<CmdError>(json).unwrap(), e);
+    }
 }
 
 #[test]

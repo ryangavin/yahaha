@@ -158,7 +158,8 @@ pub(crate) struct ScanCache {
     pub plugins: Vec<PluginInfo>,
 }
 
-pub(crate) const SCHEMA: u32 = 1;
+/// 2: factory presets are listed without placeholders (`presets::real_factory_presets`).
+pub(crate) const SCHEMA: u32 = 2;
 
 /// A hash of what is installed, without copying any names.
 pub(crate) fn fingerprint(components: &[Component]) -> u64 {
@@ -179,7 +180,15 @@ pub(crate) fn scan_live(components: &[Component]) -> Vec<PluginInfo> {
 
 pub(crate) fn read_cache(path: &Path) -> Option<ScanCache> {
     let bytes = std::fs::read(path).ok()?;
-    let c: ScanCache = serde_json::from_slice(&bytes).ok()?;
+    let mut c: ScanCache = serde_json::from_slice(&bytes).ok()?;
+    if c.schema == 1 {
+        // Its factory preset lists may hold placeholders: read them again when next asked
+        // for. The load records and the in-process choices are kept.
+        for p in &mut c.plugins {
+            p.factory_presets = None;
+        }
+        c.schema = SCHEMA;
+    }
     (c.schema == SCHEMA).then_some(c)
 }
 
@@ -219,6 +228,35 @@ mod tests {
         assert_eq!(PluginId::parse("aumu a b c"), None);
         let json = serde_json::to_string(&dls).unwrap();
         assert_eq!(serde_json::from_str::<PluginId>(&json).unwrap(), dls);
+    }
+
+    /// A schema 1 cache's factory preset lists may hold placeholders: they are read again,
+    /// and nothing else is lost. The plugin is the made-up "Sampler Deluxe".
+    #[test]
+    fn an_old_cache_forgets_its_factory_presets_only() {
+        use crate::plugin::presets::FactoryPreset;
+        let fake = PluginInfo {
+            id: PluginId::parse("aumu Smp7 Fake").unwrap(),
+            name: "Sampler Deluxe".into(),
+            manufacturer: "Fake Instruments".into(),
+            version: 0x10000,
+            format: PluginFormat::Au2,
+            requires_async: false,
+            can_load_in_process: false,
+            sandbox_safe: true,
+            last_load: Some(LoadRecord { at: 1, ms: Some(12.0), error: None }),
+            in_process: true,
+            factory_presets: Some(vec![FactoryPreset { number: 0, name: "<disabled>".into() }]),
+            user_presets: Vec::new(),
+        };
+        let path = std::env::temp_dir().join(format!("yahaha-scan-v1-{}.json", std::process::id()));
+        write_cache(&path, &ScanCache { schema: 1, fingerprint: 7, plugins: vec![fake] }).unwrap();
+        let c = read_cache(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(c.schema, SCHEMA);
+        let p = &c.plugins[0];
+        assert_eq!(p.factory_presets, None);
+        assert!(p.in_process && p.last_load.is_some());
     }
 
     #[test]

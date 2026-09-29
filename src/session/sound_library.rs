@@ -15,7 +15,7 @@ use crate::api::{
 };
 use crate::engine::Prepared;
 use crate::patches::route::{AUDITION, AUDITION_CHANNEL, MAX_FONTS};
-use crate::patches::{self, AutoFill, Category, GmResolution, Layer, Patch, PatchDefaults, PatchSource, ProgramMap, Route, Routes, SoundId, SoundLibrary};
+use crate::patches::{self, AutoFill, Category, GmResolution, Layer, Patch, PatchSource, ProgramMap, Route, Routes, SoundId, SoundLibrary};
 use crate::{parts, synth};
 use rtrb::Producer;
 use rustysynth::SoundFont;
@@ -31,6 +31,9 @@ const PLUGIN_AUDITION_WAIT_NS: u64 = 25_000_000_000;
 /// How long a saved plugin patch waits for the fresh read of its plugin's state (a plugin
 /// that hangs answering leaves the patch with the state the part saved last).
 const SAVE_FILL_WAIT_NS: u64 = 10_000_000_000;
+/// The level (CC7) every audition plays at: the GM default. A sound has no volume of its
+/// own (docs/racks.md), so none is louder or softer than another here.
+const AUDITION_VOLUME: u8 = 100;
 
 /// A plugin patch just saved from a keyboard part (`savePartAsPatch`), waiting for the
 /// fresh read of the part's plugin state (plugin states are read off the control thread).
@@ -110,6 +113,9 @@ pub(super) struct SoundLib {
     path: Option<PathBuf>,
     /// The file there could not be read: it is never saved over (the text says why).
     locked: Option<String>,
+    /// The file there is an older format's (this version): it is copied aside
+    /// (`patches::backup_older`) before the first save over it, then this is None.
+    older: Option<u32>,
     data_dir: Option<PathBuf>,
     /// Each keyboard part's own patch (Right 1, Right 2, Right 3, Left).
     part_patch: [Option<String>; parts::COUNT],
@@ -159,15 +165,16 @@ impl SoundLib {
     /// Open the library in `data_dir` (none: an empty one, never saved).
     pub(super) fn open(data_dir: Option<&Path>) -> SoundLib {
         let path = data_dir.map(|d| d.join(patches::FILE_NAME));
-        let (lib, locked) = match path.as_deref().map(SoundLibrary::load) {
-            Some(Ok(lib)) => (lib, None),
-            Some(Err(e)) => (SoundLibrary::default(), Some(format!("{e:#}"))),
-            None => (SoundLibrary::default(), None),
+        let (lib, locked, older) = match path.as_deref().map(SoundLibrary::load_versioned) {
+            Some(Ok((lib, version))) => (lib, None, version.filter(|&v| v < patches::VERSION)),
+            Some(Err(e)) => (SoundLibrary::default(), Some(format!("{e:#}")), None),
+            None => (SoundLibrary::default(), None, None),
         };
         SoundLib {
             lib,
             path,
             locked,
+            older,
             data_dir: data_dir.map(Path::to_path_buf),
             part_patch: Default::default(),
             fonts: Vec::new(),
@@ -327,8 +334,10 @@ impl SoundLib {
         routes.port_mapped.store(self.lib.port_sends_mapped, Relaxed);
     }
 
-    /// A style about to play: its program list, and its parts' levels from the patches
-    /// they resolve to where the style sets none (the patch's CC7, which the mixer shows).
+    /// A style about to play: its program list, and its parts' levels from the map rules
+    /// they resolve by where the style sets none (the rule's CC7, which the mixer shows).
+    /// A sound has no level of its own (docs/racks.md); a rule's level applies only while
+    /// the patch it names is in the library.
     fn prepare(&mut self, p: &mut Prepared, key: &str) -> Vec<(u8, u8, u8, u8)> {
         let style = self.lib.style_maps.get(key);
         // Every channel setup (a section may route the setup differently, #64).
@@ -341,7 +350,7 @@ impl SoundLib {
                 let Some((msb, _, pc)) = setup.voices[ch as usize] else { continue };
                 let drum = patches::is_drum(ch, msb);
                 let r = patches::resolve(&self.lib.map, style, drum, patches::map_program(ch, msb, pc));
-                if let Some(v) = r.patch.and_then(|id| self.lib.patch(id)).and_then(|q| q.defaults.volume) {
+                if let Some(v) = r.volume.filter(|_| r.patch.is_some_and(|id| self.lib.patch(id).is_some())) {
                     setup.mix[part] = v;
                 }
             }
@@ -453,10 +462,20 @@ impl Control {
 
     /// Save the library file (unless it is locked: a newer yahaha's), with no rerouting:
     /// for changes that don't move what any channel plays (a captured state, a new sound).
+    /// An older format's file is copied aside first (docs/racks.md "Migration"); if that
+    /// fails, nothing is saved over it.
     fn save_library(&mut self) {
-        if let (Some(path), None) = (&self.sound.path, &self.sound.locked)
-            && let Err(e) = self.sound.lib.save(path)
-        {
+        let (Some(path), None) = (self.sound.path.clone(), &self.sound.locked) else { return };
+        if let Some(v) = self.sound.older {
+            match patches::backup_older(&path, v) {
+                Ok(_) => self.sound.older = None,
+                Err(e) => {
+                    self.say(format!("Sound library not saved: {e:#}"), true);
+                    return;
+                }
+            }
+        }
+        if let Err(e) = self.sound.lib.save(&path) {
             self.say(format!("Sound library not saved: {e:#}"), true);
         }
     }
@@ -493,7 +512,6 @@ impl Control {
             return self.sl_fail(format!("the sound library is full ({} patches)", patches::MAX_PATCHES));
         }
         p.id = patches::new_id(&p.name, self.sound.lib.patches.iter().map(|q| q.id.as_str()));
-        p.defaults = p.defaults.clamped();
         self.sound.last_added = Some(p.id.clone());
         self.sound.lib.patches.push(p);
         self.sound_library_changed();
@@ -518,7 +536,6 @@ impl Control {
             SoundLibraryCmd::UpdatePatch { id, patch } => {
                 let i = self.need_patch(&id)?;
                 let mut p = from_fields(id, patch);
-                p.defaults = p.defaults.clamped();
                 if p.name.trim().is_empty() {
                     p.name = self.sound.lib.patches[i].name.clone();
                 }
@@ -568,7 +585,6 @@ impl Control {
                     tags: Vec::new(),
                     favourite: false,
                     source: PatchSource::SoundFont { file, bank, program: program & 127 },
-                    defaults: PatchDefaults::default(),
                 };
                 return self.add_patch(p);
             }
@@ -579,16 +595,16 @@ impl Control {
                     return self.sl_fail(format!("{}: {why}", p.name));
                 }
                 return match p.source {
-                    PatchSource::SoundFont { file, bank, program } => self.start_audition(id, file, bank, program, p.defaults.volume),
+                    PatchSource::SoundFont { file, bank, program } => self.start_audition(id, file, bank, program),
                     PatchSource::Plugin { .. } => {
                         let drums = p.category == Category::DrumsPerc;
-                        self.start_plugin_audition(id, &p.name, plugin_voice(&p), drums, p.defaults.volume)
+                        self.start_plugin_audition(id, &p.name, plugin_voice(&p), drums)
                     }
                 };
             }
             SoundLibraryCmd::AuditionPreset { file, bank, program } => {
                 self.need_sound_font(&file)?;
-                return self.start_audition("preset".into(), file, bank, program, None);
+                return self.start_audition("preset".into(), file, bank, program);
             }
             SoundLibraryCmd::StopPatchAudition => {
                 self.stop_patch_audition();
@@ -613,7 +629,7 @@ impl Control {
             SoundLibraryCmd::SetDrumRule { patch, style } => {
                 let patch = self.rule_patch(patch)?;
                 self.need_patch_or_none(&patch)?;
-                self.map_mut(style)?.drums = patch;
+                self.map_mut(style)?.set_drums(patch);
             }
             SoundLibraryCmd::ClearStyleMap => {
                 let key = self.sound.cur_key.clone();
@@ -658,8 +674,8 @@ impl Control {
     /// Save what keyboard part `part` plays as a new patch (#109): its plugin (from the
     /// Plugins tab or its own plugin patch, with the plugin's state as its editor left it),
     /// else the patch it plays (its own, or the one the program map sends its GM voice to),
-    /// else its GM voice on the synth's SoundFont. Its volume and octave become the
-    /// defaults. A playing plugin's state is read afresh off the control thread: the patch
+    /// else its GM voice on the synth's SoundFont. The part's mix (volume, octave, pan,
+    /// sends) stays the part's: a sound has none (docs/racks.md). A playing plugin's state is read afresh off the control thread: the patch
     /// takes the state the part saved last at once, and the fresh one when it lands
     /// (`pump_save_fill`).
     fn save_part_as_patch(&mut self, part: usize, name: Option<String>) -> Result<(), CmdError> {
@@ -668,6 +684,9 @@ impl Control {
         let program = kp.channel_program(part);
         let plays = self.part_plays(part).and_then(|id| self.sound.lib.patch(&id)).cloned();
         let plugin = self.channel_plugin_state(ch).filter(|s| s.status != PluginStatus::Failed).zip(self.part_plugin_voice(part));
+        // A plugin playing a named Sound (a factory or `.aupreset` preset, or a library
+        // sound): the new sound is named after it, not after the plugin.
+        let sound_name = self.channel_sound(ch).and_then(|(t, _)| t).map(|t| t.name).filter(|n| !n.trim().is_empty());
         let mut fill = None;
         let mut p = match (plugin, plays) {
             (Some((st, (component_id, state))), plays) => {
@@ -682,12 +701,11 @@ impl Control {
                     Some(q) if same(&q) => Patch { source, ..q },
                     plays => Patch {
                         id: String::new(),
-                        name: st.name,
+                        name: sound_name.unwrap_or(st.name),
                         category: plays.map_or_else(|| Category::guess(0, program), |q| q.category),
                         tags: Vec::new(),
                         favourite: false,
                         source,
-                        defaults: PatchDefaults::default(),
                     },
                 }
             }
@@ -701,12 +719,9 @@ impl Control {
                     tags: Vec::new(),
                     favourite: false,
                     source: PatchSource::SoundFont { file, bank: 0, program },
-                    defaults: PatchDefaults::default(),
                 }
             }
         };
-        p.defaults.volume = Some(kp.volume(part));
-        p.defaults.octave = kp.octave[part].load(Relaxed).clamp(-2, 2);
         if let Some(n) = name.filter(|n| !n.trim().is_empty()) {
             p.name = n;
         }
@@ -721,7 +736,7 @@ impl Control {
 
     /// Save as… (O3): what the part plays as a new Sound (`save_part_as_patch`), which a
     /// part playing a plugin then plays: its name shows, and it is no longer edited.
-    fn save_part_sound_as(&mut self, part: usize, name: Option<String>) -> Result<(), CmdError> {
+    pub(super) fn save_part_sound_as(&mut self, part: usize, name: Option<String>) -> Result<(), CmdError> {
         self.save_part_as_patch(part, name)?;
         if let Some(id) = self.sound.last_added.clone() {
             self.adopt_part_sound(part, &id);
@@ -730,30 +745,15 @@ impl Control {
     }
 
     /// Save (O3): the part's sound as it plays now over the Sound it plays: a plugin
-    /// sound's state (read fresh, as Save as… does), and its volume and octave. Only the
+    /// sound's state (read fresh, as Save as… does); never the part's mix. Only the
     /// user's own sounds are overwritten; a factory preset, an `.aupreset` file's sound, a
     /// part playing no sound, or a sound of another plugin is saved as a new one instead.
-    fn save_part_sound(&mut self, part: usize) -> Result<(), CmdError> {
+    pub(super) fn save_part_sound(&mut self, part: usize) -> Result<(), CmdError> {
         let ch = parts::CHANNEL[part];
-        let current = match self.channel_sound(ch) {
-            Some((tag, _)) => tag.and_then(|t| match patches::SoundId::parse(&t.id) {
-                Some(patches::SoundId::Library(id)) => Some(id),
-                _ => None,
-            }),
-            None => self.sound.part_patch[part].clone(),
-        };
         let voice = self.part_plugin_voice(part);
-        let own = current.as_deref().and_then(|id| self.sound.lib.patch(id)).is_some_and(|p| match &p.source {
-            PatchSource::Plugin { component_id, origin, .. } => origin.is_user() && voice.as_ref().is_some_and(|(v, _)| v == component_id),
-            PatchSource::SoundFont { .. } => voice.is_none(),
-        });
-        let (Some(id), true) = (current, own) else { return self.save_part_sound_as(part, None) };
+        let Some(id) = self.part_own_sound(part) else { return self.save_part_sound_as(part, None) };
         let Some(i) = self.sound.lib.index_of(&id) else { return self.save_part_sound_as(part, None) };
-        let kp = self.shared.parts.clone();
         let mut p = self.sound.lib.patches[i].clone();
-        p.defaults.volume = Some(kp.volume(part));
-        p.defaults.octave = kp.octave[part].load(Relaxed).clamp(-2, 2);
-        p.defaults = p.defaults.clamped();
         let mut fill = None;
         if let (PatchSource::Plugin { component_id, state, .. }, Some((_, now))) = (&mut p.source, &voice) {
             if let Some(now) = now {
@@ -779,12 +779,46 @@ impl Control {
         Ok(())
     }
 
-    /// After Save as…: a part playing a plugin plays the new Sound `id` (a part whose own
-    /// patch it was plays the new patch, keeping its instance).
+    /// The user's own library sound keyboard part `part` plays, which Save overwrites in
+    /// place: a sound of the user's on the plugin the part plays, or a SoundFont sound on a
+    /// part with no plugin. None: a factory or `.aupreset` preset, a sound of another
+    /// plugin or no sound, which Save makes a new sound of.
+    pub(super) fn part_own_sound(&self, part: usize) -> Option<String> {
+        let ch = parts::CHANNEL[part];
+        let current = match self.channel_sound(ch) {
+            Some((tag, _)) => tag.and_then(|t| match patches::SoundId::parse(&t.id) {
+                Some(patches::SoundId::Library(id)) => Some(id),
+                _ => None,
+            }),
+            None => self.sound.part_patch[part].clone(),
+        };
+        let voice = self.part_plugin_voice_with(part, false);
+        let own = current.as_deref().and_then(|id| self.sound.lib.patch(id)).is_some_and(|p| match &p.source {
+            PatchSource::Plugin { component_id, origin, .. } => origin.is_user() && voice.as_ref().is_some_and(|(v, _)| v == component_id),
+            PatchSource::SoundFont { .. } => voice.is_none(),
+        });
+        current.filter(|_| own)
+    }
+
+    /// After Save as…: the part plays the new Sound `id`, so a second Save updates it
+    /// rather than adding another copy. A part playing a plugin plays it on the same
+    /// instance (a part whose own patch it was plays the new patch); a part playing a
+    /// SoundFont sound (a GM voice, or the patch the map gives it) takes it as its own
+    /// patch, which plays the same preset.
     fn adopt_part_sound(&mut self, part: usize, id: &str) {
         let ch = parts::CHANNEL[part];
         let Some(p) = self.sound.lib.patch(id).cloned() else { return };
-        if !matches!(p.source, PatchSource::Plugin { .. }) || self.channel_sound(ch).is_none() {
+        if matches!(p.source, PatchSource::SoundFont { .. }) {
+            // Left playing Manual Bass saved the bass voice: its own patch stays as it is.
+            let plays_bass = part == parts::LEFT && self.shared.parts.manual_bass.load(Relaxed);
+            if !plays_bass && self.channel_sound(ch).is_none() && self.sound.part_patch[part].as_deref() != Some(id) {
+                self.sound.part_patch[part] = Some(p.id.clone());
+                let (avail, routes) = (self.avail_fonts(), self.shared.routes.clone());
+                self.sound.write_parts(&routes, &avail);
+            }
+            return;
+        }
+        if self.channel_sound(ch).is_none() {
             return;
         }
         if self.sound.part_plugin[part].is_some() {
@@ -810,13 +844,23 @@ impl Control {
         }
     }
 
-    /// The Sound keyboard part `part` plays (O3), and whether its plugin's state was
-    /// edited: its plugin's sound, else its own patch or the one the map gives its voice.
-    pub(super) fn part_sound_tag(&self, part: usize) -> (Option<patches::SoundTag>, bool) {
-        if let Some((tag, edited)) = self.channel_sound(parts::CHANNEL[part]) {
-            return (tag, edited);
-        }
-        (self.part_plays(part).and_then(|id| self.sound.lib.patch(&id).map(Patch::tag)), false)
+    /// The Sound keyboard part `part` plays and its voice name (`api::part_sound`: what
+    /// actually sounds, named as the library names it now), and whether its plugin's state
+    /// was edited.
+    pub(super) fn part_sound_named(&self, part: usize) -> (crate::api::PartSound, bool) {
+        let ch = parts::CHANNEL[part];
+        let kp = &self.shared.parts;
+        let plays_bass = part == parts::LEFT && kp.manual_bass.load(Relaxed);
+        let plugin = self.channel_plugin_state(ch);
+        let (tag, edited) = self.channel_sound(ch).unwrap_or_default();
+        let of = crate::api::PartSoundOf {
+            plugin: plugin.as_ref(),
+            plugin_sound: tag.as_ref(),
+            own: self.sound.part_patch[part].as_deref().filter(|_| !plays_bass),
+            program: kp.channel_program(part),
+        };
+        let named = crate::api::part_sound(&self.sound.lib, Some(&self.sound.cur_key), &self.sound.auto, of, &|f| self.font_preset_name(f));
+        (named, edited)
     }
 
     /// A plugin voice's state is not its sound's (a recalled or restored edit): the stored
@@ -862,12 +906,11 @@ impl Control {
         }
     }
 
-    /// A keyboard part plays a library patch (or its GM voice again): its defaults (volume,
-    /// octave, pan and sends) go to the part as CCs, as a voice selection does.
+    /// A keyboard part plays a library patch (or its GM voice again). The part keeps its
+    /// mix (volume, octave, pan and sends): a sound has none (docs/racks.md).
     pub(super) fn set_part_patch(&mut self, part: usize, id: Option<String>) -> Result<(), CmdError> {
         self.need_patch_or_none(&id)?;
         let patch = id.as_deref().and_then(|i| self.sound.lib.patch(i));
-        let defaults = patch.map(|p| p.defaults);
         // A SoundFont patch ends a picked plugin. (A plugin patch replaces it on the channel.)
         if patch.is_some_and(|p| matches!(p.source, PatchSource::SoundFont { .. })) {
             self.end_picked_plugin(part);
@@ -880,14 +923,6 @@ impl Control {
             self.wake_engine();
         }
         self.sound.part_patch[part] = id;
-        if let Some(d) = defaults {
-            if let Some(v) = d.volume {
-                kp.set_volume(part, v);
-            }
-            kp.octave[part].store(d.octave.clamp(-2, 2), Relaxed);
-            kp.set_fx(part, [d.pan, d.reverb, d.chorus, None]);
-            self.wake_engine();
-        }
         self.sound_library_changed();
         Ok(())
     }
@@ -988,12 +1023,20 @@ impl Control {
                     // Remembered even when it can't start, so an edit elsewhere doesn't retry
                     // (and report) it again; leaving the patch clears the channel as usual.
                     self.sound.part_plugin[p] = Some((id.clone(), voice.clone()));
-                    if let Err(e) = self.assign_channel_plugin(ch, voice) {
-                        if had {
+                    let missing = self.plugin_is_missing(&voice.id);
+                    if let Err(e) = self.assign_channel_plugin(ch, voice.clone()) {
+                        if had || missing {
                             self.clear_channel_plugin(ch);
                         }
                         let name = self.sound.lib.patch(&id).map_or(id.clone(), |q| q.name.clone());
-                        self.say(format!("{name} plays the fallback: {e}"), true);
+                        if missing {
+                            // Its plugin isn't installed: the part is silent and shows it,
+                            // and plays the sound again once the plugin is back.
+                            self.keep_failed_channel_plugin(ch, voice, e);
+                            self.say(format!("{name}: its plugin is not installed; {} is silent until it is back", parts::NAMES[p]), true);
+                        } else {
+                            self.say(format!("{name} plays the fallback: {e}"), true);
+                        }
                     }
                 }
                 None => self.clear_channel_plugin(ch),
@@ -1145,7 +1188,7 @@ impl Control {
 
     // ----- auditions -----
 
-    pub(super) fn start_audition(&mut self, label: String, file: String, bank: u16, program: u8, volume: Option<u8>) -> Result<(), CmdError> {
+    pub(super) fn start_audition(&mut self, label: String, file: String, bank: u16, program: u8) -> Result<(), CmdError> {
         if self.snap.running {
             return self.sl_fail("Stop the band to audition a sound");
         }
@@ -1158,7 +1201,7 @@ impl Control {
             font: (!main).then_some(file),
             plugin: None,
             drums: bank >= 128,
-            volume: volume.unwrap_or(100).min(127),
+            volume: AUDITION_VOLUME,
             requested: self.clock_ns,
             started: None,
             step: 0,
@@ -1172,7 +1215,7 @@ impl Control {
     /// SoundFont auditions' channel) through #91's `assign_channel_plugin`, and plays the
     /// audition's phrase through the rack once it plays. The channel's own plugin from the
     /// map, if it has one, comes back afterwards (`stop_patch_audition`).
-    pub(super) fn start_plugin_audition(&mut self, label: String, name: &str, voice: super::PluginVoice, drums: bool, volume: Option<u8>) -> Result<(), CmdError> {
+    pub(super) fn start_plugin_audition(&mut self, label: String, name: &str, voice: super::PluginVoice, drums: bool) -> Result<(), CmdError> {
         if self.snap.running {
             return self.sl_fail("Stop the band to audition a sound");
         }
@@ -1188,7 +1231,7 @@ impl Control {
             font: None,
             plugin: Some(voice),
             drums,
-            volume: volume.unwrap_or(100).min(127),
+            volume: AUDITION_VOLUME,
             requested: self.clock_ns,
             started: None,
             step: 0,
@@ -1390,10 +1433,9 @@ impl Control {
 
     // ----- state -----
 
-    /// A keyboard part's own patch and what its channel plays (for `KeyboardPart`).
-    pub(super) fn part_sound(&self, part: usize) -> (Option<String>, Option<String>) {
-        let name = self.part_plays(part).and_then(|id| self.sound.lib.patch(&id).map(|p| p.name.clone()));
-        (self.sound.part_patch[part].clone(), name)
+    /// A keyboard part's own patch id (for `KeyboardPart`).
+    pub(super) fn part_patch_id(&self, part: usize) -> Option<String> {
+        self.sound.part_patch[part].clone()
     }
 
     /// The patch keyboard part `part` plays: its own, else the one the map sends its GM
@@ -1485,6 +1527,7 @@ impl Control {
     /// captured `state` (a factory preset's, read once its instance plays it). The library
     /// keeps it and is saved; the parts playing it keep their instance (their voice is
     /// updated in place, so `sync_part_plugins` doesn't load it again).
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
     pub(crate) fn capture_sound_state(&mut self, tag: &patches::SoundTag, state: &[u8]) {
         let Some(patches::SoundId::Library(id)) = patches::SoundId::parse(&tag.id) else { return };
         if !self.sound.lib.capture_state(&id, &crate::api::base64_encode(state)) {
@@ -1499,31 +1542,10 @@ impl Control {
     pub(crate) fn sound_tag_for_state(&self, component: &str, state: &str) -> Option<patches::SoundTag> {
         self.sound.lib.tag_for_state(component, state)
     }
-
-    /// The Sound a part's plugin voice plays, adding a library sound for a preset it
-    /// played before plugin sounds were kept (the plugin-parts.json migration) or for a
-    /// preset picked now. A voice with a sound, or with no preset, is left as it is.
-    pub(crate) fn link_voice_sound(&mut self, voice: &mut super::PluginVoice, category: Category) -> bool {
-        if voice.sound.is_some() {
-            return false;
-        }
-        let Some(preset) = voice.preset.clone() else { return false };
-        let Some(origin) = patches::PluginOrigin::from_preset_key(&preset.key) else { return false };
-        // An `.aupreset`'s state is the file's, read already; a factory preset's is
-        // captured when it plays (it may have been read already too).
-        let state = voice.state.as_deref().map(crate::api::base64_encode);
-        let Some(id) = self.sound.lib.add_plugin_preset(&voice.id, origin, &preset.name, category, state.clone()) else { return false };
-        if let Some(st) = &state {
-            self.sound.lib.capture_state(&id, st);
-        }
-        voice.sound = self.sound.lib.patch(&id).map(Patch::tag);
-        self.save_library();
-        true
-    }
 }
 
 fn from_fields(id: String, f: PatchFields) -> Patch {
-    Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source, defaults: f.defaults }
+    Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source }
 }
 
 #[cfg(test)]

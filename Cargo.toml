@@ -17,6 +17,13 @@ name = "yahaha"
 path = "src/main.rs"
 required-features = ["tui"]
 
+# Checks the JSON examples in docs/app-api.md against the app API's types, reading the doc
+# from the path it's given (AGENTS.md, Checks). `test = true` runs its own tests with
+# `cargo test`.
+[[example]]
+name = "api_doc_check"
+test = true
+
 [features]
 default = ["tui"]
 # The terminal UI (ratatui, crossterm). Only the binary needs it.
@@ -76,7 +83,7 @@ optional = true
 version = "0.3.2"
 optional = true
 default-features = false
-features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread"]
+features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread", "NSNotification", "NSOperation", "block2"]
 
 [target.'cfg(target_os = "macos")'.dependencies.objc2-core-foundation]
 version = "0.3.2"

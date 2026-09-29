@@ -18,12 +18,13 @@ import { MockKnobs } from './mock-knobs'
 import { initialPlugins, MockPlugins } from './mock-plugins'
 import { ARP_PATTERNS, HARMONY_TYPES, harmonyArpCmd, initialHarmonyArp } from './mock-harmony'
 import { mockHome } from './mock-home'
-import { MockRegistration } from './mock-registration'
-import { emptyPlaylist, emptyRegistration } from './registration'
+import { MockQuickRacks, type QuickCtx } from './mock-quick-racks'
+import { MockRacks } from './mock-racks'
+import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
-  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type StopAcmpMode,
+  BREAK, CHORD_SETTLE_MAX_MS, defaultControlMap, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
 
@@ -270,8 +271,6 @@ export function initialState(): AppState {
     preview: { audition: null, queued: null },
     chart: emptyChart(),
     styleSettings: { ...DEFAULT_STYLE_SETTINGS },
-    registration: emptyRegistration(),
-    playlist: emptyPlaylist(),
     looper: emptyLooper(),
     metronome: { on: false, volume: 90, bell: true, audible: true },
     multiPad: initialMultiPad(),
@@ -285,6 +284,9 @@ export function initialState(): AppState {
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
     home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
+    liveRack: { name: 'New rack', id: null, modified: false, controls: defaultControlMap(), prompt: null },
+    racks: [],
+    quickRacks: emptyQuickRacks(),
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
@@ -368,14 +370,14 @@ export interface MockOptions {
   styles?: number
   /** Import the demo chart playlist and turn chart mode on (`?chart=1`). */
   chart?: boolean
-  /** Start with the demo Registration banks and Playlist (default true). */
-  registration?: boolean
 }
 
 export class MockSession implements Session {
   readonly kind = 'mock' as const
   state: AppState
   private subs = new Set<(s: AppState) => void>()
+  /** What the live rack held at the last publish (`liveRackView`); null before the first. */
+  private rackSeen: string | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private last = 0
   /** Fractional beats since the band started. */
@@ -441,8 +443,12 @@ export class MockSession implements Session {
   private chartEnd = false
   /** Milliseconds left of the fade phase playing (fading in or out, holding). */
   private fadeLeft = 0
-  /** Registration Memory and the Playlist (in-memory banks and playlists). */
-  private reg: MockRegistration
+  /** The user's racks (mock-racks.ts). */
+  private racks = new MockRacks()
+  /** Quick Racks (mock-quick-racks.ts). */
+  private quick = new MockQuickRacks()
+  /** A rack was just loaded or saved: the next publish takes what plays as unmodified. */
+  private rackClean = false
   /** Multi Pads (mock-multipad.ts). */
   private multiPads = new MockPads(() => this.state.multiPad)
   /** Instrument plugins (mock-plugins.ts). */
@@ -459,8 +465,6 @@ export class MockSession implements Session {
   constructor(opts: MockOptions = {}) {
     this.demo = opts.demo ?? false
     this.state = initialState()
-    this.reg = new MockRegistration(STYLES.filter((s) => !s.error).map((s) => ({ path: stylePath(s), name: s.name })), opts.registration ?? true)
-    this.reg.fill(this.state)
     if (opts.styles) {
       const big = bigLibrary(opts.styles)
       this.lib = big.lib
@@ -547,10 +551,40 @@ export class MockSession implements Session {
     this.publish()
   }
 
+  /** Part `part` plays the mock's missing plugin (MOCK_MISSING), as a restored rack whose
+   * plugin was uninstalled does: silent (failed), its mix kept (tests and the Rack panel). */
+  missingPlugin(part: number) {
+    const m = this.state.plugins.missing[0]
+    if (!m) return
+    this.state.keyboardParts[part & 3].plugin = {
+      id: m.id, name: m.name, manufacturer: m.manufacturer, status: 'failed', stage: null, error: `${m.name} isn't installed`,
+      outOfProcess: false, inProcessFallback: false, cpu: 0, overruns: 0, recentOverruns: 0, editor: false, missing: true,
+    }
+    this.publish()
+  }
+
+  /** The demo has no real plugin window: opening one turns its knob one step off the
+   * sound's setting (the part shows "edited" at once), and opening it again turns it back
+   * (the badge clears), as the engine's reads of an open window show. */
   pluginEditor(part: number, open: boolean) {
     if (!open) return
     const p = this.state.keyboardParts[part & 3]?.plugin
-    this.message(p ? `${p.name}'s window opens in the desktop app` : 'the part plays its SoundFont voice', !p)
+    if (p?.status === 'playing') {
+      this.pluginWindow(part, this.sound.pluginWindowDemo(part))
+      const kp = this.state.keyboardParts[part & 3]
+      const turned = !kp.sound ? '' : `; the demo turned its knob ${kp.soundEdited ? 'off' : 'back to'} the sound's setting`
+      this.message(`${p.name}'s window opens in the desktop app${turned}`)
+      this.publish()
+      return
+    }
+    this.message(p ? `${p.name} is not playing yet` : 'the part plays its SoundFont voice', true)
+    this.publish()
+  }
+
+  /** The mock plugin window on part `part` turned its knob to `value` (tests, the demo). */
+  pluginWindow(part: number, value: number) {
+    if (this.state.keyboardParts[part & 3]?.plugin?.status !== 'playing') return
+    this.sound.pluginWindow(part, value)
     this.publish()
   }
 
@@ -571,13 +605,18 @@ export class MockSession implements Session {
       else this.plugins.cmd({ type: 'clearPartPlugin', part })
     }
     this.state.version++
-    this.reg.fill(this.state)
+    this.state.quickRacks = this.quick.state(this.state)
     this.looper.publish()
     this.state.home = mockHome(this.state)
     derive(this.state, this.lib, this.hardware(), [...this.leftHand, ...this.rightHand])
     this.sound.derive(this.state)
     this.catalogMock.derive(this.state)
     this.state.knobs = this.knobs.state(this.state)
+    // The live rack: any change to what it holds sets modified (the session's pump_live_rack).
+    const rack = liveRackView(this.state)
+    if (this.rackSeen !== null && rack !== this.rackSeen && !this.rackClean) this.state.liveRack.modified = true
+    this.rackSeen = rack
+    this.rackClean = false
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -1139,17 +1178,32 @@ export class MockSession implements Session {
     this.publish()
   }
 
+  /** A rack command, then what it means for Quick Racks (the session's `AppCmd::Rack`). */
+  private rackCmd(cmd: RackCmd): boolean {
+    const ok = this.racks.cmd(cmd, {
+      state: this.state,
+      command: (c) => this.cmd(c),
+      message: (text, error) => this.message(text, error),
+      clean: () => {
+        this.rackClean = true
+      },
+    })
+    this.state.racks = this.racks.entries()
+    this.quick.afterRack(cmd, ok, this.quickCtx())
+    return ok
+  }
+
+  private quickCtx(): QuickCtx {
+    return { state: this.state, rack: (c) => this.rackCmd(c), message: (text, error) => this.message(text, error) }
+  }
+
   private cmd(cmd: AppCmd) {
-    if (this.reg.handles(cmd)) {
-      this.reg.cmd(cmd, {
-        state: this.state,
-        command: (c) => this.cmd(c),
-        message: (text, error) => this.message(text, error),
-        findStyle: (path, name) =>
-          this.lib.entries.find((e) => e.path === path)?.path ??
-          this.lib.entries.find((e) => e.path.split('/').pop() === path.split('/').pop() || e.name === name)?.path ??
-          null,
-      })
+    if (this.racks.handles(cmd)) {
+      this.rackCmd(cmd)
+      return
+    }
+    if (this.quick.handles(cmd)) {
+      this.quick.cmd(cmd, this.quickCtx())
       return
     }
     const st = this.state
@@ -1702,7 +1756,7 @@ export class MockSession implements Session {
       case 'triggerFunction': {
         const info = functionInfo(cmd.function)
         if (!info || !info.available) {
-          this.message(`${info?.name ?? cmd.function} is not in yahaha yet`, true)
+          this.message(`${info?.name ?? cmd.function} is not in yahaha`, true)
           break
         }
         if (isPedalSwitch(cmd.function)) {
@@ -1754,13 +1808,13 @@ export class MockSession implements Session {
         this.plugins.cmd(cmd)
         break
       case 'savePartPluginState':
-        // The editor closed: the mock takes it as an edit (O3's "edited" badge).
-        if (st.keyboardParts[cmd.part & 3].plugin?.status === 'playing') this.sound.pluginEdited(cmd.part)
+        // The editor closed: "edited" already shows what its window changed.
         this.plugins.cmd(cmd)
         break
       case 'rescanPlugins':
       case 'setPluginInProcess':
       case 'reloadPartPlugin':
+      case 'markPluginSeen':
         this.plugins.cmd(cmd)
         break
       case 'loadMultiPad':
@@ -1829,6 +1883,17 @@ export class MockSession implements Session {
         }
         const r = this.catalogMock.patchFor(this.state, cmd.id, (c) => this.cmd(c))
         if ('error' in r) this.message(r.error, true)
+        break
+      }
+      case 'replacePartSound': {
+        // assignSound, then the part's mix as it was (a sound swap never touches it).
+        if (cmd.part < 0 || cmd.part > 3) {
+          this.message(`no keyboard part ${cmd.part} (0-3)`, true)
+          break
+        }
+        const { volume, pan, reverb, chorus, variation, octave, on } = this.state.keyboardParts[cmd.part]
+        this.cmd({ type: 'assignSound', part: cmd.part, id: cmd.id })
+        Object.assign(this.state.keyboardParts[cmd.part], { volume, pan, reverb, chorus, variation, octave, on })
         break
       }
       case 'setSoundFavourite':
@@ -2021,6 +2086,13 @@ const MOCK_STYLE_SENDS: [number, number, number][] = [[30, 0, 0], [30, 0, 0], [2
  * the band's reverb as written (100), no band chorus or delay (#236); the same for the Multi
  * Pads (#267).
  */
+/** What the live rack holds, as the state shows it (docs/racks.md): the keyboard parts'
+ *  sounds and mix, the split, the keyboard transpose and Harmony/Arp. */
+export function liveRackView(st: AppState): string {
+  const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false])
+  return JSON.stringify([parts, st.chord.split, st.chord.transposeKeyboard, st.harmonyArp])
+}
+
 export function initialEffects(): EffectsState {
   const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][], bandSend: number): EffectBlockState => ({
     block, name, effect, effectName: types.find(([t]) => t === effect)![1],

@@ -2,7 +2,6 @@
 // The mock has no patterns, so each Main present gets a made-up 4-bar groove; the rest
 // comes from the state. app/src-tauri/src/mock_home.rs does the same.
 
-import { snapshotLabel } from './registration'
 import type { AppState, HomeState } from './types'
 
 const LETTERS = ['A', 'B', 'C', 'D']
@@ -32,12 +31,8 @@ export function mockHome(st: AppState): HomeState {
   const n = t.sectionBars
   const b = Math.max(1, t.beatsPerBar)
   const fraction = t.running && n ? Math.min(1, Math.max(0, ((Math.max(1, t.bar) - 1) * b + Math.max(1, t.beat) - 1) / (n * b))) : 0
-  const r = st.registration
-  const sel = r.selected === null ? undefined : r.buttons[r.selected]
-  const snapshot =
-    r.selected !== null && sel?.stored
-      ? { index: r.selected, label: snapshotLabel(r.selected), name: sel.name || sel.style || `Snapshot ${snapshotLabel(r.selected)}`, bank: r.bank.name }
-      : null
+  // Registration Memory is retired (Quick Racks replaced it), so no snapshot is recalled.
+  const snapshot = null
   const o = st.ots.settings[st.ots.applied - 1]
   return {
     mains,

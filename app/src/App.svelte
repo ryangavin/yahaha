@@ -6,17 +6,19 @@
   │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
-  │ │ keyboard strip (panels/keystrip), one panel:                        │ │ parts  │
-  │ │   Registration bar: bank · 1–10 · Memory · Freeze · seq. · playlist │ │ mixer  │
+  │ │ keyboard strip (panels/keystrip), one panel:                        │ │ rack   │
+  │ │   Quick Racks bar: bank ◀ A ▶ · 1–8 · Store                         │ │ mixer  │
   │ │   chord tones · the keys                                            │ │settings│
   │ └─────────────────────────────────────────────────────────────────────┘ │        │
   │ status line                                                             │        │
   │ help footer (lib/tooltip): the hovered control's entry · last Launchkey  └────────┘
   └──────────────────────────────────────────────────────────────────────────┘
   Each drawer opens from a small button on the stage by what it details (lib/ui/DrawerButton):
-  Parts & OTS, Sounds, Mixer on the fader head; Multi Pads by the pad-page tabs; Charts by
+  Rack, Library, Mixer on the fader head; Multi Pads by the pad-page tabs; Charts by
   the lead-sheet lane; Harmony/Arp and Chord Looper on the keyboard strip's cheek; the style
   name on the display opens the browser (as touching it does on the Genos).
+  Library (panels/library, `ui.view`): a page in place of the stage, from the header's
+  Stage | Library switch (Alt+B); drawers open over it too.
   Browser: centred modal. Drawers and the browser end above the help footer
   (--help-footer-space), so it always explains what the pointer is on.
 
@@ -49,11 +51,10 @@
   import Mixer from './panels/mixer/Mixer.svelte'
   import Looper from './panels/looper/Looper.svelte'
   import MultiPad from './panels/multipad/MultiPad.svelte'
-  import Parts from './panels/parts/Parts.svelte'
-  import RegistBar from './panels/registration/RegistBar.svelte'
-  import Registration from './panels/registration/Registration.svelte'
+  import RackPanel from './panels/rack/RackPanel.svelte'
+  import QuickBar from './panels/quickracks/QuickBar.svelte'
+  import Library from './panels/library/Library.svelte'
   import Settings from './panels/settings/Settings.svelte'
-  import SoundLibrary from './panels/sound/SoundLibrary.svelte'
   import SoundBrowser from './panels/sounds/SoundBrowser.svelte'
 
   let { session }: { session: Session } = $props()
@@ -83,19 +84,24 @@
   <Header />
   <!-- Quick nav (lib/nav.ts): every panel and drawer, one click or Alt+letter away. -->
   <nav class="quick-nav" aria-label="Panels">
-    {#each NAV as n (n.tip)}
+    {#each NAV.filter((n) => !n.hidden) as n (n.tip)}
       <DrawerButton tip={n.tip} open={n.open()} onclick={n.toggle}>{n.label}</DrawerButton>
     {/each}
   </nav>
 
-  <main class="stage">
-    <div class="stack">
-      <div class="lead-slot"><LeadSheet /></div>
-      <Launchkey />
-      <!-- The Registration bar sits in the keyboard strip's panel, above the keys. -->
-      <div class="strip-slot"><KeyStrip><RegistBar /></KeyStrip></div>
-    </div>
-  </main>
+  {#if ui.view === 'library'}
+    <!-- Library replaces the stage (docs/racks.md, "Screens"); the band keeps playing. -->
+    <main class="library-slot"><Library /></main>
+  {:else}
+    <main class="stage">
+      <div class="stack">
+        <div class="lead-slot"><LeadSheet /></div>
+        <Launchkey />
+        <!-- The Quick Racks bar sits in the keyboard strip's panel, above the keys. -->
+        <div class="strip-slot"><KeyStrip><QuickBar /></KeyStrip></div>
+      </div>
+    </main>
+  {/if}
 
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (focusable so its tooltip is reachable from the keyboard) -->
   <footer class="status engraved" role="status" tabindex="0" use:tip={'display.status'}>
@@ -107,17 +113,17 @@
   <DropoutNotice />
 </div>
 
-{#if ui.parts}<Parts />{/if}
+{#if ui.rack}<RackPanel />{/if}
 {#if ui.mixer}<Mixer />{/if}
 {#if ui.looper}<Looper />{/if}
 {#if ui.multipad}<MultiPad />{/if}
-{#if ui.sound}<SoundLibrary />{/if}
 {#if ui.settings}<Settings />{/if}
 {#if ui.charts}<Charts />{/if}
 {#if ui.harmony}<Harmony />{/if}
-{#if ui.regist}<Registration />{/if}
 {#if ui.browser}<Browser />{/if}
-{#if ui.soundPick !== null}<SoundBrowser pick={ui.soundPick} />{:else if ui.soundBrowser !== null}<SoundBrowser part={ui.soundBrowser} />{/if}
+<!-- The Sound Browser only picks for a program map rule now (Style map); Library took over
+     choosing a part's sound. -->
+{#if ui.soundPick !== null}<SoundBrowser pick={ui.soundPick} />{/if}
 {#if tips.floating}<Tooltip />{/if}
 
 <style>
@@ -134,9 +140,9 @@
   /* ── The stage: sizes in em of --u, the largest that fits both ways ──────────────────
      --w: the stack's width in em (the mirror's design width).
      --h: its least height in em: lead band min + mirror + strip min + 2 gaps.
-     --top: the Registration bar's row in the strip, with its gap (one row wide, two stacked).
-     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked; the Registration
-     row 4.0em wide, 6.7em stacked. */
+     --top: the Quick Racks bar's row in the strip, with its gap (one row wide, two stacked).
+     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked; the bar's row
+     4.0em wide, 6.7em stacked. */
   .stage {
     container: stage / size;
     flex: 1;
@@ -148,7 +154,7 @@
   .stack {
     --w: 96;
     --h: 44.5;
-    /* The Registration bar's row at the top of the keyboard strip (+ its gap). */
+    /* The Quick Racks bar's row at the top of the keyboard strip (+ its gap). */
     --top: 4.6em;
     --u: min(100cqw / var(--w), 100cqh / var(--h));
     font-size: var(--u);
@@ -175,6 +181,11 @@
       --h: 67.4;
       --top: 7.4em;
     }
+  }
+  .library-slot {
+    flex: 1;
+    min-height: 0;
+    display: flex;
   }
   .quick-nav {
     display: flex;

@@ -15,7 +15,7 @@ import { MockSession } from '../lib/api/mock'
 import { ui } from '../lib/store.svelte'
 import { tips } from '../lib/tooltip/tip.svelte'
 import { nav as soundNav } from '../panels/sound/nav.svelte'
-import { browserNav } from '../panels/sounds/nav.svelte'
+import { libraryNav } from '../panels/library/nav.svelte'
 import { TIPS, isTipKey } from './tooltips'
 
 export const INTERACTIVE = [
@@ -62,6 +62,13 @@ function click(key: string) {
   flushSync()
 }
 
+/** Save the live rack as `name` through Store on Quick Rack `slot` (the bar's Store flow). */
+function storeRack(s: MockSession, slot: number, name: string) {
+  s.send({ type: 'toggleQuickRackStore' })
+  s.send({ type: 'pressQuickRack', slot })
+  s.send({ type: 'saveRackAs', name })
+}
+
 const STATES: [string, Setup][] = [
   ['main screen, playing (demo)', () => {}],
   ['stopped, Sync Start armed', (s) => s.send({ type: 'toggleSyncStart' })],
@@ -75,62 +82,75 @@ const STATES: [string, Setup][] = [
   ['style browser open, stopped (preview buttons)', (s) => (s.send({ type: 'stop' }), (ui.browser = true))],
   ['style browser, previewing', (s) => (s.send({ type: 'stop' }), s.send({ type: 'auditionStyle', id: 1 }), (ui.browser = true))],
   ['style browser, style queued for the next bar', (s) => (s.send({ type: 'queueStyle', id: 1 }), (ui.browser = true))],
-  ['sound browser open for Right 1', () => (ui.soundBrowser = 0)],
-  ['sound browser, stopped, a plugin part (audition)', (s) => (
-    s.send({ type: 'stop' }),
-    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }),
-    s.advance(1000),
-    (ui.soundBrowser = 0)
-  )],
-  ['sound browser, Instruments tab', () => ((browserNav.tab = 'instruments'), (ui.soundBrowser = 0))],
-  ['sound browser, Instruments: a font and a playing plugin open (presets, Edit, in process, New sound)', (s) => {
-    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu Smp7 Fake', state: null })
-    s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
-    s.advance(1000)
-    s.send({ type: 'addToMySounds', id: 'au:aumu Smp7 Fake#f:1' })
-    browserNav.tab = 'instruments'
-    browserNav.open.add('font:GeneralUser-GS.sf2')
-    browserNav.open.add('au:aumu Smp7 Fake')
-    browserNav.open.add('au:aumu Mock Demo')
-    ui.soundBrowser = 0
-  }],
-  // The Sounds tab's Save flow (O3): Save as… open on a plugin part, with the .aupreset
-  // option and its replace question; the edited badge; a library sound selected, with its
-  // details and the delete question; an instrument chip.
-  ['sound browser, Save as… on an edited plugin sound, with .aupreset', (s) => {
+  // Library (docs/racks.md, "Screens"): each tab, and the states that show more controls.
+  ['Library › Sounds on Right 1 (a SoundFont voice: Copy to My Sounds)', () => ui.openLibrary('sounds', 0)],
+  ['Library › Sounds, an edited plugin sound: edited, Save as… open, instrument filter', (s) => {
     s.send({ type: 'stop' })
     s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
     s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
     s.advance(5000)
-    s.send({ type: 'savePartPluginState', part: 0 })
-    ui.soundBrowser = 0
+    s.pluginWindow(0, 1)
+    libraryNav.instrument = 'au:aumu Smp7 Fake'
+    ui.openLibrary('sounds', 0)
     flushSync()
     click('sounds.save')
-    click('sounds.save_preset')
   }],
-  ['sound browser, a library sound selected: details, delete asked', (s) => {
+  ['Library › Sounds, a sound of yours selected: details, delete asked', (s) => {
     s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' })
-    ui.soundBrowser = 0
+    ui.openLibrary('sounds', 0)
     flushSync()
     click('sounds.more')
     click('sound.delete')
   }],
-  ['sound browser, an instrument chip', () => {
-    ui.soundBrowser = 0
+  ['Library › Instruments, More… on a playing plugin (category, in process, Edit…)', (s) => {
+    s.send({ type: 'setPartPlugin', part: 0, id: 'aumu Smp7 Fake', state: null })
+    s.advance(1000)
+    ui.openLibrary('instruments', 0)
     flushSync()
-    click('sounds.instrument')
+    document.querySelector<HTMLElement>('section[aria-label="Sampler Deluxe"] [data-tip="library.inst_more"]')!.click()
+    flushSync()
   }],
+  ['Library › Racks, Needs attention on', () => {
+    ui.openLibrary('racks', 0)
+    flushSync()
+    click('library.racks_attention')
+  }],
+  ['Library › Style map: GM map, global, library file', () => ui.openLibrary('map')],
+  ['Library › Style map: GM map, this style with its own rules', (s) => {
+    ui.openLibrary('map')
+    soundNav.styleScope = true
+    s.send({ type: 'setFamilyRule', family: 4, patch: 'soft-pad', style: true })
+  }],
+  ['Library › Style map: SoundFont presets, auditioning', (s) => {
+    ui.openLibrary('map')
+    libraryNav.mapPage = 'add'
+    s.send({ type: 'stop' })
+    s.send({ type: 'browseSoundFont', file: 'GeneralUser-GS.sf2' })
+    s.send({ type: 'auditionPreset', file: 'GeneralUser-GS.sf2', bank: 0, program: 4 })
+  }],
+  ['Library with the Rack drawer open over it', () => ((ui.rack = true), ui.openLibrary('sounds', 1))],
   ['sound browser picking for a map rule', () => (ui.soundPick = { title: 'Piano family', value: 'stage-grand', onpick: () => {} })],
   ['settings open', () => (ui.settings = true)],
   ['settings open, a pitch-bend pedal learning its CC', (s) => {
     s.send({ type: 'setPedal', pedal: 2, cc: 4, function: 'pitchBend', controlType: 'holdA', reverse: false, range: 'full' })
     ui.settings = true
   }],
-  ['parts drawer open', () => (ui.parts = true)],
-  ['parts drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.parts = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
-  ['parts drawer, fader page Style', (s) => ((ui.parts = true), s.send({ type: 'toggleFaderPage' }))],
-  ['parts drawer, Right 1 on a plugin', (s) => ((ui.parts = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
-  ['parts drawer, Right 2 loading a plugin', (s) => ((ui.parts = true), s.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null }))],
+  ['rack drawer open', () => (ui.rack = true)],
+  ['rack drawer, Upper + Manual Bass, OTS Link', (s) => ((ui.rack = true), s.send({ type: 'toggleUpper' }), s.send({ type: 'toggleOtsLink' }))],
+  ['rack drawer, fader page Style', (s) => ((ui.rack = true), s.send({ type: 'toggleFaderPage' }))],
+  ['rack drawer, Right 1 on a plugin', (s) => ((ui.rack = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
+  ['rack drawer: modified, controller map open, an edited sound, a missing plugin (Replace…)', (s) => {
+    s.send({ type: 'stop' })
+    s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
+    s.advance(5000)
+    s.pluginWindow(0, 1)
+    s.missingPlugin(2)
+    ui.rack = true
+    flushSync()
+    click('rack.map')
+  }],
+  ['rack drawer, Right 2 loading a plugin',(s) => ((ui.rack = true), s.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null }))],
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer, a plugin part', (s) => ((ui.mixer = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
   ['harmony drawer open', () => (ui.harmony = true)],
@@ -140,14 +160,31 @@ const STATES: [string, Setup][] = [
   ['charts drawer, nothing imported', () => (ui.charts = true)],
   ['charts drawer, a playlist, chart mode playing', (s) => ((ui.charts = true), s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
   ['chart in the lead-sheet band', (s) => (s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
-  ['pad page 4 (Registration)', (s) => s.send({ type: 'setPadPage', page: 'registration' })],
-  ['Registration Memory armed', (s) => s.send({ type: 'toggleRegistMemory' })],
-  ['registration panel: bank', () => ((ui.registTab = 'bank'), (ui.regist = true))],
-  ['registration panel: new unsaved bank', (s) => (s.send({ type: 'newRegistBank' }), (ui.registTab = 'bank'), (ui.regist = true))],
-  ['registration panel: memory and freeze groups', () => ((ui.registTab = 'groups'), (ui.regist = true))],
-  ['registration panel: sequence', () => ((ui.registTab = 'sequence'), (ui.regist = true))],
-  ['registration panel: playlist', () => ((ui.registTab = 'playlist'), (ui.regist = true))],
-  ['registration panel: playlist sorted', (s) => (s.send({ type: 'setPlaylistSort', sort: 'aToZ' }), (ui.registTab = 'playlist'), (ui.regist = true))],
+  ['pad page 4 (Quick Racks)', (s) => s.send({ type: 'setPadPage', page: 'quickRacks' })],
+  ['Quick Racks Store armed', (s) => s.send({ type: 'toggleQuickRackStore' })],
+  ['Quick Racks: a stored button (clear), pad page 4', (s) => (storeRack(s, 0, 'Ballad'), s.send({ type: 'setPadPage', page: 'quickRacks' }))],
+  ['Quick Racks bar: Store waiting for a never-saved rack', (s) => (s.send({ type: 'toggleQuickRackStore' }), s.send({ type: 'pressQuickRack', slot: 2 }))],
+  ['Quick Racks bar: Store waiting for a saved rack\'s changes', (s) => (
+    storeRack(s, 0, 'Ballad'),
+    s.send({ type: 'setPartVoice', part: 0, program: 12 }),
+    s.send({ type: 'toggleQuickRackStore' }),
+    s.send({ type: 'pressQuickRack', slot: 1 })
+  )],
+  ['Quick Racks bar: unsaved changes asked', (s) => (storeRack(s, 0, 'Ballad'), s.send({ type: 'newRack' }), s.send({ type: 'setPartVoice', part: 0, program: 12 }), s.send({ type: 'pressQuickRack', slot: 0 }))],
+  ['Quick Racks bar: new sound names asked', (s) => {
+    s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
+    s.advance(5000)
+    s.pluginWindow(0, 5)
+    s.send({ type: 'saveRackAs', name: 'Grand' })
+  }],
+  ['Library › Racks, racks and a stored button, unsaved changes asked', (s) => (
+    storeRack(s, 0, 'Ballad'),
+    s.send({ type: 'newRack' }),
+    s.send({ type: 'setPartVoice', part: 0, program: 12 }),
+    s.send({ type: 'pressQuickRack', slot: 0 }),
+    ui.openLibrary('racks')
+  )],
   ['chord looper drawer open', () => (ui.looper = true)],
   ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
   ['multi pad drawer, no bank', () => (ui.multipad = true)],
@@ -157,21 +194,7 @@ const STATES: [string, Setup][] = [
     s.send({ type: 'triggerMultiPad', pad: 0 }),
     s.send({ type: 'armMultiPad', pad: 3 })
   )],
-  ['sound library drawer: GM map, global, library file', () => ((ui.sound = true), (soundNav.tab = 'gm'))],
-  ['sound library drawer: GM map, this style with its own rules', (s) => {
-    ui.sound = true
-    soundNav.tab = 'gm'
-    soundNav.styleScope = true
-    s.send({ type: 'setFamilyRule', family: 4, patch: 'soft-pad', style: true })
-  }],
-  ['sound library drawer: SoundFont presets, auditioning', (s) => {
-    ui.sound = true
-    soundNav.tab = 'add'
-    s.send({ type: 'stop' })
-    s.send({ type: 'browseSoundFont', file: 'GeneralUser-GS.sf2' })
-    s.send({ type: 'auditionPreset', file: 'GeneralUser-GS.sf2', bank: 0, program: 4 })
-  }],
-  ['parts drawer, a part on a library patch', (s) => ((ui.parts = true), s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' }))],
+  ['rack drawer, a part on a library patch', (s) => ((ui.rack = true), s.send({ type: 'setPartPatch', part: 0, id: 'warm-rhodes' }))],
   ['audio dropout notice', (s) => s.dropouts(5)],
   ['Shift layer on', () => (ui.shiftLatched = true)],
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
@@ -180,21 +203,18 @@ const STATES: [string, Setup][] = [
 afterEach(() => {
   cleanup()
   ui.browser = false
-  ui.soundBrowser = null
   ui.soundPick = null
-  browserNav.tab = 'sounds'
-  browserNav.open.clear()
+  ui.view = 'stage'
+  ui.libraryTab = 'sounds'
+  ui.libraryPart = 0
+  libraryNav.reset()
   ui.settings = false
-  ui.parts = false
+  ui.rack = false
   ui.mixer = false
   ui.charts = false
-  ui.regist = false
-  ui.registTab = 'bank'
   ui.looper = false
   ui.multipad = false
   ui.harmony = false
-  ui.sound = false
-  soundNav.tab = 'gm'
   soundNav.styleScope = false
   ui.shiftLatched = false
   tips.help = false

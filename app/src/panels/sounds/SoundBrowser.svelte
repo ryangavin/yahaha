@@ -39,7 +39,7 @@
   import Instruments from './Instruments.svelte'
   import { browserNav, type BrowserTab } from './nav.svelte'
   import SoundEdit from './SoundEdit.svelte'
-  import { SOURCE_BADGE, allSoundIds, categoryCounts, instrumentName, instruments, mapSlots, patchesById, playingId, presetFileName, visibleSounds, type SoundView } from './model'
+  import { SOURCE_BADGE, allSoundIds, categoryCounts, instruments, mapSlots, nowPlaying, patchesById, playingId, presetFileName, visibleSounds, type SoundView } from './model'
 
   let { part = 0, pick = null }: { part?: number; pick?: SoundPick | null } = $props()
 
@@ -65,14 +65,16 @@
 
   const kp = $derived(pick ? undefined : app.state.keyboardParts[part])
   const plugins = $derived(app.state.plugins)
-  const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, app.state.io.soundFontFile, ctx.gmMap) : null)
+  const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, ctx) : null)
   const auditioning = $derived(app.state.sounds?.auditioning ?? null)
   const running = $derived(app.state.transport.running)
 
   // ── The Save flow (O3): Save over the part's own sound, Save as… a new one. ──────────
   // Save as… names the new sound; a plugin part can also keep it as an .aupreset that
   // Logic reads (asking before it replaces a file of that name, #307).
-  let justSaved = $state(false)
+  // The Save as… waiting for its new sound: the sound added before it, and its name (a
+  // Duplicate's "<name> copy", or a sound added before, is not it).
+  let justSaved = $state<{ before: string | null; name: string } | null>(null)
   let saveForm = $state<{ name: string; aupreset: boolean; category: PatchCategory; replace: boolean } | null>(null)
   let saveName: HTMLInputElement | undefined = $state()
   function save() {
@@ -98,6 +100,8 @@
     if (!saveForm || !kp) return
     const name = saveForm.name.trim()
     if (!name) return
+    // The sound added before this one (a send may add it at once).
+    const before = sl.lastAdded
     if (saveForm.aupreset && canPreset) {
       if (clash && !overwrite) {
         saveForm.replace = true
@@ -106,7 +110,7 @@
       app.send({ type: 'savePartAsPluginPreset', part, name, category: saveForm.category, overwrite })
     }
     app.send({ type: 'saveSoundAs', part, name })
-    justSaved = true
+    justSaved = { before, name }
     closeSaveAs()
   }
   function saveFormKey(e: KeyboardEvent) {
@@ -118,8 +122,10 @@
   // The new sound shows in My Sounds, selected, once the catalog has it.
   $effect(() => {
     const id = sl.lastAdded
-    if (!justSaved || !id || !entries.some((e) => e.id === `saved:${id}`)) return
-    justSaved = false
+    if (!justSaved || !id || id === justSaved.before || !entries.some((e) => e.id === `saved:${id}`)) return
+    const mine = byId.get(`saved:${id}`)?.name === justSaved.name
+    justSaved = null
+    if (!mine) return
     view = { kind: 'mine' }
     cursorId = `saved:${id}`
     void tick().then(() => ensureVisible(cursor, true))
@@ -133,8 +139,16 @@
   }
 
   let cursorId = $state<string | null>(null)
-  const cursor = $derived(Math.max(0, cursorId === null ? rows.findIndex((i) => entries[i].id === playing) : rows.findIndex((i) => entries[i].id === cursorId)))
+  // No row is active while the playing sound (or the one moved to) isn't in the list: the
+  // first row isn't passed off as playing. ↓ then starts at the top.
+  const cursor = $derived(rows.findIndex((i) => entries[i].id === (cursorId ?? playing)))
   const selected = $derived(rows[cursor] === undefined ? undefined : entries[rows[cursor]])
+  // Typing a filter that hides the row moved to (or the playing one) moves to its first
+  // match, so Enter plays it (the playing row keeps its ▶ wherever it is).
+  function onfilter() {
+    if (cursor < 0 && rows.length) cursorId = entries[rows[0]].id
+    ensureVisible(cursor, true)
+  }
   // The selected library sound: rename, recategorise, delete (SoundEdit). A plugin's
   // category is filed on the Instruments tab (O2), with the rest of its housekeeping.
   const selPatch = $derived(!pick && selected?.source === 'saved' ? byId.get(selected.id) : undefined)
@@ -149,9 +163,10 @@
   const slice = $derived(rows.slice(first, last))
 
   function ensureVisible(k: number, center = false) {
-    if (!list || k < 0) return
+    if (!list) return
     const h = list.clientHeight || height
-    const top = k * ROW
+    // No active row (the playing sound isn't listed): the list's top.
+    const top = Math.max(0, k) * ROW
     if (center) list.scrollTop = Math.max(0, top - h / 2 + ROW / 2)
     else if (top < list.scrollTop) list.scrollTop = top
     else if (top + ROW > list.scrollTop + h) list.scrollTop = top + ROW - h
@@ -161,7 +176,8 @@
   function assign(i: number) {
     const e = entries[i]
     if (!e) return
-    if (!pick) return app.send({ type: 'assignSound', part, id: e.id })
+    // A part whose plugin is missing: Replace… keeps its mix (docs/racks.md).
+    if (!pick) return app.send({ type: kp?.plugin?.missing ? 'replacePartSound' : 'assignSound', part, id: e.id })
     pick.onpick(e.id)
     ui.soundPick = null
   }
@@ -179,7 +195,8 @@
     // answers from its cache (a count from its .aupreset files alone says nothing).
     if (v.kind === 'instrument' && v.id.startsWith('au:')) {
       const e = entries.find((x) => x.id === v.id)
-      if (e?.plugin && !e.plugin.lastError && !listing.has(v.id)) app.send({ type: 'listPluginPresets', id: v.id })
+      // A failed listing is not tried again (until the next scan): it says why instead.
+      if (e?.plugin && !e.plugin.lastError && !e.plugin.presetsError && !listing.has(v.id)) app.send({ type: 'listPluginPresets', id: v.id })
     }
     void tick().then(() => ensureVisible(cursor, true))
   }
@@ -243,6 +260,10 @@
   const chipId = $derived(view.kind === 'instrument' ? view.id : null)
   const shownName = $derived(chipId ? (insts.find((x) => x.id === chipId)?.name ?? '') : '')
   const listingChip = $derived(!!chipId && listing.has(chipId))
+  const chipError = $derived(chipId ? entries.find((e) => e.id === chipId)?.plugin?.presetsError : undefined)
+  // "N of M": M is what the chip holds, before the filter (not the whole catalog, most of
+  // which only its instrument's chip shows).
+  const chipTotal = $derived(query.trim() ? visibleSounds(catalog, view, '', ctx).length : rows.length)
 </script>
 
 <Overlay id="sounds" title="Sounds · {pick ? pick.title : (kp?.name ?? '')}" side="center" modal closeTip="sounds.close" onclose={close}>
@@ -306,10 +327,10 @@
           aria-label="Filter sounds"
           use:tip={'sounds.filter'}
           onkeydown={onkey}
-          oninput={() => void tick().then(() => ensureVisible(cursor, true))}
+          oninput={() => void tick().then(onfilter)}
           onfocus={() => queueMicrotask(() => input && tips.hide(input))}
         />
-        <span class="count engraved">{rows.length.toLocaleString()} of {entries.length.toLocaleString()}{#if listingChip}&nbsp;· listing presets{:else if app.state.sounds?.scanning}&nbsp;· scanning plugins{/if}</span>
+        <span class="count engraved">{rows.length.toLocaleString()} of {chipTotal.toLocaleString()}{#if listingChip}&nbsp;· listing presets{:else if chipError}<span class="warn" title={chipError}>&nbsp;· presets not listed: {chipError}</span>{:else if app.state.sounds?.scanning}&nbsp;· scanning plugins{/if}</span>
       </div>
 
       <div class="screen mat-screen">
@@ -349,7 +370,7 @@
               {:else if view.kind === 'favourites' && !query}No favourites yet: star a sound with ☆ (or Ctrl+D).
               {:else if view.kind === 'recents' && !query}Nothing picked yet.
               {:else if view.kind === 'mine' && !query}Nothing in My Sounds yet: Save as… keeps what a part plays.
-              {:else if chipId && !query}{listingChip ?`Listing ${shownName}'s presets…` : `${shownName} has no presets.`}
+              {:else if chipId && !query}{listingChip ? `Listing ${shownName}'s presets…` : chipError ? `Could not list ${shownName}'s presets: ${chipError}` : `${shownName} has no presets.`}
               {:else}No sound matches “{query}”.{/if}
             </p>
           {/if}
@@ -387,7 +408,7 @@
       <footer class="foot">
         {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>
         {:else if kp}
-          <span class="now">{kp.name} plays <b>{instrumentName(kp, ctx, plugins.list, app.state.io.soundFontFile)}</b> · <b>{kp.sound?.name ?? kp.voiceName}</b>{#if kp.plugin && kp.plugin.status !== 'playing'}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{/if}</span>
+          <span class="now">{kp.name} plays <b>{nowPlaying(kp, ctx, plugins.list, app.state.io.soundFontFile)}</b>{#if kp.plugin && kp.plugin.status !== 'playing'}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{/if}</span>
           {#if kp.soundEdited}<span class="edited" use:tip={'sounds.edited'}>edited</span>{/if}
         {/if}
         {#if auditioning}<HwButton tip="sounds.audition_stop" onclick={() => app.send({ type: 'stopSoundAudition' })}>■ Stop</HwButton>{/if}

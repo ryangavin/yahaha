@@ -11,7 +11,8 @@
    │ 8 buttons  M │  Track  [◀ ▶]    [ 8 pads, bottom row ] Func    Play                   │
    └──────────────┴────────────────────────────────────────────────────────────────────────┘
 
-  The fader head carries the Parts & OTS, Sounds and Mixer drawer buttons, and the pad-page
+  The fader head names the rack ("Rack: <name> ●" while modified) and carries the Rack,
+  Sounds and Mixer drawer buttons; under each part fader, its sound. The pad-page
   row the Multi Pads one (lib/ui/DrawerButton: small and quieter, not hardware).
 
   Every element shows its function on the current pad/fader page and Shift layer, has a
@@ -22,6 +23,7 @@
 -->
 <script lang="ts">
   import { PAD_PAGES, type Pad, type PadPage, type Rgb } from '../../lib/api/types'
+  import { toggleLibrary } from '../../lib/nav'
   import { app, clock, ui } from '../../lib/store.svelte'
   import { surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
@@ -32,6 +34,7 @@
   import HwPad from './HwPad.svelte'
   import KnobStrip from './KnobStrip.svelte'
   import StatusDisplay from './StatusDisplay.svelte'
+  import { rackName } from '../rack/rack'
 
   const s = $derived(app.state)
   const surface = $derived(surfaceOf(s, app.library))
@@ -42,8 +45,8 @@
   const pageIndex = $derived(PAD_PAGES.findIndex((p) => p.id === s.pads.page))
 
   /** Page identity colours for the tabs (src/launchkey.rs: white, cyan, magenta, orange). */
-  const PAGE_RGB: Record<PadPage, Rgb> = { sections: [100, 100, 100], chordSetup: [0, 100, 127], otsParts: [127, 0, 70], registration: [127, 60, 0], multiPads: [127, 127, 0] }
-  const PAGE_TIP = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', registration: 'padpage.registration', multiPads: 'padpage.multi_pads' } as const
+  const PAGE_RGB: Record<PadPage, Rgb> = { sections: [100, 100, 100], chordSetup: [0, 100, 127], otsParts: [127, 0, 70], quickRacks: [127, 60, 0], multiPads: [127, 127, 0] }
+  const PAGE_TIP = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', quickRacks: 'padpage.quick_racks', multiPads: 'padpage.multi_pads' } as const
   const cssRgb = (c: Rgb) => `rgb(${c.map((x) => Math.round((x / 127) * 255)).join(' ')})`
   const press = (p: Pad) => p.action && app.send(p.action)
 </script>
@@ -56,11 +59,11 @@
     <!-- Left of the screen, as on the hardware (and first in tab order). -->
     <div class="faders">
       <div class="fader-head">
-        <span class="engraved">Faders · {s.mixer.faderPage === 'panel' ? 'Panel: your parts' : 'Style: the band'}</span>
-        <!-- The drawers that detail what the faders play: your parts, their sounds, the mix. -->
+        <span class="engraved head-text">Faders · {#if s.mixer.faderPage === 'panel'}<b class="rackname">Rack: {rackName(s.liveRack)}{s.liveRack.modified ? ' ●' : ''}</b>{:else}Style: the band{/if}</span>
+        <!-- The drawers that detail what the faders play: your rack, the sounds, the mix. -->
         <nav class="drawers" aria-label="Part panels">
-          <DrawerButton tip="drawer.parts" open={ui.parts} onclick={() => ui.toggleDrawer('parts')}>Parts & OTS</DrawerButton>
-          <DrawerButton tip="drawer.sound" open={ui.sound} onclick={() => ui.toggleDrawer('sound')}>Sounds</DrawerButton>
+          <DrawerButton tip="drawer.rack" open={ui.rack} onclick={() => ui.toggleDrawer('rack')}>Rack</DrawerButton>
+          <DrawerButton tip="drawer.library" open={ui.view === 'library'} onclick={() => toggleLibrary('sounds')}>Library</DrawerButton>
           <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleDrawer('mixer')}>Mixer</DrawerButton>
         </nav>
       </div>
@@ -289,8 +292,19 @@
     gap: 0.8em;
     min-width: 0;
   }
+  .head-text {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rackname {
+    color: var(--ink);
+    font-weight: 700;
+  }
   .drawers {
     display: flex;
+    flex: none;
     gap: 0.35em;
   }
   .fader-body {

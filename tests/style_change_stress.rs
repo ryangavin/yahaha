@@ -665,7 +665,6 @@ fn style_changes_through_the_sound_library_keep_sounding() {
             tags: vec![],
             favourite: false,
             source: PatchSource::SoundFont { file: file.into(), bank, program },
-            defaults: PatchDefaults::default(),
         };
         r.s.send(SoundLibraryCmd::CreatePatch { patch: f }).unwrap();
         r.st().sound_library.last_added.clone().unwrap()

@@ -1,19 +1,10 @@
 //! Style Dynamics Control, Touch and Accent through an offline session (#180).
 
 use crate::api::{DynamicsCmd, DynamicsState};
-use crate::session::{Options, Port, Session};
-use std::path::Path;
+use crate::session::testing::{self, session};
+use crate::session::{Port, Session};
 
 const MS: u64 = 1_000_000;
-
-fn session() -> Option<Session> {
-    let style = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !style.exists() {
-        eprintln!("corpus missing; skipping");
-        return None;
-    }
-    Some(Session::offline(Options { paths: vec![style], ..Options::default() }).unwrap())
-}
 
 fn strike(s: &Session, key: u8, vel: u8) {
     s.midi_in(Port::Keys, &[0x90, key, vel]);
@@ -22,7 +13,7 @@ fn strike(s: &Session, key: u8, vel: u8) {
 
 #[test]
 fn settings_and_the_level() {
-    let Some(s) = session() else { return };
+    let s = session();
     let d = s.state().dynamics.clone();
     assert_eq!(d, DynamicsState { control: true, level: 127, touch: false, accent: false, accent_threshold: 110, ..Default::default() });
     s.send(DynamicsCmd::SetDynamics { level: 100 }).unwrap();
@@ -38,7 +29,7 @@ fn settings_and_the_level() {
 /// setting keeps the level the hand set.
 #[test]
 fn touch_follows_the_left_hand() {
-    let Some(s) = session() else { return };
+    let s = session();
     strike(&s, 38, 30);
     s.advance(10 * MS);
     assert_eq!(s.state().dynamics.level, 127, "Touch off");
@@ -66,13 +57,11 @@ fn touch_follows_the_left_hand() {
 /// Dynamics starts at its maximum (as written) and goes back there with each style load.
 #[test]
 fn a_style_load_maxes_dynamics() {
-    let Some(s) = session() else { return };
+    let s = session();
     assert_eq!(s.state().dynamics.level, 127);
     s.send(DynamicsCmd::SetDynamics { level: 40 }).unwrap();
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2");
-    let other = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|x| x == "sty") && !p.ends_with("SlowWalker.T552.sty"));
-    let Some(other) = other else { return };
+    // Another style file (the same synthetic style at another path).
+    let other = testing::write_style(&std::env::temp_dir().join(format!("yahaha-dyn-other-{}", std::process::id())));
     s.send(crate::api::LibraryCmd::LoadStylePath { path: other.display().to_string() }).unwrap();
     s.advance(50 * MS);
     assert_eq!(s.state().dynamics.level, 127);
@@ -81,7 +70,7 @@ fn a_style_load_maxes_dynamics() {
 /// Accent Mode Fill: a hard left-hand strike while a Main plays queues the Main's fill.
 #[test]
 fn a_hard_left_hand_strike_plays_the_fill() {
-    let Some(s) = session() else { return };
+    let s = session();
     s.send(DynamicsCmd::SetAccent { on: true }).unwrap();
     s.send(DynamicsCmd::SetAccentMode { mode: crate::engine::AccentMode::Fill }).unwrap();
     // Sync Start: the chord starts the band.
@@ -101,7 +90,7 @@ fn a_hard_left_hand_strike_plays_the_fill() {
 /// Accent Mode and Source reach the state and survive other Dynamics commands.
 #[test]
 fn accent_mode_and_source() {
-    let Some(s) = session() else { return };
+    let s = session();
     let d = s.state().dynamics.clone();
     assert_eq!((d.accent_mode, d.accent_source), (crate::engine::AccentMode::Hits, crate::engine::AccentSource::Left));
     s.send(DynamicsCmd::SetAccentMode { mode: crate::engine::AccentMode::Fill }).unwrap();

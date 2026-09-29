@@ -26,7 +26,8 @@ A part plays a **Sound**, which is one of two things.
   bank (128 = drum kits) and program (`FontPreset`). It needs no library entry.
 - **Plugin sound**: a library patch whose source is a plugin
   (`PatchSource::Plugin { component_id, state, origin }`). It holds the instrument, its
-  captured state, and the patch's name, category, CC defaults and favourite flag.
+  captured state, and the patch's name, category, tags and favourite flag. It has no mix
+  settings (docs/racks.md: a sound is the raw instrument).
 
 There is exactly **one** kind of plugin sound. Where it came from is its origin
 (`PluginOrigin`):
@@ -42,7 +43,7 @@ of the same preset from adding a duplicate (`SoundLibrary::plugin_sound`,
 `add_plugin_preset`).
 
 A library patch whose source is a SoundFont preset is a font preset the user added to
-their sounds, with a name, category and defaults of its own.
+their sounds, with a name, category and tags of its own.
 
 ### First-play capture
 
@@ -67,7 +68,9 @@ A later read never overwrites a captured state. Edits are the user's to save
 `SoundId::parse` reads both forms. A bare patch id, which is what map rules and part
 patches have always stored, reads as `saved:`. The browser's plugin rows
 (`au:<component>`, `au:<component>#f:<n>`, `au:<component>#u:<path>`) are not Sounds.
-They are instruments and their presets, and picking one gives you its Sound.
+They are instruments and their presets. A part playing a picked preset names it by its
+catalog id in its `sound` tag; picking adds no library record, and Save makes one
+(docs/racks.md "Saving": one save makes one record).
 
 Records that name a Sound keep a `SoundTag { id, name }`: the id, plus the name it had
 when stored, so recall can show the name even if the sound has since been deleted. It
@@ -81,10 +84,12 @@ appears in:
 
 ## Now playing and "edited"
 
-A keyboard part's state names the Sound it plays (`KeyboardPart.sound`,
-`Control::part_sound_tag`): its plugin's sound (the channel voice's `sound`), else its
-own patch, else the patch the map gives its GM voice. A plugin state no sound names (a
-bare plugin, a recalled state that matches no sound) has none.
+A keyboard part's state names the Sound that actually sounds (`KeyboardPart.sound` and
+`voiceName`, `api::part_sound`, whose web twin is `app/src/lib/api/part-sound.ts`): a
+plugin that is loading, playing or muted names the preset it was given, else its library
+sound (by the library's name now, so a rename or delete shows at once), else the bare
+plugin; a part with no plugin, or one whose plugin failed, names its SoundFont voice: its
+own SoundFont patch, else what the GM map (auto-fill included) resolves its program to.
 
 **Edited** (`KeyboardPart.sound_edited`, `ChannelPlugin::edited`) means the plugin's
 state no longer matches the sound it was loaded from:
@@ -94,15 +99,22 @@ state no longer matches the sound it was loaded from:
   serialize the same sound differently from how it was stored.
 - Every later read (the 30-second autosave, an explicit save, a Memorize's fill) is
   compared by fingerprint (`state_fingerprint`, hashed on the `plugin-state` thread that
-  read it). One that differs marks the part edited. Nothing is added to the audio, engine
-  or MIDI threads.
+  read it). One that differs marks the part edited; one that matches the baseline again
+  (the edit undone) clears it. Nothing is added to the audio, engine or MIDI threads.
+- While the part's plugin window is open (`EditorTarget::editor_open`: the window counts
+  itself open until it closes), the state is also read for its fingerprint alone about
+  every half second (`Probe`, `PROBE_NS`), on a `plugin-state` thread, so an edit there
+  shows within about a second. The state itself is dropped on that thread: these reads
+  neither hold nor save it. The next read waits four times as long as the last one took
+  when that is longer, so a plugin with a big state is read less often.
 - A voice whose state is not its sound's when it is assigned (a Registration memorized
   with an edit, a plugin-parts.json autosaved after one) is edited from the start: one
-  string compare against the library on the control thread.
-- The mark stays until Save, Save as… or another sound.
+  string compare against the library on the control thread. Its baseline is of that
+  edit, so it stays edited until Save, Save as… or another sound.
+- Save, Save as… or another sound clears the mark.
 
-**Save** (`saveSound`) writes the part's state (read afresh), volume and octave over the
-sound, but only over the user's own sound. A factory preset, an `.aupreset` file, a
+**Save** (`saveSound`) writes the part's state (read afresh) over the sound, never the
+part's mix, and only over the user's own sound. A factory preset, an `.aupreset` file, a
 sound of another plugin or no sound at all goes to **Save as…** (`saveSoundAs`), which
 adds a new `user` sound that the part then plays. A part playing a library plugin patch
 keeps its instance through both (`refresh_part_plugin_voices`). `savePartAsPatch` is
@@ -205,15 +217,15 @@ wire is unchanged.
   plugin chip lists the plugin, its factory presets (asked for with `listPluginPresets`
   when the chip opens), its `.aupreset` files and the library sounds made with it. The
   filter searches the chip's rows.
-- **What plays:** ▶ marks the part's `sound` (else its plugin preset, else the map's row
-  for its program). The footer reads "<Part> plays <instrument> · <sound>", with an
+- **What plays:** ▶ marks the part's `sound`. When that row isn't in the list, no row is
+  active until you move or type a filter (which moves to its first match). The footer reads "<Part> plays <instrument> · <sound>", with an
   **edited** badge while `soundEdited`.
 - **One Save flow:** **Save** (`saveSound`) and **Save as…**, which asks for a name
   (`saveSoundAs`) and, on a plugin part, can also write an `.aupreset` with a category
   (`savePartAsPluginPreset`, asking before it replaces a file of that name). The new sound
   shows selected in My Sounds.
 - **Your sounds:** selecting a library sound shows its strip under the list: rename,
-  category, Details (tags and the defaults a part takes), Duplicate and Delete… (asked
+  category, Details (tags and where it comes from), Duplicate and Delete… (asked
   first). A plugin's category is set on the Instruments tab. A library sound made with a
   plugin can also be exported as an `.aupreset` from the strip (`exportSoundPreset`).
 - **Keys** (the filter keeps focus): ↑/↓ PgUp/PgDn Home/End, Enter plays, Shift+Enter
@@ -289,8 +301,11 @@ Sounds tab only, because Play now needs a part.
 ## Decisions (binding, from the owner)
 
 - **D1.** The library is the canonical store. `sound-library.json` holds every plugin
-  sound (state, name, category, CC defaults, favourite). `.aupreset` files are imported
-  on scan and remembered by path; they are not the store.
+  sound (state, name, category, tags, favourite). `.aupreset` files are imported
+  on scan and remembered by path; they are not the store. *Superseded in part by
+  docs/racks.md (sound library format 3): a sound no longer has CC defaults; mix belongs
+  to the rack part, and the Style part level a sound's volume gave moved onto the map
+  rules.*
 - **D2.** The browser has two tabs, Sounds and Instruments. Instruments lists SoundFont
   files and plugins, and SoundFonts get special handling only where they really differ.
 - **D3.** There is no default sound set. There are only scanned folders, the library's
@@ -351,17 +366,18 @@ Sounds tab only, because Play now needs a part.
 ## Decisions made in PR 4 (the Sounds tab)
 
 - **Decision: "every plugin sound" is the library's plugin sounds.** A factory preset or
-  `.aupreset` file becomes one when first played; until then it is under its plugin's
-  chip, like a font's unmapped presets.
+  `.aupreset` file becomes one when it is saved (not when it is played); until then it is
+  under its plugin's chip, like a font's unmapped presets.
 - **Decision: a category chip narrows All sounds**, not the whole catalog, so it stays
   short; Favourites and Recent hold whatever you starred or picked, from any chip.
 - **Decision: the chips stay in the side column** (as the Genos category tabs), with an
   Instruments group under Categories, rather than a wrapping chip bar above the list.
 - **Decision: the `.aupreset` export is an option of Save as…**, so there is one save
   flow; it keeps #307's replace question.
-- **Decision: the Patches tab's editor moved whole into the strip** (tags and defaults
-  under Details), and its "move up/down" and "play on R1–L" went: the browser is per part
-  and sorts by the catalog. The library file (export, import, "port sends mapped") moved
+- **Decision: the Patches tab's editor moved whole into the strip** (tags under Details;
+  the defaults that were there went with sound library format 3, docs/racks.md), and
+  its "move up/down" and "play on R1–L" went: the browser is per part and sorts by the
+  catalog. The library file (export, import, "port sends mapped") moved
   under the drawer's pages.
 - **Decision: Edit… and Rescan stay in the footer for now**; the Instruments tab (PR 5)
   takes them.

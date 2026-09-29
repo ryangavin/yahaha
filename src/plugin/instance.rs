@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::{Relaxed, SeqCst}};
 use std::time::{Duration, Instant};
 
 use super::scan::PluginInfo;
@@ -347,6 +347,48 @@ impl EditorTarget {
     /// edits the instance a part plays.
     pub fn instance_id(&self) -> usize {
         Arc::as_ptr(&self.unit) as usize
+    }
+
+    /// Count an editor window as open on this instance until the watch is released or
+    /// dropped ([`super::editor`] holds one per window). Any thread.
+    pub fn watch(&self) -> EditorWatch {
+        let count = self.unit.editors().clone();
+        count.fetch_add(1, SeqCst);
+        EditorWatch { count, released: AtomicBool::new(false) }
+    }
+
+    /// Whether an editor window is open on this instance: while one is, the Session reads
+    /// its state now and then, so an edit there shows as "edited" within about a second.
+    pub fn editor_open(&self) -> bool {
+        self.unit.editors().load(SeqCst) > 0
+    }
+
+    /// Set a parameter, as a knob turned in the plugin's window does (tests).
+    #[cfg(test)]
+    pub(crate) fn set_parameter(&self, id: u32, scope: u32, element: u32, value: f32) -> Result<()> {
+        sys::guard("setting a parameter", || self.unit.set_parameter(id, scope, element, value))
+    }
+}
+
+/// One editor window open on an instance ([`EditorTarget::watch`]). It holds only the
+/// count, not the Audio Unit.
+pub struct EditorWatch {
+    count: Arc<std::sync::atomic::AtomicUsize>,
+    released: AtomicBool,
+}
+
+impl EditorWatch {
+    /// The window closed (the user's close button, say). Once; dropping it does the same.
+    pub fn release(&self) {
+        if !self.released.swap(true, SeqCst) {
+            self.count.fetch_sub(1, SeqCst);
+        }
+    }
+}
+
+impl Drop for EditorWatch {
+    fn drop(&mut self) {
+        self.release();
     }
 }
 

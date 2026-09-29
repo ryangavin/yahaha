@@ -11,6 +11,7 @@ use crate::api::{
 use crate::arp::{library::PATTERNS, Quantize, Velocity};
 use crate::harmony::{Assign, EchoSpeed, ALL_TYPES};
 use crate::live::{type_index, FxMode};
+use crate::racks::HarmonyArpReg;
 use crate::registration::{Group, Groups};
 use std::sync::atomic::Ordering::Release;
 
@@ -135,64 +136,57 @@ impl Control {
     }
 }
 
-// ----- Registration (group Keyboard Harmony/Arpeggio) -----
+// ----- Registration and racks (group Keyboard Harmony/Arpeggio) -----
 
-/// The `harmonyArp` section of a Registration Memory (Data List, Freeze group "Keyboard
-/// Harmony/Arpeggio"): the HARMONY/ARPEGGIO switch, the selected type and the detail
-/// settings. The type and pattern are stored by name, so a list that grows or reorders
-/// still finds them. The Arpeggio Hold pedal function (`pedalHold`) is not stored: it is
-/// the pedal's, not a setting.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct HarmonyArpReg {
-    on: bool,
-    mode: HarmonyArpMode,
-    harmony_type: String,
-    arp_pattern: String,
-    volume: u8,
-    speed: HarmonySpeed,
-    assign: HarmonyAssign,
-    chord_note_only: bool,
-    touch_limit: u8,
-    arp_quantize: ArpQuantize,
-    arp_hold: bool,
-    arp_velocity: ArpVelocityMode,
-    arp_fixed_velocity: u8,
-    arp_keep_key_on: bool,
-}
-
+/// The `harmonyArp` section of a Registration Memory: `racks::HarmonyArpReg` (a rack
+/// stores the same).
 pub(super) fn harmony_arp_capture(c: &Control, g: Groups) -> Option<serde_json::Value> {
     if !g.has(Group::HarmonyArp) {
         return None;
     }
-    let s = c.harmony_arp_state();
-    let h = &c.harmony_arp;
-    let r = HarmonyArpReg {
-        on: s.on,
-        mode: s.mode,
-        harmony_type: h.harmony.ty.name().to_string(),
-        arp_pattern: PATTERNS[(h.pattern as usize).min(PATTERNS.len() - 1)].name.to_string(),
-        volume: s.volume,
-        speed: s.speed,
-        assign: s.assign,
-        chord_note_only: s.chord_note_only,
-        touch_limit: s.touch_limit,
-        arp_quantize: s.arp.quantize,
-        arp_hold: s.arp.hold,
-        arp_velocity: s.arp.velocity,
-        arp_fixed_velocity: s.arp.fixed_velocity,
-        arp_keep_key_on: s.arp.keep_key_on,
-    };
-    serde_json::to_value(&r).ok()
+    serde_json::to_value(c.harmony_arp_reg()).ok()
 }
 
-/// Recall the `harmonyArp` section. A type or pattern this build doesn't have is reported;
-/// the other settings are still recalled and the selection stays as it is.
+/// Recall the `harmonyArp` section (`Control::apply_harmony_arp_reg`).
 pub(super) fn harmony_arp_recall(c: &mut Control, v: &serde_json::Value, g: Groups) -> Result<(), String> {
     if !g.has(Group::HarmonyArp) {
         return Ok(());
     }
     let r: HarmonyArpReg = serde_json::from_value(v.clone()).map_err(|e| format!("registration harmonyArp: {e}"))?;
+    c.apply_harmony_arp_reg(&r)
+}
+
+impl Control {
+    /// Harmony/Arpeggio as a Registration or a rack stores it.
+    pub(super) fn harmony_arp_reg(&self) -> HarmonyArpReg {
+        let s = self.harmony_arp_state();
+        let h = &self.harmony_arp;
+        HarmonyArpReg {
+            on: s.on,
+            mode: s.mode,
+            harmony_type: h.harmony.ty.name().to_string(),
+            arp_pattern: PATTERNS[(h.pattern as usize).min(PATTERNS.len() - 1)].name.to_string(),
+            volume: s.volume,
+            speed: s.speed,
+            assign: s.assign,
+            chord_note_only: s.chord_note_only,
+            touch_limit: s.touch_limit,
+            arp_quantize: s.arp.quantize,
+            arp_hold: s.arp.hold,
+            arp_velocity: s.arp.velocity,
+            arp_fixed_velocity: s.arp.fixed_velocity,
+            arp_keep_key_on: s.arp.keep_key_on,
+        }
+    }
+
+    /// Set Harmony/Arpeggio as stored. A type or pattern this build doesn't have is
+    /// reported; the other settings are still set and the selection stays as it is.
+    pub(super) fn apply_harmony_arp_reg(&mut self, r: &HarmonyArpReg) -> Result<(), String> {
+        apply_reg(self, r)
+    }
+}
+
+fn apply_reg(c: &mut Control, r: &HarmonyArpReg) -> Result<(), String> {
     let ty = ALL_TYPES.iter().position(|t| t.name() == r.harmony_type).map(|i| i as u8);
     let pattern = PATTERNS.iter().position(|p| p.name == r.arp_pattern).map(|i| i as u8);
     let mut err = None;

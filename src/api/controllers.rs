@@ -67,7 +67,7 @@ impl ControllersCmd {
 /// - `Ok(FunctionRun::Cmd(c))`: run command `c`;
 /// - `Ok(FunctionRun::Switch(bit))`: switch a pedal switch (`controllers::SUSTAIN`, ...) on or off;
 /// - `Ok(FunctionRun::Nothing)`: No Assign;
-/// - `Err(text)`: it can't run (not in yahaha yet, needs a foot controller, no OTS).
+/// - `Err(text)`: it can't run (not in yahaha, needs a foot controller, no OTS).
 ///
 /// The session and the app's Rust mock share it.
 pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_count: u8, ots_applied: u8) -> Result<FunctionRun, String> {
@@ -76,7 +76,7 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
     use crate::parts;
     let info = f.info();
     if !info.available {
-        return Err(format!("{} is not in yahaha yet", info.name));
+        return Err(format!("{} is not in yahaha", info.name));
     }
     let cmd: super::AppCmd = match f.effect() {
         Effect::Nothing => return Ok(FunctionRun::Nothing),
@@ -110,16 +110,16 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             }
             // RM p.144: "Same as the TRANSPOSE [+]/[−] buttons", which transpose the overall
             // pitch (OM p.61): Master transpose.
-            // The REGIST BANK [+]/[−] buttons (RM p.144).
-            Function::RegistBankNext => super::RegistrationCmd::StepRegistBank { delta: 1 }.into(),
-            Function::RegistBankPrev => super::RegistrationCmd::StepRegistBank { delta: -1 }.into(),
-            // The snapshot bank on view: the Launchkey's BANK -/+ pads (`Action::SnapshotBank`).
-            Function::SnapshotBankNext => super::RegistrationCmd::StepSnapshotBank { delta: 1 }.into(),
-            Function::SnapshotBankPrev => super::RegistrationCmd::StepSnapshotBank { delta: -1 }.into(),
-            // Regist +/− (RM p.114 Pedal Control), the REGISTRATION MEMORY buttons, MEMORY,
-            // and the Freeze and Sequence switches (RM p.141).
-            Function::RegistNext => super::RegistrationCmd::StepRegist { delta: 1 }.into(),
-            Function::RegistPrev => super::RegistrationCmd::StepRegist { delta: -1 }.into(),
+            // Quick Racks, where the Genos has Registration Memory (docs/racks.md): the bank
+            // on view (the Launchkey's BANK -/+ pads, `Action::QuickRackBank`), Regist +/−
+            // (RM p.114 Pedal Control) as the previous/next rack in the bank, the
+            // REGISTRATION MEMORY buttons as Quick Racks 1-8 (9-10 run on into the next
+            // bank), and MEMORY as Store. Bank file -/+, Freeze and the Sequence are gone
+            // (not `available`).
+            Function::SnapshotBankNext => super::QuickRackCmd::StepQuickRackBank { delta: 1 }.into(),
+            Function::SnapshotBankPrev => super::QuickRackCmd::StepQuickRackBank { delta: -1 }.into(),
+            Function::RegistNext => super::QuickRackCmd::StepQuickRack { delta: 1, discard: false }.into(),
+            Function::RegistPrev => super::QuickRackCmd::StepQuickRack { delta: -1, discard: false }.into(),
             Function::Regist1
             | Function::Regist2
             | Function::Regist3
@@ -129,10 +129,8 @@ pub fn function_run(f: Function, fingering: crate::fingering::Fingering, ots_cou
             | Function::Regist7
             | Function::Regist8
             | Function::Regist9
-            | Function::Regist10 => super::RegistrationCmd::PressSnapshot { slot: f as u8 - Function::Regist1 as u8 }.into(),
-            Function::RegistMemory => super::RegistrationCmd::ToggleRegistMemory.into(),
-            Function::RegistFreeze => super::RegistrationCmd::ToggleFreeze.into(),
-            Function::RegistSequence => super::RegistrationCmd::ToggleRegistSequence.into(),
+            | Function::Regist10 => super::QuickRackCmd::PressQuickRack { slot: f as u8 - Function::Regist1 as u8, discard: false }.into(),
+            Function::RegistMemory => super::QuickRackCmd::ToggleQuickRackStore.into(),
             // The CHORD LOOPER buttons (RM p.141).
             Function::ChordLooperOnOff => super::LooperCmd::LooperOnOff.into(),
             Function::ChordLooperRec => super::LooperCmd::LooperRec.into(),
