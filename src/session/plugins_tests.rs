@@ -1195,3 +1195,113 @@ fn a_plugin_sound_exports_as_an_aupreset() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The made-up "Sampler Deluxe" in a mock scan cache (it is not in the registrar, so a
+/// load of it fails), as the session's plugin list. No real plugin is loaded.
+fn with_fake_sampler(s: &Session, tag: &str) -> std::path::PathBuf {
+    use crate::plugin::{PluginFormat, PluginId, PluginInfo};
+    let dir = std::env::temp_dir().join(format!("yahaha-listing-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let fake = PluginInfo {
+        id: PluginId::parse("aumu Smp7 Fake").unwrap(),
+        name: "Sampler Deluxe".into(),
+        manufacturer: "Fake Instruments".into(),
+        version: 0x10000,
+        format: PluginFormat::Au2,
+        requires_async: false,
+        can_load_in_process: false,
+        sandbox_safe: true,
+        last_load: None,
+        in_process: false,
+        factory_presets: None,
+        user_presets: Vec::new(),
+    };
+    let host = crate::plugin::mock_host(&dir.join("plugins.json"), vec![dir.join("Presets")], vec![fake]);
+    let list = host.scan().unwrap();
+    let mut ctl = s.inner.lock();
+    ctl.plugins.host = Some(host);
+    ctl.plugins.list = list;
+    dir
+}
+
+const FAKE: &str = "au:aumu Smp7 Fake";
+
+fn fake_entry(s: &Session) -> crate::api::SoundPluginInfo {
+    s.sound_catalog().entries.iter().find(|e| e.id == FAKE).and_then(|e| e.plugin.clone()).expect("the fake sampler's entry")
+}
+
+/// Pump until no preset listing runs (and the state says so).
+fn wait_listed(s: &Session) {
+    let t0 = Instant::now();
+    loop {
+        s.advance(1_000_000);
+        if s.inner.lock().plugins.listing.is_empty() {
+            break;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(40), "the preset listing never ended");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    s.advance(1_000_000);
+    assert!(s.state().sounds.listing_presets.is_empty());
+}
+
+/// A listing whose load fails ends: the browser stops waiting, with the reason, and a
+/// second ask does not load the plugin again.
+#[test]
+fn a_preset_listing_that_fails_ends_and_says_why() {
+    use crate::api::SoundsCmd;
+    let Some(s) = session() else { return };
+    let dir = with_fake_sampler(&s, "fails");
+    assert_eq!(fake_entry(&s).presets, None);
+    s.send(SoundsCmd::ListPluginPresets { id: FAKE.into() }).unwrap();
+    wait_listed(&s);
+    let e = fake_entry(&s);
+    assert_eq!(e.presets, None);
+    assert!(e.presets_error.as_deref().is_some_and(|m| m.contains("registrar")), "{:?}", e.presets_error);
+    assert!(s.state().message.as_ref().is_some_and(|m| m.error && m.text.contains("could not list its presets")));
+    // Not tried again until the next scan.
+    s.send(SoundsCmd::ListPluginPresets { id: FAKE.into() }).unwrap();
+    assert!(s.state().sounds.listing_presets.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A listing that never answers, dies without an answer, or answers without a preset list
+/// (the plugin changed since the scan) ends too.
+#[test]
+fn a_preset_listing_without_an_answer_ends() {
+    use super::imp::{PresetListing, LISTING_DEADLINE};
+    use std::sync::mpsc;
+    let Some(s) = session() else { return };
+    let dir = with_fake_sampler(&s, "no-answer");
+    let fake = s.inner.lock().plugins.list[0].clone();
+    for why in ["no answer after", "stopped without an answer", "no preset list"] {
+        s.inner.lock().plugins.listing_failed.clear();
+        let (tx, rx) = mpsc::channel();
+        let deadline = Instant::now() + LISTING_DEADLINE;
+        // The sender is kept alive (no answer yet) or dropped (the thread died).
+        let _alive = match why {
+            "no answer after" => Some(tx),
+            "stopped without an answer" => {
+                drop(tx);
+                None
+            }
+            _ => {
+                tx.send(Ok(fake.clone())).unwrap();
+                None
+            }
+        };
+        s.inner.lock().plugins.listing.push(PresetListing { id: "aumu Smp7 Fake".into(), rx, deadline });
+        if _alive.is_some() {
+            // Asked again while one runs: no second listing (no second instance).
+            s.send(crate::api::SoundsCmd::ListPluginPresets { id: FAKE.into() }).unwrap();
+            assert_eq!(s.inner.lock().plugin_presets_listing(), ["aumu Smp7 Fake"]);
+            // Then its deadline passes.
+            s.inner.lock().plugins.listing[0].deadline = Instant::now();
+        }
+        wait_listed(&s);
+        let e = fake_entry(&s);
+        assert!(e.presets_error.as_deref().is_some_and(|m| m.contains(why)), "{why}: {:?}", e.presets_error);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

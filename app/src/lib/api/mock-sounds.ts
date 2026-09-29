@@ -63,7 +63,8 @@ export class MockSounds {
         detail: p.manufacturer,
         favourite: this.favourites.has(id),
         recent: recent(id),
-        plugin: { format: p.format, lastError: p.lastError, presets: list && (list.listed || list.presets.length) ? list.presets.length : null },
+        // Its .aupreset files alone are not its count: unknown until listed.
+        plugin: { format: p.format, lastError: p.lastError, presets: list?.listed ? list.presets.length : null, ...(list?.error ? { presetsError: list.error } : {}) },
         parent: null,
       })
       for (const q of list?.presets ?? []) {
@@ -111,9 +112,13 @@ export class MockSounds {
     if (c.type === 'listPluginPresets') {
       const au = parsePluginId(c.id)
       if (!au || au.key !== null) return { error: `${c.id} is not a plugin` }
-      if (!st.plugins.list.some((p) => p.id === au.plugin)) return { error: `no instrument Audio Unit ${au.plugin} is installed` }
+      const entry = st.plugins.list.find((p) => p.id === au.plugin)
+      if (!entry) return { error: `no instrument Audio Unit ${au.plugin} is installed` }
       const l = this.list(au.plugin)
-      if (!l.listed) {
+      // A plugin that does not load cannot list its presets (the engine's listing fails
+      // the same way): the browser stops waiting.
+      if (!l.listed && !l.error && entry.lastError) l.error = entry.lastError
+      else if (!l.listed && !l.error) {
         l.listed = true
         if (au.plugin === MOCK_PRESETS_ID) l.presets.unshift(...['Init', 'Bright Grand', 'Brass Stabs'].map((name, n) => ({ key: `f:${n}`, name, folder: null })))
       }
