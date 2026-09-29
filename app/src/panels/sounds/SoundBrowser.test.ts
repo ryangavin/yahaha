@@ -74,8 +74,9 @@ describe('Sounds tab (#117, O6)', () => {
     const s = await setup()
     const ids = allSoundIds({ patches: s.state.soundLibrary.patches, gmMap: s.state.soundLibrary.gmMap })
     expect(rows().length).toBeGreaterThan(0)
-    expect(document.querySelector('.count')!.textContent).toContain(`of ${app.sounds.entries.length.toLocaleString()}`)
     const all = visibleSounds(app.sounds, { kind: 'all' }, '', { patches: s.state.soundLibrary.patches, gmMap: s.state.soundLibrary.gmMap })
+    // "N of M": M is what the chip can show, not the whole catalog.
+    expect(document.querySelector('.count')!.textContent).toContain(`${all.length.toLocaleString()} of ${all.length.toLocaleString()}`)
     expect(all.length).toBeLessThan(app.sounds.entries.length / 2)
     expect(all.every((i) => ids.has(app.sounds.entries[i].id))).toBe(true)
     // Every library sound is there, and a map row says which program it covers.
@@ -84,6 +85,21 @@ describe('Sounds tab (#117, O6)', () => {
     // A preset nothing maps is not in All sounds, only under its font's chip.
     await filter('fluidr3 cello')
     expect(rows()).toHaveLength(0)
+    expect(document.querySelector('.count')!.textContent).toContain(`0 of ${all.length.toLocaleString()}`)
+  })
+
+  it('a plugin whose preset listing failed says why and is not listed again', async () => {
+    const s = await setup()
+    // As the engine reports a listing that timed out (the mock's plugins all list).
+    app.sounds = { ...app.sounds, entries: app.sounds.entries.map((e) => (e.id === 'au:aumu Tiny Demo' ? { ...e, plugin: { ...e.plugin!, presets: null, presetsError: 'no answer after 30 s' } } : e)) }
+    flushSync()
+    const sent: string[] = []
+    const orig = s.send.bind(s)
+    s.send = (c) => (sent.push(c.type), orig(c))
+    await chip('Tiny Synth')
+    expect(sent).not.toContain('listPluginPresets')
+    expect(document.querySelector('.count')!.textContent).toContain('presets not listed: no answer after 30 s')
+    expect(document.querySelector('.count')!.textContent).not.toContain('listing presets')
   })
 
   it('an instrument chip lists every preset of the font; Enter plays one on the part', async () => {
@@ -213,6 +229,21 @@ describe('Instruments tab (O2)', () => {
     expect(tipped('part.plugin_rescan')).toHaveLength(1)
   })
 
+  it('a plugin whose preset listing failed stops "Listing presets…" and says why', async () => {
+    const s = await setup()
+    app.sounds = { ...app.sounds, entries: app.sounds.entries.map((e) => (e.id === 'au:aumu Tiny Demo' ? { ...e, plugin: { ...e.plugin!, presets: null, presetsError: 'no answer after 30 s' } } : e)) }
+    const sent: string[] = []
+    const orig = s.send.bind(s)
+    s.send = (c) => (sent.push(c.type), orig(c))
+    await fireEvent.click(tab('Instruments'))
+    flushSync()
+    await expand('Tiny Synth')
+    const c = card('Tiny Synth')
+    expect(sent).not.toContain('listPluginPresets')
+    expect(c.querySelector('.none')!.textContent).toBe('Could not list its presets: no answer after 30 s')
+    expect(c.querySelector('.meta')!.textContent).toContain('⚠ presets not listed: no answer after 30 s')
+  })
+
   it('New sound from a plugin loads its default state and opens its editor once it plays', async () => {
     const s = await setup()
     const opened: number[] = []
@@ -293,6 +324,24 @@ describe('the Save flow (O3)', () => {
     expect(tipped('sounds.saved')[0].getAttribute('aria-pressed')).toBe('true')
     expect(activeEntry().id).toBe(s.state.keyboardParts[0].sound!.id)
     expect(foot()).toContain('Sampler Deluxe · My Grand')
+  })
+
+  it("the just-saved highlight is Save as…'s own sound, not a Duplicate's", async () => {
+    const s = await setup(0, onFactory)
+    await key('S', { ctrlKey: true, shiftKey: true })
+    await tick()
+    const name = tipped('sounds.save_as_name')[0] as HTMLInputElement
+    await fireEvent.input(name, { target: { value: 'My Grand' } })
+    await fireEvent.submit(name.form!)
+    flushSync()
+    // A Duplicate lands before the catalog lists the saved sound: its copy is not it.
+    const saved = s.state.soundLibrary.lastAdded!
+    s.send({ type: 'duplicatePatch', id: saved })
+    const copy = s.state.soundLibrary.lastAdded!
+    expect(copy).not.toBe(saved)
+    await refresh(s)
+    expect(activeEntry().id).not.toBe(`saved:${copy}`)
+    expect(activeEntry().id).toBe(`saved:${saved}`)
   })
 
   it('Save as… can also keep an .aupreset, asking before it replaces one; Esc cancels', async () => {

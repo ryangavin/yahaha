@@ -161,6 +161,36 @@ fn a_preset_auditions_and_an_unknown_plugin_is_refused() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
+/// Each publish's catalog check never reads a plugin sound's state (a sampler's is MBs;
+/// the catalog does not show it): a new state is no new revision, a new name is.
+#[test]
+fn the_catalog_check_never_reads_plugin_states() {
+    use crate::patches::Patch;
+    let data = folder("big-state");
+    let Some(s) = offline(&data) else { return };
+    let big = |fill: char| "A".repeat(16 << 20) + &fill.to_string();
+    let sound = Patch {
+        id: "big".into(),
+        name: "Big Sampler".into(),
+        category: Category::Piano,
+        tags: Vec::new(),
+        favourite: false,
+        source: PatchSource::plugin("aumu Smp7 Fake", big('A')),
+        defaults: Default::default(),
+    };
+    let mut ctl = s.inner.lock();
+    ctl.sound.lib.patches.push(sound);
+    assert!(ctl.sounds_touch().is_some(), "a new sound is a new revision");
+    assert!(ctl.sounds_touch().is_none());
+    let PatchSource::Plugin { state, .. } = &mut ctl.sound.lib.patches.last_mut().unwrap().source else { unreachable!() };
+    *state = big('B');
+    assert!(ctl.sounds_touch().is_none(), "the state is not in the catalog");
+    ctl.sound.lib.patches.last_mut().unwrap().name = "Bigger Sampler".into();
+    assert!(ctl.sounds_touch().is_some(), "the name is");
+    drop(ctl);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 #[test]
 fn program_map_rules_take_catalog_ids() {
     let data = folder("rules");

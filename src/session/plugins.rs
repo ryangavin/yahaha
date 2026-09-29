@@ -52,11 +52,31 @@ pub struct PluginVoice {
     /// no `state` yet loads by number; once the state is read it restores from that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<VoicePreset>,
-    /// The library Sound it plays (docs/sound-browser.md), if known. A plugin-parts.json
-    /// written before sounds had ids has none: a part that played a preset gets its sound
-    /// when it plays ([`crate::patches::SoundLibrary::add_plugin_preset`]).
+    /// The Sound it plays (docs/sound-browser.md), if known: a library sound
+    /// (`saved:<id>`), or a plugin preset picked in the browser, named by its catalog id
+    /// (`au:<plugin>#<key>`, [`PluginVoice::name_preset_sound`]). A preset is not a
+    /// library record: one is written only when the part's sound is saved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sound: Option<crate::patches::SoundTag>,
+}
+
+impl PluginVoice {
+    /// A voice playing a plugin preset with no Sound named yet (a preset picked now, or
+    /// one a plugin-parts.json from before sounds had ids restores) plays that preset: its
+    /// Sound is the preset itself, by its catalog id and name. No library record is made
+    /// (docs/racks.md "Saving": one save makes one record). Returns whether it changed.
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
+    pub(crate) fn name_preset_sound(&mut self) -> bool {
+        if self.sound.is_some() {
+            return false;
+        }
+        let Some(preset) = &self.preset else { return false };
+        if crate::patches::PluginOrigin::from_preset_key(&preset.key).is_none() {
+            return false;
+        }
+        self.sound = Some(crate::patches::SoundTag { id: crate::api::plugin_preset_id(&self.id, &preset.key), name: preset.name.clone() });
+        true
+    }
 }
 
 /// A plugin preset a part plays: its catalog key and name.
@@ -119,8 +139,20 @@ mod imp {
         Some((p.factory_number()?, p.name.clone()))
     }
 
-    /// A `listPluginPresets` running: the plugin, and the listing thread's answer.
-    pub(crate) type PresetListing = (String, mpsc::Receiver<Result<PluginInfo, String>>);
+    /// A `listPluginPresets` running: the plugin, the listing thread's answer, and when it
+    /// is given up on.
+    pub(crate) struct PresetListing {
+        pub(crate) id: String,
+        pub(crate) rx: mpsc::Receiver<Result<PluginInfo, String>>,
+        pub(crate) deadline: std::time::Instant,
+    }
+
+    /// How long a preset listing's load may take.
+    pub(crate) const LISTING_LOAD_TIMEOUT: Duration = Duration::from_secs(20);
+
+    /// How long a preset listing is waited for in all (the load, plus looking the plugin up
+    /// first): past it the listing has failed, whatever its thread still does.
+    pub(crate) const LISTING_DEADLINE: Duration = Duration::from_secs(30);
 
     /// What a `savePartAsPluginPreset` thread hands back: the file written, the state it
     /// holds, and the plugin as the cache now lists it.
@@ -253,6 +285,9 @@ mod imp {
         pub(crate) warm: super::pool::WarmPool,
         /// Preset listings running (`listPluginPresets`).
         pub(crate) listing: Vec<PresetListing>,
+        /// Why a plugin's preset listing failed, by plugin id. It is not tried again until
+        /// the next scan (a timed-out listing may still hold an instance).
+        pub(crate) listing_failed: std::collections::BTreeMap<String, String>,
         /// Saves as a user preset running (`savePartAsPluginPreset`).
         pub(crate) preset_saves: Vec<PresetSave>,
     }
@@ -656,10 +691,11 @@ mod imp {
             self.plugins
                 .list
                 .iter()
-                .filter(|p| p.factory_presets.is_some() || !p.user_presets.is_empty())
+                .filter(|p| p.factory_presets.is_some() || !p.user_presets.is_empty() || self.plugins.listing_failed.contains_key(&p.id.to_string()))
                 .map(|p| PluginPresetList {
                     plugin: p.id.to_string(),
                     listed: p.factory_presets.is_some(),
+                    error: self.plugins.listing_failed.get(&p.id.to_string()).cloned(),
                     presets: p
                         .factory_presets
                         .iter()
@@ -671,21 +707,41 @@ mod imp {
                 .collect()
         }
 
+        /// Hash what the catalog shows of the plugins and their presets (`sounds_touch`),
+        /// in place: no list is built and nothing is serialised.
+        pub(crate) fn hash_plugins_for_catalog(&self, h: &mut impl std::hash::Hasher) {
+            use std::hash::Hash;
+            for p in &self.plugins.list {
+                (p.id, &p.name, &p.manufacturer, p.format as u8, p.last_load.as_ref().and_then(|l| l.error.as_ref())).hash(h);
+                p.factory_presets.as_ref().map(Vec::len).hash(h);
+                for f in p.factory_presets.iter().flatten() {
+                    (f.number, &f.name).hash(h);
+                }
+                p.user_presets.len().hash(h);
+                for u in &p.user_presets {
+                    (&u.path, &u.name, &u.folder).hash(h);
+                }
+            }
+            self.plugins.listing_failed.hash(h);
+        }
+
         /// `listPluginPresets`: read plugin `id`'s factory presets on a thread (loading an
-        /// instance once if no load has read them yet). Nothing to do when they are known.
+        /// instance once if no load has read them yet). Nothing to do when they are known,
+        /// while a listing of it runs (one instance at a time), or once one failed (until
+        /// the next scan).
         pub(crate) fn list_plugin_presets(&mut self, id: &str) -> Result<(), String> {
             let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
             let Some(info) = self.plugins.list.iter().find(|p| p.id == pid) else {
                 return Err(format!("no instrument Audio Unit {id} is installed"));
             };
-            if info.factory_presets.is_some() || self.plugins.listing.iter().any(|(l, _)| l == id) {
+            if info.factory_presets.is_some() || self.plugins.listing.iter().any(|l| l.id == id) || self.plugins.listing_failed.contains_key(id) {
                 return Ok(());
             }
             let cfg = LoadConfig {
                 sample_rate: self.plugin_rate(),
                 max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32,
                 mode: load_mode(info),
-                timeout: Duration::from_secs(20),
+                timeout: LISTING_LOAD_TIMEOUT,
                 ..LoadConfig::default()
             };
             let host = self.plugins.host();
@@ -693,16 +749,22 @@ mod imp {
             std::thread::Builder::new()
                 .name("plugin-presets".into())
                 .spawn(move || {
-                    let _ = tx.send(host.list_presets(&pid, cfg).map_err(|e| format!("{e:#}")));
+                    // A panic is an answer too: the listing never waits for one that died.
+                    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.list_presets(&pid, cfg)));
+                    let r = match r {
+                        Ok(r) => r.map_err(|e| format!("{e:#}")),
+                        Err(_) => Err("the plugin crashed while listing them".to_string()),
+                    };
+                    let _ = tx.send(r);
                 })
                 .map_err(|e| format!("could not start the preset listing: {e}"))?;
-            self.plugins.listing.push((id.to_string(), rx));
+            self.plugins.listing.push(PresetListing { id: id.to_string(), rx, deadline: std::time::Instant::now() + LISTING_DEADLINE });
             Ok(())
         }
 
         /// Preset listings running (`listPluginPresets`), by plugin id.
         pub(crate) fn plugin_presets_listing(&self) -> Vec<String> {
-            self.plugins.listing.iter().map(|(id, _)| id.clone()).collect()
+            self.plugins.listing.iter().map(|l| l.id.clone()).collect()
         }
 
         /// The list's copy of plugin `id` from the host's cache (which a load just gave its
@@ -776,23 +838,37 @@ mod imp {
 
         /// Preset listings and saves that finished.
         fn pump_presets(&mut self) {
+            // Every listing ends: with the presets, or failed (an error, no answer by its
+            // deadline, or a thread that died without one).
             let mut done = Vec::new();
-            self.plugins.listing.retain(|(id, rx)| match rx.try_recv() {
+            let now = std::time::Instant::now();
+            self.plugins.listing.retain(|l| match l.rx.try_recv() {
                 Ok(r) => {
-                    done.push((id.clone(), r));
+                    done.push((l.id.clone(), r));
                     false
                 }
-                Err(mpsc::TryRecvError::Empty) => true,
-                Err(mpsc::TryRecvError::Disconnected) => false,
+                Err(mpsc::TryRecvError::Empty) if now < l.deadline => true,
+                Err(mpsc::TryRecvError::Empty) => {
+                    done.push((l.id.clone(), Err(format!("no answer after {} s", LISTING_DEADLINE.as_secs()))));
+                    false
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done.push((l.id.clone(), Err("the listing stopped without an answer".into())));
+                    false
+                }
             });
             for (id, r) in done {
-                match r {
+                match r.and_then(|info| if info.factory_presets.is_some() { Ok(info) } else { Err("the plugin gave no preset list".into()) }) {
                     Ok(info) => {
                         if let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == info.id) {
                             *p = info;
                         }
                     }
-                    Err(e) => self.say(format!("{id}: could not list its presets ({e})"), true),
+                    Err(e) => {
+                        let name = PluginId::parse(&id).and_then(|pid| self.plugins.list.iter().find(|p| p.id == pid)).map_or_else(|| id.clone(), |p| p.name.clone());
+                        self.say(format!("{name}: could not list its presets ({e})"), true);
+                        self.plugins.listing_failed.insert(id, e);
+                    }
                 }
             }
             let mut saves = Vec::new();
@@ -839,6 +915,8 @@ mod imp {
                     Ok(Ok(list)) => {
                         self.plugins.list = list;
                         self.plugins.scan_rx = None;
+                        // A new scan: a failed preset listing may be tried again.
+                        self.plugins.listing_failed.clear();
                     }
                     Ok(Err(e)) => {
                         self.plugins.scan_rx = None;
@@ -954,14 +1032,12 @@ mod imp {
                             self.plugins.dirty |= parts::part_of_channel(ch).is_some();
                             // A preset picked by number: read the state it gives, so the part
                             // (and a Registration memorized now) keeps the sound itself.
-                            // A keyboard part's preset is a library Sound (the
-                            // plugin-parts.json migration, and a preset picked now).
+                            // A keyboard part's preset is the Sound it plays (the
+                            // plugin-parts.json migration, and a preset picked now); it
+                            // adds no library record.
                             if parts::part_of_channel(ch).is_some() {
                                 let c = self.plugins.channels[ch as usize].as_mut().unwrap();
-                                let mut voice = std::mem::take(&mut c.voice);
-                                let category = c.info.as_ref().map_or(crate::patches::Category::SynthLead, |i| crate::api::plugin_category(&i.name, &i.manufacturer));
-                                self.plugins.dirty |= self.link_voice_sound(&mut voice, category);
-                                self.plugins.channels[ch as usize].as_mut().unwrap().voice = voice;
+                                self.plugins.dirty |= c.voice.name_preset_sound();
                             }
                             let c = self.plugins.channels[ch as usize].as_ref().unwrap();
                             let id = c.voice.id.clone();
@@ -1184,6 +1260,7 @@ impl Control {
     pub(crate) fn plugin_preset_lists(&self) -> Vec<crate::api::PluginPresetList> {
         Vec::new()
     }
+    pub(crate) fn hash_plugins_for_catalog(&self, _h: &mut impl std::hash::Hasher) {}
     pub(crate) fn plugin_presets_listing(&self) -> Vec<String> {
         Vec::new()
     }

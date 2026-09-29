@@ -232,6 +232,40 @@ fn a_keyboard_part_takes_its_patch_and_defaults() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
+/// One save makes one record (docs/racks.md "Saving"): Save on a part playing a GM voice
+/// makes one sound named after the voice, which the part then plays, so saving it again
+/// updates that sound rather than adding copies. The same for a voice the map sends to a
+/// patch: the first Save copies it once.
+#[test]
+fn saving_a_part_again_and_again_makes_one_record() {
+    let Some((s, data)) = session("save-once", &["SlowWalker.T552.sty"], true) else { return };
+    let n = s.state().sound_library.patches.len();
+    let program = s.state().keyboard_parts[1].program;
+    for _ in 0..3 {
+        s.send(SoundLibraryCmd::SaveSound { part: 1 }).unwrap();
+    }
+    let st = s.state();
+    assert_eq!(st.sound_library.patches.len(), n + 1, "one record for three saves");
+    let p = &st.sound_library.patches.last().unwrap().patch;
+    assert_eq!((p.name.as_str(), &p.source), (gm_name(program), &PatchSource::SoundFont { file: SF2.into(), bank: 0, program }));
+    assert_eq!(st.keyboard_parts[1].patch.as_deref(), Some(p.id.as_str()), "the part plays the new sound");
+    assert_eq!(s.inner.shared.routes.part(1).map(|r| r.program), Some(program));
+
+    // A GM voice the map sends to a patch: Save copies it once.
+    let mapped = add(&s, "Lush Strings", 0, 50);
+    let family = s.state().keyboard_parts[2].program / 8;
+    s.send(SoundLibraryCmd::SetFamilyRule { family, patch: Some(mapped.clone()), style: false }).unwrap();
+    let n = s.state().sound_library.patches.len();
+    s.send(SoundLibraryCmd::SaveSound { part: 2 }).unwrap();
+    s.send(SoundLibraryCmd::SaveSound { part: 2 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.sound_library.patches.len(), n + 1);
+    let copy = &st.sound_library.patches.last().unwrap().patch;
+    assert_ne!(copy.id, mapped);
+    assert_eq!((copy.name.as_str(), st.keyboard_parts[2].patch.as_deref()), ("Lush Strings", Some(copy.id.as_str())));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 /// `savePartAsPatch` saves what the part plays (#109): a GM voice the map sends to a patch
 /// is saved as that patch, not as the raw GM program.
 #[test]

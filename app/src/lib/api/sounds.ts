@@ -35,9 +35,10 @@ export interface SoundEntry {
   detail: string
   favourite: boolean
   recent: boolean
-  /** Plugins (and plugin presets) only. `presets`: how many it has, null while its factory
-   * presets were never listed (listPluginPresets). */
-  plugin: { format: string; lastError: string | null; presets?: number | null } | null
+  /** Plugins (and plugin presets) only. `presets`: how many it has, null (unknown) while
+   * its factory presets were never listed (listPluginPresets), even with .aupreset files
+   * in. `presetsError`: why listing them failed; not tried again until the next scan. */
+  plugin: { format: string; lastError: string | null; presets?: number | null; presetsError?: string } | null
   /** A plugin preset's plugin (`au:<id>`): listed under it. */
   parent?: string | null
 }
@@ -47,6 +48,8 @@ export interface PluginPresetList {
   plugin: string
   listed: boolean
   presets: { key: string; name: string; folder: string | null }[]
+  /** Listing its factory presets failed: why. */
+  error?: string
 }
 
 export interface SoundCatalog {
