@@ -750,6 +750,10 @@ pub struct AudioCore {
     /// publication they came from), for the racks and the plugin rack.
     eq_seen: [u32; parts::COUNT],
     eq: [yahaha_fx::fx::part_eq::EqCoeffs; parts::COUNT],
+    /// The Style parts' EQ coefficients (channels 9-16, `FxControl::style_eq`) as last
+    /// taken, the same way.
+    style_eq_seen: [u32; 8],
+    style_eq: [yahaha_fx::fx::part_eq::EqCoeffs; 8],
     /// The Master Compressor and Master EQ, after the effect returns.
     master_fx: yahaha_fx::fx::master::MasterDsp,
 }
@@ -777,6 +781,8 @@ impl AudioCore {
         parts.set_sample_rate(sample_rate);
         // The Master EQ's too.
         control.fx.master.set_sample_rate(sample_rate.max(1) as f32);
+        // And the Style parts' EQs.
+        control.fx.set_style_eq_rate(sample_rate.max(1));
         let core = AudioCore {
             rack,
             swap_rx,
@@ -821,6 +827,8 @@ impl AudioCore {
             sample_rate: sample_rate.max(1) as f32,
             eq_seen: [yahaha_fx::fx::part_eq::EqCell::UNSEEN; parts::COUNT],
             eq: [yahaha_fx::fx::part_eq::EqCoeffs::FLAT; parts::COUNT],
+            style_eq_seen: [yahaha_fx::fx::part_eq::EqCell::UNSEEN; 8],
+            style_eq: [yahaha_fx::fx::part_eq::EqCoeffs::FLAT; 8],
             master_fx: yahaha_fx::fx::master::MasterDsp::new(sample_rate.max(1) as f32),
         };
         (core, RackSwap { tx: swap_tx, old: old_rx, kits: kits_link }, Some(link))
@@ -866,6 +874,9 @@ impl AudioCore {
             for (p, c) in self.eq.iter().enumerate() {
                 new.set_eq(parts::CHANNEL[p], c);
             }
+            for (p, c) in self.style_eq.iter().enumerate() {
+                new.set_eq(8 + p as u8, c);
+            }
             self.sends_dirty = true;
             self.fading = self.rack.replace(new);
             self.last_master = 255;
@@ -882,6 +893,19 @@ impl AudioCore {
             if let Some(c) = self.parts.eq_cell(p).read(&mut self.eq_seen[p]) {
                 self.eq[p] = c;
                 let ch = parts::CHANNEL[p];
+                if let Some(rack) = self.rack.as_mut() {
+                    rack.set_eq(ch, &c);
+                }
+                #[cfg(feature = "plugins")]
+                self.plugins.set_eq(ch, &c);
+            }
+        }
+        // The Style parts' EQs (channels 9-16), published by the control side into
+        // `FxControl::style_eq`.
+        for p in 0..8 {
+            if let Some(c) = ctl.fx.style_eq[p].read(&mut self.style_eq_seen[p]) {
+                self.style_eq[p] = c;
+                let ch = 8 + p as u8;
                 if let Some(rack) = self.rack.as_mut() {
                     rack.set_eq(ch, &c);
                 }
