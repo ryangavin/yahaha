@@ -24,6 +24,9 @@ pub(super) struct Sounds {
     prefs: SoundPrefs,
     /// Each font's presets, read once per file (the folder as last listed).
     presets: HashMap<String, Vec<Preset>>,
+    /// The font list `presets` was brought up to date with: it is looked at again only
+    /// when the folder's list differs.
+    fonts: Vec<String>,
     /// The fingerprint of what the catalog is built from, and its revision.
     key: u64,
     revision: u64,
@@ -43,19 +46,22 @@ impl Control {
     /// Each publish: when what the catalog is made of changed, a new revision (the caller
     /// sends `SoundsChanged`). Returns the new revision.
     pub(super) fn sounds_touch(&mut self) -> Option<u64> {
-        // Presets of files that came into the folder; forget those that left.
-        let fonts = self.sound_fonts.clone();
-        self.sounds.presets.retain(|f, _| fonts.contains(f));
-        for f in &fonts {
-            if !self.sounds.presets.contains_key(f) {
-                let presets = self.sf_dir.as_ref().and_then(|d| sf2::presets(&d.join(f)).ok()).unwrap_or_default();
-                self.sounds.presets.insert(f.clone(), presets);
+        // Presets of files that came into the folder; forget those that left. Only when the
+        // folder's list changed: a file's presets are read once.
+        if self.sounds.fonts != self.sound_fonts {
+            self.sounds.presets.retain(|f, _| self.sound_fonts.contains(f));
+            for f in &self.sound_fonts {
+                if !self.sounds.presets.contains_key(f) {
+                    let presets = self.sf_dir.as_ref().and_then(|d| sf2::presets(&d.join(f)).ok()).unwrap_or_default();
+                    self.sounds.presets.insert(f.clone(), presets);
+                }
             }
+            self.sounds.fonts.clone_from(&self.sound_fonts);
         }
         // Only what the catalog shows is hashed, in place: never a plugin sound's state
         // (MBs for a sampler, and not in the catalog), and nothing serialised (#134).
         let mut h = DefaultHasher::new();
-        fonts.hash(&mut h);
+        self.sound_fonts.hash(&mut h);
         self.sf_file.hash(&mut h);
         self.hash_plugins_for_catalog(&mut h);
         for p in self.sound_patches() {
@@ -98,14 +104,29 @@ impl Control {
 
     pub(super) fn sounds_state(&self) -> SoundsState {
         let presets: usize = self.sound_fonts.iter().filter_map(|f| self.sounds.presets.get(f)).map(Vec::len).sum();
-        let plugins = self.plugins_state();
-        let plugin_presets: usize = self.plugin_preset_lists().iter().map(|l| l.presets.len()).sum();
+        let (plugins, plugin_presets, scanning) = self.catalog_plugin_counts();
         SoundsState {
             revision: self.sounds.revision,
-            count: (presets + plugins.list.len() + plugin_presets + self.sound_patches().len()) as u32,
-            scanning: plugins.scanning,
+            count: (presets + plugins + plugin_presets + self.sound_patches().len()) as u32,
+            scanning,
             listing_presets: self.plugin_presets_listing().into_iter().map(|id| format!("au:{id}")).collect(),
         }
+    }
+
+    /// The plugins the catalog lists, their presets, and whether a scan runs, counted in
+    /// place: exactly `plugins_state().list.len()`, the presets in all of
+    /// `plugin_preset_lists()` (a plugin's factory presets plus its `.aupreset` files) and
+    /// `plugins_state().scanning`, with no list built.
+    #[cfg(feature = "plugins")]
+    fn catalog_plugin_counts(&self) -> (usize, usize, bool) {
+        let list = &self.plugins.list;
+        let presets = list.iter().map(|p| p.factory_presets.as_ref().map_or(0, Vec::len) + p.user_presets.len()).sum();
+        (list.len(), presets, self.plugins.scan_rx.is_some())
+    }
+
+    #[cfg(not(feature = "plugins"))]
+    fn catalog_plugin_counts(&self) -> (usize, usize, bool) {
+        (0, 0, false)
     }
 
     pub(super) fn sounds_cmd(&mut self, c: SoundsCmd) -> Result<(), CmdError> {
@@ -356,3 +377,99 @@ fn same_settings(a: &str, b: &str) -> bool {
 #[cfg(test)]
 #[path = "sounds_tests.rs"]
 mod tests;
+
+/// The counts `sounds_state` takes in place, and the presets read only when the font list
+/// changes: each against what the full lists say.
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use crate::patches::sf2::tiny_sound_font;
+    use crate::session::{Options, Session};
+
+    /// `SoundsState::count` as the full lists give it (what `sounds_state` built before).
+    fn listed_count(ctl: &Control) -> u32 {
+        let presets: usize = ctl.sound_fonts.iter().filter_map(|f| ctl.sounds.presets.get(f)).map(Vec::len).sum();
+        let plugin_presets: usize = ctl.plugin_preset_lists().iter().map(|l| l.presets.len()).sum();
+        (presets + ctl.plugins_state().list.len() + plugin_presets + ctl.sound_patches().len()) as u32
+    }
+
+    fn offline(tag: &str) -> (Session, std::path::PathBuf) {
+        let data = std::env::temp_dir().join(format!("yahaha-sounds-cache-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let sf = data.join("sf");
+        std::fs::create_dir_all(&sf).unwrap();
+        std::fs::write(sf.join("A.sf2"), tiny_sound_font(&[(0, 0, "Piano"), (0, 33, "Finger Bass")])).unwrap();
+        let style = crate::session::testing::style_path();
+        let opts = Options { paths: vec![style], data_dir: Some(data.clone()), sound_font_dir: Some(sf), ..Options::default() };
+        (Session::offline(opts).unwrap(), data)
+    }
+
+    #[test]
+    fn fonts_are_read_again_only_when_the_list_changes() {
+        let (s, data) = offline("fonts");
+        let mut ctl = s.inner.lock();
+        ctl.sounds_touch();
+        assert_eq!(ctl.sounds_state().count, 2);
+        assert_eq!(ctl.sounds_state().count, listed_count(&ctl));
+        // A font comes into the folder: its presets are read, and the revision moves.
+        std::fs::write(data.join("sf/B.sf2"), tiny_sound_font(&[(0, 88, "Warm Pad"), (0, 89, "Choir")])).unwrap();
+        ctl.sound_fonts.push("B.sf2".into());
+        assert!(ctl.sounds_touch().is_some());
+        assert_eq!(ctl.sounds_state().count, 4);
+        assert_eq!(ctl.sounds_state().count, listed_count(&ctl));
+        // Unchanged: the file is not read again (a changed file on disk stays as read).
+        std::fs::write(data.join("sf/B.sf2"), tiny_sound_font(&[(0, 88, "Warm Pad")])).unwrap();
+        assert!(ctl.sounds_touch().is_none());
+        assert_eq!(ctl.sounds.presets["B.sf2"].len(), 2);
+        // It leaves: forgotten, and the count drops.
+        ctl.sound_fonts.retain(|f| f != "B.sf2");
+        assert!(ctl.sounds_touch().is_some());
+        assert!(!ctl.sounds.presets.contains_key("B.sf2"));
+        assert_eq!(ctl.sounds_state().count, 2);
+        // Back again: read afresh.
+        ctl.sound_fonts.push("B.sf2".into());
+        assert!(ctl.sounds_touch().is_some());
+        assert_eq!(ctl.sounds.presets["B.sf2"].len(), 1);
+        assert_eq!(ctl.sounds_state().count, listed_count(&ctl));
+        drop(ctl);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[cfg(feature = "plugins")]
+    #[test]
+    fn plugin_counts_match_the_listed_presets() {
+        use crate::plugin::{FactoryPreset, PluginFormat, PluginId, PluginInfo, UserPreset};
+        let info = |id: &str, factory: Option<usize>, user: usize| PluginInfo {
+            id: PluginId::parse(id).unwrap(),
+            name: "Sampler Deluxe".into(),
+            manufacturer: "Fake Instruments".into(),
+            version: 0x10000,
+            format: PluginFormat::Au2,
+            requires_async: false,
+            can_load_in_process: false,
+            sandbox_safe: true,
+            last_load: None,
+            in_process: false,
+            factory_presets: factory.map(|n| (0..n as i32).map(|number| FactoryPreset { number, name: format!("F{number}") }).collect()),
+            user_presets: (0..user)
+                .map(|i| UserPreset { name: format!("U{i}"), path: format!("/nowhere/U{i}.aupreset").into(), folder: None })
+                .collect(),
+        };
+        let (s, data) = offline("plugins");
+        let mut ctl = s.inner.lock();
+        ctl.sounds_touch();
+        let base = ctl.sounds_state().count;
+        ctl.plugins.list = vec![info("aumu Smp7 Fake", Some(3), 2), info("aumu Org1 Fake", None, 0), info("aumu Pad1 Fake", Some(0), 1)];
+        // A failed listing lists the plugin with no presets: it adds none.
+        ctl.plugins.listing_failed.insert("aumu Org1 Fake".into(), "timed out".into());
+        assert_eq!(ctl.sounds_state().count, base + 3 + 3 + 2 + 1);
+        assert_eq!(ctl.sounds_state().count, listed_count(&ctl));
+        assert_eq!(ctl.sounds_state().scanning, ctl.plugins_state().scanning);
+        let (_tx, rx) = std::sync::mpsc::channel();
+        ctl.plugins.scan_rx = Some(rx);
+        assert!(ctl.sounds_state().scanning && ctl.plugins_state().scanning);
+        ctl.plugins.scan_rx = None;
+        drop(ctl);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+}
