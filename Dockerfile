@@ -6,7 +6,7 @@
 #   docker run --rm yahaha-linux                  # the Linux checks on the copied source
 #   docker run --rm -v "$PWD":/work -v /work/app/node_modules yahaha-linux
 #                                                 # the same on the live checkout
-#   docker run --rm yahaha-linux cargo test --profile test-fast <name>   # any one command
+#   docker run --rm yahaha-linux cargo test --profile test-quick <name>  # any one command
 FROM node:22-bookworm-slim AS node
 
 FROM rust:1-bookworm
@@ -43,4 +43,4 @@ RUN cd app && npm ci
 COPY . .
 
 # The Linux checks from AGENTS.md, in order, stopping at the first failure.
-CMD ["bash", "-ec", "cargo check --all-targets; cargo check --no-default-features --lib; cargo test --profile test-fast; (cd app/src-tauri && cargo test); (cd app && npm run verify)"]
+CMD ["bash", "-ec", "cargo check --no-default-features --lib; cargo test --profile test-quick; (cd app/src-tauri && cargo test); (cd app && npm run verify)"]

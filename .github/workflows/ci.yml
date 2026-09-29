@@ -1,14 +1,21 @@
 # The checks in AGENTS.md, run directly. CI on the pull request is the final check before merge.
-# linux: Rust checks and tests without plugins, plus the app shell's Rust tests.
-# macos: the plugins build and tests, plus the web app's verify.
+# The jobs run in parallel:
+# - api-doc: docs/app-api.md against the code. Every PR.
+# - linux: the Rust checks and tests without plugins, and the app shell's no-plugins compile check.
+# - macos-rust: the Rust tests with plugins.
+# - macos-app: the app shell's (app/src-tauri) tests, with plugins.
+# - web: the web app's `npm ci` and `npm run verify`, on Linux (it has nothing macOS-only).
+#
+# The Rust tests use the test-quick profile: our crate unoptimised (it compiles in about a
+# third of the time), the dependencies optimised, debug assertions and overflow checks on.
 #
 # Each commit is checked once:
 # - PRs into develop run on the PR.
 # - A push to develop (a merged PR) runs again: it checks the merged result and seeds the
-#   develop cache that PR runs restore from (a PR's own cache is only visible to that PR).
+#   develop caches that PR runs restore from (a PR's own cache is only visible to that PR).
 # - Release PRs (develop into main) don't run: their head is develop's tip, which the push
 #   run above already checked, and those checks count for the PR. Nothing runs on main.
-# - Docs-only changes skip linux and macos (see `changes`). A skipped job counts as passed.
+# - Jobs a change can't affect are skipped (see `changes`). A skipped job counts as passed.
 name: ci
 
 on:
@@ -25,14 +32,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Whether anything but docs changed. Docs = Markdown files, except the ones code reads:
-  # anything under src/ (the capture kit) or app/ (app/docs/controls.md), and README.md
-  # (app/src/help/readme.test.ts). Nothing reads committed files under docs/. With no usable base (a new branch),
-  # everything counts as changed.
+  # Which areas changed, file by file:
+  # - rust: src/, tests/, examples/, benches/, Cargo.toml, Cargo.lock, app/src-tauri/, and
+  #   app/src/lib/api/*.json (the Rust tests read the app's mock fixture, engine shape and
+  #   assignable functions).
+  # - web: app/ outside app/src-tauri/, tests/fixtures/ (a web test imports one), and
+  #   README.md (app/src/help/readme.test.ts reads it).
+  # - neither: other Markdown files (docs). Markdown under src/ or app/ counts as code (the
+  #   capture kit, app/docs/controls.md). Nothing reads committed files under docs/.
+  # - both: anything else (this workflow, the Dockerfile, ...).
+  # With no usable base (a new branch) or an empty diff, everything counts as changed.
   changes:
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.diff.outputs.code }}
+      rust: ${{ steps.diff.outputs.rust }}
+      web: ${{ steps.diff.outputs.web }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,17 +55,28 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          code=true
+          rust=true
+          web=true
           if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             files=$(git diff --name-only "$BASE" HEAD)
             echo "$files"
-            if [ -n "$files" ] \
-              && ! printf '%s\n' "$files" | grep -qvE '\.md$' \
-              && ! printf '%s\n' "$files" | grep -qE '^(src/|app/|README\.md$)'; then
-              code=false
+            if [ -n "$files" ]; then
+              rust=false
+              web=false
+              while IFS= read -r f; do
+                case "$f" in
+                  app/src-tauri/*) rust=true ;;
+                  app/src/lib/api/*.json | tests/fixtures/*) rust=true; web=true ;;
+                  app/* | README.md) web=true ;;
+                  src/* | tests/* | examples/* | benches/* | Cargo.toml | Cargo.lock) rust=true ;;
+                  *.md) ;;
+                  *) rust=true; web=true ;;
+                esac
+              done <<< "$files"
             fi
           fi
-          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+          echo "rust=$rust" | tee -a "$GITHUB_OUTPUT"
+          echo "web=$web" | tee -a "$GITHUB_OUTPUT"
 
   # docs/app-api.md against the code: EVERY_CMD in tests/api_wire.rs names exactly the
   # commands in its AppCmd tables, and its JSON examples parse into the app API's types
@@ -75,17 +100,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       # Its own key: this job builds only the library without features and one example.
+      # Every Rust cache in this file has a stable key per job, so PRs restore the cache
+      # develop's push run seeds, and is saved only by that run (save-if): PR runs don't
+      # add caches of their own, which kept pushing the repo past GitHub's 10 GB cache
+      # limit and evicting develop's. cache-on-failure so a develop run that fails partway
+      # through still saves what it built.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: api-doc
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
 
       - name: JSON examples in docs/app-api.md parse into the Rust types
         run: cargo run --no-default-features --example api_doc_check -- docs/app-api.md
 
+  # No `cargo check --all-targets`: `cargo test` builds every target it would (the library,
+  # the binary, the tests and the example; there are no benches).
   linux:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -106,59 +139,72 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # A stable key per job, so PRs read the cache develop's own run seeds (the first
-      # develop run after a merge populates it for later PRs to reuse); cache-on-failure
-      # so a run that fails partway through still saves what it built.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: linux
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
           workspaces: |
             . -> target
             app/src-tauri -> target
 
-      - name: cargo check --all-targets
-        run: cargo check --all-targets
-
       - name: cargo check --no-default-features --lib
         run: cargo check --no-default-features --lib
 
-      - name: cargo test --profile test-fast
-        run: cargo test --profile test-fast
+      - name: cargo test --profile test-quick
+        run: cargo test --profile test-quick
 
-      # The app shell's tests run once, in the macos job (with plugins, as the real app
-      # builds). Here we only prove the Linux (no-plugins) variant compiles.
+      # The app shell's tests run in macos-app (with plugins, as the real app builds). Here
+      # we only prove the Linux (no-plugins) variant compiles.
       - name: cargo check --all-targets (app/src-tauri)
         working-directory: app/src-tauri
         run: cargo check --all-targets
 
-  macos:
+  # As in linux, `cargo test` builds every target `cargo check --all-targets` would.
+  macos-rust:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # Same idea as the linux job's cache (stable key, cache-on-failure).
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: macos
+          shared-key: macos-rust
           cache-on-failure: true
-          workspaces: |
-            . -> target
-            app/src-tauri -> target
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
 
-      - name: cargo check --all-targets --features plugins
-        run: cargo check --all-targets --features plugins
+      - name: cargo test --profile test-quick --features plugins
+        run: cargo test --profile test-quick --features plugins
 
-      - name: cargo test --profile test-fast --features plugins
-        run: cargo test --profile test-fast --features plugins
+  macos-app:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-app
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          workspaces: app/src-tauri -> target
 
       - name: cargo test (app/src-tauri)
         working-directory: app/src-tauri
         run: cargo test
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:

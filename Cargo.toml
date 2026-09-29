@@ -115,11 +115,11 @@ optional = true
 default-features = false
 features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]
 
-# The test profile: `cargo test --profile test-fast` (see AGENTS.md). Release semantics
-# (no debug assertions, no overflow checks) so the tests see what ships, but our own crate
-# builds incrementally with light optimisation, and the dependencies (rustysynth
-# included) at full optimisation, where sccache caches them. An edit rebuilds in seconds
-# instead of a full release compile of the crate and every test binary.
+# Optional, for running tests with release semantics (no debug assertions, no overflow
+# checks), as the app ships: `cargo test --profile test-fast`. Our own crate builds
+# incrementally with light optimisation, and the dependencies (rustysynth included) at full
+# optimisation. The checks in AGENTS.md and CI use test-quick below: compiling our crate at
+# opt-level 2 took CI three and a half minutes, for tests that then ran in seconds.
 [profile.test-fast]
 inherits = "release"
 opt-level = 2
@@ -131,11 +131,11 @@ debug = 0
 opt-level = 3
 codegen-units = 16
 
-# An agent's targeted tests while it works (`cargo test --profile test-quick <filter>`, the
-# bacon `test` job): our crate unoptimised and incremental, so a one-line edit relinks in the
-# least time; the dependencies at full optimisation so audio-rendering tests still run
-# quickly. Debug semantics (debug assertions, overflow checks). The full suite and CI stay
-# on test-fast.
+# The test profile: the full suite and CI (`cargo test --profile test-quick`, see
+# AGENTS.md) and an agent's targeted tests (the bacon `test` job). Our crate unoptimised and
+# incremental, so it compiles and relinks in the least time; the dependencies at full
+# optimisation so audio-rendering tests still run quickly. Debug semantics (debug
+# assertions, overflow checks).
 [profile.test-quick]
 inherits = "dev"
 opt-level = 0
