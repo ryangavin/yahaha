@@ -600,6 +600,7 @@ impl Inner {
         if let Some(revision) = ctl.sounds_touch() {
             events.push(Event::SoundsChanged { revision });
         }
+        ctl.shared.quick_racks.store(ctl.quick_panel().stored != 0, Relaxed);
         let mut st = ctl.build_state(now);
         ctl.pump_display(&st, now);
         {
