@@ -259,6 +259,38 @@ mod tests {
     use crate::parts::{FaderLayer, FaderPage};
     use crate::session::{Options, Port, Session};
 
+    /// Shift + encoder page ▲ on the Launchkey flips Organ Rotary Slow/Fast, as
+    /// `toggleRotaryFast` does, and the ▲ light (the panel the LEDs are drawn from)
+    /// follows the state, whichever way it was switched. ▲ alone still steps the knob page.
+    #[test]
+    fn shift_encoder_page_up_is_rotary_fast() {
+        use crate::api::{FxCmd, KnobsCmd};
+        use crate::launchkey::{KNOB_UP_CC, SHIFT_CC};
+        let s = crate::session::testing::session();
+        let fast = |s: &Session| s.state().effects.rotary_fast;
+        let lit = |s: &Session| s.inner.lock().panel().rotary_fast;
+        let shift_up = |s: &Session| {
+            s.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 127]);
+            s.midi_in(Port::Pads, &[0xB0, KNOB_UP_CC, 127]);
+            s.midi_in(Port::Pads, &[0xB0, KNOB_UP_CC, 0]);
+            s.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 0]);
+            s.advance(1_000_000);
+        };
+        assert!(!fast(&s) && !lit(&s));
+        shift_up(&s);
+        assert!(fast(&s), "Shift + ▲: fast");
+        assert!(lit(&s), "▲ lit");
+        shift_up(&s);
+        assert!(!fast(&s) && !lit(&s), "again: slow, dark");
+        s.send(FxCmd::ToggleRotaryFast).unwrap();
+        assert!(lit(&s), "lit when the app switches it");
+        s.send(KnobsCmd::SetKnobPage { page: crate::knobs::KnobPage::Pan }).unwrap();
+        s.midi_in(Port::Pads, &[0xB0, KNOB_UP_CC, 127]);
+        s.advance(1_000_000);
+        assert_eq!(s.state().knobs.page, crate::knobs::KnobPage::Rack, "▲ alone: the knob page before");
+        assert!(fast(&s), "and the rotary stays");
+    }
+
     /// #409: in a send layer the surface faders show and set the layer's value, the same
     /// one the hardware faders move (with soft takeover); the parts' volumes stay put.
     #[test]

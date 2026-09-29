@@ -5,8 +5,8 @@ use crate::launchkey::{self, Led, Page, Panel};
 use crate::parts::{FaderLayer, FaderPage};
 use crate::rt::PacketSink;
 
-/// The Launchkey LEDs: pads, fader buttons, Pad Bank and Track buttons. Sends only what
-/// changed.
+/// The Launchkey LEDs: pads, fader buttons, Pad Bank, Track and encoder page ▲ buttons.
+/// Sends only what changed.
 pub(super) struct Leds {
     pub(super) out: PacketSink,
     palette: bool,
@@ -14,12 +14,14 @@ pub(super) struct Leds {
     last_rgb: [Option<(u8, u8, u8)>; 16],
     last_fader_btns: Option<(FaderPage, FaderLayer, u8, u8, launchkey::PanelLamps)>,
     last_nav: Option<(Page, bool)>,
+    /// The encoder page ▲ light (Organ Rotary Slow/Fast).
+    last_rotary: Option<bool>,
     buf: Vec<[u8; 3]>,
 }
 
 impl Leds {
     pub(super) fn new(out: PacketSink, palette: bool) -> Leds {
-        Leds { out, palette, last_leds: [(0, None); 16], last_rgb: [None; 16], last_fader_btns: None, last_nav: None, buf: Vec::new() }
+        Leds { out, palette, last_leds: [(0, None); 16], last_rgb: [None; 16], last_fader_btns: None, last_nav: None, last_rotary: None, buf: Vec::new() }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -62,6 +64,14 @@ impl Leds {
             }
             self.last_nav = Some((pnl.page, styles));
         }
+        if self.last_rotary != Some(pnl.rotary_fast) {
+            self.buf.clear();
+            launchkey::knob_button_msgs(pnl.rotary_fast, &mut self.buf);
+            for m in &self.buf {
+                self.out.push(m);
+            }
+            self.last_rotary = Some(pnl.rotary_fast);
+        }
         self.out.flush();
     }
 
@@ -78,6 +88,7 @@ impl Leds {
         self.last_rgb = [None; 16];
         self.last_fader_btns = None;
         self.last_nav = None;
+        self.last_rotary = None;
     }
 
     /// Palette colours or RGB from now on: every pad is sent again.
@@ -133,6 +144,31 @@ mod tests {
     }
 
     const VOL: (FaderPage, FaderLayer) = (FaderPage::Panel, FaderLayer::Volume);
+
+    /// The encoder page ▲ light follows Organ Rotary Slow/Fast: sent when it changes, and
+    /// not again while it stays.
+    #[test]
+    fn the_encoder_page_up_light_follows_the_rotary() {
+        let style = crate::sff::parse(&crate::session::testing::style_bytes()).unwrap();
+        let e = crate::engine::Engine::new(Box::new(crate::engine::Prepared::new(&style)));
+        let s = e.snapshot(0);
+        let has = [true; 17];
+        let slow = Panel::default();
+        let fast = Panel { rotary_fast: true, ..slow };
+        let mut l = Leds::new(PacketSink::new(Target::Null), true);
+        l.update(&s, &has, &slow, false, VOL, true, 0.0);
+        assert_eq!(l.last_rotary, Some(false), "dark from the start");
+        let first = l.out.sent;
+        l.update(&s, &has, &fast, false, VOL, true, 0.0);
+        let lit = l.out.sent;
+        assert!(lit > first, "▲ lit");
+        assert_eq!(l.last_rotary, Some(true));
+        l.update(&s, &has, &fast, false, VOL, true, 0.0);
+        assert_eq!(l.out.sent, lit, "nothing while it stays fast");
+        l.update(&s, &has, &slow, false, VOL, true, 0.0);
+        assert!(l.out.sent > lit, "dark again");
+        assert_eq!(l.last_rotary, Some(false));
+    }
 
     /// Stepping the fader layer sends the fader buttons again, in the new layer's colour.
     #[test]
