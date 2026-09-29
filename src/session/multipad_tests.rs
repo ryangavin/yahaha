@@ -2,25 +2,21 @@
 
 use crate::api::*;
 use crate::multipad::synthetic;
+use crate::session::testing;
 use crate::session::{Options, Port, Session};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const MS: u64 = 1_000_000;
 
-/// A folder with a style (from the corpus) and the synthetic demo bank in a subfolder.
-fn setup(tag: &str) -> Option<(Session, PathBuf)> {
-    let style = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !style.exists() {
-        eprintln!("corpus missing; skipping");
-        return None;
-    }
+/// A folder with the synthetic style and the synthetic demo bank in a subfolder.
+fn setup(tag: &str) -> (Session, PathBuf) {
     let dir = std::env::temp_dir().join(format!("yahaha-mp-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("Pads")).unwrap();
-    std::fs::copy(&style, dir.join("SlowWalker.sty")).unwrap();
+    testing::write_style(&dir);
     std::fs::write(dir.join("Pads/Demo.pad"), synthetic::demo_bank()).unwrap();
     let s = Session::offline(Options { paths: vec![dir.clone()], ..Options::default() }).unwrap();
-    Some((s, dir))
+    (s, dir)
 }
 
 /// Note-ons in `out` on MIDI channel `ch` (1-based).
@@ -34,7 +30,7 @@ fn lamps(s: &Session) -> Vec<PadLamp> {
 
 #[test]
 fn the_bank_list_load_and_a_pad_played_while_stopped() {
-    let Some((s, dir)) = setup("load") else { return };
+    let (s, dir) = setup("load");
     let st = s.state();
     assert_eq!(st.multi_pad.banks.len(), 1);
     let b = &st.multi_pad.banks[0];
@@ -71,7 +67,7 @@ fn the_bank_list_load_and_a_pad_played_while_stopped() {
 
 #[test]
 fn while_the_band_plays_a_pad_waits_for_the_bar_and_synchro_stop_ends_it() {
-    let Some((s, dir)) = setup("band") else { return };
+    let (s, dir) = setup("band");
     s.send(MultiPadCmd::LoadMultiPad { id: 0 }).unwrap();
     // A chord starts the band (Sync Start is on).
     for n in [36, 40, 43] {
@@ -95,7 +91,7 @@ fn while_the_band_plays_a_pad_waits_for_the_bar_and_synchro_stop_ends_it() {
 
 #[test]
 fn synchro_start_arms_and_a_chord_fires() {
-    let Some((s, dir)) = setup("sync") else { return };
+    let (s, dir) = setup("sync");
     s.send(MultiPadCmd::LoadMultiPad { id: 0 }).unwrap();
     s.send(TransportCmd::ToggleSyncStart).unwrap(); // off: the chord only fires the pads
     s.send(MultiPadCmd::ArmMultiPad { pad: 1 }).unwrap();
@@ -113,7 +109,7 @@ fn synchro_start_arms_and_a_chord_fires() {
 
 #[test]
 fn a_bank_by_path_overrides_clear_and_errors() {
-    let Some((s, dir)) = setup("path") else { return };
+    let (s, dir) = setup("path");
     let other = dir.join("Other.PAD");
     let mut p = synthetic::demo_phrases();
     p.truncate(1);
@@ -151,7 +147,7 @@ fn a_bank_by_path_overrides_clear_and_errors() {
 
 #[test]
 fn a_rescan_finds_new_banks_and_keeps_ids() {
-    let Some((s, dir)) = setup("rescan") else { return };
+    let (s, dir) = setup("rescan");
     let id = s.state().multi_pad.banks[0].id;
     std::fs::write(dir.join("Added.pad"), synthetic::demo_bank()).unwrap();
     s.send(LibraryCmd::RescanLibrary).unwrap();
@@ -183,7 +179,7 @@ fn rescan_until(s: &Session, marker: &str) -> Vec<(usize, String)> {
 
 #[test]
 fn a_rescan_keeps_banks_loaded_by_path_outside_the_roots() {
-    let Some((s, dir)) = setup("outside") else { return };
+    let (s, dir) = setup("outside");
     let out = std::env::temp_dir().join(format!("yahaha-mp-outside-x-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
@@ -227,7 +223,7 @@ fn a_rescan_keeps_banks_loaded_by_path_outside_the_roots() {
 /// Registration keeps it with the bank.
 #[test]
 fn the_multi_pad_volume_scales_the_pad_channels() {
-    let Some((s, dir)) = setup("level") else { return };
+    let (s, dir) = setup("level");
     assert_eq!(s.state().mixer.multi_pad_volume, 100);
     s.take_output();
     s.send(MixerCmd::SetMultiPadVolume { volume: 60 }).unwrap();

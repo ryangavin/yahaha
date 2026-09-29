@@ -60,18 +60,13 @@ impl Control {
 mod tests {
     use crate::api::*;
     use crate::knobs::KnobPage;
-    use crate::session::{Options, Session};
-
-    fn session() -> Option<Session> {
-        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        p.exists().then(|| Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap())
-    }
+    use crate::session::testing::session;
 
     /// A turn runs its function's command from the value in effect, and the state shows
     /// the page and the new value.
     #[test]
     fn a_knob_turn_changes_its_function_and_shows() {
-        let Some(s) = session() else { return };
+        let s = session();
         let st = s.state();
         assert_eq!(st.knobs.page, KnobPage::Style);
         assert_eq!(st.knobs.knobs.len(), 8);

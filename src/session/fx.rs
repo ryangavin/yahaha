@@ -321,17 +321,24 @@ impl Control {
 mod tests {
     use crate::api::TransportCmd;
     use crate::session::{Options, Session};
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::Ordering::Relaxed;
+
+    /// SlowWalker from the corpus, for the tests that check its own effects (Real Large
+    /// Plate, its chorus and delay); None without the corpus, so they skip in CI.
+    fn slow_walker() -> Option<PathBuf> {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("needs the corpus (SlowWalker's own effects); skipping");
+            return None;
+        }
+        Some(p)
+    }
 
     /// The delay follows the tempo: the style's own, then one the player sets.
     #[test]
     fn the_effect_bus_follows_the_style_tempo() {
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return;
-        }
+        let p = crate::session::testing::style_path();
         let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.offline_audio(None, 48_000).unwrap();
         let tempo = |s: &Session| {
@@ -352,11 +359,7 @@ mod tests {
     fn the_parts_sends_go_out_again_after_a_reset() {
         use crate::api::{PartSend, PartsCmd, SystemCmd};
         use crate::session::Port;
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return;
-        }
+        let p = crate::session::testing::style_path();
         let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 70 }).unwrap();
         s.take_output();
@@ -377,11 +380,7 @@ mod tests {
     #[test]
     fn effect_types_and_returns_reach_the_bus_and_the_registration() {
         use crate::api::{FxBlock, FxCmd, FxType, RegistrationCmd};
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return;
-        }
+        let Some(p) = slow_walker() else { return };
         let dir = std::env::temp_dir().join(format!("yahaha-fx-regist-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
@@ -419,11 +418,7 @@ mod tests {
     fn band_sends_reach_the_bus_and_the_registration() {
         use crate::api::{FxBlock, FxCmd, RegistrationCmd};
         use crate::registration::Groups;
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return;
-        }
+        let p = crate::session::testing::style_path();
         let dir = std::env::temp_dir().join(format!("yahaha-fx-band-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
@@ -466,11 +461,7 @@ mod tests {
     fn pad_sends_reach_the_bus_and_the_registration() {
         use crate::api::{FxBlock, FxCmd, RegistrationCmd};
         use crate::registration::Group;
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return;
-        }
+        let p = crate::session::testing::style_path();
         let dir = std::env::temp_dir().join(format!("yahaha-fx-pad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
@@ -511,11 +502,7 @@ mod tests {
     #[test]
     fn effect_parameters_reach_the_bus_and_the_registration() {
         use crate::api::{FxBlock, FxCmd, FxParam, FxType, RegistrationCmd};
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return;
-        }
+        let Some(p) = slow_walker() else { return };
         let dir = std::env::temp_dir().join(format!("yahaha-fx-params-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
@@ -560,11 +547,7 @@ mod tests {
     #[test]
     fn delay_parameters_follow_the_type_and_reach_the_bus() {
         use crate::api::{FxBlock, FxCmd, FxParam, FxType};
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return;
-        }
+        let p = crate::session::testing::style_path();
         let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.offline_audio(None, 48_000).unwrap();
         let delay = |s: &Session| s.state().effects.blocks[2].params.iter().map(|p| p.display.clone()).collect::<Vec<_>>();
@@ -589,11 +572,7 @@ mod tests {
     fn chorus_parameters_and_the_fx_knobs() {
         use crate::api::{FxBlock, FxCmd, FxParam, FxType, KnobsCmd};
         use crate::knobs::KnobPage;
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return;
-        }
+        let Some(p) = slow_walker() else { return };
         let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.offline_audio(None, 48_000).unwrap();
         let chorus = |s: &Session| s.state().effects.blocks[1].params.iter().map(|p| p.display.clone()).collect::<Vec<_>>();
