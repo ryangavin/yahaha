@@ -1498,14 +1498,52 @@ impl MockSession {
 
         // The faders: the parts they control on this page, and where they physically are.
         // Panel faders 1-4 in the Volume layer follow the live rack's controller map.
+        // In a send layer they show and set what the hardware moves there (#409, as
+        // src/session/surface.rs): Panel faders 1-4 the part's pan or send, the Style
+        // faders the Style part's own send (nothing in PAN).
         let routes = yahaha::knobs::fader_routes(&st.live_rack.controls);
         let knobs_now = self.knobs_now();
+        let send = match layer {
+            yahaha::parts::FaderLayer::Reverb => Some(PartSend::Reverb),
+            yahaha::parts::FaderLayer::Chorus => Some(PartSend::Chorus),
+            yahaha::parts::FaderLayer::Delay => Some(PartSend::Variation),
+            _ => None,
+        };
+        let volume_layer = layer == yahaha::parts::FaderLayer::Volume;
         let mut faders: Vec<SurfaceFader> = (0..8u8)
             .map(|i| {
                 let p = i as usize;
                 let position = Some(self.hw_faders[p]);
-                let remapped = layer == yahaha::parts::FaderLayer::Volume && p < parts::COUNT && routes[p] != yahaha::parts::FaderRoute::Own;
+                let remapped = volume_layer && p < parts::COUNT && routes[p] != yahaha::parts::FaderRoute::Own;
                 match fader_page {
+                    FaderPage::Panel if p < parts::COUNT && !volume_layer => {
+                        let kp = &st.keyboard_parts[p];
+                        let (value, set) = match send {
+                            Some(send) => ([kp.reverb, kp.chorus, kp.variation][send.index() - parts::REVERB], PartsCmd::SetPartSend { part: i, send, value: 0 }),
+                            None => (kp.pan, PartsCmd::SetPartPan { part: i, pan: 0 }),
+                        };
+                        SurfaceFader {
+                            label: lk::PART_LABELS[p].to_string(),
+                            value: Some(value),
+                            waiting: st.mixer.send_waiting & (1 << p) != 0,
+                            position,
+                            set: Some(AppCmd::Parts(set)),
+                        }
+                    }
+                    FaderPage::Style if !volume_layer => {
+                        let sp = &st.mixer.style_parts[p];
+                        let label = STYLE_PART_NAMES[p].to_uppercase();
+                        match send {
+                            Some(send) => SurfaceFader {
+                                label,
+                                value: Some([sp.reverb, sp.chorus, sp.variation][send.index() - parts::REVERB]),
+                                waiting: st.mixer.style_send_waiting & (1 << p) != 0,
+                                position,
+                                set: Some(AppCmd::Mixer(MixerCmd::SetStylePartSend { part: i, send, value: 0 })),
+                            },
+                            None => SurfaceFader { label, position, ..SurfaceFader::default() },
+                        }
+                    }
                     FaderPage::Panel if remapped && routes[p] == yahaha::parts::FaderRoute::Off => SurfaceFader { position, ..SurfaceFader::default() },
                     FaderPage::Panel if remapped => {
                         let f = yahaha::knobs::rack_function(&st.live_rack.controls.faders[p]);
@@ -3474,6 +3512,28 @@ mod tests {
             assert_eq!(rgb(&m, "faderButton1").0, want, "{layer:?}");
             assert_eq!(rgb(&m, "faderButton5").0, [90, 0, 127], "{layer:?}: HARM/ARP keeps purple");
         }
+    }
+
+    /// #409: in a send layer the faders show and set the layer's value, as the session's do.
+    #[test]
+    fn send_layers_turn_the_faders_into_pan_and_sends() {
+        use yahaha::parts::FaderLayer;
+        let mut m = MockSession::new();
+        let vol = m.state.keyboard_parts[0].volume;
+        m.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Reverb });
+        m.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 77 });
+        let f = &m.state.surface.faders[0];
+        assert_eq!((f.label.as_str(), f.value), ("RIGHT 1", Some(77)));
+        assert_eq!(f.set, Some(AppCmd::Parts(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 0 })));
+        assert_eq!(m.state.keyboard_parts[0].volume, vol);
+        assert_eq!(m.state.surface.faders[4].set, Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })), "fader 5 stays a level");
+        m.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Pan });
+        assert_eq!(m.state.surface.faders[3].set, Some(AppCmd::Parts(PartsCmd::SetPartPan { part: 3, pan: 0 })));
+        m.send(MixerCmd::SetFaderPage { page: FaderPage::Style });
+        assert_eq!(m.state.surface.faders[2].set, None, "the Style parts have no pan");
+        m.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Delay });
+        let f = &m.state.surface.faders[2];
+        assert_eq!((f.value, f.set.clone()), (Some(m.state.mixer.style_parts[2].variation), Some(AppCmd::Mixer(MixerCmd::SetStylePartSend { part: 2, send: PartSend::Variation, value: 0 }))));
     }
 
     #[test]

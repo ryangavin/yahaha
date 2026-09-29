@@ -2,7 +2,7 @@
 // with the button colours of src/launchkey.rs (`button_colours`, `palette_colour`), so the
 // browser mock sends what the engine sends. Mock only: the UI reads `state.surface`.
 
-import type { AppCmd, AppState, ClockState, ControlId, FaderLayer, Level, LibraryList, Rgb, SurfaceControl, SurfaceFader, SurfaceState } from './types'
+import type { AppCmd, AppState, ClockState, ControlId, FaderLayer, Level, LibraryList, PartSend, Rgb, SurfaceControl, SurfaceFader, SurfaceState } from './types'
 import { PAD_PAGES, STYLE_PART_NAMES } from './types'
 import { neighbours } from './constants'
 import { MockKnobs, faderRoute, rackFn } from './mock-knobs'
@@ -59,6 +59,9 @@ const LAYER_COLOUR: Record<FaderLayer, [number, number]> = {
   chorus: [PINK, DIM_PINK],
   delay: [WHITE, DIM_WHITE],
 }
+
+/** The effect send each fader layer moves (none for VOL and PAN). */
+const LAYER_SEND: Record<FaderLayer, PartSend | null> = { volume: null, pan: null, reverb: 'reverb', chorus: 'chorus', delay: 'variation' }
 
 /** The Panel-page fader button (0-based) that is the HARMONY/ARPEGGIO switch (src/launchkey.rs). */
 const HARM_ARP_FADER_BTN = 4
@@ -153,8 +156,23 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
   const STYLE_FADER = 4
   /** Panel fader 6: the Multi Pad volume. */
   const PAD_FADER = 5
+  // A send layer: the faders show and set what the hardware moves there (src/session/surface.rs).
+  const send = LAYER_SEND[s.mixer.faderLayer]
   const faders: SurfaceFader[] = Array.from({ length: 8 }, (_, i): SurfaceFader => {
     const position = hw.faders[i] ?? null
+    if (style && s.mixer.faderLayer !== 'volume') {
+      const p = s.mixer.styleParts[i]
+      const label = STYLE_PART_NAMES[i].toUpperCase()
+      // The Style parts have no pan control: the fader does nothing in PAN.
+      if (!send) return { label, value: null, waiting: false, position, set: null }
+      return { label, value: p[send], waiting: (s.mixer.styleSendWaiting & (1 << i)) !== 0, position, set: { type: 'setStylePartSend', part: i, send, value: 0 } }
+    }
+    if (!style && i < 4 && s.keyboardParts[i] && s.mixer.faderLayer !== 'volume') {
+      const p = s.keyboardParts[i]
+      const waiting = (s.mixer.sendWaiting & (1 << i)) !== 0
+      if (!send) return { label: PART_LABELS[i], value: p.pan, waiting, position, set: { type: 'setPartPan', part: i, pan: 0 } }
+      return { label: PART_LABELS[i], value: p[send], waiting, position, set: { type: 'setPartSend', part: i, send, value: 0 } }
+    }
     if (style) {
       const p = s.mixer.styleParts[i]
       return { label: STYLE_PART_NAMES[i].toUpperCase(), value: p.volume, waiting: p.waiting, position, set: { type: 'setStylePartVolume', part: i, volume: 0 } }
