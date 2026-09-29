@@ -52,11 +52,31 @@ pub struct PluginVoice {
     /// no `state` yet loads by number; once the state is read it restores from that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<VoicePreset>,
-    /// The library Sound it plays (docs/sound-browser.md), if known. A plugin-parts.json
-    /// written before sounds had ids has none: a part that played a preset gets its sound
-    /// when it plays ([`crate::patches::SoundLibrary::add_plugin_preset`]).
+    /// The Sound it plays (docs/sound-browser.md), if known: a library sound
+    /// (`saved:<id>`), or a plugin preset picked in the browser, named by its catalog id
+    /// (`au:<plugin>#<key>`, [`PluginVoice::name_preset_sound`]). A preset is not a
+    /// library record: one is written only when the part's sound is saved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sound: Option<crate::patches::SoundTag>,
+}
+
+impl PluginVoice {
+    /// A voice playing a plugin preset with no Sound named yet (a preset picked now, or
+    /// one a plugin-parts.json from before sounds had ids restores) plays that preset: its
+    /// Sound is the preset itself, by its catalog id and name. No library record is made
+    /// (docs/racks.md "Saving": one save makes one record). Returns whether it changed.
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
+    pub(crate) fn name_preset_sound(&mut self) -> bool {
+        if self.sound.is_some() {
+            return false;
+        }
+        let Some(preset) = &self.preset else { return false };
+        if crate::patches::PluginOrigin::from_preset_key(&preset.key).is_none() {
+            return false;
+        }
+        self.sound = Some(crate::patches::SoundTag { id: crate::api::plugin_preset_id(&self.id, &preset.key), name: preset.name.clone() });
+        true
+    }
 }
 
 /// A plugin preset a part plays: its catalog key and name.
@@ -954,14 +974,12 @@ mod imp {
                             self.plugins.dirty |= parts::part_of_channel(ch).is_some();
                             // A preset picked by number: read the state it gives, so the part
                             // (and a Registration memorized now) keeps the sound itself.
-                            // A keyboard part's preset is a library Sound (the
-                            // plugin-parts.json migration, and a preset picked now).
+                            // A keyboard part's preset is the Sound it plays (the
+                            // plugin-parts.json migration, and a preset picked now); it
+                            // adds no library record.
                             if parts::part_of_channel(ch).is_some() {
                                 let c = self.plugins.channels[ch as usize].as_mut().unwrap();
-                                let mut voice = std::mem::take(&mut c.voice);
-                                let category = c.info.as_ref().map_or(crate::patches::Category::SynthLead, |i| crate::api::plugin_category(&i.name, &i.manufacturer));
-                                self.plugins.dirty |= self.link_voice_sound(&mut voice, category);
-                                self.plugins.channels[ch as usize].as_mut().unwrap().voice = voice;
+                                self.plugins.dirty |= c.voice.name_preset_sound();
                             }
                             let c = self.plugins.channels[ch as usize].as_ref().unwrap();
                             let id = c.voice.id.clone();
