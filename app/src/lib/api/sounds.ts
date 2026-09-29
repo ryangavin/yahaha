@@ -15,6 +15,9 @@ export type SoundsCmd =
   | { type: 'stopSoundAudition' }
   /** Keyboard part `part` (0-3) plays the sound, by the route its source has. */
   | { type: 'assignSound'; part: number; id: string }
+  /** As assignSound, keeping the part's mix (level, pan, sends, octave, voice settings,
+   * bend range, on/off): Library › Replace… for a part whose plugin is missing. */
+  | { type: 'replacePartSound'; part: number; id: string }
   /** A plugin's, plugin preset's or saved sound's category (a SoundFont preset's is its GM family). */
   | { type: 'setSoundCategory'; id: string; category: PatchCategory }
   /** List a plugin's (`au:<id>`) presets: the browser expanded it. */

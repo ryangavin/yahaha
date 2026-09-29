@@ -1838,7 +1838,9 @@
   "plugins": {
     "available": false,
     "scanning": false,
-    "list": []
+    "list": [],
+    "missing": [],
+    "needsAttention": []
   },
   "soundLibrary": {
     "patches": [],

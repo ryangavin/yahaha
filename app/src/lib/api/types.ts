@@ -1197,8 +1197,11 @@ export type PluginCmd =
   | { type: 'setPluginInProcess'; id: string; inProcess: boolean }
   /** Load a part's plugin again after it stopped or failed (null: the selected part). */
   | { type: 'reloadPartPlugin'; part: number | null }
+  /** The player opened plugin `id` (Library › Instruments): it is no longer new. */
+  | { type: 'markPluginSeen'; id: string }
 
-/** loading: still on the SoundFont; failed: back on it; muted: the plugin crashed. */
+/** loading: still on the SoundFont; failed: back on it (silent when `missing`); muted:
+ * the plugin crashed. */
 export type PluginStatus = 'loading' | 'playing' | 'failed' | 'muted'
 
 export interface PartPlugin {
@@ -1224,6 +1227,9 @@ export interface PartPlugin {
   preset?: string | null
   /** That preset's catalog key (`f:3`, `u:<path>`). */
   presetKey?: string | null
+  /** The plugin isn't installed: the part is silent (status failed), its mix and sound
+   * kept, until the plugin is back and scanned. */
+  missing: boolean
 }
 
 export interface PluginEntry {
@@ -1238,6 +1244,29 @@ export interface PluginEntry {
   inProcess: boolean
   /** It can run in yahaha's process: every AUv2, and an AUv3 that allows it. */
   canRunInProcess: boolean
+  /** Found by a scan for the first time and not opened or played since (markPluginSeen). */
+  new: boolean
+  /** How many of the user's racks, and library sounds, play it. */
+  racks: number
+  sounds: number
+}
+
+/** A plugin that isn't installed (any more) while racks or sounds may still use it. */
+export interface MissingPlugin {
+  id: string
+  /** As it was last installed; the id and '' if it never was here. */
+  name: string
+  manufacturer: string
+  racks: number
+  sounds: number
+}
+
+/** A user rack with parts whose sound's plugin is missing. */
+export interface RackAttention {
+  id: string
+  name: string
+  /** 0-3: Right 1, Right 2, Right 3, Left. */
+  parts: number[]
 }
 
 export interface PluginsState {
@@ -1245,6 +1274,10 @@ export interface PluginsState {
   available: boolean
   scanning: boolean
   list: PluginEntry[]
+  /** Installed before and not now, or used by racks or sounds and not installed. */
+  missing: MissingPlugin[]
+  /** The user's racks that need attention (Library › Racks, Needs attention). */
+  needsAttention: RackAttention[]
 }
 
 // ── Controllers (docs/controllers.md) ────────────────────────────────────

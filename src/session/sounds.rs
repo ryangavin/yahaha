@@ -148,6 +148,7 @@ impl Control {
             }
             SoundsCmd::StopSoundAudition => return self.sound_library_cmd(SoundLibraryCmd::StopPatchAudition),
             SoundsCmd::AssignSound { part, id } => return self.assign_sound(part, id),
+            SoundsCmd::ReplacePartSound { part, id } => return self.replace_part_sound(part, id),
             SoundsCmd::SetSoundCategory { id, category } => {
                 if let Some(patch) = id.strip_prefix("saved:") {
                     let Some(p) = self.sound_patches().iter().find(|p| p.id == patch).cloned() else {
@@ -194,6 +195,22 @@ impl Control {
     pub(super) fn set_preset_category(&mut self, id: String, category: Category) {
         self.sounds.prefs.sound_categories.insert(id, category);
         self.save_sounds("soundCategories", serde_json::to_value(&self.sounds.prefs.sound_categories));
+    }
+
+    /// `ReplacePartSound`: the part plays sound `id` (as `AssignSound`) and keeps its mix,
+    /// exactly as a rack part holds it (docs/racks.md: swapping a sound never touches the
+    /// mix). Library › Replace… sends it for a part whose plugin is missing.
+    fn replace_part_sound(&mut self, part: u8, id: String) -> Result<(), CmdError> {
+        if part > 3 {
+            return self.fail(format!("no keyboard part {part} (0-3)"));
+        }
+        let mix = self.capture_rack_part(part as usize);
+        self.assign_sound(part, id)?;
+        if let Err(e) = self.apply_rack_mix(part as usize, &mix) {
+            return self.fail(e);
+        }
+        self.wake_engine();
+        Ok(())
     }
 
     /// `AssignSound`: the part plays it through the command its source has.

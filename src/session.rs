@@ -52,6 +52,7 @@ mod pads;
 mod param_lock;
 mod part_sound;
 mod parts;
+mod plugin_presence;
 mod plugins;
 mod playlist;
 mod preview;
@@ -341,6 +342,8 @@ struct Control {
     rack_controls: crate::racks::ControlMap,
     /// The sound catalog (#117).
     sounds: sounds::Sounds,
+    /// New and missing plugins, and what uses each (session/plugin_presence.rs).
+    presence: plugin_presence::Presence,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -482,6 +485,7 @@ impl Control {
         self.pump_index();
         self.pump_multipad();
         self.pump_plugins(now);
+        self.pump_plugin_presence(now);
         self.pump_sound_library(now);
     }
 
@@ -523,7 +527,7 @@ impl Control {
             message: self.message.clone(),
             looper: self.looper_state(),
             metronome: self.metronome_state(),
-            plugins: self.plugins_state(),
+            plugins: self.plugins_app_state(),
             sound_library: self.sound_library_state(),
             param_locks: self.param_lock_state(),
             sounds: self.sounds_state(),
@@ -730,6 +734,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         display: Default::default(),
         sound_settings: gm_auto::settings_file(opts.data_dir.as_deref()),
         rack_controls: Default::default(),
+        presence: plugin_presence::Presence::open(opts.data_dir.as_deref()),
     };
     let mut control = control;
     control.list_sound_fonts();

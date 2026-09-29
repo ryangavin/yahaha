@@ -239,6 +239,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPluginInProcess","id":"aumu dls  appl","inProcess":true}"#,
     r#"{"type":"reloadPartPlugin","part":null}"#,
     r#"{"type":"reloadPartPlugin","part":2}"#,
+    r#"{"type":"markPluginSeen","id":"aumu Smp7 Fake"}"#,
     // Keyboard Harmony / Arpeggio
     r#"{"type":"toggleHarmonyArp"}"#,
     r#"{"type":"setHarmonyArpOn","on":true}"#,
@@ -294,6 +295,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"auditionSound","id":"au:aumu Xf2X XFER"}"#,
     r#"{"type":"stopSoundAudition"}"#,
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
+    r#"{"type":"replacePartSound","part":1,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
     r#"{"type":"listPluginPresets","id":"au:aumu Nik2 -NI-"}"#,
     r#"{"type":"addToMySounds","id":"sf:GM.sf2:0:5"}"#,

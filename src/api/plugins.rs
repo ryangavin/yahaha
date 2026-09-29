@@ -45,6 +45,9 @@ pub enum PluginCmd {
         #[serde(default)]
         part: Option<u8>,
     },
+    /// The player opened plugin `id` (Library › Instruments): it is no longer new
+    /// (`plugins.list[i].new`). Playing it on any part does the same.
+    MarkPluginSeen { id: String },
 }
 
 /// Where a part's plugin is.
@@ -57,6 +60,8 @@ pub enum PluginStatus {
     /// The part plays the plugin.
     Playing,
     /// The load failed or timed out: the part plays its SoundFont voice (`error` says why).
+    /// A keyboard part whose plugin is not installed any more is `missing` and silent
+    /// instead.
     Failed,
     /// The plugin stopped rendering (it crashed or produced bad audio): the part is silent
     /// until it is chosen again or cleared.
@@ -101,6 +106,11 @@ pub struct PartPlugin {
     /// That preset's catalog key (`f:3`, `u:<path>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset_key: Option<String>,
+    /// The plugin is not installed (the last scan did not find it): the part is silent,
+    /// not on its SoundFont voice, with its mix and its sound kept (status `failed`). It
+    /// plays again, as it was, once the plugin is back and the plugins are scanned again.
+    #[serde(default)]
+    pub missing: bool,
 }
 
 /// One installed instrument plugin.
@@ -123,6 +133,42 @@ pub struct PluginEntry {
     /// It can run in yahaha's process: every AUv2, and an AUv3 that allows it.
     #[serde(default)]
     pub can_run_in_process: bool,
+    /// A scan found it for the first time, and it hasn't been opened or played since
+    /// (`markPluginSeen`).
+    #[serde(default)]
+    pub new: bool,
+    /// How many of the user's racks (`<data>/Racks`) have a part that plays it.
+    #[serde(default)]
+    pub racks: u32,
+    /// How many sounds in the sound library play it.
+    #[serde(default)]
+    pub sounds: u32,
+}
+
+/// A plugin that isn't installed any more (or never was, on this Mac) while racks or
+/// sounds still use it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingPlugin {
+    /// "aumu Xf2X XFER".
+    pub id: String,
+    /// Its name and vendor when it was last installed; the id and "" if it never was here.
+    pub name: String,
+    pub manufacturer: String,
+    /// How many of the user's racks, and sounds in the library, use it.
+    pub racks: u32,
+    pub sounds: u32,
+}
+
+/// A user rack with a part whose sound's plugin is missing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RackAttention {
+    /// The rack's id and name (`<data>/Racks/<name>.rack.json`).
+    pub id: String,
+    pub name: String,
+    /// Those parts, 0-3 (Right 1, Right 2, Right 3, Left).
+    pub parts: Vec<u8>,
 }
 
 /// The plugin host.
@@ -135,6 +181,14 @@ pub struct PluginsState {
     pub scanning: bool,
     /// The installed instruments, by manufacturer then name (cached scan).
     pub list: Vec<PluginEntry>,
+    /// Plugins that were installed before and aren't now, and plugins racks or sounds use
+    /// that aren't installed, by name. Empty until the first scan is in.
+    #[serde(default)]
+    pub missing: Vec<MissingPlugin>,
+    /// The user's racks that need attention (a part's sound is on a missing plugin), by
+    /// name.
+    #[serde(default)]
+    pub needs_attention: Vec<RackAttention>,
 }
 
 /// Base64 (standard alphabet, padded): plugin states in JSON.

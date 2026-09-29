@@ -582,6 +582,11 @@ pub struct AudioCore {
     plugins: PluginRack,
     /// Channels that played a plugin in the last buffer (bit per channel).
     plugin_on: u16,
+    /// Channels routed to silence in the last buffer (`route::Source::Silent`).
+    silent_on: u16,
+    /// Tests: the channel messages that got past the silent-channel filter.
+    #[cfg(test)]
+    passed: Vec<Msg>,
     /// The sound library's program map (#103; None: every channel plays its GM voice on
     /// the main SoundFont, as before).
     router: Option<Router>,
@@ -656,6 +661,9 @@ impl AudioCore {
             #[cfg(feature = "plugins")]
             plugins,
             plugin_on: 0,
+            silent_on: 0,
+            #[cfg(test)]
+            passed: Vec::new(),
             router: None,
             fx: crate::fx::FxBus::new(sample_rate),
             sends: vec![0f32; 2 * crate::fx::BUSES * 8192],
@@ -738,11 +746,12 @@ impl AudioCore {
             }
         }
 
+        let table = ctl.routes.table();
         // Which channels play a plugin this buffer: routed to one, and its slot has it.
         #[cfg(feature = "plugins")]
         let active = {
             self.plugins.begin_block();
-            let routed = ctl.routes.table().plugin_mask();
+            let routed = table.plugin_mask();
             let mut a = 0u16;
             for ch in 0..16u8 {
                 if routed >> ch & 1 == 1 && self.plugins.owns(ch) {
@@ -752,13 +761,15 @@ impl AudioCore {
             a
         };
         #[cfg(not(feature = "plugins"))]
-        let active = {
-            let _ = ctl.routes.table();
-            0u16
-        };
-        // A channel going over to its plugin: the SoundFont's notes there release (their
-        // own envelopes, no click). Channel mode messages are actions, not shadowed.
-        let started = active & !self.plugin_on;
+        let active = 0u16;
+        // The silent channels (a keyboard part whose plugin is missing): no note-on
+        // reaches anything there.
+        let silent = table.silent_mask();
+        // A channel going over to its plugin, or to silence: the SoundFont's notes there
+        // release (their own envelopes, no click). Channel mode messages are actions, not
+        // shadowed.
+        let started = (active & !self.plugin_on) | (silent & !self.silent_on);
+        self.silent_on = silent;
         if started != 0
             && let Some(rack) = self.rack.as_mut()
         {
@@ -817,6 +828,15 @@ impl AudioCore {
                     } else {
                         self.plugins.track(m);
                     }
+                }
+                // A silent channel plays no notes; the SoundFont side keeps the rest, as
+                // for a plugin channel.
+                if m[0] & 0xF0 == 0x90 && m[2] > 0 && silent >> (m[0] & 0x0F) & 1 == 1 {
+                    continue;
+                }
+                #[cfg(test)]
+                if (0x80..0xF0).contains(&m[0]) {
+                    self.passed.push(m);
                 }
                 // The control side's ring carries auditions, not the band: the shadow keeps
                 // the band's setup of the channel for when the audition ends.
@@ -1261,6 +1281,27 @@ mod tests {
                 assert!(*rms > 0.001, "ch {ch} played {notes} notes but rendered silence");
             }
         }
+    }
+}
+
+/// A channel routed to silence (a keyboard part whose plugin is missing) drops its
+/// note-ons; its note-offs and controllers, and every other channel's notes, go on.
+#[cfg(test)]
+mod silent_tests {
+    use super::*;
+
+    #[test]
+    fn silent_channel_drops_note_ons_only() {
+        let (mut tx, rx) = RingBuffer::<Msg>::new(16);
+        let ctl = Arc::new(SynthControl::new(0));
+        ctl.routes.set(0, crate::route::Source::Silent);
+        let (mut core, _swap, _link) = AudioCore::new(None, vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
+        let sent = [[0x90, 60, 100], [0x80, 60, 0], [0x90, 61, 0], [0xB0, 7, 90], [0x91, 60, 100]];
+        for m in sent {
+            tx.push(m).unwrap();
+        }
+        core.process(&mut [0f32; 128]);
+        assert_eq!(core.passed, sent[1..]);
     }
 }
 
