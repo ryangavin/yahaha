@@ -139,8 +139,20 @@ mod imp {
         Some((p.factory_number()?, p.name.clone()))
     }
 
-    /// A `listPluginPresets` running: the plugin, and the listing thread's answer.
-    pub(crate) type PresetListing = (String, mpsc::Receiver<Result<PluginInfo, String>>);
+    /// A `listPluginPresets` running: the plugin, the listing thread's answer, and when it
+    /// is given up on.
+    pub(crate) struct PresetListing {
+        pub(crate) id: String,
+        pub(crate) rx: mpsc::Receiver<Result<PluginInfo, String>>,
+        pub(crate) deadline: std::time::Instant,
+    }
+
+    /// How long a preset listing's load may take.
+    pub(crate) const LISTING_LOAD_TIMEOUT: Duration = Duration::from_secs(20);
+
+    /// How long a preset listing is waited for in all (the load, plus looking the plugin up
+    /// first): past it the listing has failed, whatever its thread still does.
+    pub(crate) const LISTING_DEADLINE: Duration = Duration::from_secs(30);
 
     /// What a `savePartAsPluginPreset` thread hands back: the file written, the state it
     /// holds, and the plugin as the cache now lists it.
@@ -183,9 +195,40 @@ mod imp {
         /// after it loaded (or after a Save), taken on a `plugin-state` thread. None until
         /// then, or when the voice names no sound (docs/sound-browser.md, "Edited").
         pub(crate) sound_fp: Option<u64>,
-        /// The plugin's state no longer matches the sound it was loaded from. It stays set
-        /// until a Save, Save as… or another sound.
+        /// The plugin's state no longer matches the sound it was loaded from: the latest
+        /// read's fingerprint is not `sound_fp` (so undoing an edit clears it), or
+        /// `start_edited`. A Save, Save as… or another sound clears it.
         pub(crate) edited: bool,
+        /// It loaded with a state that isn't its sound's (a recalled edit): the baseline
+        /// read is of that edit, so it stays edited until a Save or another sound.
+        pub(crate) start_edited: bool,
+        /// The fingerprint-only reads while its editor window is open ([`Probe`]).
+        pub(crate) probe: Probe,
+    }
+
+    /// While a part's plugin window is open, its state is read now and then on a
+    /// `plugin-state` thread, for its fingerprint only, so an edit made there shows as
+    /// "edited" within about a second rather than at the 30-second autosave. The next read
+    /// waits at least [`PROBE_NS`] after the last one, or four times as long as it took, so
+    /// a plugin whose state takes long to read (a big sampler) is read less often.
+    #[derive(Clone, Copy, Debug, Default)]
+    pub(crate) struct Probe {
+        /// A read is running.
+        pub(crate) running: bool,
+        /// Not before this (the pump's clock, ns).
+        pub(crate) next_ns: u64,
+    }
+
+    /// The shortest time between two fingerprint reads of a part whose window is open.
+    pub(crate) const PROBE_NS: u64 = 500_000_000;
+
+    /// A fingerprint read's result ([`Probe`]): the state itself is dropped on the reading
+    /// thread, so the control thread never holds (or saves) it.
+    pub(crate) struct ProbeRead {
+        inst: InstanceRef,
+        /// None: the read failed (it is tried again later).
+        fp: Option<u64>,
+        took_ns: u64,
     }
 
     impl ChannelPlugin {
@@ -210,11 +253,27 @@ mod imp {
                 fell_back: false,
                 sound_fp: None,
                 edited: false,
+                start_edited: false,
+                probe: Probe::default(),
             }
         }
 
         fn name(&self) -> String {
             self.info.as_ref().map_or_else(|| self.voice.id.clone(), |i| i.name.clone())
+        }
+
+        /// A state read's fingerprint, for "edited": the first read after the sound loaded
+        /// (or was saved) is its baseline (a plugin's own serialization, not the stored
+        /// bytes); a later read that differs means the editor changed it, and one that is
+        /// the baseline again means the change was undone.
+        fn note_fingerprint(&mut self, fp: u64) {
+            if self.voice.sound.is_none() {
+                return;
+            }
+            match self.sound_fp {
+                None => self.sound_fp = Some(fp),
+                Some(base) => self.edited = self.start_edited || base != fp,
+            }
         }
     }
 
@@ -269,10 +328,17 @@ mod imp {
         /// `savePartPluginState`): an out-of-process plugin's state is an XPC round trip and
         /// a sampler's can be MBs, so the control thread never waits for one.
         pub(crate) state_reads: Vec<mpsc::Receiver<StateRead>>,
+        /// Fingerprint reads of parts whose plugin window is open ([`Probe`]). Apart from
+        /// `state_reads`, so the autosave and a Save never wait for them. Each with its
+        /// channel, so a read that ends without a result still frees the channel's probe.
+        pub(crate) probes: Vec<(u8, mpsc::Receiver<ProbeRead>)>,
         /// Plugins preloaded for the Registration bank's buttons (plugins/pool.rs).
         pub(crate) warm: super::pool::WarmPool,
         /// Preset listings running (`listPluginPresets`).
         pub(crate) listing: Vec<PresetListing>,
+        /// Why a plugin's preset listing failed, by plugin id. It is not tried again until
+        /// the next scan (a timed-out listing may still hold an instance).
+        pub(crate) listing_failed: std::collections::BTreeMap<String, String>,
         /// Saves as a user preset running (`savePartAsPluginPreset`).
         pub(crate) preset_saves: Vec<PresetSave>,
     }
@@ -395,6 +461,8 @@ mod imp {
                 fell_back: false,
                 sound_fp: None,
                 edited,
+                start_edited: edited,
+                probe: Probe::default(),
             });
             Ok(())
         }
@@ -449,6 +517,14 @@ mod imp {
             }
         }
 
+        /// Keep `voice` on channel `ch` as failed with `error` (after a load that could not
+        /// start): the choice survives, saved and retryable, as a failed start-up restore's
+        /// does. The channel plays its SoundFont meanwhile.
+        pub(crate) fn keep_failed_channel_plugin(&mut self, ch: u8, voice: PluginVoice, error: String) {
+            self.plugins.channels[(ch & 15) as usize] = Some(ChannelPlugin::failed(voice, None, error));
+            self.plugins.dirty = true;
+        }
+
         /// The editor handle of channel `ch`'s playing plugin (for the app's main thread).
         pub(crate) fn channel_editor(&self, ch: u8) -> Option<EditorTarget> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
@@ -491,6 +567,73 @@ mod imp {
             }
         }
 
+        /// Start a fingerprint read ([`Probe`]) of each keyboard part whose plugin window is
+        /// open, that plays a named sound and is due one.
+        fn start_probes(&mut self, now: u64) {
+            for &ch in parts::CHANNEL.iter() {
+                let Some(c) = self.plugins.channels[ch as usize].as_mut() else { continue };
+                if c.status != PluginStatus::Playing || c.voice.sound.is_none() || c.probe.running || now < c.probe.next_ns {
+                    continue;
+                }
+                let Some(e) = c.editor.as_ref().filter(|e| e.editor_open()).cloned() else { continue };
+                let (tx, rx) = mpsc::channel();
+                let ok = std::thread::Builder::new().name("plugin-state".into()).spawn(move || {
+                    let t0 = std::time::Instant::now();
+                    // The state is dropped here, on this thread: only its fingerprint goes.
+                    let fp = e.state().ok().map(|s| state_fingerprint(&s));
+                    let took_ns = t0.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+                    let inst = e.instance();
+                    // As in `read_states`: the unit is never disposed of on the control thread.
+                    drop(e);
+                    let _ = tx.send(ProbeRead { inst, fp, took_ns });
+                });
+                if ok.is_ok() {
+                    c.probe.running = true;
+                    self.plugins.probes.push((ch, rx));
+                }
+            }
+        }
+
+        /// Fingerprint reads done since the last pump: "edited" for the channels that still
+        /// play the instance read, and when each may be read next.
+        fn pump_probes(&mut self, now: u64) {
+            // Every read that ended, with its result if it sent one (None: its thread died).
+            let mut done = Vec::new();
+            self.plugins.probes.retain(|(ch, rx)| match rx.try_recv() {
+                Ok(r) => {
+                    done.push((*ch, Some(r)));
+                    false
+                }
+                Err(mpsc::TryRecvError::Empty) => true,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done.push((*ch, None));
+                    false
+                }
+            });
+            for (ch, r) in done {
+                // Whatever the outcome, the channel's probe has ended (unless another is
+                // still in flight for it), so the part keeps being read.
+                let pending = self.plugins.probes.iter().any(|(p, _)| *p == ch);
+                let Some(c) = self.plugins.channels[ch as usize].as_mut() else { continue };
+                if !pending {
+                    c.probe.running = false;
+                }
+                let Some(r) = r else {
+                    c.probe.next_ns = now.saturating_add(PROBE_NS);
+                    continue;
+                };
+                if !c.editor.as_ref().is_some_and(|e| r.inst.is(e)) {
+                    continue;
+                }
+                c.probe = Probe { running: pending, next_ns: now.saturating_add(PROBE_NS.max(r.took_ns.saturating_mul(4))) };
+                if let Some(fp) = r.fp
+                    && c.status == PluginStatus::Playing
+                {
+                    c.note_fingerprint(fp);
+                }
+            }
+        }
+
         /// Plugin states read since the last pump: into the channels' voices (to be saved),
         /// if the channel still plays the instance read.
         fn pump_state_reads(&mut self) {
@@ -514,15 +657,7 @@ mod imp {
                             c.voice.state = Some(s.clone());
                             self.plugins.dirty = true;
                         }
-                        // Edited: the first read after the sound loaded is its baseline
-                        // (a plugin's own serialization, not the stored bytes); a later
-                        // read that differs means the editor changed it.
-                        if c.voice.sound.is_some() {
-                            match c.sound_fp {
-                                None => c.sound_fp = Some(r.fp),
-                                Some(fp) => c.edited |= fp != r.fp,
-                            }
-                        }
+                        c.note_fingerprint(r.fp);
                         // A factory preset's first play: its sound keeps the state.
                         if let Some(tag) = c.voice.sound.clone() {
                             captures.push((tag, s));
@@ -581,6 +716,7 @@ mod imp {
             c.voice.sound = tag;
             c.sound_fp = None;
             c.edited = false;
+            c.start_edited = false;
             self.plugins.dirty |= parts::part_of_channel(ch).is_some();
         }
 
@@ -676,10 +812,11 @@ mod imp {
             self.plugins
                 .list
                 .iter()
-                .filter(|p| p.factory_presets.is_some() || !p.user_presets.is_empty())
+                .filter(|p| p.factory_presets.is_some() || !p.user_presets.is_empty() || self.plugins.listing_failed.contains_key(&p.id.to_string()))
                 .map(|p| PluginPresetList {
                     plugin: p.id.to_string(),
                     listed: p.factory_presets.is_some(),
+                    error: self.plugins.listing_failed.get(&p.id.to_string()).cloned(),
                     presets: p
                         .factory_presets
                         .iter()
@@ -691,21 +828,41 @@ mod imp {
                 .collect()
         }
 
+        /// Hash what the catalog shows of the plugins and their presets (`sounds_touch`),
+        /// in place: no list is built and nothing is serialised.
+        pub(crate) fn hash_plugins_for_catalog(&self, h: &mut impl std::hash::Hasher) {
+            use std::hash::Hash;
+            for p in &self.plugins.list {
+                (p.id, &p.name, &p.manufacturer, p.format as u8, p.last_load.as_ref().and_then(|l| l.error.as_ref())).hash(h);
+                p.factory_presets.as_ref().map(Vec::len).hash(h);
+                for f in p.factory_presets.iter().flatten() {
+                    (f.number, &f.name).hash(h);
+                }
+                p.user_presets.len().hash(h);
+                for u in &p.user_presets {
+                    (&u.path, &u.name, &u.folder).hash(h);
+                }
+            }
+            self.plugins.listing_failed.hash(h);
+        }
+
         /// `listPluginPresets`: read plugin `id`'s factory presets on a thread (loading an
-        /// instance once if no load has read them yet). Nothing to do when they are known.
+        /// instance once if no load has read them yet). Nothing to do when they are known,
+        /// while a listing of it runs (one instance at a time), or once one failed (until
+        /// the next scan).
         pub(crate) fn list_plugin_presets(&mut self, id: &str) -> Result<(), String> {
             let pid = PluginId::parse(id).ok_or_else(|| format!("{id:?} is not a plugin id"))?;
             let Some(info) = self.plugins.list.iter().find(|p| p.id == pid) else {
                 return Err(format!("no instrument Audio Unit {id} is installed"));
             };
-            if info.factory_presets.is_some() || self.plugins.listing.iter().any(|(l, _)| l == id) {
+            if info.factory_presets.is_some() || self.plugins.listing.iter().any(|l| l.id == id) || self.plugins.listing_failed.contains_key(id) {
                 return Ok(());
             }
             let cfg = LoadConfig {
                 sample_rate: self.plugin_rate(),
                 max_frames: crate::synth::PLUGIN_MAX_BLOCK as u32,
                 mode: load_mode(info),
-                timeout: Duration::from_secs(20),
+                timeout: LISTING_LOAD_TIMEOUT,
                 ..LoadConfig::default()
             };
             let host = self.plugins.host();
@@ -713,16 +870,22 @@ mod imp {
             std::thread::Builder::new()
                 .name("plugin-presets".into())
                 .spawn(move || {
-                    let _ = tx.send(host.list_presets(&pid, cfg).map_err(|e| format!("{e:#}")));
+                    // A panic is an answer too: the listing never waits for one that died.
+                    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.list_presets(&pid, cfg)));
+                    let r = match r {
+                        Ok(r) => r.map_err(|e| format!("{e:#}")),
+                        Err(_) => Err("the plugin crashed while listing them".to_string()),
+                    };
+                    let _ = tx.send(r);
                 })
                 .map_err(|e| format!("could not start the preset listing: {e}"))?;
-            self.plugins.listing.push((id.to_string(), rx));
+            self.plugins.listing.push(PresetListing { id: id.to_string(), rx, deadline: std::time::Instant::now() + LISTING_DEADLINE });
             Ok(())
         }
 
         /// Preset listings running (`listPluginPresets`), by plugin id.
         pub(crate) fn plugin_presets_listing(&self) -> Vec<String> {
-            self.plugins.listing.iter().map(|(id, _)| id.clone()).collect()
+            self.plugins.listing.iter().map(|l| l.id.clone()).collect()
         }
 
         /// The list's copy of plugin `id` from the host's cache (which a load just gave its
@@ -796,23 +959,37 @@ mod imp {
 
         /// Preset listings and saves that finished.
         fn pump_presets(&mut self) {
+            // Every listing ends: with the presets, or failed (an error, no answer by its
+            // deadline, or a thread that died without one).
             let mut done = Vec::new();
-            self.plugins.listing.retain(|(id, rx)| match rx.try_recv() {
+            let now = std::time::Instant::now();
+            self.plugins.listing.retain(|l| match l.rx.try_recv() {
                 Ok(r) => {
-                    done.push((id.clone(), r));
+                    done.push((l.id.clone(), r));
                     false
                 }
-                Err(mpsc::TryRecvError::Empty) => true,
-                Err(mpsc::TryRecvError::Disconnected) => false,
+                Err(mpsc::TryRecvError::Empty) if now < l.deadline => true,
+                Err(mpsc::TryRecvError::Empty) => {
+                    done.push((l.id.clone(), Err(format!("no answer after {} s", LISTING_DEADLINE.as_secs()))));
+                    false
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done.push((l.id.clone(), Err("the listing stopped without an answer".into())));
+                    false
+                }
             });
             for (id, r) in done {
-                match r {
+                match r.and_then(|info| if info.factory_presets.is_some() { Ok(info) } else { Err("the plugin gave no preset list".into()) }) {
                     Ok(info) => {
                         if let Some(p) = self.plugins.list.iter_mut().find(|p| p.id == info.id) {
                             *p = info;
                         }
                     }
-                    Err(e) => self.say(format!("{id}: could not list its presets ({e})"), true),
+                    Err(e) => {
+                        let name = PluginId::parse(&id).and_then(|pid| self.plugins.list.iter().find(|p| p.id == pid)).map_or_else(|| id.clone(), |p| p.name.clone());
+                        self.say(format!("{name}: could not list its presets ({e})"), true);
+                        self.plugins.listing_failed.insert(id, e);
+                    }
                 }
             }
             let mut saves = Vec::new();
@@ -859,6 +1036,8 @@ mod imp {
                     Ok(Ok(list)) => {
                         self.plugins.list = list;
                         self.plugins.scan_rx = None;
+                        // A new scan: a failed preset listing may be tried again.
+                        self.plugins.listing_failed.clear();
                     }
                     Ok(Err(e)) => {
                         self.plugins.scan_rx = None;
@@ -912,6 +1091,10 @@ mod imp {
             // them, so a crash or a window closed with the red button loses little. Read
             // on a thread (not while the last reads are still running).
             self.pump_state_reads();
+            // An open plugin window: an edit there shows within about a second (any
+            // session: the window is what starts them).
+            self.pump_probes(now);
+            self.start_probes(now);
             if self.offline.is_none() && now.saturating_sub(self.plugins.autosave_ns) >= 30_000_000_000 && self.plugins.state_reads.is_empty() {
                 self.plugins.autosave_ns = now;
                 let targets: Vec<(u8, EditorTarget)> = parts::CHANNEL
@@ -1172,6 +1355,7 @@ impl Control {
         Err("this build has no plugin host (the `plugins` feature)".into())
     }
     pub(crate) fn clear_channel_plugin(&mut self, _ch: u8) {}
+    pub(crate) fn keep_failed_channel_plugin(&mut self, _ch: u8, _voice: PluginVoice, _error: String) {}
     pub(crate) fn channel_plugin_state(&self, _ch: u8) -> Option<PartPlugin> {
         None
     }
@@ -1202,6 +1386,7 @@ impl Control {
     pub(crate) fn plugin_preset_lists(&self) -> Vec<crate::api::PluginPresetList> {
         Vec::new()
     }
+    pub(crate) fn hash_plugins_for_catalog(&self, _h: &mut impl std::hash::Hasher) {}
     pub(crate) fn plugin_presets_listing(&self) -> Vec<String> {
         Vec::new()
     }

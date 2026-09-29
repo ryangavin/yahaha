@@ -35,8 +35,10 @@ pub struct MockSound {
     last_added: Option<String>,
     /// The Sound a Plugins-tab plugin plays on each part (a preset's, or Save as…'s).
     pub plugin_sound: [Option<SoundTag>; 4],
-    /// The part's plugin was edited since its sound loaded (the editor closed, O3).
-    pub edited: [bool; 4],
+    /// The mock plugin window's one knob on each part, and where its sound left it: the
+    /// part is edited while they differ (the session compares state fingerprints, O3).
+    knob: [i32; 4],
+    saved_knob: [i32; 4],
     /// The `.aupreset` names `exportSoundPreset` wrote (a second export of one needs
     /// `overwrite`, as the real preset folder does).
     exported: Vec<String>,
@@ -71,7 +73,7 @@ impl Default for MockSound {
         map.set_override(4, Some("warm-rhodes".into()));
         map.set_override(5, Some("warm-rhodes".into()));
         map.drums = Some("studio-kit".into());
-        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None, plugin_sound: Default::default(), edited: [false; 4], exported: Vec::new() }
+        MockSound { patches, map, style_maps: BTreeMap::new(), parts: Default::default(), plugin_parts: Default::default(), port: false, audition: None, browse: None, last_added: None, plugin_sound: Default::default(), knob: [0; 4], saved_knob: [0; 4], exported: Vec::new() }
     }
 }
 
@@ -120,7 +122,7 @@ impl MockSound {
             self.parts[p] = None;
         }
         self.plugin_sound[p] = None;
-        self.edited[p] = false;
+        (self.knob[p], self.saved_knob[p]) = (0, 0);
     }
 
     /// A plugin preset picked on part `part`: the part plays the preset itself, named by
@@ -133,11 +135,16 @@ impl MockSound {
         self.plugin_sound[part & 3] = Some(SoundTag { id: plugin_preset_id(component, key), name: name.into() });
     }
 
-    /// The part's plugin's editor closed: its sound counts as edited (the mock has no
-    /// state to fingerprint).
-    pub fn plugin_edited(&mut self, part: usize) {
+    /// The mock plugin window turned its knob to `value`: the part shows as edited at once
+    /// unless that is where its sound left it (as the session's reads while a window is open).
+    pub fn plugin_window(&mut self, part: usize, value: i32) {
+        self.knob[part & 3] = value;
+    }
+
+    /// The demo window's edit: the knob one step off its sound's value, or back onto it.
+    pub fn plugin_window_demo(&self, part: usize) -> i32 {
         let p = part & 3;
-        self.edited[p] = self.plugin_parts[p].is_some() || self.plugin_sound[p].is_some();
+        if self.knob[p] == self.saved_knob[p] { self.saved_knob[p] + 1 } else { self.saved_knob[p] }
     }
 
     /// The library sound part `p` plays through its plugin, if any (a preset is none).
@@ -237,7 +244,7 @@ impl MockSound {
                 let q = &mut self.patches[i];
                 q.defaults.volume = Some(volume);
                 q.defaults.octave = octave;
-                self.edited[p] = false;
+                self.saved_knob[p] = self.knob[p];
             }
             SoundLibraryCmd::SaveSoundAs { part, name } | SoundLibraryCmd::SavePartAsPatch { part, name } => {
                 // What the part plays: its plugin, else its own patch, else the patch the
@@ -297,7 +304,7 @@ impl MockSound {
                     } else {
                         self.plugin_sound[i] = Some(new.tag());
                     }
-                    self.edited[i] = false;
+                    self.saved_knob[i] = self.knob[i];
                 }
             }
             SoundLibraryCmd::AddPresetAsPatch { file, bank, program, name } => {
@@ -452,7 +459,7 @@ impl MockSound {
                 program: if p.plays_bass { 33 } else { p.program },
             };
             let named = part_sound(&lib, style.map(|_| key.as_str()), &auto, of, &font_name);
-            p.sound_edited = p.plugin.is_some() && self.edited[i] && plugin_sound.is_some();
+            p.sound_edited = p.plugin.is_some() && self.knob[i] != self.saved_knob[i] && plugin_sound.is_some();
             p.sound = named.sound;
             p.voice_name = named.voice_name;
         }

@@ -532,8 +532,8 @@ impl MockSession {
                 self.sound.part_plugin(part as usize, false);
                 self.state.keyboard_parts[(part & 3) as usize].plugin = None;
             }
-            // The editor closed: the mock takes it as an edit (O3's "edited" badge).
-            PluginCmd::SavePartPluginState { part } => self.sound.plugin_edited(part as usize),
+            // The editor closed: "edited" already shows what its window changed.
+            PluginCmd::SavePartPluginState { .. } => {}
             PluginCmd::RescanPlugins => {}
             PluginCmd::ReloadPartPlugin { part } => {
                 let part = match part {
@@ -645,6 +645,43 @@ impl MockSession {
             left -= 20.0;
         }
         self.bump(&before)
+    }
+
+    /// The mock plugin window on keyboard part `part` turned its knob to `value`: the part
+    /// shows as edited at once unless that is its sound's setting (the engine reads an open
+    /// window's plugin state about every half second). True if anything changed.
+    pub fn plugin_window(&mut self, part: u8, value: i32) -> bool {
+        let playing = self.state.keyboard_parts[(part & 3) as usize].plugin.as_ref().is_some_and(|p| p.status == PluginStatus::Playing);
+        if !playing {
+            return false;
+        }
+        let before = self.state.clone();
+        self.sound.plugin_window(part as usize, value);
+        self.bump(&before)
+    }
+
+    /// The demo has no real plugin window: opening one (`open_plugin_editor`) turns its
+    /// knob one step off the sound's setting, and opening it again turns it back, so the
+    /// "edited" badge shows and clears without the real host.
+    pub fn open_plugin_window(&mut self, part: u8) {
+        let p = (part & 3) as usize;
+        let Some(name) = self.state.keyboard_parts[p].plugin.as_ref().filter(|q| q.status == PluginStatus::Playing).map(|q| q.name.clone()) else {
+            let before = self.state.clone();
+            self.message("the part is not playing a plugin", true);
+            self.bump(&before);
+            return;
+        };
+        let v = self.sound.plugin_window_demo(p);
+        self.plugin_window(part, v);
+        let kp = &self.state.keyboard_parts[p];
+        let turned = match (&kp.sound, kp.sound_edited) {
+            (None, _) => String::new(),
+            (Some(_), true) => "; the demo turned its knob off the sound's setting".into(),
+            (Some(_), false) => "; the demo turned its knob back to the sound's setting".into(),
+        };
+        let before = self.state.clone();
+        self.message(format!("{name}'s window is the desktop app's{turned}"), false);
+        self.bump(&before);
     }
 
     /// Run a command; true if anything changed.
@@ -2383,8 +2420,9 @@ mod tests {
     }
 
     /// Now playing (O3): a preset names its sound (no library record: docs/racks.md "One
-    /// save makes one record"); the editor closing marks it edited; Save makes one sound
-    /// named after the preset, which the part then plays; Save again keeps the same one.
+    /// save makes one record"); a value changed in its window marks it edited at once, and
+    /// changing it back clears that; Save makes one sound named after the preset, which the
+    /// part then plays; Save again keeps the same one.
     #[test]
     fn a_part_shows_its_sound_edited_and_saved() {
         let mut m = MockSession::new();
@@ -2396,16 +2434,34 @@ mod tests {
         assert_eq!(tag.name, "Bright Grand");
         assert_eq!(tag.id, format!("au:{}#f:1", sounds::MOCK_PRESETS_ID));
         assert!(!m.state.keyboard_parts[0].sound_edited);
+        // Closing the window alone is no edit.
         m.send(PluginCmd::SavePartPluginState { part: 0 });
+        assert!(!m.state.keyboard_parts[0].sound_edited);
+        assert!(m.plugin_window(0, 5));
+        assert!(m.state.keyboard_parts[0].sound_edited);
+        assert!(m.plugin_window(0, 0));
+        assert!(!m.state.keyboard_parts[0].sound_edited, "undone");
+        // The demo window: opening it edits, opening it again undoes that.
+        m.open_plugin_window(0);
+        assert!(m.state.keyboard_parts[0].sound_edited);
+        m.open_plugin_window(0);
+        assert!(!m.state.keyboard_parts[0].sound_edited);
+        m.plugin_window(0, 5);
         assert!(m.state.keyboard_parts[0].sound_edited);
         // A factory preset is not overwritten: Save makes one sound named after it.
         m.send(SoundLibraryCmd::SaveSound { part: 0 });
         assert_eq!(m.state.sound_library.patches.len(), n + 1);
         let mine = m.state.keyboard_parts[0].sound.clone().unwrap();
         assert!(mine.id != tag.id && mine.name == "Bright Grand" && !m.state.keyboard_parts[0].sound_edited);
-        m.send(PluginCmd::SavePartPluginState { part: 0 });
+        m.plugin_window(0, 7);
+        assert!(m.state.keyboard_parts[0].sound_edited);
         m.send(SoundLibraryCmd::SaveSound { part: 0 });
         assert_eq!((m.state.sound_library.patches.len(), m.state.keyboard_parts[0].sound.clone()), (n + 1, Some(mine)));
+        assert!(!m.state.keyboard_parts[0].sound_edited);
+        // Saved at 7: that is the sound's setting now.
+        m.plugin_window(0, 5);
+        assert!(m.state.keyboard_parts[0].sound_edited);
+        m.plugin_window(0, 7);
         assert!(!m.state.keyboard_parts[0].sound_edited);
         m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("Mine 2".into()) });
         assert_eq!(m.state.keyboard_parts[0].sound.as_ref().map(|t| t.name.as_str()), Some("Mine 2"));
@@ -2670,6 +2726,23 @@ mod tests {
         assert_eq!(m.state.keyboard_parts, before, "nothing plays it");
         m.send(SoundsCmd::AddToMySounds { id: "sf:FluidR3_GM.sf2:9:9".into() });
         assert_eq!(m.state.sound_library.patches.len(), n + 2);
+    }
+
+    /// A plugin's preset count is unknown (None) until its factory presets are listed, even
+    /// with its .aupreset files in; a listing that fails ends with its reason and no count.
+    #[test]
+    fn plugin_preset_counts_are_honest_and_a_failed_listing_ends() {
+        let mut m = MockSession::new();
+        let info = |m: &MockSession, id: &str| m.sounds().entries.into_iter().find(|e| e.id == id).and_then(|e| e.plugin).unwrap();
+        let sampler = format!("au:{}", sounds::MOCK_PRESETS_ID);
+        assert_eq!(info(&m, &sampler).presets, None, "two .aupreset files are not its count");
+        m.send(SoundsCmd::ListPluginPresets { id: sampler.clone() });
+        assert_eq!(info(&m, &sampler).presets, Some(5));
+        let broken = "au:aumu Mock Demo";
+        m.send(SoundsCmd::ListPluginPresets { id: broken.into() });
+        let b = info(&m, broken);
+        assert_eq!((b.presets, b.presets_error.as_deref()), (None, Some("timed out after 20.0 s")));
+        assert!(m.state.sounds.listing_presets.is_empty());
     }
 
     /// AU presets, as mock-sounds.ts: the fake sampler's .aupreset files list from the

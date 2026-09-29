@@ -83,7 +83,7 @@ optional = true
 version = "0.3.2"
 optional = true
 default-features = false
-features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread"]
+features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread", "NSNotification", "NSOperation", "block2"]
 
 [target.'cfg(target_os = "macos")'.dependencies.objc2-core-foundation]
 version = "0.3.2"

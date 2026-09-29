@@ -52,18 +52,21 @@ impl Control {
                 self.sounds.presets.insert(f.clone(), presets);
             }
         }
+        // Only what the catalog shows is hashed, in place: never a plugin sound's state
+        // (MBs for a sampler, and not in the catalog), and nothing serialised (#134).
         let mut h = DefaultHasher::new();
         fonts.hash(&mut h);
         self.sf_file.hash(&mut h);
-        for p in self.plugins_state().list {
-            (p.id, p.name, p.manufacturer, p.format, p.last_error).hash(&mut h);
-        }
-        serde_json::to_string(&self.plugin_preset_lists()).unwrap_or_default().hash(&mut h);
+        self.hash_plugins_for_catalog(&mut h);
         for p in self.sound_patches() {
             (&p.id, &p.name, p.category as u8, p.favourite).hash(&mut h);
-            serde_json::to_string(&p.source).unwrap_or_default().hash(&mut h);
+            match &p.source {
+                PatchSource::SoundFont { file, .. } => file.hash(&mut h),
+                PatchSource::Plugin { component_id, .. } => component_id.hash(&mut h),
+            }
         }
-        serde_json::to_string(&self.sounds.prefs).unwrap_or_default().hash(&mut h);
+        let prefs = &self.sounds.prefs;
+        (&prefs.favourites, &prefs.recents, &prefs.sound_categories).hash(&mut h);
         let key = h.finish();
         if key == self.sounds.key && self.sounds.revision > 0 {
             return None;

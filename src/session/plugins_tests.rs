@@ -1029,6 +1029,107 @@ fn a_part_shows_its_sound_and_when_it_was_edited() {
     assert_eq!(p1.plugin.map(|p| p.status), Some(PluginStatus::Playing));
 }
 
+/// docs/racks.md, "Saving": with the part's plugin window open, a knob turned there shows
+/// as "edited" within about a second (not at the 30-second autosave, which an offline
+/// session never runs), and turning it back clears it. With the window closed, nothing
+/// reads the state.
+#[test]
+fn an_edit_in_the_open_plugin_window_shows_at_once_and_undoing_it_clears_it() {
+    use crate::api::SoundLibraryCmd;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    wait_reads(&s);
+    assert!(s.state().keyboard_parts[0].sound.is_some() && !s.state().keyboard_parts[0].sound_edited);
+    let ch = crate::parts::CHANNEL[0] as usize;
+    let editor = s.inner.lock().plugins.channels[ch].as_ref().unwrap().editor.clone().unwrap();
+    // DLSMusicDevice's tuning (kMusicDeviceParam_Tuning, global), in cents.
+    let tune = |cents: f32| editor.set_parameter(0, 0, 0, cents).unwrap();
+    // Pump (half a second of session time a step) until `done`, for at most 5 s of wall time.
+    let until = |s: &Session, what: &str, done: &dyn Fn(&Session) -> bool| {
+        let t0 = Instant::now();
+        while !done(s) {
+            assert!(t0.elapsed() < Duration::from_secs(5), "{what}");
+            s.advance(250_000_000);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+
+    // Window closed: an edit isn't seen until something reads the state.
+    tune(30.0);
+    for _ in 0..8 {
+        s.advance(250_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!s.state().keyboard_parts[0].sound_edited, "no reads while the window is closed");
+    assert!(s.inner.lock().plugins.probes.is_empty());
+    tune(0.0);
+
+    // The window opens: its first read is the baseline if none was taken yet.
+    let window = editor.watch();
+    assert!(editor.editor_open());
+    until(&s, "the open window's reads start", &|s| s.inner.lock().plugins.channels[ch].as_ref().unwrap().sound_fp.is_some());
+    s.advance(1_000_000_000);
+    std::thread::sleep(Duration::from_millis(20));
+    s.advance(1_000_000_000);
+    assert!(!s.state().keyboard_parts[0].sound_edited, "nothing changed yet");
+
+    tune(30.0);
+    until(&s, "the edit shows while the window is open", &|s| s.state().keyboard_parts[0].sound_edited);
+    tune(0.0);
+    until(&s, "undoing the edit clears it", &|s| !s.state().keyboard_parts[0].sound_edited);
+
+    // Closed again: no more reads.
+    window.release();
+    assert!(!editor.editor_open());
+    until(&s, "the last read lands", &|s| s.inner.lock().plugins.probes.is_empty());
+    tune(30.0);
+    for _ in 0..8 {
+        s.advance(250_000_000);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(s.inner.lock().plugins.probes.is_empty() && !s.state().keyboard_parts[0].sound_edited);
+}
+
+/// A fingerprint read that ends without a result (its thread died) still frees the part's
+/// probe: the part keeps being read, so a later edit in the open window still shows.
+#[test]
+fn a_probe_that_ends_without_a_result_does_not_stop_the_reads() {
+    use crate::api::SoundLibraryCmd;
+    let Some(s) = session() else { return };
+    s.offline_audio(None, 48_000).unwrap();
+    s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
+    assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
+    s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
+    wait_reads(&s);
+    let ch = crate::parts::CHANNEL[0];
+    let editor = s.inner.lock().plugins.channels[ch as usize].as_ref().unwrap().editor.clone().unwrap();
+    let until = |s: &Session, what: &str, done: &dyn Fn(&Session) -> bool| {
+        let t0 = Instant::now();
+        while !done(s) {
+            assert!(t0.elapsed() < Duration::from_secs(5), "{what}");
+            s.advance(250_000_000);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    let _window = editor.watch();
+    until(&s, "the open window's reads start", &|s| s.inner.lock().plugins.channels[ch as usize].as_ref().unwrap().sound_fp.is_some());
+    until(&s, "no read in flight", &|s| s.inner.lock().plugins.probes.is_empty());
+
+    // A read whose thread dies before it sends anything.
+    {
+        let mut g = s.inner.lock();
+        let (tx, rx) = std::sync::mpsc::channel();
+        drop(tx);
+        g.plugins.channels[ch as usize].as_mut().unwrap().probe.running = true;
+        g.plugins.probes.push((ch, rx));
+    }
+    editor.set_parameter(0, 0, 0, 30.0).unwrap();
+    until(&s, "the edit still shows", &|s| s.state().keyboard_parts[0].sound_edited);
+}
+
 /// D5/O7: a plugin sound in the library exports as an `.aupreset` in its plugin's preset
 /// folder (where Logic reads it), with #307's overwrite rule. The plugin is the made-up
 /// "Sampler Deluxe" from a mock scan cache; no real plugin state is used.
@@ -1093,6 +1194,116 @@ fn a_plugin_sound_exports_as_an_aupreset() {
     // Nothing to write: no state yet, a SoundFont preset, no such sound.
     for bad in ["empty", "font", "nope"] {
         assert!(s.send(SoundLibraryCmd::ExportSoundPreset { id: bad.into(), overwrite: false }).is_err(), "{bad}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The made-up "Sampler Deluxe" in a mock scan cache (it is not in the registrar, so a
+/// load of it fails), as the session's plugin list. No real plugin is loaded.
+fn with_fake_sampler(s: &Session, tag: &str) -> std::path::PathBuf {
+    use crate::plugin::{PluginFormat, PluginId, PluginInfo};
+    let dir = std::env::temp_dir().join(format!("yahaha-listing-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let fake = PluginInfo {
+        id: PluginId::parse("aumu Smp7 Fake").unwrap(),
+        name: "Sampler Deluxe".into(),
+        manufacturer: "Fake Instruments".into(),
+        version: 0x10000,
+        format: PluginFormat::Au2,
+        requires_async: false,
+        can_load_in_process: false,
+        sandbox_safe: true,
+        last_load: None,
+        in_process: false,
+        factory_presets: None,
+        user_presets: Vec::new(),
+    };
+    let host = crate::plugin::mock_host(&dir.join("plugins.json"), vec![dir.join("Presets")], vec![fake]);
+    let list = host.scan().unwrap();
+    let mut ctl = s.inner.lock();
+    ctl.plugins.host = Some(host);
+    ctl.plugins.list = list;
+    dir
+}
+
+const FAKE: &str = "au:aumu Smp7 Fake";
+
+fn fake_entry(s: &Session) -> crate::api::SoundPluginInfo {
+    s.sound_catalog().entries.iter().find(|e| e.id == FAKE).and_then(|e| e.plugin.clone()).expect("the fake sampler's entry")
+}
+
+/// Pump until no preset listing runs (and the state says so).
+fn wait_listed(s: &Session) {
+    let t0 = Instant::now();
+    loop {
+        s.advance(1_000_000);
+        if s.inner.lock().plugins.listing.is_empty() {
+            break;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(40), "the preset listing never ended");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    s.advance(1_000_000);
+    assert!(s.state().sounds.listing_presets.is_empty());
+}
+
+/// A listing whose load fails ends: the browser stops waiting, with the reason, and a
+/// second ask does not load the plugin again.
+#[test]
+fn a_preset_listing_that_fails_ends_and_says_why() {
+    use crate::api::SoundsCmd;
+    let Some(s) = session() else { return };
+    let dir = with_fake_sampler(&s, "fails");
+    assert_eq!(fake_entry(&s).presets, None);
+    s.send(SoundsCmd::ListPluginPresets { id: FAKE.into() }).unwrap();
+    wait_listed(&s);
+    let e = fake_entry(&s);
+    assert_eq!(e.presets, None);
+    assert!(e.presets_error.as_deref().is_some_and(|m| m.contains("registrar")), "{:?}", e.presets_error);
+    assert!(s.state().message.as_ref().is_some_and(|m| m.error && m.text.contains("could not list its presets")));
+    // Not tried again until the next scan.
+    s.send(SoundsCmd::ListPluginPresets { id: FAKE.into() }).unwrap();
+    assert!(s.state().sounds.listing_presets.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A listing that never answers, dies without an answer, or answers without a preset list
+/// (the plugin changed since the scan) ends too.
+#[test]
+fn a_preset_listing_without_an_answer_ends() {
+    use super::imp::{PresetListing, LISTING_DEADLINE};
+    use std::sync::mpsc;
+    let Some(s) = session() else { return };
+    let dir = with_fake_sampler(&s, "no-answer");
+    let fake = s.inner.lock().plugins.list[0].clone();
+    for why in ["no answer after", "stopped without an answer", "no preset list"] {
+        s.inner.lock().plugins.listing_failed.clear();
+        let (tx, rx) = mpsc::channel();
+        let deadline = Instant::now() + LISTING_DEADLINE;
+        // The sender is kept alive (no answer yet) or dropped (the thread died).
+        let _alive = match why {
+            "no answer after" => Some(tx),
+            "stopped without an answer" => {
+                drop(tx);
+                None
+            }
+            _ => {
+                tx.send(Ok(fake.clone())).unwrap();
+                None
+            }
+        };
+        s.inner.lock().plugins.listing.push(PresetListing { id: "aumu Smp7 Fake".into(), rx, deadline });
+        if _alive.is_some() {
+            // Asked again while one runs: no second listing (no second instance).
+            s.send(crate::api::SoundsCmd::ListPluginPresets { id: FAKE.into() }).unwrap();
+            assert_eq!(s.inner.lock().plugin_presets_listing(), ["aumu Smp7 Fake"]);
+            // Then its deadline passes.
+            s.inner.lock().plugins.listing[0].deadline = Instant::now();
+        }
+        wait_listed(&s);
+        let e = fake_entry(&s);
+        assert!(e.presets_error.as_deref().is_some_and(|m| m.contains(why)), "{why}: {:?}", e.presets_error);
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -98,12 +98,19 @@ state no longer matches the sound it was loaded from:
   serialize the same sound differently from how it was stored.
 - Every later read (the 30-second autosave, an explicit save, a Memorize's fill) is
   compared by fingerprint (`state_fingerprint`, hashed on the `plugin-state` thread that
-  read it). One that differs marks the part edited. Nothing is added to the audio, engine
-  or MIDI threads.
+  read it). One that differs marks the part edited; one that matches the baseline again
+  (the edit undone) clears it. Nothing is added to the audio, engine or MIDI threads.
+- While the part's plugin window is open (`EditorTarget::editor_open`: the window counts
+  itself open until it closes), the state is also read for its fingerprint alone about
+  every half second (`Probe`, `PROBE_NS`), on a `plugin-state` thread, so an edit there
+  shows within about a second. The state itself is dropped on that thread: these reads
+  neither hold nor save it. The next read waits four times as long as the last one took
+  when that is longer, so a plugin with a big state is read less often.
 - A voice whose state is not its sound's when it is assigned (a Registration memorized
   with an edit, a plugin-parts.json autosaved after one) is edited from the start: one
-  string compare against the library on the control thread.
-- The mark stays until Save, Save as… or another sound.
+  string compare against the library on the control thread. Its baseline is of that
+  edit, so it stays edited until Save, Save as… or another sound.
+- Save, Save as… or another sound clears the mark.
 
 **Save** (`saveSound`) writes the part's state (read afresh), volume and octave over the
 sound, but only over the user's own sound. A factory preset, an `.aupreset` file, a

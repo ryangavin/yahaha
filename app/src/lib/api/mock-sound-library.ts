@@ -183,7 +183,7 @@ export class MockSoundLibrary {
    * part's own patch goes. */
   partPlugin(part: number, picked: boolean) {
     this.pluginSound[part & 3] = null
-    this.edited[part & 3] = false
+    this.knob[part & 3] = this.savedKnob[part & 3] = 0
     if (!picked && !this.pluginParts[part & 3]) return
     this.pluginParts[part & 3] = null
     this.parts[part & 3] = null
@@ -191,8 +191,10 @@ export class MockSoundLibrary {
 
   /** The Sound a Plugins-tab plugin plays on each part (a preset's, or Save as…'s). */
   private pluginSound: (SoundTag | null)[] = [null, null, null, null]
-  /** The part's plugin was edited since its sound loaded (the editor closed, O3). */
-  private edited = [false, false, false, false]
+  /** The mock plugin window's one knob on each part, and where its sound left it: the
+   * part is edited while they differ (the session compares state fingerprints). */
+  private knob = [0, 0, 0, 0]
+  private savedKnob = [0, 0, 0, 0]
 
   /** A plugin preset picked on a part: the part plays the preset itself, named by its
    * catalog id, and no library record is made (as the session's
@@ -202,10 +204,16 @@ export class MockSoundLibrary {
     this.pluginSound[part & 3] = { id: `au:${componentId}#${key}`, name }
   }
 
-  /** The part's plugin editor closed: its sound counts as edited (no state to fingerprint). */
-  pluginEdited(part: number) {
+  /** The mock plugin window turned its knob to `value`: the part shows as edited at once
+   * unless that is where its sound left it (as the session's reads while a window is open). */
+  pluginWindow(part: number, value: number) {
+    this.knob[part & 3] = value
+  }
+
+  /** The demo window's edit: the knob one step off its sound's value, or back onto it. */
+  pluginWindowDemo(part: number): number {
     const p = part & 3
-    this.edited[p] = !!this.pluginParts[p] || !!this.pluginSound[p]
+    return this.knob[p] === this.savedKnob[p] ? this.savedKnob[p] + 1 : this.savedKnob[p]
   }
 
   /** The library sound part `p` plays through its plugin, if any (a preset is none). */
@@ -291,7 +299,7 @@ export class MockSoundLibrary {
         if (!q || !own) return this.cmd({ type: 'saveSoundAs', part: c.part, name: null }, running)
         q.defaults.volume = kp.volume
         q.defaults.octave = kp.octave
-        this.edited[p] = false
+        this.savedKnob[p] = this.knob[p]
         break
       }
       case 'saveSoundAs':
@@ -327,7 +335,7 @@ export class MockSoundLibrary {
           const i = c.part & 3
           if (this.pluginParts[i]) this.parts[i] = this.pluginParts[i] = added
           else this.pluginSound[i] = { id: `saved:${added}`, name: f.name }
-          this.edited[i] = false
+          this.savedKnob[i] = this.knob[i]
         }
         break
       }
@@ -458,7 +466,7 @@ export class MockSoundLibrary {
       if (named.sound) p.sound = named.sound
       else delete p.sound
       p.voiceName = named.voiceName
-      if (p.plugin && pluginSound && this.edited[i]) p.soundEdited = true
+      if (p.plugin && pluginSound && this.knob[i] !== this.savedKnob[i]) p.soundEdited = true
       else delete p.soundEdited
     })
   }
