@@ -154,47 +154,6 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setChartIntro","index":0}"#,
     r#"{"type":"setChartEnding","index":null}"#,
     r#"{"type":"setChartAutoStyle","on":false}"#,
-    // Registration Memory
-    r#"{"type":"pressRegist","index":0}"#,
-    r#"{"type":"recallRegist","index":9}"#,
-    r#"{"type":"memorizeRegist","index":2}"#,
-    r#"{"type":"toggleRegistMemory"}"#,
-    r#"{"type":"pressSnapshot","slot":7}"#,
-    r#"{"type":"stepSnapshotBank","delta":-1}"#,
-    r#"{"type":"selectSnapshotBank","bank":1}"#,
-    r#"{"type":"setMemorizeGroup","group":"voice","on":false}"#,
-    r#"{"type":"clearRegist","index":3}"#,
-    r#"{"type":"renameRegist","index":3,"name":"Verse"}"#,
-    r#"{"type":"stepRegistBank","delta":1}"#,
-    r#"{"type":"selectRegistBank","path":"banks/Gig.regist.json"}"#,
-    r#"{"type":"newRegistBank"}"#,
-    r#"{"type":"saveRegistBank","name":"Gig"}"#,
-    r#"{"type":"saveRegistBank","name":null}"#,
-    r#"{"type":"saveRegistBank","name":"Gig","overwrite":true}"#,
-    r#"{"type":"setFreeze","on":true}"#,
-    r#"{"type":"toggleFreeze"}"#,
-    r#"{"type":"setFreezeGroup","group":"tempo","on":true}"#,
-    r#"{"type":"setRegistSequence","steps":[2,0,5],"end":"next"}"#,
-    r#"{"type":"setRegistSequenceOn","on":true}"#,
-    r#"{"type":"toggleRegistSequence"}"#,
-    r#"{"type":"stepRegistSequence","delta":-1}"#,
-    r#"{"type":"stepRegist","delta":1}"#,
-    // Playlist
-    r#"{"type":"newPlaylist"}"#,
-    r#"{"type":"loadPlaylist","path":"lists/Friday.playlist.json"}"#,
-    r#"{"type":"savePlaylist","name":"Friday"}"#,
-    r#"{"type":"savePlaylist","name":"Friday","overwrite":true}"#,
-    r#"{"type":"addPlaylistRecord","record":{"name":"Opener","kind":"bank","path":"banks/Gig.regist.json","regist":0}}"#,
-    r#"{"type":"addPlaylistRecord","record":{"name":"Blues","kind":"style","path":"styles/x.sty"}}"#,
-    r#"{"type":"addCurrentBank"}"#,
-    r#"{"type":"addCurrentStyle"}"#,
-    r#"{"type":"appendPlaylist","path":"lists/Other.playlist.json"}"#,
-    r#"{"type":"setPlaylistRecord","index":1,"record":{"name":"Ballad","kind":"bank","path":"banks/Gig.regist.json"}}"#,
-    r#"{"type":"movePlaylistRecord","index":2,"delta":-1}"#,
-    r#"{"type":"deletePlaylistRecord","index":0}"#,
-    r#"{"type":"setPlaylistSort","sort":"aToZ"}"#,
-    r#"{"type":"loadPlaylistRecord","index":4}"#,
-    r#"{"type":"stepPlaylist","delta":1}"#,
     // Chord Looper
     r#"{"type":"looperRec"}"#,
     r#"{"type":"looperOnOff"}"#,
@@ -343,7 +302,37 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"duplicateRack","id":"r5f3a2c1d-0"}"#,
     r#"{"type":"deleteRack","id":"r5f3a2c1d-0"}"#,
     r#"{"type":"dismissRackPrompt"}"#,
+    // Quick Racks
+    r#"{"type":"pressQuickRack","slot":0}"#,
+    r#"{"type":"pressQuickRack","slot":7,"discard":true}"#,
+    r#"{"type":"stepQuickRackBank","delta":-1}"#,
+    r#"{"type":"toggleQuickRackStore"}"#,
+    r#"{"type":"clearQuickRack","bank":2,"slot":5}"#,
+    r#"{"type":"stepQuickRack","delta":1}"#,
+    r#"{"type":"stepQuickRack","delta":-1,"discard":true}"#,
 ];
+
+/// Quick Racks replaced Registration Memory and the Playlist (docs/racks.md,
+/// "Migration"): their commands are no longer on the wire.
+#[test]
+fn registration_and_playlist_commands_are_refused() {
+    for gone in [
+        r#"{"type":"pressRegist","index":0}"#,
+        r#"{"type":"pressSnapshot","slot":7}"#,
+        r#"{"type":"stepSnapshotBank","delta":-1}"#,
+        r#"{"type":"toggleRegistMemory"}"#,
+        r#"{"type":"toggleFreeze"}"#,
+        r#"{"type":"stepRegistBank","delta":1}"#,
+        r#"{"type":"selectRegistBank","path":"banks/Gig.regist.json"}"#,
+        r#"{"type":"stepRegistSequence","delta":-1}"#,
+        r#"{"type":"stepRegist","delta":1}"#,
+        r#"{"type":"newPlaylist"}"#,
+        r#"{"type":"stepPlaylist","delta":1}"#,
+    ] {
+        let e = serde_json::from_str::<AppCmd>(gone).expect_err(gone).to_string();
+        assert!(e.contains("unknown variant"), "{gone}: {e}");
+    }
+}
 
 #[test]
 fn every_command_round_trips_byte_for_byte() {

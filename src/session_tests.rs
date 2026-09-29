@@ -140,7 +140,9 @@ fn app_state_round_trips_through_json() {
     assert!(st.transport.running);
     let j = serde_json::to_string_pretty(&*st).unwrap();
     let back: AppState = serde_json::from_str(&j).unwrap();
-    assert_eq!(back, *st);
+    // Registration Memory and the Playlist are off the wire (Quick Racks replaced them).
+    let want = AppState { registration: Default::default(), playlist: Default::default(), ..(*st).clone() };
+    assert_eq!(back, want);
     // Every field is there, camelCase.
     for k in ["\"keyboardParts\"", "\"styleParts\"", "\"lamps\"", "\"faderPage\"", "\"syncStopAvailable\"", "\"transposeKeyboard\""] {
         assert!(j.contains(k), "{k}");
@@ -1028,9 +1030,9 @@ fn launchkey_button_descriptions() {
     assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
     s.send(ChordCmd::SetManualBass { on: false }).unwrap();
     assert_eq!(b(&s, "faderButton3").level, Level::Bright);
-    // Page 3: ▼ to page 4 (Registration), ▲ back to page 2, both pink.
+    // Page 3: ▼ to page 4 (Quick Racks), ▲ back to page 2, both pink.
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Registration })));
+    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::QuickRacks })));
     let up = b(&s, "padBankUp");
     assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })));
     assert_eq!(up.rgb, [127, 0, 70]);

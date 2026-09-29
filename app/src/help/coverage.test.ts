@@ -62,6 +62,13 @@ function click(key: string) {
   flushSync()
 }
 
+/** Save the live rack as `name` through Store on Quick Rack `slot` (the bar's Store flow). */
+function storeRack(s: MockSession, slot: number, name: string) {
+  s.send({ type: 'toggleQuickRackStore' })
+  s.send({ type: 'pressQuickRack', slot })
+  s.send({ type: 'saveRackAs', name })
+}
+
 const STATES: [string, Setup][] = [
   ['main screen, playing (demo)', () => {}],
   ['stopped, Sync Start armed', (s) => s.send({ type: 'toggleSyncStart' })],
@@ -153,14 +160,31 @@ const STATES: [string, Setup][] = [
   ['charts drawer, nothing imported', () => (ui.charts = true)],
   ['charts drawer, a playlist, chart mode playing', (s) => ((ui.charts = true), s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
   ['chart in the lead-sheet band', (s) => (s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
-  ['pad page 4 (Registration)', (s) => s.send({ type: 'setPadPage', page: 'registration' })],
-  ['Registration Memory armed', (s) => s.send({ type: 'toggleRegistMemory' })],
-  ['registration panel: bank', () => ((ui.registTab = 'bank'), (ui.regist = true))],
-  ['registration panel: new unsaved bank', (s) => (s.send({ type: 'newRegistBank' }), (ui.registTab = 'bank'), (ui.regist = true))],
-  ['registration panel: memory and freeze groups', () => ((ui.registTab = 'groups'), (ui.regist = true))],
-  ['registration panel: sequence', () => ((ui.registTab = 'sequence'), (ui.regist = true))],
-  ['registration panel: playlist', () => ((ui.registTab = 'playlist'), (ui.regist = true))],
-  ['registration panel: playlist sorted', (s) => (s.send({ type: 'setPlaylistSort', sort: 'aToZ' }), (ui.registTab = 'playlist'), (ui.regist = true))],
+  ['pad page 4 (Quick Racks)', (s) => s.send({ type: 'setPadPage', page: 'quickRacks' })],
+  ['Quick Racks Store armed', (s) => s.send({ type: 'toggleQuickRackStore' })],
+  ['Quick Racks: a stored button (clear), pad page 4', (s) => (storeRack(s, 0, 'Ballad'), s.send({ type: 'setPadPage', page: 'quickRacks' }))],
+  ['Quick Racks bar: Store waiting for a never-saved rack', (s) => (s.send({ type: 'toggleQuickRackStore' }), s.send({ type: 'pressQuickRack', slot: 2 }))],
+  ['Quick Racks bar: Store waiting for a saved rack\'s changes', (s) => (
+    storeRack(s, 0, 'Ballad'),
+    s.send({ type: 'setPartVoice', part: 0, program: 12 }),
+    s.send({ type: 'toggleQuickRackStore' }),
+    s.send({ type: 'pressQuickRack', slot: 1 })
+  )],
+  ['Quick Racks bar: unsaved changes asked', (s) => (storeRack(s, 0, 'Ballad'), s.send({ type: 'newRack' }), s.send({ type: 'setPartVoice', part: 0, program: 12 }), s.send({ type: 'pressQuickRack', slot: 0 }))],
+  ['Quick Racks bar: new sound names asked', (s) => {
+    s.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    s.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
+    s.advance(5000)
+    s.pluginWindow(0, 5)
+    s.send({ type: 'saveRackAs', name: 'Grand' })
+  }],
+  ['Library › Racks, racks and a stored button, unsaved changes asked', (s) => (
+    storeRack(s, 0, 'Ballad'),
+    s.send({ type: 'newRack' }),
+    s.send({ type: 'setPartVoice', part: 0, program: 12 }),
+    s.send({ type: 'pressQuickRack', slot: 0 }),
+    ui.openLibrary('racks')
+  )],
   ['chord looper drawer open', () => (ui.looper = true)],
   ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
   ['multi pad drawer, no bank', () => (ui.multipad = true)],
@@ -188,8 +212,6 @@ afterEach(() => {
   ui.rack = false
   ui.mixer = false
   ui.charts = false
-  ui.regist = false
-  ui.registTab = 'bank'
   ui.looper = false
   ui.multipad = false
   ui.harmony = false

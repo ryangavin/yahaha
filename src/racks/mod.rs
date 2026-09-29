@@ -16,6 +16,7 @@
 //! - Every write is atomic. A file made by a newer yahaha (a higher version) is refused and
 //!   never saved over. Fields this build does not know are kept and written back.
 
+pub mod quick;
 mod settings;
 #[cfg(test)]
 mod tests;

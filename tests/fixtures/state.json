@@ -1535,123 +1535,6 @@
     "swingGrid": 8,
     "sectionTempo": true
   },
-  "registration": {
-    "bank": {
-      "name": "New Bank",
-      "path": null,
-      "dirty": false,
-      "position": null
-    },
-    "banks": [],
-    "folder": null,
-    "buttons": [
-      {
-        "index": 0,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 1,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 2,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 3,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 4,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 5,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 6,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      },
-      {
-        "index": 7,
-        "stored": false,
-        "name": "",
-        "groups": [],
-        "style": null,
-        "tempo": null,
-        "voices": []
-      }
-    ],
-    "selected": null,
-    "memory": false,
-    "snapshotBank": 0,
-    "snapshotBanks": 1,
-    "memorizeGroups": [
-      "style",
-      "voice",
-      "harmonyArp",
-      "multiPad",
-      "tempo",
-      "transpose",
-      "chordLooper",
-      "liveControl"
-    ],
-    "freeze": false,
-    "freezeGroups": [],
-    "sequence": {
-      "on": false,
-      "steps": [],
-      "end": "stop",
-      "position": null
-    },
-    "pending": false
-  },
-  "playlist": {
-    "name": "New Playlist",
-    "path": null,
-    "dirty": false,
-    "sort": "normal",
-    "records": [],
-    "current": null,
-    "playlists": [],
-    "folder": null
-  },
   "multiPad": {
     "bank": null,
     "loading": false,
@@ -2458,5 +2341,61 @@
       ],
       "needsAttention": false
     }
-  ]
+  ],
+  "quickRacks": {
+    "bank": 0,
+    "buttons": [
+      {
+        "rack": "r5f3a2c1d-0",
+        "name": "Ballad",
+        "missing": false,
+        "loaded": false
+      },
+      {
+        "rack": null,
+        "name": "",
+        "missing": false,
+        "loaded": false
+      },
+      {
+        "rack": "r1b2c3d4e-1",
+        "name": "",
+        "missing": true,
+        "loaded": false
+      },
+      {
+        "rack": null,
+        "name": "",
+        "missing": false,
+        "loaded": false
+      },
+      {
+        "rack": null,
+        "name": "",
+        "missing": false,
+        "loaded": false
+      },
+      {
+        "rack": null,
+        "name": "",
+        "missing": false,
+        "loaded": false
+      },
+      {
+        "rack": null,
+        "name": "",
+        "missing": false,
+        "loaded": false
+      },
+      {
+        "rack": null,
+        "name": "",
+        "missing": false,
+        "loaded": false
+      }
+    ],
+    "store": false,
+    "storeWaiting": null,
+    "readOnly": false
+  }
 }

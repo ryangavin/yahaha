@@ -7,7 +7,7 @@
   │ │ lead-sheet band (panels/leadsheet): now · bar cells / chart · next  │   │
   │ │ Launchkey mirror (panels/launchkey)                                 │ ┌ drawer ┐
   │ │ keyboard strip (panels/keystrip), one panel:                        │ │ rack   │
-  │ │   Registration bar: bank · 1–10 · Memory · Freeze · seq. · playlist │ │ mixer  │
+  │ │   Quick Racks bar: bank ◀ A ▶ · 1–8 · Store                         │ │ mixer  │
   │ │   chord tones · the keys                                            │ │settings│
   │ └─────────────────────────────────────────────────────────────────────┘ │        │
   │ status line                                                             │        │
@@ -52,8 +52,7 @@
   import Looper from './panels/looper/Looper.svelte'
   import MultiPad from './panels/multipad/MultiPad.svelte'
   import RackPanel from './panels/rack/RackPanel.svelte'
-  import RegistBar from './panels/registration/RegistBar.svelte'
-  import Registration from './panels/registration/Registration.svelte'
+  import QuickBar from './panels/quickracks/QuickBar.svelte'
   import Library from './panels/library/Library.svelte'
   import Settings from './panels/settings/Settings.svelte'
   import SoundBrowser from './panels/sounds/SoundBrowser.svelte'
@@ -98,8 +97,8 @@
       <div class="stack">
         <div class="lead-slot"><LeadSheet /></div>
         <Launchkey />
-        <!-- The Registration bar sits in the keyboard strip's panel, above the keys. -->
-        <div class="strip-slot"><KeyStrip><RegistBar /></KeyStrip></div>
+        <!-- The Quick Racks bar sits in the keyboard strip's panel, above the keys. -->
+        <div class="strip-slot"><KeyStrip><QuickBar /></KeyStrip></div>
       </div>
     </main>
   {/if}
@@ -121,7 +120,6 @@
 {#if ui.settings}<Settings />{/if}
 {#if ui.charts}<Charts />{/if}
 {#if ui.harmony}<Harmony />{/if}
-{#if ui.regist}<Registration />{/if}
 {#if ui.browser}<Browser />{/if}
 <!-- The Sound Browser only picks for a program map rule now (Style map); Library took over
      choosing a part's sound. -->
@@ -142,9 +140,9 @@
   /* ── The stage: sizes in em of --u, the largest that fits both ways ──────────────────
      --w: the stack's width in em (the mirror's design width).
      --h: its least height in em: lead band min + mirror + strip min + 2 gaps.
-     --top: the Registration bar's row in the strip, with its gap (one row wide, two stacked).
-     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked; the Registration
-     row 4.0em wide, 6.7em stacked. */
+     --top: the Quick Racks bar's row in the strip, with its gap (one row wide, two stacked).
+     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked; the bar's row
+     4.0em wide, 6.7em stacked. */
   .stage {
     container: stage / size;
     flex: 1;
@@ -156,7 +154,7 @@
   .stack {
     --w: 96;
     --h: 44.5;
-    /* The Registration bar's row at the top of the keyboard strip (+ its gap). */
+    /* The Quick Racks bar's row at the top of the keyboard strip (+ its gap). */
     --top: 4.6em;
     --u: min(100cqw / var(--w), 100cqh / var(--h));
     font-size: var(--u);

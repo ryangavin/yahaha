@@ -9,15 +9,15 @@
 //!                  ManBass  StopAcmp  Split -    Split +   | Kbd tr -  Kbd tr +  Tr reset    Retrigger
 //!   3 OTS/Parts    OTS 1    OTS 2     OTS 3      OTS 4     | OTS Link  Fade      Voice -/+
 //!                  Right 1  Right 2   Right 3    Left      | Select R1 Select R2 Select R3   Select Left
-//!   4 Snapshots    Snap 1   Snap 2    Snap 3     Snap 4    | Snap 5    Snap 6    Snap 7      Snap 8
-//!                  Bank -   Bank +    File -     File +    | Store     Freeze    Regist -    Regist +
+//!   4 Quick Racks  Quick 1  Quick 2   Quick 3    Quick 4   | Quick 5   Quick 6   Quick 7     Quick 8
+//!                  Bank -   Bank +    -          -         | Store     -         Rack -      Rack +
 //!   5 Multi Pads   Pad 1    Pad 2     Pad 3      Pad 4     | STOP      -         -           -
 //!                  Select 1 Select 2  Select 3   Select 4  | Stop 1    Stop 2    Stop 3      Stop 4
 //!
 //! Buttons (CC in DAW mode; numbers from the MK4 Programmer's Reference Guide v3.0, p.9,
 //! Figure 3): 115 Play = Start/Stop, 116 Stop, 104 (Scene Launch >) / 105 (Function) =
 //! tempo +/-, 106/107 (Pad Bank ▲/▼) = page up/down, Shift + ▲/▼ = Left on/off / OTS Link,
-//! 103/102 (< Track / Track >) = previous/next style (Shift: previous/next Playlist record),
+//! 103/102 (< Track / Track >) = previous/next style (Shift: previous/next Quick Rack),
 //! 63 = Shift. Shift + Play = Style Section Reset, Shift + Stop = Fade In/Out, Shift +
 //! Scene Launch / Function = Retrigger length shorter / longer.
 //!
@@ -245,22 +245,23 @@ pub enum Page {
     Sections,
     ChordSetup,
     OtsParts,
-    /// Snapshots 1-8 of the snapshot bank on view, snapshot bank -/+, bank file -/+, Store,
-    /// Freeze, the Registration Sequence.
-    Registration,
+    /// Quick Racks 1-8 of the bank on view, bank -/+, Store, previous/next rack in the bank
+    /// (docs/racks.md). It was the Snapshots page (`registration`, still read).
+    #[serde(alias = "registration")]
+    QuickRacks,
     /// Multi Pads 1-4, STOP, SELECT + pad (Synchro Start) and STOP + pad (#196).
     MultiPads,
 }
 
 impl Page {
-    pub const ALL: [Page; 5] = [Page::Sections, Page::ChordSetup, Page::OtsParts, Page::Registration, Page::MultiPads];
+    pub const ALL: [Page; 5] = [Page::Sections, Page::ChordSetup, Page::OtsParts, Page::QuickRacks, Page::MultiPads];
 
     pub fn name(self) -> &'static str {
         match self {
             Page::Sections => "Sections",
             Page::ChordSetup => "Chord/Setup",
             Page::OtsParts => "OTS/Parts",
-            Page::Registration => "Snapshots",
+            Page::QuickRacks => "Quick Racks",
             Page::MultiPads => "Multi Pads",
         }
     }
@@ -291,7 +292,7 @@ impl Page {
             Page::Sections => (C_TAP, WHITE, DIM_WHITE),
             Page::ChordSetup => (C_PAGE_CHORD, CYAN, DIM_CYAN),
             Page::OtsParts => (C_PAGE_OTS, PINK, DIM_PINK),
-            Page::Registration => (C_PAGE_REGIST, ORANGE, DIM_ORANGE),
+            Page::QuickRacks => (C_PAGE_QUICK, ORANGE, DIM_ORANGE),
             Page::MultiPads => (C_PAGE_PADS, YELLOW, DIM_YELLOW),
         }
     }
@@ -332,21 +333,15 @@ pub enum Action {
     Style(i8),
     /// Style Retrigger length shorter (+1) / longer (-1) (`}` `{`).
     RetriggerRate(i8),
-    /// Snapshot 1-8 of the snapshot bank on view (0-based; `Q`-`I` with Shift): recall, or
-    /// store while Store is armed.
-    Regist(u8),
-    /// Snapshot bank -/+ (`O` `P` with Shift): the previous/next eight snapshots.
-    SnapshotBank(i8),
-    /// The STORE button (`F5`; the Genos's MEMORY): the next snapshot button stores.
-    RegistMemory,
-    /// FREEZE on/off (`F6`).
-    RegistFreeze,
-    /// REGIST BANK -/+: the previous/next bank file (`F11` `F12`).
-    RegistBank(i8),
-    /// Regist -/+: the Registration Sequence (`F7` `F8`).
-    RegistSeq(i8),
-    /// Previous/next Playlist record (`<` `>`; Shift + Track < / >).
-    Playlist(i8),
+    /// Quick Rack 1-8 of the bank on view (0-based; `Q`-`I` with Shift): load its rack, or
+    /// store the live rack on it while Store is armed.
+    QuickRack(u8),
+    /// Quick Racks bank -/+ (`O` `P` with Shift).
+    QuickRackBank(i8),
+    /// Quick Racks STORE (`F5`): the next Quick Rack button stores.
+    QuickRackStore,
+    /// Previous/next rack in the bank on view (`F7` `F8`; Shift + Track < / >).
+    QuickRackStep(i8),
     /// A pedal's assignable function that the control side runs (`controllers.rs`).
     Assign(crate::controllers::Function),
     /// A Hold A / Hold B pedal sets a control-side switch on or off (`controllers::Fire::set`).
@@ -387,15 +382,14 @@ pub fn pad_action(page: Page, note: u8) -> Option<Action> {
         (Page::OtsParts, 103) => Action::PartVoice(1),
         (Page::OtsParts, 112..=115) => Action::PartOnOff(note - 112),
         (Page::OtsParts, 116..=119) => Action::SelectPart(note - 116),
-        (Page::Registration, 96..=103) => Action::Regist(note - 96),
-        (Page::Registration, 112) => Action::SnapshotBank(-1),
-        (Page::Registration, 113) => Action::SnapshotBank(1),
-        (Page::Registration, 114) => Action::RegistBank(-1),
-        (Page::Registration, 115) => Action::RegistBank(1),
-        (Page::Registration, 116) => Action::RegistMemory,
-        (Page::Registration, 117) => Action::RegistFreeze,
-        (Page::Registration, 118) => Action::RegistSeq(-1),
-        (Page::Registration, 119) => Action::RegistSeq(1),
+        (Page::QuickRacks, 96..=103) => Action::QuickRack(note - 96),
+        (Page::QuickRacks, 112) => Action::QuickRackBank(-1),
+        (Page::QuickRacks, 113) => Action::QuickRackBank(1),
+        // 114-115 (were bank file -/+) and 117 (was Freeze) are dark: Quick Racks live in
+        // one file and a rack has nothing to freeze.
+        (Page::QuickRacks, 116) => Action::QuickRackStore,
+        (Page::QuickRacks, 118) => Action::QuickRackStep(-1),
+        (Page::QuickRacks, 119) => Action::QuickRackStep(1),
         (Page::MultiPads, 96..=99) => Action::MultiPad(PadCmd::Trigger(note - 96)),
         (Page::MultiPads, 100) => Action::MultiPad(PadCmd::StopAll),
         (Page::MultiPads, 112..=115) => Action::MultiPad(PadCmd::Arm(note - 112)),
@@ -436,9 +430,10 @@ pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
         STOP_CC => act(Action::Button(Button::Stop)),
         SCENE_CC => act(Action::Button(Button::TempoUp)),
         FUNCTION_CC => act(Action::Button(Button::TempoDown)),
-        // Shift + Track < / >: the Playlist, a set list's previous/next song.
-        TRACK_LEFT_CC if shift => act(Action::Playlist(-1)),
-        TRACK_RIGHT_CC if shift => act(Action::Playlist(1)),
+        // Shift + Track < / >: the previous/next Quick Rack in the bank (it was the
+        // Playlist's previous/next song).
+        TRACK_LEFT_CC if shift => act(Action::QuickRackStep(-1)),
+        TRACK_RIGHT_CC if shift => act(Action::QuickRackStep(1)),
         TRACK_LEFT_CC => act(Action::Style(-1)),
         TRACK_RIGHT_CC => act(Action::Style(1)),
         // Shift + Pad Bank ▲/▼: the toggles these buttons had before pages (also on page 3).
@@ -630,28 +625,21 @@ pub struct Panel {
     /// Keyboard parts that are on (bit = `parts::RIGHT1`..`LEFT`), and the selected one.
     pub parts_on: u8,
     pub selected: u8,
-    /// The Snapshots, for page 4.
-    pub regist: RegistPanel,
+    /// Quick Racks, for page 4.
+    pub quick: QuickPanel,
 }
 
-/// The snapshot bank on view, as page 4 shows it.
+/// The Quick Racks bank on view, as page 4 shows it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct RegistPanel {
-    /// Its snapshots that hold a registration (bit 0 = Snapshot 1).
+pub struct QuickPanel {
+    /// Its buttons that hold a rack (bit 0 = Quick Rack 1).
     pub stored: u8,
-    /// Its snapshot last recalled or stored, 1-based (0 = none, or in another bank).
-    pub selected: u8,
-    /// The snapshot bank on view (0 = A).
+    /// Its buttons whose rack is the live rack's: lit.
+    pub loaded: u8,
+    /// The bank on view (0 = A).
     pub bank: u8,
-    /// Snapshot bank + can go further.
-    pub more_banks: bool,
     /// Store armed.
-    pub memory: bool,
-    pub freeze: bool,
-    /// The Registration Sequence is on and has steps.
-    pub sequence: bool,
-    /// There are bank files to step to (File -/+).
-    pub banks: bool,
+    pub store: bool,
 }
 
 impl Panel {
@@ -677,7 +665,7 @@ impl Default for Panel {
             looper: LooperLamp::Empty,
             parts_on: 1 << parts::RIGHT1,
             selected: parts::RIGHT1 as u8,
-            regist: RegistPanel::default(),
+            quick: QuickPanel::default(),
         }
     }
 }
@@ -715,8 +703,8 @@ pub fn pad_leds(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Led); 16] {
     if panel.page == Page::Sections {
         return section_leds(s, has);
     }
-    if panel.page == Page::Registration {
-        return regist_leds(&panel.regist);
+    if panel.page == Page::QuickRacks {
+        return quick_leds(&panel.quick);
     }
     if panel.page == Page::MultiPads {
         return multipad_leds(s);
@@ -801,14 +789,15 @@ fn section_leds(s: &Snapshot, has: &[bool]) -> [(u8, Led); 16] {
     ]
 }
 
-/// Page 4 in palette mode: the Genos lamp colours on the buttons (red = selected, blue =
-/// stored, off = empty; flashing red while Memory is armed), orange on the rest.
-fn regist_leds(r: &RegistPanel) -> [(u8, Led); 16] {
+/// Page 4 in palette mode: the Registration lamp colours on the Quick Rack buttons (red =
+/// the loaded rack, blue = a rack, off = empty; flashing red while Store is armed), orange
+/// on the rest, and the bank-file and Freeze pads dark.
+fn quick_leds(q: &QuickPanel) -> [(u8, Led); 16] {
     let button = |i: u8| -> Led {
-        let stored = r.stored & (1 << i) != 0;
-        if r.memory {
+        let stored = q.stored & (1 << i) != 0;
+        if q.store {
             Led::Flash(DIM_RED, RED)
-        } else if r.selected == i + 1 && stored {
+        } else if stored && q.loaded & (1 << i) != 0 {
             Led::Solid(RED)
         } else if stored {
             Led::Solid(BLUE)
@@ -816,11 +805,7 @@ fn regist_leds(r: &RegistPanel) -> [(u8, Led); 16] {
             Led::Solid(OFF)
         }
     };
-    let tog = |avail: bool, on: bool| Led::Solid(match (avail, on) {
-        (false, _) => OFF,
-        (true, true) => ORANGE,
-        (true, false) => DIM_ORANGE,
-    });
+    let avail = |a: bool| Led::Solid(if a { DIM_ORANGE } else { OFF });
     [
         (96, button(0)),
         (97, button(1)),
@@ -830,16 +815,19 @@ fn regist_leds(r: &RegistPanel) -> [(u8, Led); 16] {
         (101, button(5)),
         (102, button(6)),
         (103, button(7)),
-        (112, tog(r.bank > 0, false)),
-        (113, tog(r.more_banks, false)),
-        (114, tog(r.banks, false)),
-        (115, tog(r.banks, false)),
-        (116, if r.memory { Led::Flash(DIM_RED, RED) } else { tog(true, false) }),
-        (117, tog(true, r.freeze)),
-        (118, tog(r.sequence, false)),
-        (119, tog(r.sequence, false)),
+        (112, avail(q.bank > 0)),
+        (113, avail(q.bank < QUICK_BANKS - 1)),
+        (114, Led::Solid(OFF)),
+        (115, Led::Solid(OFF)),
+        (116, if q.store { Led::Flash(DIM_RED, RED) } else { avail(true) }),
+        (117, Led::Solid(OFF)),
+        (118, avail(q.stored != 0)),
+        (119, avail(q.stored != 0)),
     ]
 }
+
+/// Quick Racks banks: A-H.
+pub const QUICK_BANKS: u8 = 8;
 
 /// Page 5 in palette mode: the Genos Multi Pad lamps on pads 1-4 (blue = data, red =
 /// playing, flashing red = Synchro Start standby, flashing orange = waiting for the bar
@@ -922,11 +910,11 @@ pub const C_IDLE: (u8, u8, u8) = (127, 0, 0);
 /// Page identities: every pad on page 2 is cyan, every pad on page 3 magenta.
 pub const C_PAGE_CHORD: (u8, u8, u8) = (0, 100, 127);
 pub const C_PAGE_OTS: (u8, u8, u8) = (127, 0, 70);
-/// Page 4: orange, with the Registration buttons in the Genos lamp colours.
-pub const C_PAGE_REGIST: (u8, u8, u8) = (127, 60, 0);
-/// Registration lamps: red = selected, blue = stored (OM p.97).
-pub const C_REGIST_SELECTED: (u8, u8, u8) = (127, 0, 0);
-pub const C_REGIST_STORED: (u8, u8, u8) = (0, 40, 127);
+/// Page 4: orange, with the Quick Rack buttons in the Genos Registration lamp colours.
+pub const C_PAGE_QUICK: (u8, u8, u8) = (127, 60, 0);
+/// Quick Rack lamps: red = the loaded rack, blue = a rack (the Registration lamps, OM p.97).
+pub const C_QUICK_LOADED: (u8, u8, u8) = (127, 0, 0);
+pub const C_QUICK_STORED: (u8, u8, u8) = (0, 40, 127);
 /// Page 5: yellow, with the Multi Pads in the Genos lamp colours (blue = data, red =
 /// playing; OM p.75) and amber while a press waits for the bar line.
 pub const C_PAGE_PADS: (u8, u8, u8) = (127, 127, 0);
@@ -943,7 +931,7 @@ pub fn looks(s: &Snapshot, has: &[bool], panel: &Panel) -> [(u8, Look); 16] {
         Page::Sections => section_looks(s, has),
         Page::ChordSetup => chord_looks(s, panel),
         Page::OtsParts => ots_looks(s, panel),
-        Page::Registration => regist_looks(&panel.regist),
+        Page::QuickRacks => quick_looks(&panel.quick),
         Page::MultiPads => multipad_looks(s),
     }
 }
@@ -1072,31 +1060,34 @@ fn ots_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
     ]
 }
 
-const REGIST_LABELS: [&str; 8] = ["SNAP 1", "SNAP 2", "SNAP 3", "SNAP 4", "SNAP 5", "SNAP 6", "SNAP 7", "SNAP 8"];
-const REGIST_KEYS: [&str; 8] = ["Q", "W", "E", "R", "T", "Y", "U", "I"];
+const QUICK_LABELS: [&str; 8] = ["QUICK 1", "QUICK 2", "QUICK 3", "QUICK 4", "QUICK 5", "QUICK 6", "QUICK 7", "QUICK 8"];
+const QUICK_KEYS: [&str; 8] = ["⇧Q", "⇧W", "⇧E", "⇧R", "⇧T", "⇧Y", "⇧U", "⇧I"];
 
-fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
-    let pl = |label, key, available, on| page_look(Page::Registration, label, key, available, on);
+/// Page 4's pads (the app's dev mock builds its page 4 from this too).
+pub fn quick_looks(q: &QuickPanel) -> [(u8, Look); 16] {
+    let pl = |label, key, available, on| page_look(Page::QuickRacks, label, key, available, on);
     let button = |i: u8| -> Look {
-        let (label, key) = (REGIST_LABELS[i as usize], REGIST_KEYS[i as usize]);
-        let stored = r.stored & (1 << i) != 0;
+        let (label, key) = (QUICK_LABELS[i as usize], QUICK_KEYS[i as usize]);
+        let stored = q.stored & (1 << i) != 0;
         let look = |rgb, level, anim| Look { label, key, rgb, level, anim };
-        if r.memory {
-            // Armed: every button waits to be stored into.
-            look(C_REGIST_SELECTED, Level::Bright, Anim::Flash)
-        } else if stored && r.selected == i + 1 {
-            look(C_REGIST_SELECTED, Level::Bright, Anim::Solid)
+        if q.store {
+            // Armed: every button waits to be stored onto.
+            look(C_QUICK_LOADED, Level::Bright, Anim::Flash)
+        } else if stored && q.loaded & (1 << i) != 0 {
+            look(C_QUICK_LOADED, Level::Bright, Anim::Solid)
         } else if stored {
-            look(C_REGIST_STORED, Level::Bright, Anim::Solid)
+            look(C_QUICK_STORED, Level::Bright, Anim::Solid)
         } else {
-            look(C_REGIST_STORED, Level::Off, Anim::Solid)
+            look(C_QUICK_STORED, Level::Off, Anim::Solid)
         }
     };
-    let memory = if r.memory {
-        Look { label: "STORE", key: "F5", rgb: C_REGIST_SELECTED, level: Level::Bright, anim: Anim::Flash }
+    let store = if q.store {
+        Look { label: "STORE", key: "F5", rgb: C_QUICK_LOADED, level: Level::Bright, anim: Anim::Flash }
     } else {
         pl("STORE", "F5", true, false)
     };
+    // The bank-file and Freeze pads are dark (docs/racks.md): no label, no action.
+    let dark = pl("", "", false, false);
     [
         (96, button(0)),
         (97, button(1)),
@@ -1106,14 +1097,14 @@ fn regist_looks(r: &RegistPanel) -> [(u8, Look); 16] {
         (101, button(5)),
         (102, button(6)),
         (103, button(7)),
-        (112, pl("BANK -", "O", r.bank > 0, false)),
-        (113, pl("BANK +", "P", r.more_banks, false)),
-        (114, pl("FILE -", "F11", r.banks, false)),
-        (115, pl("FILE +", "F12", r.banks, false)),
-        (116, memory),
-        (117, pl("FREEZE", "F6", true, r.freeze)),
-        (118, pl("REGIST -", "F7", r.sequence, false)),
-        (119, pl("REGIST +", "F8", r.sequence, false)),
+        (112, pl("BANK -", "⇧O", q.bank > 0, false)),
+        (113, pl("BANK +", "⇧P", q.bank < QUICK_BANKS - 1, false)),
+        (114, dark),
+        (115, dark),
+        (116, store),
+        (117, dark),
+        (118, pl("RACK -", "F7", q.stored != 0, false)),
+        (119, pl("RACK +", "F8", q.stored != 0, false)),
     ]
 }
 
@@ -1330,25 +1321,6 @@ mod tests {
         assert_eq!(pad_action(p, 104), None);
     }
 
-    #[test]
-    fn page_4_registration() {
-        let p = Page::Registration;
-        for n in 0..8u8 {
-            assert_eq!(pad_action(p, 96 + n), Some(Action::Regist(n)));
-        }
-        assert_eq!(pad_action(p, 112), Some(Action::SnapshotBank(-1)));
-        assert_eq!(pad_action(p, 113), Some(Action::SnapshotBank(1)));
-        assert_eq!(pad_action(p, 114), Some(Action::RegistBank(-1)));
-        assert_eq!(pad_action(p, 115), Some(Action::RegistBank(1)));
-        assert_eq!(pad_action(p, 116), Some(Action::RegistMemory));
-        assert_eq!(pad_action(p, 117), Some(Action::RegistFreeze));
-        assert_eq!(pad_action(p, 118), Some(Action::RegistSeq(-1)));
-        assert_eq!(pad_action(p, 119), Some(Action::RegistSeq(1)));
-        // Shift + Track < / > step the Playlist.
-        assert_eq!(cc_control(TRACK_LEFT_CC, true), Some(Control::Act(Action::Playlist(-1))));
-        assert_eq!(cc_control(TRACK_RIGHT_CC, true), Some(Control::Act(Action::Playlist(1))));
-    }
-
     /// Page 5: pads 1-4 and STOP; SELECT + pad and STOP + pad on the bottom row.
     #[test]
     fn page_5_multi_pads() {
@@ -1391,28 +1363,56 @@ mod tests {
         assert_eq!(looks(&s, &[true; 32], &panel)[4].1.level, Level::Dim, "nothing plays");
     }
 
-    /// Page 4 lamps as on the Genos: red = selected, blue = stored, off = empty; all
-    /// flashing while Memory is armed.
+    /// Page 4 lamps: red = the loaded rack, blue = a rack, off = empty; all flashing while
+    /// Store is armed; the bank-file and Freeze pads dark.
     #[test]
     fn page_4_lamps() {
-        let regist = RegistPanel { stored: 0b101, selected: 3, bank: 0, more_banks: true, memory: false, freeze: true, sequence: false, banks: true };
-        let panel = Panel { page: Page::Registration, regist, ..Panel::default() };
+        let quick = QuickPanel { stored: 0b101, loaded: 0b100, bank: 0, store: false };
+        let panel = Panel { page: Page::QuickRacks, quick, ..Panel::default() };
+        assert_eq!(Page::QuickRacks.name(), "Quick Racks");
         let l = looks(&snap(), &[true; 32], &panel);
-        assert_eq!((l[0].1.rgb, l[0].1.level), (C_REGIST_STORED, Level::Bright));
+        assert_eq!((l[0].1.rgb, l[0].1.level), (C_QUICK_STORED, Level::Bright));
         assert_eq!(l[1].1.level, Level::Off);
-        assert_eq!((l[2].1.rgb, l[2].1.level), (C_REGIST_SELECTED, Level::Bright));
-        assert_eq!(l[13].1.level, Level::Bright); // Freeze on
-        assert_eq!(l[14].1.level, Level::Off); // no sequence
+        assert_eq!((l[2].1.rgb, l[2].1.level), (C_QUICK_LOADED, Level::Bright));
+        for i in [10, 11, 13] {
+            assert_eq!((l[i].1.level, l[i].1.label), (Level::Off, ""), "pad {} is dark", l[i].0);
+        }
         assert_eq!(l[8].1.level, Level::Off, "Bank - is dark on Bank A");
-        assert_eq!(l[9].1.level, Level::Dim, "Bank + is lit while there are more");
-        assert_eq!((l[12].1.label, l[8].1.label), ("STORE", "BANK -"));
+        assert_eq!(l[9].1.level, Level::Dim, "Bank + is lit below Bank H");
+        assert_eq!((l[12].1.label, l[8].1.label, l[14].1.label, l[15].1.label), ("STORE", "BANK -", "RACK -", "RACK +"));
+        assert_eq!(l[14].1.level, Level::Dim, "Rack -/+ are lit while the bank has a rack");
         let leds = pad_leds(&snap(), &[true; 32], &panel);
         assert_eq!(leds[0].1, Led::Solid(BLUE));
         assert_eq!(leds[1].1, Led::Solid(OFF));
         assert_eq!(leds[2].1, Led::Solid(RED));
-        let armed = Panel { regist: RegistPanel { memory: true, ..regist }, ..panel };
+        assert_eq!((leds[10].1, leds[11].1, leds[13].1), (Led::Solid(OFF), Led::Solid(OFF), Led::Solid(OFF)));
+        let armed = Panel { quick: QuickPanel { store: true, ..quick }, ..panel };
         assert!(looks(&snap(), &[true; 32], &armed)[..8].iter().all(|(_, l)| l.anim == Anim::Flash));
         assert_eq!(pad_leds(&snap(), &[true; 32], &armed)[12].1, Led::Flash(DIM_RED, RED));
+        let last = Panel { quick: QuickPanel { bank: QUICK_BANKS - 1, stored: 0, ..quick }, ..panel };
+        let l = looks(&snap(), &[true; 32], &last);
+        assert_eq!((l[9].1.level, l[14].1.level), (Level::Off, Level::Off), "Bank + stops at H; an empty bank has no rack to step to");
+    }
+
+    /// Page 4's pads send the Quick Racks actions; the bank-file and Freeze pads none.
+    #[test]
+    fn page_4_pad_actions() {
+        let p = Page::QuickRacks;
+        for i in 0..8 {
+            assert_eq!(pad_action(p, 96 + i), Some(Action::QuickRack(i)));
+        }
+        assert_eq!(pad_action(p, 112), Some(Action::QuickRackBank(-1)));
+        assert_eq!(pad_action(p, 113), Some(Action::QuickRackBank(1)));
+        assert_eq!(pad_action(p, 116), Some(Action::QuickRackStore));
+        assert_eq!(pad_action(p, 118), Some(Action::QuickRackStep(-1)));
+        assert_eq!(pad_action(p, 119), Some(Action::QuickRackStep(1)));
+        for n in [114, 115, 117] {
+            assert_eq!(pad_action(p, n), None, "pad {n} is dark");
+        }
+        assert_eq!(cc_control(TRACK_LEFT_CC, true), Some(Control::Act(Action::QuickRackStep(-1))));
+        assert_eq!(cc_control(TRACK_RIGHT_CC, true), Some(Control::Act(Action::QuickRackStep(1))));
+        assert_eq!(serde_json::from_str::<Page>("\"registration\"").unwrap(), Page::QuickRacks, "the old name still reads");
+        assert_eq!(serde_json::to_string(&Page::QuickRacks).unwrap(), "\"quickRacks\"");
     }
 
     #[test]
@@ -1440,8 +1440,8 @@ mod tests {
         assert_eq!(Page::Sections.step(-1), Page::Sections);
         assert_eq!(Page::Sections.step(1), Page::ChordSetup);
         assert_eq!(Page::ChordSetup.step(1), Page::OtsParts);
-        assert_eq!(Page::OtsParts.step(1), Page::Registration);
-        assert_eq!(Page::Registration.step(1), Page::MultiPads);
+        assert_eq!(Page::OtsParts.step(1), Page::QuickRacks);
+        assert_eq!(Page::QuickRacks.step(1), Page::MultiPads);
         assert_eq!(Page::MultiPads.step(1), Page::MultiPads);
         assert_eq!(Page::OtsParts.step(-1), Page::ChordSetup);
         assert_eq!(Page::MultiPads.cycle(1), Page::Sections);
@@ -1582,7 +1582,7 @@ mod tests {
         nav_button_msgs(Page::OtsParts, true, &mut out);
         assert!(out.contains(&[0xB0, PAD_UP_CC, PINK]) && out.contains(&[0xB0, PAD_DOWN_CC, PINK]));
         out.clear();
-        nav_button_msgs(Page::Registration, true, &mut out);
+        nav_button_msgs(Page::QuickRacks, true, &mut out);
         assert!(out.contains(&[0xB0, PAD_UP_CC, ORANGE]) && out.contains(&[0xB0, PAD_DOWN_CC, ORANGE]));
         out.clear();
         nav_button_msgs(Page::MultiPads, true, &mut out);

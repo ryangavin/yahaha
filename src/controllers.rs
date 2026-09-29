@@ -112,7 +112,10 @@ pub enum Category {
     Voice,
     Style,
     Ots,
-    Registration,
+    /// Quick Racks, where the Genos has its Registration Memory functions (the old name
+    /// still reads).
+    #[serde(alias = "registration")]
+    QuickRacks,
     Overall,
     /// Chord Looper (RM p.141, #201).
     ChordLooper,
@@ -182,14 +185,13 @@ pub enum Function {
     /// Style Dynamics Control (RM p.142, a foot controller "*" function): the pedal's
     /// position is the Dynamics level (engine/dynamics.rs, #180).
     DynamicsControl,
-    /// Regist + / Regist − (RM p.114, Pedal Control): the Registration Sequence's next /
-    /// previous step while the sequence is on and programmed, else the bank's next /
-    /// previous stored button (`RegistrationCmd::StepRegist`, #200).
+    /// Regist + / Regist − (RM p.114, Pedal Control): now the next / previous rack in the
+    /// Quick Racks bank on view (`QuickRackCmd::StepQuickRack`).
     RegistNext,
     RegistPrev,
-    /// Regist 1-10 (RM p.141): the REGISTRATION MEMORY buttons, now Snapshots 1-8 of the
-    /// snapshot bank on view; 9 and 10 run on into the next bank's 1 and 2 (where a
-    /// ten-button bank's 9 and 10 went), so an old assignment still finds them.
+    /// Regist 1-10 (RM p.141): the REGISTRATION MEMORY buttons, now Quick Racks 1-8 of the
+    /// bank on view; 9 and 10 run on into the next bank's 1 and 2 (where a ten-button
+    /// bank's 9 and 10 went), so an old assignment still finds them.
     Regist1,
     Regist2,
     Regist3,
@@ -200,11 +202,12 @@ pub enum Function {
     Regist8,
     Regist9,
     Regist10,
-    /// The MEMORY button (RM p.141): Snapshot Store.
+    /// The MEMORY button (RM p.141): Quick Racks Store.
     RegistMemory,
-    /// Freeze On/Off (RM p.141).
+    /// Freeze On/Off (RM p.141). Not available: a rack has nothing to freeze.
     RegistFreeze,
-    /// Registration Sequence On/Off (RM p.141).
+    /// Registration Sequence On/Off (RM p.141). Not available: the Registration Sequence
+    /// went with Registrations.
     RegistSequence,
     /// The CHORD LOOPER [ON/OFF] and [REC/STOP] buttons (RM p.141, #201).
     ChordLooperOnOff,
@@ -215,8 +218,8 @@ pub enum Function {
     /// ACMP On/Off (RM p.140: "Same as the [ACMP] button", #266). Last, so the pedal
     /// setups stored before it keep their numbers.
     Acmp,
-    /// Snapshot Bank +/− (yahaha's own rows): the page of eight snapshots on view, as the
-    /// Launchkey's BANK -/+ pads (page 4) and the Registration bar's ◀ ▶ step it.
+    /// Snapshot Bank +/− (yahaha's own rows): now the Quick Racks bank on view, as the
+    /// Launchkey's BANK -/+ pads (page 4) and the Quick Racks bar's ◀ ▶ step it.
     SnapshotBankNext,
     SnapshotBankPrev,
     /// Unison (a PSR-SX feature, engine/unison.rs): a Hold pedal engages it while held, a
@@ -242,6 +245,11 @@ pub struct FunctionInfo {
 
 const fn f(id: Function, name: &'static str, category: Category, kind: Kind) -> FunctionInfo {
     FunctionInfo { id, name, category, kind, available: true }
+}
+
+/// A row yahaha doesn't have (any more): a pedal can still name it.
+const fn gone(id: Function, name: &'static str, category: Category, kind: Kind) -> FunctionInfo {
+    FunctionInfo { id, name, category, kind, available: false }
 }
 
 use Category::*;
@@ -283,8 +291,8 @@ pub const FUNCTIONS: [FunctionInfo; 71] = [
     f(Function::Ots4, "One Touch Setting 4", Ots, Trigger),
     f(Function::OtsNext, "One Touch Setting +", Ots, Trigger),
     f(Function::OtsPrev, "One Touch Setting −", Ots, Trigger),
-    f(Function::RegistBankNext, "Registration Bank +", Registration, Trigger),
-    f(Function::RegistBankPrev, "Registration Bank −", Registration, Trigger),
+    gone(Function::RegistBankNext, "Registration Bank +", QuickRacks, Trigger),
+    gone(Function::RegistBankPrev, "Registration Bank −", QuickRacks, Trigger),
     f(Function::TempoUp, "Tempo +", Overall, Trigger),
     f(Function::TempoDown, "Tempo −", Overall, Trigger),
     f(Function::TapTempo, "Tap Tempo", Overall, Trigger),
@@ -300,27 +308,27 @@ pub const FUNCTIONS: [FunctionInfo; 71] = [
     f(Function::ArpHold, "Arpeggio Hold", Voice, Switch),
     f(Function::SectionReset, "Style Section Reset", Style, Trigger),
     f(Function::DynamicsControl, "Dynamics Control", Style, Continuous),
-    f(Function::RegistNext, "Regist +", Registration, Trigger),
-    f(Function::RegistPrev, "Regist −", Registration, Trigger),
-    f(Function::Regist1, "Snapshot 1", Registration, Trigger),
-    f(Function::Regist2, "Snapshot 2", Registration, Trigger),
-    f(Function::Regist3, "Snapshot 3", Registration, Trigger),
-    f(Function::Regist4, "Snapshot 4", Registration, Trigger),
-    f(Function::Regist5, "Snapshot 5", Registration, Trigger),
-    f(Function::Regist6, "Snapshot 6", Registration, Trigger),
-    f(Function::Regist7, "Snapshot 7", Registration, Trigger),
-    f(Function::Regist8, "Snapshot 8", Registration, Trigger),
-    f(Function::Regist9, "Snapshot 1 of the next bank", Registration, Trigger),
-    f(Function::Regist10, "Snapshot 2 of the next bank", Registration, Trigger),
-    f(Function::RegistMemory, "Snapshot Store", Registration, Trigger),
-    f(Function::RegistFreeze, "Registration Freeze On/Off", Registration, Trigger),
-    f(Function::RegistSequence, "Registration Sequence On/Off", Registration, Trigger),
+    f(Function::RegistNext, "Next Quick Rack", QuickRacks, Trigger),
+    f(Function::RegistPrev, "Previous Quick Rack", QuickRacks, Trigger),
+    f(Function::Regist1, "Quick Rack 1", QuickRacks, Trigger),
+    f(Function::Regist2, "Quick Rack 2", QuickRacks, Trigger),
+    f(Function::Regist3, "Quick Rack 3", QuickRacks, Trigger),
+    f(Function::Regist4, "Quick Rack 4", QuickRacks, Trigger),
+    f(Function::Regist5, "Quick Rack 5", QuickRacks, Trigger),
+    f(Function::Regist6, "Quick Rack 6", QuickRacks, Trigger),
+    f(Function::Regist7, "Quick Rack 7", QuickRacks, Trigger),
+    f(Function::Regist8, "Quick Rack 8", QuickRacks, Trigger),
+    f(Function::Regist9, "Quick Rack 1 of the next bank", QuickRacks, Trigger),
+    f(Function::Regist10, "Quick Rack 2 of the next bank", QuickRacks, Trigger),
+    f(Function::RegistMemory, "Quick Racks Store", QuickRacks, Trigger),
+    gone(Function::RegistFreeze, "Registration Freeze On/Off", QuickRacks, Trigger),
+    gone(Function::RegistSequence, "Registration Sequence On/Off", QuickRacks, Trigger),
     f(Function::ChordLooperOnOff, "Chord Looper On/Off", ChordLooper, Trigger),
     f(Function::ChordLooperRec, "Chord Looper Rec/Stop", ChordLooper, Trigger),
     f(Function::LeftHold, "Left Hold On/Off", Voice, Switch),
     f(Function::Acmp, "ACMP On/Off", Style, Trigger),
-    f(Function::SnapshotBankNext, "Snapshot Bank +", Registration, Trigger),
-    f(Function::SnapshotBankPrev, "Snapshot Bank −", Registration, Trigger),
+    f(Function::SnapshotBankNext, "Quick Racks Bank +", QuickRacks, Trigger),
+    f(Function::SnapshotBankPrev, "Quick Racks Bank −", QuickRacks, Trigger),
     f(Function::Unison, "Unison", Style, Switch),
 ];
 
