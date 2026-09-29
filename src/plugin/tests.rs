@@ -216,7 +216,15 @@ fn a_load_past_its_deadline_times_out_and_is_abandoned() {
     // The abandoned load thread gives up (disposing of anything it made) once past its
     // lookup, without blowing up: wait for it to end, so it can't write the cache after
     // the dir is removed.
-    thread.join().expect("the abandoned load thread ends cleanly");
+    // Capped at 30 s, so a load thread stuck inside the plugin fails the test rather
+    // than hanging the job.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(thread.join());
+    });
+    rx.recv_timeout(Duration::from_secs(30))
+        .expect("the abandoned load thread ends within 30 s")
+        .expect("the abandoned load thread ends cleanly");
     assert!(cache.exists(), "the load thread looked the plugin up");
     let _ = std::fs::remove_dir_all(&dir);
 }
