@@ -2714,6 +2714,33 @@ mod tests {
         assert!(!entry(&m, "aumu dls  appl").in_process);
     }
 
+    /// The meters' CPU per track (#340): a plugin's on its own channel, a SoundFont keyboard
+    /// part's a little, the Style parts' only while the band plays; plugin instances (#407).
+    #[test]
+    fn the_meters_show_each_tracks_cpu_and_the_instances() {
+        let mut m = MockSession::new();
+        if m.state.transport.running {
+            m.send(TransportCmd::StartStop);
+        }
+        assert!(!m.state.transport.running);
+        let cpu = |m: &MockSession, ch: u8| m.meters().channels.iter().find(|c| c.channel == ch).map(|c| (c.cpu, c.cpu_peak)).unwrap();
+        assert_eq!(m.meters().channels.len(), 16);
+        assert!(cpu(&m, 1).0 > 0.0, "Right 1, a SoundFont part that is on");
+        assert_eq!(cpu(&m, 9).0, 0.0, "the band stopped");
+        assert_eq!(m.state.plugins.instances, 0);
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: MOCK_HEAVY_ID.into(), state: None });
+        assert_eq!(m.state.plugins.instances, 1);
+        m.send(TransportCmd::StartStop);
+        let (avg, peak) = cpu(&m, 3);
+        assert!(avg > 0.25 && peak > avg, "Right 2 (ch 3) plays the heavy plugin: {avg} {peak}");
+        assert!(cpu(&m, 9).0 > 0.0 && cpu(&m, 5).0 == 0.0, "Rhythm 1 plays, no Multi Pad");
+        let meters = m.meters();
+        let sum: f32 = meters.channels.iter().map(|c| c.cpu).sum();
+        assert!((meters.cpu.total - sum).abs() < 1e-6 && meters.cpu.buffer_us > 0.0);
+        m.send(PluginCmd::ClearPartPlugin { part: 1 });
+        assert_eq!(m.state.plugins.instances, 0);
+    }
+
     /// A plugin the system won't host out of process loads in process and says so (#104).
     #[test]
     fn a_plugin_that_falls_back_in_process_says_so() {

@@ -1125,6 +1125,7 @@ impl AudioCore {
             crate::perf::PERF.plugin_mask.store(active as u32, Relaxed);
         }
         // Each track's cost this buffer (#340): the rack's part and the plugin playing it.
+        #[cfg_attr(not(feature = "plugins"), allow(unused_mut))]
         let mut track_ns = self.rack.as_ref().map_or([0u64; 16], |r| *r.track_ns());
         #[cfg(feature = "plugins")]
         for (ch, t) in track_ns.iter_mut().enumerate() {
