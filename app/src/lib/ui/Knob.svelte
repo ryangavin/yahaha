@@ -4,10 +4,15 @@
   With a `level` (0-127) the arc and pointer show where it is; with none it is drawn
   as an endless encoder whose pointer shows the last movement, not a value.
   Double-click calls `onreset` only when one is given.
+  Its size is `--knob-size` (default 2.4rem); the drawing fills that box edge to edge.
 -->
 <script lang="ts">
   import { tip } from '../tooltip/tip.svelte'
   import type { TipKey } from '../../help/tooltips'
+
+  // The cap's raised-button gradient needs an id unique to this knob.
+  const uid = $props.id()
+  const capFill = `knob-cap-${uid}`
 
   let {
     label,
@@ -102,22 +107,30 @@
   onkeydown={key}
   ondblclick={onreset && !disabled ? onreset : undefined}
 >
-  <svg viewBox="0 0 40 40" aria-hidden="true">
+  <!-- Cropped to the arc's outer edge (r 15 + half its 3-unit stroke), so no margin is wasted. -->
+  <svg viewBox="3.5 3.5 33 33" aria-hidden="true">
+    <defs>
+      <linearGradient id={capFill} x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" class="cap-hi" />
+        <stop offset="1" class="cap-lo" />
+      </linearGradient>
+    </defs>
     {#if level === null}
       <circle cx="20" cy="20" r="15" class="track" />
     {:else}
       <path d={arc(START, START + SWEEP)} class="track" />
       {#if angle > START + 0.5}<path d={arc(START, angle)} class="fill" />{/if}
     {/if}
-    <circle cx="20" cy="20" r="11" class="cap" />
+    <circle cx="20" cy="20" r="11" class="cap" fill="url(#{capFill})" />
     <line x1="20" y1="20" x2={polar(angle, 10)[0]} y2={polar(angle, 10)[1]} class="ptr" />
   </svg>
 </div>
 
 <style>
   .knob {
-    width: 2.4rem;
-    height: 2.4rem;
+    width: var(--knob-size, 2.4rem);
+    height: var(--knob-size, 2.4rem);
+    flex: none;
     cursor: ns-resize;
     touch-action: none;
     border-radius: 50%;
@@ -147,10 +160,16 @@
     stroke-width: 3;
     stroke-linecap: round;
   }
+  /* A raised cap, lit from above like the fader caps and buttons (.mat-raised). */
   .cap {
-    fill: var(--raised);
-    stroke: var(--raised-lo);
-    stroke-width: 1;
+    stroke: rgb(0 0 0 / 0.45);
+    stroke-width: 0.6;
+  }
+  .cap-hi {
+    stop-color: var(--raised-hi);
+  }
+  .cap-lo {
+    stop-color: var(--raised-lo);
   }
   .dragging .cap {
     fill: var(--raised-hi);

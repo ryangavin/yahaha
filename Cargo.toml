@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "A software arranger keyboard that plays Yamaha Genos/PSR style files live from your MIDI keyboard"
 license = "MIT"
-repository = "https://github.com/ryangavin/yahaha"
+repository = "https://github.com/satoramoto/yahaha"
 
 # The engine, the runtime and the app API are the `yahaha` library; the terminal front
 # panel and the developer tools are the `yahaha` binary. A client such as the desktop

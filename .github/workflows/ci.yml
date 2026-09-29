@@ -13,10 +13,20 @@
 # times faster than at opt-level 2), the dependencies optimised, debug assertions and
 # overflow checks on.
 #
-# Each commit is checked once:
-# - PRs into develop run on the PR.
-# - A push to develop (a merged PR) runs again: it checks the merged result and seeds the
-#   develop caches that PR runs restore from (a PR's own cache is only visible to that PR).
+# Each change is checked once, where it counts:
+# - On a PR into develop nothing builds or runs: every job is skipped, so the required
+#   checks pass in seconds. Agents run the AGENTS.md checks that cover their change locally
+#   before opening or updating a PR.
+# - The develop merge queue runs everything on each queued group (the PR merged onto
+#   develop's tip plus anything queued ahead of it), so nothing lands without passing CI on
+#   exactly the code that lands. A group that fails drops out of the queue; fix and re-queue.
+# - A push to develop (a merged PR) runs again: it checks the merged result.
+# - Caches: no run of this workflow saves a Rust cache. A run can restore caches only from
+#   its own ref and the default branch (main), so queue runs (refs gh-readonly-queue/...)
+#   can't see caches saved under develop. seed-caches.yml runs after each develop push run,
+#   on main, builds the same targets without running anything, and saves each job's cache
+#   under main's scope with the key this file restores. setup-node saves the npm cache only
+#   on a miss, which the seeded cache avoids.
 # - Release PRs (develop into main) don't run: their head is develop's tip, which the push
 #   run above already checked, and those checks count for the PR. Nothing runs on main.
 # - Jobs a change can't affect are skipped (see `changes`). A skipped job counts as passed.
@@ -24,6 +34,8 @@ name: ci
 
 on:
   pull_request:
+    branches: [develop]
+  merge_group:
     branches: [develop]
   push:
     branches: [develop]
@@ -57,11 +69,15 @@ jobs:
           fetch-depth: 0
       - id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           rust=true
           web=true
-          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # PRs don't build: the merge queue runs CI (see the top of this file).
+            rust=false
+            web=false
+          elif git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             files=$(git diff --name-only "$BASE" HEAD)
             echo "$files"
             if [ -n "$files" ]; then
@@ -84,9 +100,10 @@ jobs:
 
   # docs/app-api.md against the code: EVERY_CMD in tests/api_wire.rs names exactly the
   # commands in its AppCmd tables, and its JSON examples parse into the app API's types
-  # (examples/api_doc_check.rs, which reads the doc at run time). Runs on every PR,
-  # docs-only ones included; the commands are in AGENTS.md.
+  # (examples/api_doc_check.rs, which reads the doc at run time). Runs in every queue run,
+  # docs-only ones included; skipped on PRs. The commands are in AGENTS.md.
   api-doc:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,16 +121,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       # Its own key: this job builds only the library without features and one example.
-      # Every Rust cache in this file has a stable key per job, so PRs restore the cache
-      # develop's push run seeds, and is saved only by that run (save-if): PR runs don't
-      # add caches of their own, which kept pushing the repo past GitHub's 10 GB cache
-      # limit and evicting develop's. cache-on-failure so a develop run that fails partway
-      # through still saves what it built.
+      # Every Rust cache in this file has a stable key per job (its shared-key). This file
+      # only restores them (save-if: false); seed-caches.yml saves them under main's scope,
+      # the only scope queue runs can read besides their own, with exactly the same keys.
+      # If you change a job's shared-key, workspace, toolchain, profile, features or build
+      # commands here, change its seed-caches.yml job to match. cache-on-failure is kept
+      # so the two files' rust-cache inputs stay identical.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: api-doc
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
+          save-if: false
 
       - name: JSON examples in docs/app-api.md parse into the Rust types
         run: cargo run --no-default-features --example api_doc_check -- docs/app-api.md
@@ -143,7 +161,7 @@ jobs:
         with:
           shared-key: linux-rust
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
+          save-if: false
 
       - name: cargo check --no-default-features --lib
         run: cargo check --no-default-features --lib
@@ -180,7 +198,7 @@ jobs:
         with:
           shared-key: linux-app
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
+          save-if: false
           workspaces: app/src-tauri -> target
 
       - name: cargo check --all-targets (app/src-tauri)
@@ -201,7 +219,7 @@ jobs:
         with:
           shared-key: macos-rust
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
+          save-if: false
 
       - name: cargo test --profile test-quick --features plugins
         run: cargo test --profile test-quick --features plugins
@@ -219,7 +237,7 @@ jobs:
         with:
           shared-key: macos-app
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' }}
+          save-if: false
           workspaces: app/src-tauri -> target
 
       - name: cargo test (app/src-tauri)

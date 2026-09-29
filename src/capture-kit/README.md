@@ -1,6 +1,6 @@
 # yahaha reference capture kit
 
-Thank you for helping. [yahaha](https://github.com/ryangavin/yahaha) is an open-source program that plays Yamaha style files from a MIDI keyboard. The aim is for it to follow chords the way a Genos does. Only real hardware can tell us whether it does, so this kit asks a Genos or Genos2 owner to play a fixed chord script into ACMP and record what the style sends back over MIDI. We compare that recording with what yahaha plays for the same script, bar by bar and part by part.
+Thank you for helping. [yahaha](https://github.com/satoramoto/yahaha) is an open-source program that plays Yamaha style files from a MIDI keyboard. The aim is for it to follow chords the way a Genos does. Only real hardware can tell us whether it does, so this kit asks a Genos or Genos2 owner to play a fixed chord script into ACMP and record what the style sends back over MIDI. We compare that recording with what yahaha plays for the same script, bar by bar and part by part.
 
 It takes about half an hour per style. You need the instrument, a computer with a DAW or any MIDI player that can record at the same time (Cubase, Logic, Reaper, Ableton, Cakewalk, GarageBand, MIDI-OX and similar all work), and a USB cable.
 
