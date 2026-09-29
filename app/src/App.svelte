@@ -129,7 +129,6 @@
         <!-- The mixer row, always shown, with the Launchkey mirror beside it. A strip's
              name opens or closes its Channel view (seen before the strip handles it). -->
         <div class="mixer-line" class:details={ui.mixer}>
-          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the strip's own button takes the keys; Enter on it clicks) -->
           <div class="mixer-slot" onclickcapture={(e) => channelNav.stripClick(e)}><MixerRow /></div>
           <div class="mirror-slot"><div class="mirror"><Launchkey /></div></div>
         </div>
