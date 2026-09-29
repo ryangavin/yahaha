@@ -535,6 +535,7 @@ impl Control {
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
             quick: self.quick_panel(),
+            rotary_fast: self.fx.rotary_fast,
         }
     }
 

@@ -2131,6 +2131,13 @@ const catalog = {
     keys: [],
     launchkey: 'Shift button',
   },
+  'launchkey.rotary_fast': {
+    title: 'Rotary Fast',
+    body: 'The rotary speaker\'s Fast/Slow switch: lit while every rotary insert spins fast, dark while slow; each click switches it. The horn and drum change speed gradually, as a real rotary speaker does. An assignable pedal set to "Organ Rotary Slow/Fast" does the same.',
+    genos: 'Organ Rotary Slow/Fast',
+    keys: [],
+    launchkey: 'Shift + encoder page ▲',
+  },
   'launchkey.status': {
     title: 'Launchkey',
     body: 'Whether the Launchkey is connected in DAW mode, so its pads and buttons are arranger controls.',
