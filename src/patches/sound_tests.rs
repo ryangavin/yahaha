@@ -22,7 +22,7 @@ fn sound_ids_round_trip() {
 
 /// A version 1 library (before plugin sounds had an origin) reads as it is: its plugin
 /// patches are `user` sounds, its rules (global and per-style) unchanged; it is written
-/// back as version 2 with no `origin` on them, and an origin round-trips.
+/// back as the current version with no `origin` on them, and an origin round-trips.
 #[test]
 fn a_version_1_library_migrates_unchanged() {
     let v1 = r#"{"version": 1, "patches": [
@@ -31,13 +31,13 @@ fn a_version_1_library_migrates_unchanged() {
         "map": {"families": [null,null,null,null,"bass",null,null,null,null,null,null,null,null,null,null,null], "drums": null, "overrides": [{"program": 4, "patch": "keys"}]},
         "styleMaps": {"Cool8Beat.S910.sty": {"drums": "bass"}}}"#;
     let mut lib = SoundLibrary::from_json(v1).unwrap();
-    assert_eq!(lib.version, 2);
+    assert_eq!(lib.version, VERSION);
     assert_eq!(lib.patches[0].source, PatchSource::plugin("aumu:abcd:manu", "00ff"));
     assert!(!lib.patches[0].awaits_capture());
     assert_eq!((lib.map.families[4].as_deref(), lib.map.override_of(4)), (Some("bass"), Some("keys")));
     assert_eq!(lib.style_maps["Cool8Beat.S910.sty"].drums.as_deref(), Some("bass"));
     let json: serde_json::Value = serde_json::from_str(&lib.to_json()).unwrap();
-    assert_eq!(json["version"], 2);
+    assert_eq!(json["version"], VERSION);
     assert!(json["patches"][0]["source"].get("origin").is_none());
     lib.add_plugin_preset("aumu:abcd:manu", PluginOrigin::File { path: "/p/Warm.aupreset".into() }, "Warm", Category::Pad, Some("aa".into())).unwrap();
     let back = SoundLibrary::from_json(&lib.to_json()).unwrap();

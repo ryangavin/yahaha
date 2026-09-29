@@ -139,12 +139,12 @@ impl Control {
                         },
                         None => super::PluginVoice { id: plugin.to_string(), state: None, preset: None, sound: None },
                     };
-                    return self.start_plugin_audition(id, &name, voice, drums, None);
+                    return self.start_plugin_audition(id, &name, voice, drums);
                 }
                 let Some((file, bank, program)) = parse_preset_id(&id) else { return self.fail(format!("no sound {id}")) };
                 let file = file.to_string();
                 self.need_sound(&id)?;
-                return self.start_audition(id, file, bank, program, None);
+                return self.start_audition(id, file, bank, program);
             }
             SoundsCmd::StopSoundAudition => return self.sound_library_cmd(SoundLibraryCmd::StopPatchAudition),
             SoundsCmd::AssignSound { part, id } => return self.assign_sound(part, id),
@@ -154,7 +154,7 @@ impl Control {
                     let Some(p) = self.sound_patches().iter().find(|p| p.id == patch).cloned() else {
                         return self.fail(format!("no sound {id}"));
                     };
-                    let fields = PatchFields { name: p.name, category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults };
+                    let fields = PatchFields { name: p.name, category, tags: p.tags, favourite: p.favourite, source: p.source };
                     return self.sound_library_cmd(SoundLibraryCmd::UpdatePatch { id: p.id, patch: fields });
                 }
                 if !id.starts_with("au:") {
@@ -292,7 +292,7 @@ impl Control {
             }
             source @ PatchSource::Plugin { .. } => {
                 let (name, category) = (self.sound_name(id), self.plugin_category_of(id));
-                let patch = PatchFields { name, category, tags: Vec::new(), favourite: false, source, defaults: Default::default() };
+                let patch = PatchFields { name, category, tags: Vec::new(), favourite: false, source };
                 self.sound_library_cmd(SoundLibraryCmd::CreatePatch { patch })?
             }
         }

@@ -53,6 +53,21 @@ export function resolveProgram(global: ProgramMap, style: ProgramMap | null, dru
   return { patch: null, rule: 'fallback', fromStyle: false }
 }
 
+/** A family's rule, as `ProgramMap::set_family`: another patch drops the rule's level. */
+function setFamily(m: ProgramMap, family: number, patch: string | null) {
+  if (m.families[family] !== patch && m.familyVolumes) {
+    m.familyVolumes[family] = null
+    if (m.familyVolumes.every((v) => v === null)) delete m.familyVolumes
+  }
+  m.families[family] = patch
+}
+
+/** The drum rule, as `ProgramMap::set_drums`. */
+function setDrums(m: ProgramMap, patch: string | null) {
+  if (m.drums !== patch) delete m.drumsVolume
+  m.drums = patch
+}
+
 function sf(id: string, name: string, bank: number, program: number, extra: Partial<PatchInfo> = {}): PatchInfo {
   return {
     id,
@@ -61,7 +76,6 @@ function sf(id: string, name: string, bank: number, program: number, extra: Part
     tags: [],
     favourite: false,
     source: { kind: 'soundFont', file: SF2, bank, program },
-    defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 },
     available: true,
     note: null,
     ...extra,
@@ -72,8 +86,8 @@ function sf(id: string, name: string, bank: number, program: number, extra: Part
 export function initialSoundLibrary(): SoundLibraryState {
   const patches: PatchInfo[] = [
     sf('stage-grand', 'Stage Grand', 0, 0, { favourite: true, tags: ['bright'] }),
-    sf('warm-rhodes', 'Warm Rhodes', 0, 4, { favourite: true, defaults: { volume: 96, pan: null, reverb: 40, chorus: 30, octave: 0 } }),
-    sf('finger-bass', 'Finger Bass', 0, 33, { defaults: { volume: 100, pan: 64, reverb: 10, chorus: null, octave: 0 } }),
+    sf('warm-rhodes', 'Warm Rhodes', 0, 4, { favourite: true }),
+    sf('finger-bass', 'Finger Bass', 0, 33),
     sf('studio-kit', 'Studio Kit', 128, 0),
     sf('silk-strings', 'Silk Strings', 0, 48, { tags: ['warm'] }),
     sf('brass-section', 'Brass Section', 0, 61),
@@ -91,9 +105,11 @@ export function initialSoundLibrary(): SoundLibraryState {
   map.families[6] = 'silk-strings'
   map.families[7] = 'brass-section'
   map.families[11] = 'soft-pad'
+  // Rule levels, as a version 2 library's sound volumes migrate (src/patches/store.rs).
+  map.familyVolumes = map.families.map((_, i) => (i === 4 ? 100 : null))
   map.overrides = [
-    { program: 4, patch: 'warm-rhodes' },
-    { program: 5, patch: 'warm-rhodes' },
+    { program: 4, patch: 'warm-rhodes', volume: 96 },
+    { program: 5, patch: 'warm-rhodes', volume: 96 },
   ]
   map.drums = 'studio-kit'
   return {
@@ -164,9 +180,11 @@ export class MockSoundLibrary {
 
   private forget(id: string) {
     for (const m of [this.sl.map, ...this.styleMaps.values()]) {
-      m.families = m.families.map((f) => (f === id ? null : f))
+      m.families.forEach((f, i) => {
+        if (f === id) setFamily(m, i, null)
+      })
       m.overrides = m.overrides.filter((o) => o.patch !== id)
-      if (m.drums === id) m.drums = null
+      if (m.drums === id) setDrums(m, null)
     }
     this.parts = this.parts.map((p) => (p === id ? null : p))
   }
@@ -297,8 +315,7 @@ export class MockSoundLibrary {
           ? (q.source.origin?.kind ?? 'user') === 'user' && kp.plugin?.id === q.source.componentId
           : !kp.plugin)
         if (!q || !own) return this.cmd({ type: 'saveSoundAs', part: c.part, name: null }, running)
-        q.defaults.volume = kp.volume
-        q.defaults.octave = kp.octave
+        // The sound takes the plugin's state (the knob), never the part's mix.
         this.savedKnob[p] = this.knob[p]
         break
       }
@@ -312,19 +329,16 @@ export class MockSoundLibrary {
         const id = own ?? resolveProgram(sl.map, style, false, kp.program).patch
         const base = id ? sl.patches.find((p) => p.id === id) : null
         const plugin = kp.plugin && kp.plugin.status !== 'failed' ? kp.plugin : null
-        const blank = { volume: null, pan: null, reverb: null, chorus: null, octave: 0 }
         let f: PatchFields = base
-          ? { name: base.name, category: base.category, tags: [...base.tags], favourite: false, source: structuredClone(base.source), defaults: { ...base.defaults } }
-          : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program }, defaults: blank }
+          ? { name: base.name, category: base.category, tags: [...base.tags], favourite: false, source: structuredClone(base.source) }
+          : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program } }
         if (plugin) {
           const source = { kind: 'plugin' as const, componentId: plugin.id, state: '' }
           const same = base?.source.kind === 'plugin' && base.source.componentId === plugin.id
           // A plugin playing a named Sound (a preset): the new sound takes its name.
           const named = this.pluginSound[c.part & 3]?.name.trim() ? this.pluginSound[c.part & 3]!.name : null
-          f = same ? { ...f, source } : { name: named ?? plugin.name, category: base?.category ?? guessCategory(0, kp.program), tags: [], favourite: false, source, defaults: blank }
+          f = same ? { ...f, source } : { name: named ?? plugin.name, category: base?.category ?? guessCategory(0, kp.program), tags: [], favourite: false, source }
         }
-        f.defaults.volume = kp.volume
-        f.defaults.octave = kp.octave
         if (c.name?.trim()) f.name = c.name
         const added = this.add(f)
         // Save as… on a SoundFont part: the part takes it as its own patch (not Left
@@ -342,7 +356,7 @@ export class MockSoundLibrary {
       case 'addPresetAsPatch': {
         if (!FONTS.includes(c.file)) return `no SoundFont ${c.file} in the SoundFont folder`
         const name = c.name?.trim() || presetsOf(c.file).find((p) => p.bank === c.bank && p.program === c.program)?.name || `${c.file} ${c.bank}:${c.program + 1}`
-        this.add({ name, category: guessCategory(c.bank, c.program), tags: [], favourite: false, source: { kind: 'soundFont', file: c.file, bank: c.bank, program: c.program }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } })
+        this.add({ name, category: guessCategory(c.bank, c.program), tags: [], favourite: false, source: { kind: 'soundFont', file: c.file, bank: c.bank, program: c.program } })
         break
       }
       case 'auditionPatch':
@@ -363,31 +377,28 @@ export class MockSoundLibrary {
       case 'setFamilyRule':
         if (c.family < 0 || c.family > 15) return `no GM family ${c.family} (0-15)`
         if (!has(c.patch)) return `no patch ${c.patch} in the sound library`
-        this.map(c.style).families[c.family] = c.patch
+        setFamily(this.map(c.style), c.family, c.patch)
         break
       case 'setProgramOverride': {
         if (!has(c.patch)) return `no patch ${c.patch} in the sound library`
         const m = this.map(c.style)
+        // The same patch keeps the rule's level; another drops it.
+        const volume = m.overrides.find((o) => o.program === c.program && o.patch === c.patch)?.volume
         m.overrides = m.overrides.filter((o) => o.program !== c.program)
-        if (c.patch) m.overrides = [...m.overrides, { program: c.program & 127, patch: c.patch }].sort((a, b) => a.program - b.program)
+        if (c.patch) m.overrides = [...m.overrides, { program: c.program & 127, patch: c.patch, ...(volume === undefined ? {} : { volume }) }].sort((a, b) => a.program - b.program)
         break
       }
       case 'setDrumRule':
         if (!has(c.patch)) return `no patch ${c.patch} in the sound library`
-        this.map(c.style).drums = c.patch
+        setDrums(this.map(c.style), c.patch)
         break
       case 'clearStyleMap':
         this.styleMaps.delete(sl.styleKey)
         break
       case 'setPartPatch': {
         if (!has(c.id)) return `no patch ${c.id} in the sound library`
-        const kp = this.get().keyboardParts[c.part & 3]
+        // The part keeps its mix: a sound has none.
         this.parts[c.part & 3] = c.id
-        const d = sl.patches.find((p) => p.id === c.id)?.defaults
-        if (d) {
-          if (d.volume !== null) kp.volume = d.volume
-          kp.octave = d.octave
-        }
         break
       }
       case 'setPortSendsMapped':

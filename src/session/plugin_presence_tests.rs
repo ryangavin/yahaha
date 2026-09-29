@@ -42,21 +42,20 @@ fn the_record_of_plugins_seen() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// A SoundFont library sound whose defaults would move the part's mix, if they won.
+/// A SoundFont library sound for the Left part.
 fn bass_sound(s: &Session) -> String {
-    let defaults = crate::patches::PatchDefaults { volume: Some(20), pan: Some(10), reverb: Some(5), chorus: Some(6), octave: 2 };
     let source = PatchSource::SoundFont { file: "Other.sf2".into(), bank: 0, program: 33 };
-    add_sound(s, "My Bass", source, defaults)
+    add_sound(s, "My Bass", source)
 }
 
-fn add_sound(s: &Session, name: &str, source: PatchSource, defaults: crate::patches::PatchDefaults) -> String {
-    let patch = PatchFields { name: name.into(), category: Default::default(), tags: Vec::new(), favourite: false, source, defaults };
+fn add_sound(s: &Session, name: &str, source: PatchSource) -> String {
+    let patch = PatchFields { name: name.into(), category: Default::default(), tags: Vec::new(), favourite: false, source };
     s.send(SoundLibraryCmd::CreatePatch { patch }).unwrap();
     s.state().sound_library.patches.iter().find(|p| p.patch.name == name).unwrap().patch.id.clone()
 }
 
-/// `replacePartSound` swaps the sound and keeps the part's mix, where `assignSound` takes
-/// the sound's defaults.
+/// `replacePartSound` swaps the sound and keeps the part's mix (every setting a rack part
+/// holds, bend range included).
 #[test]
 fn replacing_a_parts_sound_keeps_its_mix() {
     let d = data_dir("presence-replace");
@@ -76,9 +75,9 @@ fn replacing_a_parts_sound_keeps_its_mix() {
     assert_eq!(mix(&s), (99, 70, 44, -1), "with the part's own mix");
     assert_eq!(s.capture_rack("R").parts[3].bend_range, 7);
     assert!(s.send(SoundsCmd::ReplacePartSound { part: 4, id: format!("saved:{bass}") }).is_err());
-    // `assignSound` takes the sound's defaults: the difference.
+    // A sound carries no mix, so assigning one keeps the part's mix too.
     s.send(SoundsCmd::AssignSound { part: 3, id: format!("saved:{bass}") }).unwrap();
-    assert_eq!(mix(&s), (20, 10, 6, 2));
+    assert_eq!(mix(&s), (99, 70, 44, -1));
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -209,7 +208,7 @@ mod with_plugins {
         let d = data_dir("presence-usage");
         let s = session(&d);
         scan(&s, &d, vec![sampler(), pads()]);
-        let plugin_sound = |name: &str, id: &str| add_sound(&s, name, PatchSource::plugin(id, ""), Default::default());
+        let plugin_sound = |name: &str, id: &str| add_sound(&s, name, PatchSource::plugin(id, ""));
         let keys = plugin_sound("Deluxe Keys", SAMPLER);
         plugin_sound("Deluxe Choir", SAMPLER);
         let pad = plugin_sound("Warm Pad", PADS);
@@ -299,7 +298,7 @@ mod with_plugins {
         s.send(PluginCmd::ClearPartPlugin { part: 2 }).unwrap();
         // Right 1 plays DLS with that state; Right 2 a library sound on DLS (its default
         // settings). Each with a mix of its own.
-        let sound = add_sound(&s, "DLS Keys", PatchSource::plugin(DLS, ""), Default::default());
+        let sound = add_sound(&s, "DLS Keys", PatchSource::plugin(DLS, ""));
         let mut rack = s.capture_rack("Strings");
         rack.parts[0].sound = SoundRef::Plugin { component: DLS.into() };
         rack.parts[0].edited_state = Some(base64_encode(&state));

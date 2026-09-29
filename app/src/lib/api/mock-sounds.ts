@@ -158,7 +158,7 @@ export class MockSounds {
       case 'setSoundCategory': {
         if (saved) {
           const p = st.soundLibrary.patches.find((q) => q.id === saved)!
-          return { run: [{ type: 'updatePatch', id: saved, patch: { name: p.name, category: c.category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults } }] }
+          return { run: [{ type: 'updatePatch', id: saved, patch: { name: p.name, category: c.category, tags: p.tags, favourite: p.favourite, source: p.source } }] }
         }
         if (!c.id.startsWith('au:')) return { error: "a preset's category is its GM family" }
         this.categories.set(c.id, c.category)
@@ -213,7 +213,7 @@ export class MockSounds {
         category = this.categories.get(id) ?? guessWords(`${q.name} ${q.folder ?? ''}`) ?? category
         name = `${e.name} · ${q.name}`
       }
-      run({ type: 'createPatch', patch: { name, category, tags: [], favourite: false, source: { kind: 'plugin', componentId: e.id, state, ...(origin ? { origin } : {}) }, defaults: { volume: null, pan: null, reverb: null, chorus: null, octave: 0 } } })
+      run({ type: 'createPatch', patch: { name, category, tags: [], favourite: false, source: { kind: 'plugin', componentId: e.id, state, ...(origin ? { origin } : {}) } } })
     }
     return { patch: st.soundLibrary.lastAdded ?? '' }
   }

@@ -2506,7 +2506,7 @@ mod tests {
         let saved = p0(&m).sound.unwrap().id;
         let patch_id = saved.strip_prefix("saved:").unwrap().to_string();
         let p = m.state.sound_library.patches.iter().find(|p| p.patch.id == patch_id).unwrap().patch.clone();
-        let fields = PatchFields { name: "Renamed".into(), category: p.category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults };
+        let fields = PatchFields { name: "Renamed".into(), category: p.category, tags: p.tags, favourite: p.favourite, source: p.source };
         m.send(SoundLibraryCmd::UpdatePatch { id: patch_id.clone(), patch: fields });
         assert_eq!((p0(&m).sound.map(|t| t.name), p0(&m).voice_name), (Some("Renamed".to_string()), "Renamed".to_string()));
         m.send(SoundLibraryCmd::DeletePatch { id: patch_id });

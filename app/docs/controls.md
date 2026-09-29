@@ -244,16 +244,16 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **All sounds** | The sounds the GM map plays for each program and the drums, every plugin sound and everything in My Sounds. A font's other presets and a plugin's factory presets are under that instrument's chip. | Voice Selection | — | — |
 | **Favourites** | The sounds you starred. | Voice Selection › Favorite tab | — | — |
 | **Recent** | The last 20 sounds you picked for a part, most recent first. | Voice Selection › history | — | — |
-| **My Sounds** | Your sounds: every plugin sound and every preset you added, each with its volume, octave, pan and sends (and a plugin's own settings). Select one to rename, recategorise or delete it under the list. | Voice Selection › User tab | — | — |
-| **Save as…** | Names what this part plays now and saves it as a new sound: its preset or plugin (with the plugin's current settings), volume and octave. The part then plays the new sound, shown selected in My Sounds. | Voice Setting › Save | — | — |
-| **Save** | Saves what this part plays now over the sound it plays: the plugin's current settings (what its editor changed), volume and octave. The "edited" mark goes. A factory preset or an .aupreset file is never overwritten: Save keeps it as a new sound instead, as Save as… does. | Voice Setting › Save | — | — |
+| **My Sounds** | Your sounds: every plugin sound and every preset you added (a plugin sound with its own settings). A sound has no volume, octave, pan or sends: those belong to the part. Select one to rename, recategorise or delete it under the list. | Voice Selection › User tab | — | — |
+| **Save as…** | Names what this part plays now and saves it as a new sound: its preset or plugin (with the plugin's current settings). The part keeps its own volume, octave, pan and sends. The part then plays the new sound, shown selected in My Sounds. | Voice Setting › Save | — | — |
+| **Save** | Saves what this part plays now over the sound it plays: the plugin's current settings (what its editor changed), never the part's volume, octave, pan or sends. The "edited" mark goes. A factory preset or an .aupreset file is never overwritten: Save keeps it as a new sound instead, as Save as… does. | Voice Setting › Save | — | — |
 | **Instrument** | Every sound of one SoundFont or plugin: all the font's presets, or the plugin's factory presets, its .aupreset files and your sounds made with it. The first time, a plugin loads once in the background to list its factory presets. | Voice Selection › sub-category | — | — |
 | **Edited** | The part's plugin no longer plays the sound as it was loaded: its editor changed it. Save keeps the change in the sound (or as a new one for a factory preset), Save as… keeps it as a new sound. | Voice Edit (unsaved) | — | — |
 | **New sound's name** | The name of the new sound Save as… makes. Enter saves it, Esc cancels. | Voice Setting › Save › Name | — | — |
 | **Save as a new sound** | Saves what the part plays now as a new sound in My Sounds, which the part then plays. | Voice Setting › Save | — | — |
 | **Delete** | Deletes the sound for good. Map rules that name it are removed. | — | — | — |
 | **Keep** | Keeps the sound and goes back to the list. | — | — | — |
-| **Details** | Shows the sound's tags and the defaults a part takes when it picks it: volume, pan, reverb, chorus and octave. | Voice Setting | — | — |
+| **Details** | Shows the sound's tags and where it comes from. A sound has no level, pan, sends or octave of its own: those belong to the part. | Voice Setting | — | — |
 | **Also as .aupreset** | Also keeps what this part's plugin plays now as a preset of the plugin: a standard .aupreset in ~/Library/Audio/Presets that Logic and MainStage read too. Pick its category; if a preset of that name exists, yahaha asks before replacing it. | Voice Setting › Save | — | — |
 | **Preset name** | The new preset's name, also its file name. If a preset of that name exists, yahaha asks before replacing it (the file is shared with Logic and MainStage). Enter saves, Esc cancels. | — | — | — |
 | **Preset category** | The category the new preset is listed under in the browser. Kept by yahaha; the .aupreset file itself is not changed. | — | — | — |
@@ -455,17 +455,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Stop audition** | Stops the sound playing on its own. | — | — | — |
 | **Move up** | Moves the patch one place up in your list. | — | — | — |
 | **Move down** | Moves the patch one place down in your list. | — | — | — |
-| **Duplicate** | Adds a copy of the patch right after it, for example the same sound with other defaults. | — | — | — |
+| **Duplicate** | Adds a copy of the patch right after it, for example to keep the same plugin with another state. | — | — | — |
 | **Delete** | Asks (Ctrl/⌘+Delete in the Sound Browser too), then deletes the sound from My Sounds. Map rules that name it are removed, and a part playing it goes back to its GM voice. | — | — | — |
 | **Name** | The sound's name, as the Sound Browser, the parts and the map show it. F2 in the Sound Browser gets here; Enter renames it, Esc keeps the old name. | — | — | — |
 | **Category** | The Genos voice category the sound is listed under. | Voice category | — | — |
 | **Tags** | Words to find the patch by, separated by commas. Press Enter to keep them. | — | — | — |
-| **Volume** | The part's CC7 when you pick the patch for a keyboard part; a Style part takes it only when the style sets no level of its own. Blank leaves the level alone. | Voice Set: Volume | — | — |
-| **Pan** | The pan (CC10, 64 = centre) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Pan | — | — |
-| **Reverb** | The reverb send (CC91) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Reverb | — | — |
-| **Chorus** | The chorus send (CC93) a keyboard part takes when it picks the patch. Blank leaves it alone. | Voice Set: Chorus | — | — |
-| **Octave** | The octave shift a keyboard part takes when it picks the patch. | Voice Set: Octave | — | — |
-| **Play on a part** | Picks the patch for that keyboard part, with its defaults. The part's voice picker has the same list. | Voice Selection | — | — |
+| **Play on a part** | Picks the patch for that keyboard part. The part keeps its own level, pan, sends and octave. The part's voice picker has the same list. | Voice Selection | — | — |
 | **Save part's sound** | Saves a keyboard part's sound as a new patch (Save as…): its plugin with its current settings, its own patch, or its GM voice on the synth's SoundFont, with its volume and octave. | — | — | — |
 | **Global / this style** | Which map the rules edit: the global one every style uses, or this style's own rules, which win over it. This style's map is kept in your library, not in the style file. | — | — | — |
 | **Family rule** | The sound these eight GM programs play, with every bank variation of them. Click to pick one from Sounds: any SoundFont preset or plugin sound. Blank: the program falls through to auto, the best preset in your SoundFonts. | — | — | — |

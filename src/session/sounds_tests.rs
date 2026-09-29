@@ -176,7 +176,6 @@ fn the_catalog_check_never_reads_plugin_states() {
         tags: Vec::new(),
         favourite: false,
         source: PatchSource::plugin("aumu Smp7 Fake", big('A')),
-        defaults: Default::default(),
     };
     let mut ctl = s.inner.lock();
     ctl.sound.lib.patches.push(sound);
