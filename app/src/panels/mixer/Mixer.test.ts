@@ -27,6 +27,7 @@ afterEach(() => {
   cleanup()
   app.detach()
   ui.mixer = false
+  ui.effects = false
 })
 
 /** The channel faders and the master (not the Panel strips' pan/send knobs). */
@@ -96,113 +97,20 @@ describe('Mixer drawer', () => {
     expect(document.body.textContent).toContain('104/0/49')
   })
 
-  it('Effects: each block\'s type and return level (#204)', async () => {
+  it('the effect blocks live on the Effects screen: a row names each block\'s type and opens it', async () => {
     const s = setup()
-    const types = document.querySelectorAll<HTMLSelectElement>('.effects select[aria-label$=" type"]')
-    expect([...types].map((e) => e.getAttribute('aria-label'))).toEqual(['Reverb type', 'Chorus type', 'Variation type'])
-    expect(types[0].value).toBe('hall')
-    await fireEvent.change(types[2], { target: { value: 'pingPong' } })
-    expect(s.state.effects.blocks[2].effect).toBe('pingPong')
-    const ret = document.querySelector<HTMLElement>('[aria-label="Reverb return"]')!
-    expect(ret.getAttribute('aria-valuetext')).toBe('+0.0 dB')
-    await fireEvent.keyDown(ret, { key: 'Home' })
-    expect(s.state.effects.blocks[0].returnLevel).toBe(0)
-  })
-
-  it('Effects: a block\'s editor sets its parameters; a type change puts them back (#236)', async () => {
-    const s = setup()
-    const open = document.querySelector<HTMLElement>('[aria-label="Reverb settings"]')!
-    expect(open.getAttribute('aria-expanded')).toBe('false')
-    await fireEvent.click(open)
+    const row = document.querySelector<HTMLElement>('[aria-label="Effects"]')!
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Reverb Hall')
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Delay Delay 1/8.')
+    // No effect controls of its own any more: the type pickers, editors and inserts moved.
+    expect(document.querySelector('select')).toBeNull()
+    expect(document.querySelector('[aria-label="Style inserts"]')).toBeNull()
+    s.send({ type: 'setEffectType', block: 'reverb', effect: 'plate' })
     flushSync()
-    const time = document.querySelector<HTMLElement>('[aria-label="Reverb Time"]')!
-    expect(time.getAttribute('aria-valuetext')).toBe('2.4 s')
-    await fireEvent.keyDown(time, { key: 'End' })
-    expect(s.state.effects.blocks[0].params[0].value).toBe(100)
-    expect(s.state.effects.blocks[0].params[0].display).toBe('10.0 s')
-    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
-    await fireEvent.change(types[0], { target: { value: 'room' } })
-    expect(s.state.effects.blocks[0].params.map((p) => p.value)).toEqual([9, 4, 60])
-  })
-
-  it('Effects: the delay editor, note or free time, and its switches (#236)', async () => {
-    const s = setup()
-    await fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Variation settings"]')!)
-    flushSync()
-    const note = document.querySelector<HTMLElement>('[aria-label="Variation Note"]')!
-    const time = document.querySelector<HTMLElement>('[aria-label="Variation Time"]')!
-    expect(note.getAttribute('aria-valuetext')).toBe('1/8.')
-    expect(time.getAttribute('aria-disabled')).toBe('true')
-    const sync = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((e) => e.textContent?.includes('Tempo sync'))!
-    await fireEvent.click(sync)
-    flushSync()
-    expect(s.state.effects.blocks[2].params[0].value).toBe(0)
-    expect(document.querySelector<HTMLElement>('[aria-label="Variation Time"]')!.getAttribute('aria-disabled')).toBeNull()
-    const pp = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((e) => e.textContent?.includes('Ping-pong'))!
-    await fireEvent.click(pp)
-    expect(s.state.effects.blocks[2].params[5].display).toBe('On')
-  })
-
-  it('Effects: the chorus editor has rate and depth (#236)', async () => {
-    const s = setup()
-    await fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Chorus settings"]')!)
-    flushSync()
-    const depth = document.querySelector<HTMLElement>('[aria-label="Chorus Depth"]')!
-    expect(depth.getAttribute('aria-valuetext')).toBe('2.2 ms')
-    await fireEvent.keyDown(depth, { key: 'ArrowUp' })
-    expect(s.state.effects.blocks[1].params[1].display).toBe('2.3 ms')
-  })
-
-  it('Effects: the Style switch per block; choosing a type turns it off (#237)', async () => {
-    const s = setup()
-    const styleSwitch = (i: number) => [...document.querySelectorAll<HTMLElement>('.effects [role="switch"]')][i]
-    expect(styleSwitch(0).getAttribute('aria-checked')).toBe('true')
-    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
-    await fireEvent.change(types[0], { target: { value: 'plate' } })
-    flushSync()
-    expect(s.state.effects.blocks[0].followStyle).toBe(false)
-    expect(styleSwitch(0).getAttribute('aria-checked')).toBe('false')
-    await fireEvent.click(styleSwitch(0))
-    expect(s.state.effects.blocks[0].followStyle).toBe(true)
-    expect(s.state.effects.blocks[0].effect).toBe('hall')
-  })
-
-  it('Effects: a band send per block, the band\'s chorus and delay off at start (#236)', async () => {
-    const s = setup()
-    const band = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} band send"]`)!
-    expect(['Reverb', 'Chorus', 'Variation'].map((n) => band(n).getAttribute('aria-valuetext'))).toEqual(['100%', '0%', '0%'])
-    await fireEvent.keyDown(band('Variation'), { key: 'PageUp' })
-    expect(s.state.effects.blocks[2].bandSend).toBe(10)
-    await fireEvent.keyDown(band('Reverb'), { key: 'Home' })
-    expect(s.state.effects.blocks[0].bandSend).toBe(0)
-  })
-
-  it('Effects: a Multi Pad send per block in its editor, the pads\' chorus and delay off at start (#267)', async () => {
-    const s = setup()
-    for (const b of ['Reverb', 'Chorus', 'Delay']) {
-      await fireEvent.click(document.querySelector<HTMLElement>(`[aria-label="${b === 'Delay' ? 'Variation' : b} settings"]`)!)
-    }
-    flushSync()
-    const pad = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} Multi Pad send"]`)!
-    expect(['Reverb', 'Chorus', 'Variation'].map((n) => pad(n).getAttribute('aria-valuetext'))).toEqual(['100%', '0%', '0%'])
-    expect(pad('Chorus').dataset.tip).toBe('fx.chorus_pad')
-    await fireEvent.keyDown(pad('Variation'), { key: 'PageUp' })
-    expect(s.state.effects.blocks[2].padSend).toBe(10)
-    expect(s.state.effects.blocks[2].bandSend).toBe(0)
-    await fireEvent.keyDown(pad('Reverb'), { key: 'Home' })
-    expect(s.state.effects.blocks[0].padSend).toBe(0)
-  })
-
-  it('Effects: the style\'s inserts listed, with one switch for them all (#269)', async () => {
-    const s = setup()
-    const group = document.querySelector<HTMLElement>('[aria-label="Style inserts"]')!
-    expect(group.textContent).toContain('Chord 1')
-    expect(group.textContent).toContain('British Combo Classic → Distortion')
-    const sw = group.querySelector<HTMLElement>('[data-tip="fx.inserts"]')!
-    await fireEvent.click(sw)
-    expect(s.state.effects.insertsOn).toBe(false)
-    await fireEvent.click(sw)
-    expect(s.state.effects.insertsOn).toBe(true)
+    expect(row.textContent).toContain('Plate')
+    await fireEvent.click(row.querySelector<HTMLElement>('[data-tip="drawer.effects"]')!)
+    expect(ui.effects).toBe(true)
+    expect(ui.mixer).toBe(false)
   })
 
   it('follows the page when the Launchkey switches it', () => {
@@ -405,34 +313,6 @@ describe('Mixer drawer', () => {
     await fireEvent.click(tab('Style'))
     flushSync()
     expect(untipped(document.body)).toEqual([])
-  })
-})
-
-describe('Master Compressor and EQ', () => {
-  it('switch, type and editor send their commands, and the state shows them', () => {
-    const s = setup()
-    const tipped = (key: string) => document.querySelector<HTMLElement>(`.master-fx [data-tip="${key}"]`)!
-    expect(s.state.effects.master.compressor.on).toBe(false)
-    fireEvent.click(tipped('fx.master_comp'))
-    flushSync()
-    expect(s.state.effects.master.compressor.on).toBe(true)
-    expect(tipped('fx.master_comp').getAttribute('aria-checked')).toBe('true')
-    fireEvent.click(tipped('fx.master_eq'))
-    expect(s.state.effects.master.eq.on).toBe(true)
-    // The editor: the types, and a band's frequency, clamped to its range; the type is then edited.
-    fireEvent.click(tipped('fx.master_edit'))
-    flushSync()
-    fireEvent.change(tipped('fx.master_comp_type'), { target: { value: 'loud' } })
-    expect(s.state.effects.master.compressor).toMatchObject({ preset: 'loud', compression: 85, texture: 45, output: 6, edited: false })
-    fireEvent.change(tipped('fx.master_eq_type'), { target: { value: 'bright' } })
-    expect(s.state.effects.master.eq.bands[7]).toEqual({ gain: 4, freq: 8000, q: 7, shelf: true })
-    const freqs = document.querySelectorAll<HTMLInputElement>('.master-fx [data-tip="fx.master_eq_freq"]')
-    expect(freqs).toHaveLength(8)
-    fireEvent.change(freqs[1], { target: { value: '50' } })
-    expect(s.state.effects.master.eq.bands[1].freq).toBe(100)
-    expect(s.state.effects.master.eq.edited).toBe(true)
-    expect(document.querySelectorAll('.master-fx [data-tip="fx.master_eq_shelf"]')).toHaveLength(2)
-    expect(untipped(document.querySelector('.master-fx')!)).toEqual([])
   })
 })
 

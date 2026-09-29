@@ -1159,13 +1159,6 @@ const catalog = {
     keys: [],
     launchkey: 'Pan knob page, knob 7',
   },
-  'fx.edit': {
-    title: 'Effect settings',
-    body: 'Opens this effect\'s own settings below the row: the reverb\'s time, pre-delay and tone, the chorus\'s rate and depth, or the delay\'s note or time, feedback, tone and ping-pong. Choosing another type puts them back to that type\'s own values.',
-    genos: 'Mixer › Effect › Edit',
-    keys: [],
-    launchkey: null,
-  },
   'fx.param.reverb_time': {
     title: 'Reverb time',
     body: 'How long the reverb rings on: the time it takes to die away by 60 dB, 0.3 to 10 seconds. Each type starts at its own (Hall 2.4 s); the tick marks it. Changes glide, so turning it while the tail rings never clicks.',
@@ -1244,15 +1237,22 @@ const catalog = {
     launchkey: 'FX knob page, knob 7',
   },
   'fx.follow_style': {
-    title: 'Follow the style',
-    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows beside it, the nearest type yahaha has), with the style\'s delay time and feedback, its reverb time, pre-delay and tone, and its return level (0 dB where it sets none). Choosing a type or changing one of its settings yourself (in the editor or on a Launchkey effect knob page) turns it off so your choice stays; press it to go back to the style\'s.',
+    title: 'From style',
+    body: 'Lit, this effect takes the style\'s own type at every style change (the style\'s choice shows on the display, the nearest type yahaha has), with the style\'s delay time and feedback, its reverb time, pre-delay and tone, and its return level (0 dB where it sets none). Choosing a type or turning one of its knobs yourself (here or on a Launchkey effect knob page) switches to Mine so your choice stays; press it to go back to the style\'s.',
     genos: 'Mixer › Effect (Style effect types)',
+    keys: [],
+    launchkey: null,
+  },
+  'fx.mine': {
+    title: 'Mine',
+    body: 'Lit, this effect keeps your own type and settings through style changes. Choosing a type or turning one of its knobs switches here by itself; From style goes back to the style\'s.',
+    genos: 'Mixer › Effect (Panel effect types)',
     keys: [],
     launchkey: null,
   },
   'fx.inserts': {
     title: 'Style inserts',
-    body: 'The style\'s own insertion effects: an effect the style puts on one of its parts, such as an amp simulator on the guitar or a compressor on the bass (listed beside it: the part, the style\'s effect, and what plays it here, or dry where yahaha has nothing near it). Lit, they play in the built-in synth, before the part\'s sends; off, every Style part plays dry.',
+    body: 'The style\'s own insertion effects: an effect the style puts on one of its parts, such as an amp simulator on the guitar or a compressor on the bass (listed below: the part, the style\'s effect, and what plays it here, or dry where yahaha has nothing near it). Lit, they play in the built-in synth, before the part\'s sends; off, every Style part plays dry.',
     genos: 'Mixer › Effect › Insertion (Style parts)',
     keys: [],
     launchkey: null,
@@ -2529,7 +2529,7 @@ const catalog = {
   },
   'nav.effects': {
     title: 'Effects',
-    body: 'Opens the Mixer, where the Reverb, Chorus and Variation effect blocks live. Press again to close.',
+    body: 'Opens the Effects screen: the Reverb, Chorus and Delay cards (type, settings, return and the band\'s and pads\' sends) and the style\'s inserts. Press again to close.',
     genos: 'Mixer (Effect)',
     keys: [],
     app_keys: ['alt+e'],
@@ -2738,6 +2738,13 @@ const catalog = {
     genos: 'Mixer (Panel / Style tabs)',
     keys: [],
     launchkey: 'The faders and the buttons under them',
+  },
+  'drawer.effects': {
+    title: 'Effects',
+    body: 'Opens the Effects screen: the Reverb, Chorus and Delay cards and the style\'s inserts. Beside it, the type each effect plays now; each strip\'s own sends stay on its knobs here.',
+    genos: 'Mixer › Effect',
+    keys: [],
+    launchkey: null,
   },
   'drawer.charts': {
     title: 'Charts',

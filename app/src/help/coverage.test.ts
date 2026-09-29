@@ -153,6 +153,13 @@ const STATES: [string, Setup][] = [
   ['rack drawer, Right 2 loading a plugin',(s) => ((ui.rack = true), s.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null }))],
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer, a plugin part', (s) => ((ui.mixer = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
+  ['effects screen open', () => (ui.effects = true)],
+  ['effects screen, delay free time, no inserts', (s) => (
+    (ui.effects = true),
+    s.send({ type: 'setEffectParam', block: 'variation', param: 'delaySync', value: 0 }),
+    (s.state.effects.inserts = []),
+    s.send({ type: 'setRotaryFast', on: true })
+  )],
   ['harmony drawer open', () => (ui.harmony = true)],
   ['harmony drawer, arpeggio on, Fixed velocity', (s) => ((ui.harmony = true), s.send({ type: 'setArpPattern', index: 2 }), s.send({ type: 'setArpVelocity', mode: 'fixed', velocity: 90 }), s.send({ type: 'toggleHarmonyArp' }))],
   ['harmony drawer, Echo type', (s) => ((ui.harmony = true), s.send({ type: 'setHarmonyType', index: 20 }))],
@@ -231,6 +238,7 @@ afterEach(() => {
   ui.settings = false
   ui.rack = false
   ui.mixer = false
+  ui.effects = false
   ui.charts = false
   ui.looper = false
   ui.multipad = false
