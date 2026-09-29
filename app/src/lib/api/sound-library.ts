@@ -24,7 +24,7 @@ export type PluginOrigin = { kind: 'user' } | { kind: 'factory'; number: number 
 /** Where a patch's sound comes from, as `createPatch`/`updatePatch` send it: a SoundFont
  * preset (bank 128 = drum kits), or an Audio Unit with its saved state (base64; absent or
  * empty: none). `updatePatch` keeps the stored state when a plugin source with the same
- * component sends none. */
+ * component and origin sends none. */
 export type PatchSource =
   | { kind: 'soundFont'; file: string; bank: number; program: number }
   | { kind: 'plugin'; componentId: string; state?: string; origin?: PluginOrigin }
@@ -40,6 +40,15 @@ export type PatchSourceInfo =
 export function commandSource(s: PatchSourceInfo): PatchSource {
   if (s.kind === 'soundFont') return s
   return { kind: 'plugin', componentId: s.componentId, ...(s.origin ? { origin: s.origin } : {}) }
+}
+
+/** The same origin, absent counting as `user` (unlike `sameOrigin`, two `user` origins
+ * are equal): `updatePatch` keeps a stored state only for the same plugin and origin. */
+export function equalOrigin(a: PluginOrigin | undefined, b: PluginOrigin | undefined): boolean {
+  const x = a ?? { kind: 'user' }
+  const y = b ?? { kind: 'user' }
+  if (x.kind === 'user' || y.kind === 'user') return x.kind === y.kind
+  return sameOrigin(x, y)
 }
 
 /** A SoundFont preset as a map resolution records it (D6 provenance). */

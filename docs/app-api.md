@@ -370,7 +370,7 @@ every change. A patch id that doesn't exist fails the command.
 | Command | Fields | What it does |
 |---|---|---|
 | `createPatch` | `patch`: PatchFields | Adds a patch at the end of the list; its new id is `soundLibrary.lastAdded`. PatchFields: `name`, `category`, `tags`, `favourite`, `source` (see [`soundLibrary`](#soundlibrary); a plugin source here takes `state`?, the plugin's state as base64, in place of `hasState`). A sound is the raw instrument: it has no mix (docs/racks.md); an older client's `defaults` is ignored. |
-| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source); the id stays. A plugin source with no `state`, for the patch's own plugin, keeps the state the library holds (so the state's source, sent back without `hasState`, never wipes it). |
+| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source); the id stays. A plugin source with no `state`, for the patch's own plugin and `origin`, keeps the state the library holds (so the state's source, sent back without `hasState`, never wipes it). Another plugin or another `origin` (for example another factory preset) starts with no state; there is no command to clear a stored state otherwise. |
 | `deletePatch` | `id` | Deletes it. Map rules that name it go; a keyboard part playing it goes back to its GM voice. |
 | `duplicatePatch` | `id` | A copy ("… copy") right after it, with a new id. |
 | `movePatch` | `id`, `to` | Moves it to position `to` (0-based) in the list. |
