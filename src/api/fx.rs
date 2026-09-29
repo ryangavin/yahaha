@@ -37,6 +37,9 @@ pub enum FxCmd {
     SetPartInsertAmount { part: u8, amount: u8 },
     /// Every rotary insert at its fast speed or its slow one (the Leslie switch).
     SetRotaryFast { on: bool },
+    /// Flip the rotary speed (fast to slow, slow to fast): the Organ Rotary Slow/Fast
+    /// button or Toggle pedal.
+    ToggleRotaryFast,
     /// The Master Compressor on or off (`EffectsState::master`).
     SetMasterCompressorOn { on: bool },
     /// The Master Compressor's type: its Compression, Texture and Output come with it.

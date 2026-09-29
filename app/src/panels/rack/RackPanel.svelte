@@ -10,7 +10,10 @@
   │ Manual Bass  Left Hold                                                        │
   │ ▸ Controller map   (faders 1–4, knobs 1–8: a select each, setRackControl)     │
   │ KEYBOARD PARTS                                                                │
-  │ four RackSlots: R1, R2, R3, L                                                 │
+  │ four RackSlots: R1, R2, R3, L (each with its strip: sends, comp, inserts)    │
+  │ SEND EFFECTS                                                                  │
+  │ 1 Reverb · Hall  [Override]   (1–3: the style's; the rack can keep the type)  │
+  │ 4 [Phaser ▾] Return ━━○━ [Remove]    [Hall ▾] [Add send]  (up to 6)          │
   │ ONE TOUCH SETTINGS · <style>                                                  │
   │ OTS Link · timing · OTS 1–4 cards, each with its rack select                  │
   │   (Style's own / one of your racks: `setOtsRack`, `clearOtsRack`)             │
@@ -25,11 +28,13 @@
   modified), the Controller map's selects (`setRackControl`). `liveRack.prompt` shows inline under the head: `soundNames` as a name field
   per edited part, resent with `soundNames`; `unsavedChanges` as Save first (`saveRack`;
   the engine makes the held switch once saved), Discard and switch (the switch with `discard`) and Keep editing
-  (`dismissRackPrompt`).
+  (`dismissRackPrompt`). Send effects (`effects.sends`): Override on sends 1–3
+  (`setRackSendOverride`); on 4–6 type, return and Remove (`setSendKind`, `setSendReturn`,
+  `removeSend`); Add send (`addSend`).
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
-  import type { GmMapRow, RackControl, RackSwitch } from '../../lib/api/types'
+  import type { GmMapRow, RackControl, RackSwitch, SendKind } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -39,6 +44,8 @@
   import { instrumentName, playingId } from '../sounds/model'
   import { rackName, signed, soundBadge, targetKey, targetLabel, targetOptions } from './rack'
   import RackSlot from './RackSlot.svelte'
+  import HSlider from '../settings/HSlider.svelte'
+  import { addedSends, MAX_SENDS, SEND_KIND_OPTIONS, STYLE_SEND_ROLES, STYLE_SENDS } from './strip'
 
   let { docked = false }: { docked?: boolean } = $props()
 
@@ -64,11 +71,32 @@
 
   let showMap = $state(false)
 
+  // ── Send effects (the mixer rework): the rack keeps sends 4–6 and, per send 1–3, its type
+  // when overridden. Each part's level to them is in its slot. ──
+  const sends = $derived(s.effects.sends)
+  const styleSends = $derived(sends.filter((x) => x.send < STYLE_SENDS))
+  const rackSends = $derived(addedSends(sends))
+  /** The type the next Add send plays. */
+  let newSendKind = $state<SendKind>('hall')
+
   // ── Controller map (the wireframe's `mapTable`): a select per fader 1–4 and knob 1–8 ──
   const mapRows = $derived([
     ...rack.controls.faders.map((target, index) => ({ control: 'fader' as const, index, target, name: `Fader ${index + 1}` })),
     ...rack.controls.knobs.map((target, index) => ({ control: 'knob' as const, index, target, name: `Knob ${index + 1}` })),
   ])
+
+  /** The map's long option list, grouped: "—" alone, then one group per part (level, pan,
+   * sends, inserts), then the rest under "Rack". */
+  function targetGroups(opts: ReturnType<typeof targetOptions>) {
+    const groups: { label: string; opts: typeof opts }[] = []
+    for (const o of opts) {
+      const label = o.target.kind === 'none' ? '' : 'part' in o.target ? (PART_NAMES[o.target.part] ?? '?') : 'Rack'
+      const g = groups.find((x) => x.label === label)
+      if (g) g.opts.push(o)
+      else groups.push({ label, opts: [o] })
+    }
+    return groups
+  }
 
   function setTarget(control: RackControl, index: number, key: string) {
     const o = targetOptions(control).find((x) => x.key === key)
@@ -304,7 +332,15 @@
                     onchange={(e) => setTarget(row.control, row.index, e.currentTarget.value)}
                   >
                     {#if !opts.some((o) => o.key === key)}<option value={key} disabled>{targetLabel(row.target)}</option>{/if}
-                    {#each opts as o (o.key)}<option value={o.key}>{o.label}</option>{/each}
+                    {#each targetGroups(opts) as g (g.label)}
+                      {#if g.label}
+                        <optgroup label={g.label}>
+                          {#each g.opts as o (o.key)}<option value={o.key}>{o.label}</option>{/each}
+                        </optgroup>
+                      {:else}
+                        {#each g.opts as o (o.key)}<option value={o.key}>{o.label}</option>{/each}
+                      {/if}
+                    {/each}
                   </select>
                 </td>
               </tr>
@@ -334,6 +370,42 @@
           Launchkey faders 1–4 are in step with these levels.
         {/if}
       </p>
+    </section>
+
+    <!-- Send effects: 1–3 the style's (the rack can keep their type), 4–6 the rack's own ── -->
+    <section aria-labelledby="rack-sends">
+      <h3 id="rack-sends" class="engraved">Send effects</h3>
+      {#each styleSends as sd (sd.send)}
+        <div class="row send">
+          <span class="snum">{sd.send + 1}</span>
+          <span class="sname">{STYLE_SEND_ROLES[sd.send]} · {sd.name}</span>
+          <span class="grow"></span>
+          <Toggle on={sd.setByRack} tip="fx.send_rack_override" onclick={() => app.send({ type: 'setRackSendOverride', send: sd.send, on: !sd.setByRack })}>Override</Toggle>
+        </div>
+      {/each}
+      {#each rackSends as sd (sd.send)}
+        <div class="row send">
+          <span class="snum">{sd.send + 1}</span>
+          <select aria-label="Send {sd.send + 1} type" value={sd.kind} use:tip={'fx.send_kind'} onchange={(e) => app.send({ type: 'setSendKind', send: sd.send, kind: e.currentTarget.value })}>
+            {#if !SEND_KIND_OPTIONS.some((o) => o.kind === sd.kind)}<option value={sd.kind} disabled>{sd.name}</option>{/if}
+            {#each SEND_KIND_OPTIONS as o (o.kind)}<option value={o.kind}>{o.name}</option>{/each}
+          </select>
+          <span class="k">Return</span>
+          <span class="ret">
+            <HSlider value={sd.returnLevel} tip="fx.send_return" label="Send {sd.send + 1} return" unity={64} onchange={(v) => app.send({ type: 'setSendReturn', send: sd.send, level: v })} />
+          </span>
+          <button type="button" class="mini mat-raised" aria-label="Remove send {sd.send + 1}" use:tip={'fx.send_remove'} onclick={() => app.send({ type: 'removeSend', send: sd.send })}>Remove</button>
+        </div>
+      {/each}
+      {#if sends.length < MAX_SENDS}
+        <div class="row send">
+          <select aria-label="New send type" bind:value={newSendKind} use:tip={'fx.send_kind'}>
+            {#each SEND_KIND_OPTIONS as o (o.kind)}<option value={o.kind}>{o.name}</option>{/each}
+          </select>
+          <button type="button" class="mini mat-raised" use:tip={'fx.send_add'} onclick={() => app.send({ type: 'addSend', kind: newSendKind })}>Add send</button>
+          <span class="note">Each part's level to it is in its slot above.</span>
+        </div>
+      {/if}
     </section>
 
     <!-- One Touch Settings ─────────────────────────────────────────────────────── -->
@@ -511,6 +583,21 @@
   }
   .row :global(.hw) {
     width: 2.2rem;
+  }
+  .send .snum {
+    min-width: 1.2rem;
+    font-family: var(--font-display);
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .send .sname {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  .send .ret {
+    flex: 1;
+    min-width: 8rem;
   }
   .row :global(.btn) {
     height: 2rem;

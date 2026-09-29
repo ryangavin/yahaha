@@ -1,5 +1,7 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
 //! notes and controllers, a style's XG drum setup (#239), a part's sound controllers, portamento and mono (#246), the keyboard parts' channel-strip EQ and a plugin part's mono and velocity curve (#247), a keyboard part's insert slot (SoundFont and plugin), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
+//! mixer strips (compressors, insert 2, sends 4-6 and a send's kind changing, on SoundFont
+//! and plugin parts), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -12,8 +14,9 @@
 use crate::alloc_count::counted;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use yahaha::fx::master::CompPreset;
 use yahaha::fx::part_eq::PartEq;
-use yahaha::fx::{InsertEffect, PartInsert};
+use yahaha::fx::{InsertEffect, InsertSlot, InsertType, PartComp, PartInsert, SendKind, SendSlot};
 use yahaha::parts::Parts;
 use yahaha::synth::{self, AudioCore, Rack, SynthControl};
 
@@ -129,7 +132,7 @@ fn the_audio_callback_does_not_allocate() {
     // The Master Compressor and Master EQ: on, every type, then off (the compressor
     // gliding back to unity).
     {
-        use yahaha::fx::master::{CompPreset, EqPreset, MasterComp, MasterEq};
+        use yahaha::fx::master::{EqPreset, MasterComp, MasterEq};
         for (c, e) in CompPreset::ALL.into_iter().zip(EqPreset::ALL) {
             ctl.fx.master.set_compressor(&MasterComp::of(true, c));
             ctl.fx.master.set_eq(&MasterEq { on: true, preset: e, bands: e.bands() });
@@ -144,6 +147,52 @@ fn the_audio_callback_does_not_allocate() {
         }
     }
     assert_eq!(run(&mut core, &mut feed, &[[0x8B, 60, 0], [0x8C, 64, 0]]), none, "inserts off");
+    // The mixer strips: a compressor on a keyboard part and three Style parts, insert 2 on
+    // two of them (one with its style insert as insert 1), sends 4-6 (a Hall and a chorus,
+    // then a delay) fed from four channels, the sends' kinds changing while they sound
+    // (each fades out and the new kind in), then all of it off again, the tails ringing
+    // out. The control side's setters run between buffers, as the app's would.
+    assert_eq!(run(&mut core, &mut feed, &[[0x90, 62, 100], [0x9A, 45, 100], [0x9B, 60, 100], [0x9C, 64, 100]]), none, "notes for the strips");
+    ctl.fx.insert[3].store(yahaha::fx::InsertKind::Rotary as u8, Ordering::Relaxed);
+    for (i, ch) in [0usize, 10, 11, 12].into_iter().enumerate() {
+        ctl.fx.strips.set_comp(ch, &PartComp::of(true, CompPreset::ALL[(i + 2) % CompPreset::ALL.len()]));
+        ctl.fx.strip_send[ch][0].store(60 + 20 * i as u8, Ordering::Relaxed);
+        ctl.fx.strip_send[ch][1].store(127 - 30 * i as u8, Ordering::Relaxed);
+        ctl.fx.strip_send[ch][2].store(40, Ordering::Relaxed);
+    }
+    ctl.fx.strips.set_second(11, &InsertSlot::of(InsertType::Distortion));
+    ctl.fx.strips.set_second(12, &InsertSlot::of(InsertType::Phaser));
+    ctl.fx.sends[0].set(&SendSlot::of(SendKind::Hall));
+    ctl.fx.sends[1].set(&SendSlot::of(SendKind::Chorus));
+    for _ in 0..6 {
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "strips and sends 4-5");
+    }
+    for (a, b) in [(SendKind::Plate, SendKind::PingPong), (SendKind::Room, SendKind::Phaser), (SendKind::Hall, SendKind::Flanger)] {
+        ctl.fx.sends[0].set(&SendSlot::of(a));
+        ctl.fx.sends[1].set(&SendSlot::of(b));
+        ctl.fx.sends[2].set(&SendSlot::of(SendKind::Quarter));
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "a send's kind changing");
+        }
+    }
+    ctl.fx.strips.set_comp(10, &PartComp::default());
+    ctl.fx.strips.set_second(12, &InsertSlot::default());
+    ctl.fx.sends[2].clear();
+    assert_eq!(run(&mut core, &mut feed, &[[0x80, 62, 0], [0x8A, 45, 0], [0x8B, 60, 0], [0x8C, 64, 0]]), none, "strips: notes off");
+    for _ in 0..6 {
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "strips: tails");
+    }
+    for ch in [0usize, 10, 11, 12] {
+        ctl.fx.strips.set_comp(ch, &PartComp::default());
+        ctl.fx.strips.set_second(ch, &InsertSlot::default());
+        for s in &ctl.fx.strip_send[ch] {
+            s.store(0, Ordering::Relaxed);
+        }
+    }
+    ctl.fx.insert[3].store(0, Ordering::Relaxed);
+    for _ in 0..3 {
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "strips off, sends 4-6 ringing out");
+    }
     ctl.fx.legacy.store(true, Ordering::Relaxed);
     assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 100]]), none, "the SoundFont's own effects");
     ctl.fx.legacy.store(false, Ordering::Relaxed);
@@ -301,6 +350,25 @@ fn the_audio_callback_does_not_allocate() {
             assert_eq!(run(&mut core, &mut feed, &[[0x90, 62, 90], [0x80, 62, 0]]), none, "plugin: insert");
         }
         parts.set_insert(0, PartInsert::OFF);
+        // Its mixer strip on the plugin's output: a compressor, insert 2, sends 4 and 5 (a
+        // reverb, then its kind changing while it sounds).
+        ctl.fx.strips.set_comp(0, &PartComp::of(true, CompPreset::Loud));
+        ctl.fx.strips.set_second(0, &InsertSlot::of(InsertType::Tremolo));
+        ctl.fx.strip_send[0][0].store(110, Ordering::Relaxed);
+        ctl.fx.strip_send[0][1].store(70, Ordering::Relaxed);
+        ctl.fx.sends[0].set(&SendSlot::of(SendKind::Stage));
+        ctl.fx.sends[1].set(&SendSlot::of(SendKind::Eighth));
+        for kind in [SendKind::Stage, SendKind::Room, SendKind::Phaser] {
+            ctl.fx.sends[0].set(&SendSlot::of(kind));
+            for _ in 0..3 {
+                assert_eq!(run(&mut core, &mut feed, &[[0x90, 62, 90], [0x80, 62, 0]]), none, "plugin: strip and sends 4-5");
+            }
+        }
+        ctl.fx.strips.set_comp(0, &PartComp::default());
+        ctl.fx.strips.set_second(0, &InsertSlot::default());
+        ctl.fx.strip_send[0][0].store(0, Ordering::Relaxed);
+        ctl.fx.strip_send[0][1].store(0, Ordering::Relaxed);
+        assert_eq!(run(&mut core, &mut feed, &[]), none, "plugin: strip off");
         link.assign(0, b, Swap::default()).ok().unwrap();
         for _ in 0..6 {
             assert_eq!(run(&mut core, &mut feed, &[[0xB0, 7, 90]]), none, "crossfade to a second instance");

@@ -2086,6 +2086,9 @@ export class MockSession implements Session {
       case 'setRotaryFast':
         this.state.effects.rotaryFast = cmd.on
         break
+      case 'toggleRotaryFast':
+        this.state.effects.rotaryFast = !this.state.effects.rotaryFast
+        break
       // The Master Compressor and Master EQ, as the session plays them (not saved).
       case 'setMasterCompressorOn':
         this.state.effects.master.compressor.on = cmd.on

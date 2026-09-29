@@ -118,6 +118,41 @@ fn a_remapped_fader_runs_its_target() {
     assert_eq!(s.state().surface.faders[0].label, "RIGHT 1");
 }
 
+/// The strip targets from the Launchkey (the mixer rework): a knob on an insert setting
+/// turns that strip's slot's setting, a knob on a send 4-6 its level, a knob on insert 1's
+/// switch the part's insert; a fader on the rotary speed switches it, and the mirror's
+/// fader reads it.
+#[test]
+fn strip_targets_run_from_the_knobs_and_faders() {
+    let s = session();
+    s.send(KnobsCmd::SetKnobPage { page: KnobPage::Rack }).unwrap();
+    s.send(StripCmd::SetStripInsertKind { strip: 2, slot: 1, kind: InsertType::Distortion }).unwrap();
+    s.send(StripCmd::AddSend { kind: SendKind::Plate }).unwrap();
+    set(&s, RackControl::Knob, 0, ControlTarget::PartInsertSetting { part: 2, slot: 1, setting: 0 }).unwrap();
+    set(&s, RackControl::Knob, 1, ControlTarget::PartSend { part: 1, send: 3 }).unwrap();
+    set(&s, RackControl::Knob, 2, ControlTarget::PartInsertOn { part: 0, slot: 0 }).unwrap();
+    let drive = s.state().keyboard_parts[2].strip.inserts[1].settings[0].value;
+    s.send(KnobsCmd::TurnKnob { knob: 0, delta: -3 }).unwrap();
+    let st = s.state();
+    assert_eq!(st.keyboard_parts[2].strip.inserts[1].settings[0].value, drive - 3 * 2, "a knob step: 2 of 0-127");
+    assert_eq!(knob(&s, 0).value, format!("Drive {}", drive - 6));
+    s.send(KnobsCmd::TurnKnob { knob: 1, delta: 5 }).unwrap();
+    assert_eq!(s.state().keyboard_parts[1].strip.sends[3], 10);
+    assert_eq!(knob(&s, 1).short, "R2 Snd4");
+    // Insert 1's switch is the part's older insert switch.
+    let on = s.state().keyboard_parts[0].insert.on;
+    s.send(KnobsCmd::TurnKnob { knob: 2, delta: if on { -3 } else { 3 } }).unwrap();
+    assert_eq!(s.state().keyboard_parts[0].insert.on, !on);
+    // The rotary's speed on fader 2.
+    set(&s, RackControl::Fader, 1, ControlTarget::RotaryFast).unwrap();
+    fader(&s, 1, 100);
+    let st = s.state();
+    assert!(st.effects.rotary_fast, "fast from 64");
+    assert_eq!((st.surface.faders[1].label.as_str(), st.surface.faders[1].value), ("ROTARY", Some(127)));
+    fader(&s, 1, 3);
+    assert!(!s.state().effects.rotary_fast);
+}
+
 /// The map is saved with the rack and comes back when it is loaded.
 #[test]
 fn the_map_is_saved_and_loaded_with_the_rack() {
