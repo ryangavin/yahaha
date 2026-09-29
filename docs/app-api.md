@@ -1191,7 +1191,7 @@ Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `
 
 ### `liveRack`
 The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
-plugin states included. `{ name, id, modified, prompt }`.
+plugin states included. `{ name, id, modified, controls, prompt }`.
 - `name`: the saved rack's it came from; `Restored` on the first start after racks came in
   (made from the old `plugin-parts.json` and the parts); `New rack` when it came from none.
 - `id`: the saved rack it came from, or null.
@@ -1200,12 +1200,20 @@ plugin states included. `{ name, id, modified, prompt }`.
   keyboard transpose, Harmony/Arp, the controller map, or a plugin edit (`soundEdited`).
   It shows at once (a Launchkey fader within the control thread's next 10 ms). Loading or
   saving a rack clears it (the rack commands, docs/racks.md).
+- `controls`: its controller map, `{ faders, knobs }`: four and eight targets for
+  Launchkey faders 1–4 and knobs 1–8 on the Rack knob page. A target is `{ "kind": "none" }`,
+  `partLevel`, `partPan`, `partReverb` or `partChorus` with `part` 0–3, `harmonyArp` or
+  `splitPoint`; a target a newer build wrote is passed through as it is. A new rack has the
+  four parts' levels on faders 1–4 and knobs 1–4, and none on knobs 5–8. The Rack panel
+  shows it.
 - `prompt`: a rack command waiting for the player's answer, or null. It is set when a
   command is refused for it, and cleared by `dismissRackPrompt` or once a rack is loaded
   or saved.
   - `{ "kind": "unsavedChanges", "then": { "kind": "load", "id", "name" } }` (or
     `"then": { "kind": "new" }`): `loadRack` / `newRack` with unsaved changes. The app
-    offers Save first (`saveRack`, then the switch), Discard and switch (the switch with
+    offers Save first (`saveRack` or `saveRackAs` while this prompt is up: the engine holds
+    the switch and makes it once the save is done, through a `soundNames` prompt if one
+    comes; a save that fails drops it, so the app never sends the switch itself), Discard and switch (the switch with
     `discard: true`) and Keep editing (`dismissRackPrompt`).
   - `{ "kind": "soundNames", "parts": [{ "part", "suggested" }], "saveAs" }`: `saveRack`
     (`saveAs` null) or `saveRackAs` (`saveAs` the rack's name) found edited presets that
@@ -1931,7 +1939,14 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "inserts": [], "insertsOn": true, "rotaryFast": false
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "snapshot": null, "ots": null, "bandSends": [] },
-  "liveRack": { "name": "Restored", "id": null, "modified": true, "prompt": null },
+  "liveRack": {
+    "name": "Restored", "id": null, "modified": true,
+    "controls": {
+      "faders": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }],
+      "knobs": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }]
+    },
+    "prompt": null
+  },
   "racks": [
     { "id": "r5f3a2c1d-0", "name": "Ballad", "parts": ["Grand Piano", "Sampler Deluxe", "Brass Section", "Strings"], "on": [true, true, false, true], "needsAttention": true }
   ],

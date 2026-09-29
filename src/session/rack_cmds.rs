@@ -35,8 +35,8 @@ impl Control {
                 let r = self.read_rack(&id)?;
                 self.switch_rack(RackSwitch::Load { id, name: r.name }, discard)
             }
-            RackCmd::SaveRack { sound_names } => self.save_rack(None, &sound_names),
-            RackCmd::SaveRackAs { name, sound_names } => self.save_rack(Some(name), &sound_names),
+            RackCmd::SaveRack { sound_names } => self.save_rack_holding(None, &sound_names),
+            RackCmd::SaveRackAs { name, sound_names } => self.save_rack_holding(Some(name), &sound_names),
             RackCmd::RevertRack => {
                 let Some(id) = self.live_rack.id.clone().filter(|id| self.rack_file(id).is_some()) else {
                     return self.fail(format!("{} has no saved rack to go back to", self.live_rack.name));
@@ -172,6 +172,21 @@ impl Control {
         }
     }
 
+    /// A save, with "Save first": sent while the unsaved-changes prompt is up, the switch it
+    /// holds waits for the save and the engine makes it once saved (the app never resends
+    /// it). A save that fails (other than asking for sound names) drops the held switch, so
+    /// it can't happen later by surprise.
+    fn save_rack_holding(&mut self, save_as: Option<String>, names: &BTreeMap<u8, String>) -> Result<(), CmdError> {
+        if let Some(RackPrompt::UnsavedChanges { then }) = self.live_rack.prompt.take() {
+            self.live_rack.held = Some(then);
+        }
+        let r = self.save_rack(save_as, names);
+        if matches!(r, Err(ref e) if !matches!(e, CmdError::NeedsSoundNames)) {
+            self.live_rack.held = None;
+        }
+        r
+    }
+
     /// `saveRack` (`save_as` None: over the live rack's own rack, or as a new one under its
     /// name if it has none) and `saveRackAs`, with the edited sounds.
     fn save_rack(&mut self, save_as: Option<String>, names: &BTreeMap<u8, String>) -> Result<(), CmdError> {
@@ -210,10 +225,6 @@ impl Control {
             }
         }
         if !ask.is_empty() {
-            // "Save first" from the unsaved-changes prompt: the switch waits for this save.
-            if let Some(RackPrompt::UnsavedChanges { then }) = self.live_rack.prompt.take() {
-                self.live_rack.held = Some(then);
-            }
             self.live_rack.prompt = Some(RackPrompt::SoundNames { parts: ask, save_as });
             return Err(CmdError::NeedsSoundNames);
         }

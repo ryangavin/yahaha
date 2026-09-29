@@ -4,8 +4,8 @@
   and the saved racks the engine reports as needing attention (a part's plugin is
   missing: `plugins.needsAttention`), with the "Needs attention" filter.
 
-  My racks: click one to load it (through the unsaved-changes guard, asked in the Quick
-  Racks bar); its label is the Quick Rack button that holds it in the bank on view.
+  My racks: click one to load it (through the unsaved-changes guard, asked in the docked
+  Rack panel); its label is the Quick Rack button that holds it in the bank on view.
 -->
 <script lang="ts">
   import { noteName } from '../../lib/api/mock'

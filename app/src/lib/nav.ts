@@ -33,7 +33,7 @@ export const NAV: NavItem[] = [
   { tip: 'nav.library', label: 'Library', key: 'alt+b', open: () => ui.view === 'library', toggle: () => toggleLibrary() },
   { tip: 'nav.styles', label: 'Styles', key: 'alt+s', open: () => ui.browser, toggle: () => (ui.browser = !ui.browser) },
   { tip: 'nav.quick', label: 'Quick Racks', key: 'alt+r', open: () => ui.view === 'library' && ui.libraryTab === 'racks', toggle: () => toggleLibrary('racks') },
-  { tip: 'nav.parts', label: 'Parts & OTS', key: 'alt+o', open: () => ui.parts, toggle: () => ui.toggleDrawer('parts') },
+  { tip: 'nav.rack', label: 'Rack', key: 'alt+o', open: () => ui.rack, toggle: () => ui.toggleDrawer('rack') },
   { tip: 'nav.multipad', label: 'Multi Pads', key: 'alt+p', open: () => ui.multipad, toggle: () => ui.toggleDrawer('multipad') },
   { tip: 'nav.effects', label: 'Effects', key: 'alt+e', open: () => ui.mixer, toggle: () => ui.toggleDrawer('mixer') },
   { tip: 'nav.mixer', label: 'Mixer', key: 'alt+m', open: () => ui.mixer, toggle: () => ui.toggleDrawer('mixer') },

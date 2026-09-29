@@ -1,7 +1,8 @@
 //! Racks (docs/racks.md): the rack commands (new, load, save, save as, revert, rename,
 //! duplicate, delete, with the switching guard), the user's racks, and the live rack's
-//! name, where it came from and whether it has unsaved changes.
+//! name, where it came from, whether it has unsaved changes, and its controller map.
 
+pub use crate::racks::{ControlMap, ControlTarget};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -79,6 +80,10 @@ pub struct LiveRackState {
     /// It changed since it was loaded or saved: a sound, the mix, the split, Harmony/Arp,
     /// the transpose, the controller map, or a plugin edit (`soundEdited`).
     pub modified: bool,
+    /// Its controller map: what Launchkey faders 1-4 and knobs 1-8 do on the Rack knob
+    /// page. Shown in the Rack panel.
+    #[serde(default)]
+    pub controls: ControlMap,
     /// A rack command that needs the player's answer first; null when none.
     #[serde(default)]
     pub prompt: Option<RackPrompt>,

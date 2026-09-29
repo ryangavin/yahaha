@@ -19,7 +19,7 @@
   import { app, ui, type LibraryTab } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
-  import PartsPanel from '../parts/PartsPanel.svelte'
+  import RackPanel from '../rack/RackPanel.svelte'
   import { pluginStatusLine } from '../parts/parts'
   import QuickBar from '../quickracks/QuickBar.svelte'
   import { nowPlaying, presetFileName } from '../sounds/model'
@@ -169,21 +169,15 @@
     </footer>
   </section>
 
-  <!-- The Rack panel's dock (docs/racks.md, item 11). Mount point: RackPanel
-       (panels/rack/RackPanel.svelte) goes here in place of PartsPanel. -->
-  <aside class="dock mat-chassis" aria-label="Rack">
-    <div class="dock-head">
-      <h2 class="engraved">Rack</h2>
-      <span class="hint engraved">{app.state.liveRack.name}{app.state.liveRack.modified ? ' ●' : ''}</span>
-    </div>
-    <div class="dock-body">
-      {#if ui.parts}
-        <p class="hint">Parts &amp; OTS is open in its drawer.</p>
-      {:else}
-        <PartsPanel />
-      {/if}
-    </div>
-  </aside>
+  <!-- The Rack panel, docked (docs/racks.md "Screens"). While its Stage drawer is open
+       over Library the drawer shows it instead. -->
+  <div class="dock-slot">
+    {#if ui.rack}
+      <aside class="dock mat-chassis" aria-label="Rack"><p class="hint">The Rack is open in its drawer.</p></aside>
+    {:else}
+      <RackPanel docked />
+    {/if}
+  </div>
 
   <!-- The Quick Racks bar (docs/racks.md, item 6), as on the stage. -->
   <div class="strip mat-chassis"><QuickBar /></div>
@@ -208,8 +202,7 @@
     padding: 0.6rem 0.8rem;
     gap: 0.6rem;
   }
-  .head,
-  .dock-head {
+  .head {
     display: flex;
     align-items: center;
     gap: 0.9rem;
@@ -343,10 +336,13 @@
     background: var(--screen-bg);
     color: var(--screen-ink);
   }
-  .dock-body {
-    flex: 1;
+  .dock-slot {
     min-height: 0;
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .dock-slot > :global(*) {
+    flex: 1;
   }
   .strip {
     grid-column: 1 / -1;
@@ -360,7 +356,7 @@
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: minmax(0, 1fr) auto;
     }
-    .dock {
+    .dock-slot {
       display: none;
     }
   }
