@@ -5056,6 +5056,15 @@ dependencies = [
 [[package]]
 name = "yahaha-core"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "core-foundation",
+ "coremidi-sys",
+ "libc",
+ "mach2 0.7.0",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "yahaha-engine"

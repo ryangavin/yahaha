@@ -82,7 +82,9 @@ impl FaderLayer {
         Self::ALL[((self as i16 + d as i16).rem_euclid(n)) as usize]
     }
 
-    pub(crate) fn from_u8(v: u8) -> FaderLayer {
+    /// The layer stored as `v` (the default when out of range). Facade-internal: the
+    /// engine reads its atomics with it; `pub` only because the engine is another crate.
+    pub fn from_u8(v: u8) -> FaderLayer {
         Self::ALL.get(v as usize).copied().unwrap_or_default()
     }
 
@@ -107,7 +109,9 @@ pub enum FaderRoute {
 }
 
 impl FaderRoute {
-    pub(crate) fn from_u8(v: u8) -> FaderRoute {
+    /// The route stored as `v`. Facade-internal: the engine reads its atomics with it;
+    /// `pub` only because the engine is another crate.
+    pub fn from_u8(v: u8) -> FaderRoute {
         match v {
             1 => FaderRoute::Off,
             2 => FaderRoute::Control,
