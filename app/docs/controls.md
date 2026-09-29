@@ -164,7 +164,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Bank +** | Shows the next bank of eight Quick Racks (A to B, say, up to H) on these buttons and pad page 4. Nothing loads until you press one. | — | `Shift+P` | Pad page 4 (Quick Racks), bottom row, pad 2 |
 | **Quick Racks bank** | The bank of eight Quick Racks on view, A to H. Bank − and Bank + step through them; in the Quick Racks drawer, click a letter to view that bank. | — | — | — |
 | **Clear** | Empties this Quick Rack button. The rack itself stays in your racks. | Regist Bank Edit: Delete | — | — |
-| **Rack** | One of your racks: click to load it, as a Quick Rack button does (with unsaved changes it asks first). Red when it is the live rack. | — | — | — |
+| **Rack** | One of your racks: click to load it, as a Quick Rack button does (with unsaved changes it asks first, in the Quick Racks bar). Its label, such as A1, is the Quick Rack button in the bank on view that holds it. | — | — | — |
 | **Save first** | Saves the live rack with its changes, then makes the switch you asked for. | — | — | — |
 | **Discard and switch** | Drops the live rack's unsaved changes and makes the switch. | — | — | — |
 | **Keep editing** | Cancels the switch: the live rack stays as it is, changes and all. | — | — | — |
@@ -548,7 +548,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Styles** | Opens the style browser. Press again to close. | Style Selection | `Alt+S` (terminal: ) | — |
-| **Quick Racks** | Opens the Quick Racks drawer: your racks to load, and the buttons of the bank on view to store and clear. Press again to close. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
+| **Quick Racks** | Opens Library on its Racks tab: your racks to load, each with the Quick Rack button that holds it in the bank on view. Press again to go back to Stage. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
 | **Parts and OTS** | Opens the keyboard parts drawer with the style's One Touch Settings. Press again to close. | ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
 | **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
 | **Effects** | Opens the Mixer, where the Reverb, Chorus and Variation effect blocks live. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
