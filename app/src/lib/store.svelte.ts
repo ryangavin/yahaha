@@ -289,7 +289,11 @@ class UiStore {
   settings = $state(false)
   /** The Rack panel's drawer on Stage (docs/racks.md). */
   rack = $state(false)
+  /** The mixer row's details (panels/mixer): its bar and each strip's EQ, insert, Chorus and CPU. */
   mixer = $state(false)
+  /** The mixer strip clicked last: 0–3 the keyboard parts (Right 1–3, Left), 4–11 the
+   * Style parts (Rhythm 1 … Phrase 2). */
+  selectedPart = $state(0)
   /** The Effects screen: the Reverb, Chorus and Delay blocks and the style's inserts. */
   effects = $state(false)
   charts = $state(false)
