@@ -12,12 +12,8 @@
   Held keys, chord tones and the detection area come from the engine's `state.keyboard`.
   Everything is percentage-positioned boxes: a key only changes a
   class and one custom property when it's pressed, so 60 Hz updates stay cheap.
-
-  The shell can put a row above all this, in the same panel (`children`): App.svelte puts
-  the Quick Racks bar there, above the keys, where the Genos has its Registration buttons.
 -->
 <script lang="ts">
-  import type { Snippet } from 'svelte'
   import { app, ui, type KeyRange } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import DrawerButton from '../../lib/ui/DrawerButton.svelte'
@@ -80,15 +76,9 @@
   }
 
   const SIZES: KeyRange[] = [49, 61, 88]
-
-  /** A row above the keys, across the whole strip (App.svelte puts the Quick Racks bar here). */
-  let { children }: { children?: Snippet } = $props()
 </script>
 
-<section class="strip mat-chassis" class:has-top={!!children} aria-label="Keyboard">
-  <!-- Above the keys, in the same panel: what the shell puts here (the Quick Racks bar). -->
-  {#if children}<div class="top">{@render children()}</div>{/if}
-
+<section class="strip mat-chassis" aria-label="Keyboard">
   <div class="cheek">
     <span class="engraved label">Chord tones</span>
     <span class="tones" aria-live="off">
@@ -182,17 +172,6 @@
     height: 100%;
     padding: 0.7em 1.5em 0.9em;
     border-radius: 1em;
-  }
-  .strip.has-top {
-    grid-template-rows: auto minmax(0, 1fr);
-    row-gap: 0.6em;
-  }
-  .top {
-    grid-column: 1 / -1;
-    min-width: 0;
-    padding-bottom: 0.6em;
-    border-bottom: 1px solid var(--seam);
-    box-shadow: 0 1px 0 rgb(255 255 255 / 0.04);
   }
   .strip :global(.engraved) {
     font-size: 0.78em;

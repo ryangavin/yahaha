@@ -1,26 +1,25 @@
 <!--
-  The Quick Racks bar, in the keyboard strip's panel above the keys where the Genos has its
-  Registration buttons (docs/racks.md): one press loads one of your racks. It is on the
-  stage, so every size is in em of `--u`.
+  The Quick Racks bar in Library (docs/racks.md): one press loads one of your racks. On
+  the stage the same buttons sit under the knobs (panels/knobracks); this one-row bar is
+  Library's, above its tabs. Every size is in em.
 
   [Quick Racks ◀ A ▶] [1]…[8] [Store]        (each button: its rack's name under it, ✕ clears)
 
   The buttons light like pad page 4 (red loaded, blue stored, dark empty; all flashing
   while Store is armed). A Store waiting for a save asks in the buttons' place
   (RackPrompt). The rack prompts (unsaved changes, sound names) are asked only in the Rack
-  panel: when one appears on Stage (a press here, a key, a pad) the bar opens the Rack
-  drawer so it's visible; in Library the Rack panel is docked already.
+  panel (openRackDrawerOnPrompt).
 
   State: quickRacks, liveRack. Commands: pressQuickRack, stepQuickRackBank,
   toggleQuickRackStore, clearQuickRack.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte'
   import { QUICK } from '../../help/actions'
   import { bankLetter, quickLabel, quickLook, quickName } from '../../lib/api/quick-racks'
-  import { app, clock, ui } from '../../lib/store.svelte'
+  import { app, clock } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
+  import { openRackDrawerOnPrompt } from './rackPromptDrawer.svelte'
   import RackPrompt, { asking } from './RackPrompt.svelte'
 
   const q = $derived(app.state.quickRacks)
@@ -28,14 +27,7 @@
   const armed = { rgb: [127, 0, 0] as [number, number, number], level: 'bright' as const, anim: 'flash' as const }
   const ask = $derived(asking(app.state))
 
-  // A rack prompt that appears on Stage opens the Rack drawer, where it is asked (in
-  // Library the Rack panel is docked). Only on its appearance, so closing the drawer sticks.
-  let asked = false
-  $effect(() => {
-    const now = app.state.liveRack.prompt !== null
-    if (now && !asked && ui.view !== 'library' && !ui.rack) untrack(() => ui.toggleDrawer('rack'))
-    asked = now
-  })
+  openRackDrawerOnPrompt()
 </script>
 
 <section class="qbar" aria-label="Quick Racks">
