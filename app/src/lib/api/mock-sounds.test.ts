@@ -103,7 +103,7 @@ describe('sound catalog (#117)', () => {
 })
 
 describe('now playing, Save and Save as… (O3)', () => {
-  it('a preset names its sound; the editor closing marks it edited; Save and Save as… clear it', () => {
+  it('a preset names its sound; its window changing a value marks it edited; Save and Save as… clear it', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
     const n = m.state.soundLibrary.patches.length
@@ -115,7 +115,15 @@ describe('now playing, Save and Save as… (O3)', () => {
     expect(kp().sound).toEqual({ id: 'au:aumu Smp7 Fake#f:1', name: 'Bright Grand' })
     expect(kp().soundEdited).toBeUndefined()
     const factory = kp().sound!
+    // Closing the window alone is no edit.
     m.send({ type: 'savePartPluginState', part: 0 })
+    expect(kp().soundEdited).toBeUndefined()
+    // A value changed in the open window shows at once; changing it back clears it.
+    m.pluginWindow(0, 5)
+    expect(kp().soundEdited).toBe(true)
+    m.pluginWindow(0, 0)
+    expect(kp().soundEdited).toBeUndefined()
+    m.pluginWindow(0, 5)
     expect(kp().soundEdited).toBe(true)
     // A factory preset is never overwritten: Save makes one sound named after it.
     m.send({ type: 'saveSound', part: 0 })
@@ -124,11 +132,21 @@ describe('now playing, Save and Save as… (O3)', () => {
     expect(mine.id).not.toBe(factory.id)
     expect(mine.name).toBe('Bright Grand')
     expect(kp().soundEdited).toBeUndefined()
-    // Now the user's own: Save overwrites it.
-    m.send({ type: 'savePartPluginState', part: 0 })
+    // Now the user's own: Save overwrites it, and its value is the sound's from here.
+    m.pluginWindow(0, 7)
+    expect(kp().soundEdited).toBe(true)
     m.send({ type: 'saveSound', part: 0 })
     expect(m.state.soundLibrary.patches.length).toBe(n + 1)
     expect(kp().sound).toEqual(mine)
+    expect(kp().soundEdited).toBeUndefined()
+    m.pluginWindow(0, 5)
+    expect(kp().soundEdited).toBe(true)
+    m.pluginWindow(0, 7)
+    expect(kp().soundEdited).toBeUndefined()
+    // The demo window (no real host): opening it edits, opening it again undoes that.
+    m.pluginEditor(0, true)
+    expect(kp().soundEdited).toBe(true)
+    m.pluginEditor(0, true)
     expect(kp().soundEdited).toBeUndefined()
     m.send({ type: 'saveSoundAs', part: 0, name: 'Mine 2' })
     expect(kp().sound?.name).toBe('Mine 2')

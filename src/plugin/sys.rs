@@ -47,6 +47,7 @@ use std::ffi::c_void;
 use std::ptr::{self, NonNull};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 
 pub use objc2_audio_toolbox::AudioUnit;
@@ -222,6 +223,9 @@ pub struct Unit {
     raw: AudioUnit,
     initialized: bool,
     lifecycle: Arc<Mutex<()>>,
+    /// Editor windows open on it: the Session reads its state now and then while one is
+    /// (the "edited" check, `session::plugins`).
+    editors: Arc<AtomicUsize>,
 }
 
 /// One lock per component (type, subtype, manufacturer), held around
@@ -342,7 +346,7 @@ pub fn instantiate_sync(c: &Component) -> Result<Unit> {
     if raw.is_null() {
         bail!("AudioComponentInstanceNew returned no instance");
     }
-    Ok(Unit { raw, initialized: false, lifecycle: lifecycle_lock(c.desc) })
+    Ok(Unit { raw, initialized: false, lifecycle: lifecycle_lock(c.desc), editors: Arc::default() })
 }
 
 /// Create an instance asynchronously (`AudioComponentInstantiate`). `out_of_process` asks for
@@ -357,7 +361,7 @@ pub fn instantiate_async(c: &Component, out_of_process: bool) -> mpsc::Receiver<
     let lifecycle = lifecycle_lock(c.desc);
     let block = RcBlock::new(move |inst: AudioComponentInstance, st: OSStatus| {
         let r = if st == 0 && !inst.is_null() {
-            Ok(Unit { raw: inst, initialized: false, lifecycle: lifecycle.clone() })
+            Ok(Unit { raw: inst, initialized: false, lifecycle: lifecycle.clone(), editors: Arc::default() })
         } else {
             if !inst.is_null() {
                 let _g = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
@@ -550,6 +554,18 @@ impl Unit {
     pub fn latency_seconds(&self) -> f64 {
         let mut v = 0f64;
         if unsafe { get_prop(self.raw, kAudioUnitProperty_Latency, kAudioUnitScope_Global, &mut v) } == 0 { v } else { 0.0 }
+    }
+
+    /// Set a parameter, as the plugin's own window does when a knob turns (tests). Not
+    /// RT-safe.
+    #[cfg(test)]
+    pub(crate) fn set_parameter(&self, id: u32, scope: u32, element: u32, value: f32) -> Result<()> {
+        check(unsafe { objc2_audio_toolbox::AudioUnitSetParameter(self.raw, id, scope, element, value, 0) }, "AudioUnitSetParameter")
+    }
+
+    /// How many editor windows are open on this unit ([`super::instance::EditorWatch`]).
+    pub(crate) fn editors(&self) -> &Arc<AtomicUsize> {
+        &self.editors
     }
 
     /// The complete plugin state (`kAudioUnitProperty_ClassInfo`) as a binary plist. Not
