@@ -15,22 +15,22 @@ This document is about the inside.
 | `src/main.rs`, `src/ui.rs` | The `yahaha` binary (feature `tui`): the terminal front panel and the developer tools (`screen`, `state-json`, `bench`, `sim`, ...). |
 | `src/api.rs`, `src/api/*` | The app API types: `AppCmd`, `AppState`, `Event`, one module per feature. |
 | `src/session.rs`, `src/session/*` | `Session`: owns the runtime, runs commands, builds `AppState`. One module per feature. |
-| `src/engine.rs`, `src/engine/*` | `Engine`: the arranger (sections, pattern playback, chord following). Deterministic, allocation-free. |
+| `crates/yahaha-engine/src/engine.rs`, `crates/yahaha-engine/src/engine/*` | `Engine`: the arranger (sections, pattern playback, chord following). Deterministic, allocation-free. |
 | `src/live.rs`, `src/live/*` | The real-time threads' code: MIDI input (`Input`, the key pipeline) and the engine loop (`EngineLoop`). |
 | `src/synth.rs`, `src/synth/` | The built-in SoundFont synth (cpal audio thread), on upstream rustysynth. |
 | `crates/yahaha-core/src/midi.rs`, `crates/yahaha-core/src/rt.rs` | CoreMIDI, real-time helpers (clock, wakeups, packet sink, histograms). |
 | `crates/yahaha-sff/src/sff.rs`, `crates/yahaha-sff/src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
 | `crates/yahaha-core/src/theory.rs`, `crates/yahaha-core/src/fingering.rs` | Chords, chord recognition, fingering types. |
-| `src/parts.rs`, `src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
-| `src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
+| `crates/yahaha-engine/src/parts.rs`, `crates/yahaha-engine/src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
+| `crates/yahaha-engine/src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
 | `src/patches/` | The sound library (#103): patches, the program map and its resolution, the versioned library file, the route table the synth and the port read, `.sf2` preset headers (docs/sound-library.md). The synth's side is `src/synth/routing.rs`. |
-| `src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
+| `crates/yahaha-engine/src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
 | `crates/yahaha-core/src/harmony.rs`, `crates/yahaha-core/src/arp/` | Keyboard Harmony and the arpeggio (pure, real-time safe), wired in by `src/live/pipeline.rs` and `src/live/kbdfx.rs`. |
 | `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
 | `crates/yahaha-core/src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
 | `crates/yahaha-core/src/looper.rs`, `crates/yahaha-core/src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
-| `crates/` | The layer crates of the planned crate split (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). `yahaha-core` (with `perf`'s collection side), `yahaha-sff` and `yahaha-fx` (`crates/yahaha-fx/src/fx/`) hold their modules; the others are empty for now. |
+| `crates/` | The layer crates of the planned crate split (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). `yahaha-core` (with `perf`'s collection side), `yahaha-sff`, `yahaha-fx` (`crates/yahaha-fx/src/fx/`) and `yahaha-engine` (engine, multipad, parts, controllers, launchkey, sim) hold their modules; `yahaha-synth` is empty for now. |
 
 The modules above are moving, lane by lane, out of the one `yahaha` crate into layer
 crates under `crates/`: core → sff, fx → engine → synth → the `yahaha` facade (session,
@@ -141,7 +141,7 @@ struct of the feature's own module. To reach the engine: `self.engine_cmd(Cmd::.
 reach the input thread: an atomic in `Shared` or `Parts`, or a ring set up in
 `Session::start`.
 
-### 3. Engine: `src/engine/<feature>.rs`, hooks and `Features`
+### 3. Engine: `crates/yahaha-engine/src/engine/<feature>.rs`, hooks and `Features`
 
 Engine behaviour is split by concern into `impl Engine` blocks: `transport.rs` (buttons,
 start/stop, tempo), `sections.rs` (section changes), `playback.rs` (`process`),
@@ -152,7 +152,7 @@ A feature that lives in the engine:
 
 - keeps its state in **one field of `hooks::Features`** (fixed-size, no heap; `Engine::new`
   builds it on the control side);
-- adds **one call** to its own function in the **hook** it needs (`src/engine/hooks.rs`):
+- adds **one call** to its own function in the **hook** it needs (`crates/yahaha-engine/src/engine/hooks.rs`):
   `on_start`, `on_stop`, `on_bar`, `on_beat`, `before_section_change`,
   `after_section_change`, `on_chord`, `on_style_loaded`, or `on_wake` (every `process`
   call, band running or not); and returns its next deadline from `hook_deadline` if it
@@ -170,7 +170,7 @@ Everything in the engine is deterministic (time is the `now` passed in) and allo
 ### 4. Section-change timing: `Engine::change_point`
 
 "When does a queued change take effect" has one answer: `Engine::change_point(Change,
-now)` in `src/engine/sections.rs`. Sections, stops and style changes wait for the next bar
+now)` in `crates/yahaha-engine/src/engine/sections.rs`. Sections, stops and style changes wait for the next bar
 line; fills and breaks start at the next beat, or at once within the late-press grace window after one (`fill_beat`, #265; a Half Bar Fill, `Change::HalfBar`, at the middle of the bar). "What plays when a section ends with
 nothing queued" is `Engine::follow_on`. A feature that changes timing (Genos Section Change
 Timing, OTS Link Timing, a chart player driving sections) changes these policies (a new
@@ -210,7 +210,7 @@ A key for the command: `key_action` for a control the Launchkey also has (it map
 `keys_send_commands` test covers them; the help lines at the foot of the screen (`help` in
 `ui.rs`) list the main ones.
 
-### 7. Launchkey: `src/launchkey.rs`
+### 7. Launchkey: `crates/yahaha-engine/src/launchkey.rs`
 
 A pad or button: an `Action` (`launchkey::pad_action` / `cc_control`) that the control
 side runs as its `AppCmd` (`impl From<Action> for AppCmd` in `src/api.rs`); its LED in
@@ -249,9 +249,9 @@ coordination board before editing anything else in them:
 |---|---|---|
 | `src/api.rs` | `mod`/`pub use`, one `app_cmd!` line, one `AppState` field | the API: changes to the macro, `AppState` order, `Event` |
 | `src/session.rs` | one arm in `apply`, one field in `build_state`, one call in `pump`, a `Control` field | the session frame: threads, locking, publishing |
-| `src/engine.rs` | a `Snapshot` field | the engine core: `Engine` fields, types |
-| `src/engine/hooks.rs` | one call per hook used, one `Features` field | the hook order and timing |
-| `src/engine/sections.rs` | a `Change` kind / a policy branch | section-change timing |
+| `crates/yahaha-engine/src/engine.rs` | a `Snapshot` field | the engine core: `Engine` fields, types |
+| `crates/yahaha-engine/src/engine/hooks.rs` | one call per hook used, one `Features` field | the hook order and timing |
+| `crates/yahaha-engine/src/engine/sections.rs` | a `Change` kind / a policy branch | section-change timing |
 | `src/live.rs` | a `Cmd` variant and its arm in `apply`; a `Shared` atomic | the threads, rings and wiring |
 | `src/live/pipeline.rs` | a `Processor` variant and its arm | the stage order |
 | `src/ui.rs` | a key in `key_action` / `key_cmd` | the terminal UI |
@@ -271,7 +271,7 @@ Rules:
 - **The mixer rule.** A part's volume is only its CC7, sent unchanged to the synth and
   the yahaha port; no hidden per-part gain anywhere. The master fader is the only gain
   that is not a MIDI message. One exception, and it is still CC7: while a Fade In/Out
-  runs (`src/engine/fade.rs`), each Style part's CC7 goes out as its fader value scaled
+  runs (`crates/yahaha-engine/src/engine/fade.rs`), each Style part's CC7 goes out as its fader value scaled
   by the fade; the fader value itself never moves and goes out unchanged when the fade
   ends. The synth gets exactly what the port gets.
 - **Behaviour stays pinned.** The golden digests (`src/golden.rs`, `tests/golden`),

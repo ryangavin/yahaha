@@ -16,3 +16,8 @@ slow-tests = ["yahaha-core/slow-tests", "yahaha-sff/slow-tests", "yahaha-fx/slow
 yahaha-core = { path = "../yahaha-core" }
 yahaha-sff = { path = "../yahaha-sff" }
 yahaha-fx = { path = "../yahaha-fx" }
+anyhow = "1.0.104"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

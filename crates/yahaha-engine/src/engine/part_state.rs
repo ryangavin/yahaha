@@ -1,0 +1,1052 @@
+//! Keyboard parts, the Genos model: Right 1, Right 2, Right 3 and Left (OM p.48).
+//!
+//! Each part has a voice, a volume (its CC7), an octave shift and on/off. The Right parts
+//! that are on sound together (that is layering) on the right of the split; Left sounds
+//! left of it. Every part has its own channel, the same on the `yahaha` port and in the
+//! built-in synth, so what the port carries is exactly what sounds:
+//!
+//!   Right 1 = ch 1, Left = ch 2 (as before the parts model), Right 2 = ch 3, Right 3 = ch 4.
+//!
+//! The Launchkey faders have two pages, like the Genos Mixer's Panel and Style tabs (OM
+//! p.90): Panel = faders 1-4 on Right 1, Right 2, Right 3, Left; Style = the 8 Style parts.
+//!
+//! Plain atomics: the input thread (notes, faders), the engine thread (CC7 out), the UI
+//! thread (OTS, keys) and the synth all read them; none of them waits.
+//!
+//! The parts' plain data (ids, channels, fader page and layer, send controllers) is in
+//! `crate::parts_data` and the tone controllers in `crate::tone`; `crate::parts`
+//! re-exports all of it with `Parts` (#337).
+
+use super::{Takeover, HW_UNKNOWN};
+use yahaha_core::parts_data::*;
+use yahaha_fx::fx::part_eq::{EqCell, PartEq};
+use yahaha_fx::fx::{InsertEffect, PartInsert};
+use yahaha_core::tone::{TONE, TONE_CC, TONE_NEUTRAL};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, AtomicU32, Ordering::{Acquire, Relaxed, Release}};
+
+/// `Parts::level`: the volume bits and the pickup bit.
+const VOLUME: u8 = 0x7F;
+const PICKED: u8 = 0x80;
+
+fn pack(volume: u8, picked: bool) -> u8 {
+    volume & VOLUME | (picked as u8) << 7
+}
+
+pub struct Parts {
+    /// GM program per part.
+    pub program: [AtomicU8; COUNT],
+    pub on: [AtomicBool; COUNT],
+    /// The part's volume (its CC7, sent unchanged on its channel) in bits 0-6, and in bit 7
+    /// whether its Panel fader controls it (soft takeover). One atomic, so a fader move and
+    /// an OTS recall on other threads can never mix one's volume with the other's pickup.
+    /// After the parts, the other Panel faders' levels (`STYLE_LEVEL`, `PAD_LEVEL`).
+    level: [AtomicU8; PANEL_FADERS],
+    /// Octave shift, -2..=2.
+    pub octave: [AtomicI8; COUNT],
+    /// The part the voice keys (9/0, Voice -/+ pads) edit.
+    pub selected: AtomicU8,
+    /// A voice changed: the synth sends the parts' programs again.
+    pub changed: AtomicBool,
+    /// Manual Bass in effect: the Left part sounds, on the Style's Bass voice (OM p.51).
+    pub manual_bass: AtomicBool,
+    /// GM program for the current Style's Bass part (see `synth::style_bass_program`).
+    pub bass_program: AtomicU8,
+    /// Main A-D recall One Touch Settings 1-4.
+    pub ots_link: AtomicBool,
+    /// Which OTS was applied last (0 = none, 1..=4).
+    pub ots_applied: AtomicU8,
+    /// `FaderPage::Panel` = 0, `Style` = 1.
+    fader_page: AtomicU8,
+    /// The `FaderLayer` (as u8).
+    fader_layer: AtomicU8,
+    /// Bumped whenever the faders change what they control (layer or page): the input
+    /// thread binds a send fader's takeover afresh.
+    layer_gen: AtomicU8,
+    /// Keyboard parts whose Panel fader, in a send layer, has moved but not yet reached
+    /// the value (bit = part; the input thread keeps it).
+    pub send_waiting: AtomicU8,
+    /// Where each Launchkey fader 1-8 physically is (`HW_UNKNOWN` until it moves). Faders
+    /// are shared by both pages, so a page switch needs this for soft takeover.
+    pub fader_hw: [AtomicU8; 8],
+    /// What Panel faders 1-4 do in the Volume layer (`FaderRoute`), from the live rack's
+    /// controller map: set by the control side when the map changes, read by the input
+    /// thread.
+    rack_fader: [AtomicU8; COUNT],
+    /// The faders went to the Style page: the engine rebinds the Style parts' takeover to
+    /// `rebind_hw` on its next wake (`take_rebind`). A flag rather than a command, so a full
+    /// ring can never lose it.
+    rebind: AtomicBool,
+    /// The physical fader positions when the faders went to the Style page.
+    rebind_hw: [AtomicU8; 8],
+    /// The part soloed (`NO_SOLO`: none): only it sounds, whatever the on/off switches say.
+    solo: AtomicU8,
+    /// Each part's pan and reverb/chorus sends (CC10, 91, 93; `NO_FX` = not set) as a sound
+    /// library patch set them (#103), and the parts whose values the engine thread still
+    /// has to send (bit = part).
+    fx: [[AtomicU8; FX]; COUNT],
+    fx_dirty: AtomicU8,
+    /// The parts whose power-on pan and sends (`FX_DEFAULT`) the engine thread has not
+    /// sent yet (bit = part): all of them at first, so a fresh start isn't dry (#204).
+    fx_boot: AtomicU8,
+    /// Each part's voice settings as an OTS or a Registration set them (#238): the
+    /// `TONE_CC` controllers, and the XG multi part parameters (`xg_slot`) sent as SysEx to
+    /// the port. `NO_FX` = not set, so nothing is sent for it. The parts whose settings the
+    /// engine thread still has to send (bit = part).
+    tone: [[AtomicU8; TONE]; COUNT],
+    xg: [[AtomicU8; XG_SLOTS]; COUNT],
+    tone_dirty: AtomicU8,
+    /// Each part's channel-strip EQ (#247) and its coefficients for the audio thread
+    /// (`fx::part_eq`), at `sample_rate` (Hz; the synth sets it).
+    eq: [EqCell; COUNT],
+    sample_rate: AtomicU32,
+    /// Each part's insert slot (`fx::PartInsert::to_bits`): the audio thread reads it once
+    /// a buffer.
+    insert: [AtomicU32; COUNT],
+}
+
+/// XG multi part parameters per part: block 08 (0-127), then block 0A (128-255).
+const XG_SLOTS: usize = 256;
+
+/// A part's `Parts::xg` slot for XG multi part parameter (hh, nn).
+fn xg_slot(hh: u8, nn: u8) -> Option<usize> {
+    match hh {
+        0x08 => Some(nn as usize & 0x7F),
+        0x0A => Some(128 + (nn as usize & 0x7F)),
+        _ => None,
+    }
+}
+
+/// `Parts::fx`: not set.
+const NO_FX: u8 = 0xFF;
+
+impl Default for Parts {
+    fn default() -> Parts {
+        Parts::new()
+    }
+}
+
+impl Parts {
+    pub fn new() -> Parts {
+        Parts {
+            program: DEFAULT_PROGRAMS.map(AtomicU8::new),
+            on: [true, false, false, false].map(AtomicBool::new),
+            level: [const { AtomicU8::new(100) }; PANEL_FADERS],
+            octave: [const { AtomicI8::new(0) }; COUNT],
+            selected: AtomicU8::new(RIGHT1 as u8),
+            changed: AtomicBool::new(true),
+            manual_bass: AtomicBool::new(false),
+            bass_program: AtomicU8::new(33),
+            ots_link: AtomicBool::new(false),
+            ots_applied: AtomicU8::new(0),
+            fader_page: AtomicU8::new(0),
+            fader_layer: AtomicU8::new(0),
+            layer_gen: AtomicU8::new(0),
+            send_waiting: AtomicU8::new(0),
+            fader_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
+            rack_fader: [const { AtomicU8::new(FaderRoute::Own as u8) }; COUNT],
+            rebind: AtomicBool::new(false),
+            rebind_hw: [const { AtomicU8::new(HW_UNKNOWN) }; 8],
+            solo: AtomicU8::new(NO_SOLO),
+            fx: [const { [const { AtomicU8::new(NO_FX) }; FX] }; COUNT],
+            fx_dirty: AtomicU8::new(0),
+            fx_boot: AtomicU8::new((1 << COUNT) - 1),
+            tone: [const { [const { AtomicU8::new(NO_FX) }; TONE] }; COUNT],
+            xg: [const { [const { AtomicU8::new(NO_FX) }; XG_SLOTS] }; COUNT],
+            tone_dirty: AtomicU8::new(0),
+            eq: [const { EqCell::new() }; COUNT],
+            sample_rate: AtomicU32::new(48_000),
+            insert: [const { AtomicU32::new(PartInsert::OFF.to_bits()) }; COUNT],
+        }
+    }
+
+    /// A part's insert slot, as last set.
+    pub fn insert(&self, part: usize) -> PartInsert {
+        PartInsert::from_bits(self.insert[part % COUNT].load(Relaxed))
+    }
+
+    /// Set a part's insert slot (its amount at most 127). RT-safe: the engine thread sets
+    /// it on an OTS Link recall.
+    pub fn set_insert(&self, part: usize, slot: PartInsert) {
+        self.insert[part % COUNT].store(slot.to_bits(), Relaxed);
+    }
+
+    /// Change a part's insert slot in place (one field, from the app), never losing a
+    /// change made at the same time elsewhere.
+    pub fn edit_insert(&self, part: usize, f: impl Fn(&mut PartInsert)) {
+        let _ = self.insert[part % COUNT].fetch_update(Relaxed, Relaxed, |v| {
+            let mut slot = PartInsert::from_bits(v);
+            f(&mut slot);
+            Some(slot.to_bits())
+        });
+    }
+
+    /// A part's channel-strip EQ (#247), as last set.
+    pub fn eq(&self, part: usize) -> PartEq {
+        self.eq[part % COUNT].get()
+    }
+
+    /// Set a part's EQ (clamped to its ranges): its coefficients are computed here, on the
+    /// caller's thread, and the audio thread takes them on its next buffer.
+    pub fn set_eq(&self, part: usize, eq: PartEq) {
+        self.eq[part % COUNT].set(eq, self.sample_rate.load(Relaxed) as f32);
+    }
+
+    /// The shared EQ of a part, for the audio thread (`EqCell::read`).
+    pub fn eq_cell(&self, part: usize) -> &EqCell {
+        &self.eq[part % COUNT]
+    }
+
+    /// The sample rate the parts' EQs play at: set by the synth when it starts (off the
+    /// audio thread), which computes every part's coefficients again.
+    pub fn set_sample_rate(&self, sample_rate: u32) {
+        if self.sample_rate.swap(sample_rate, Relaxed) != sample_rate {
+            for cell in &self.eq {
+                cell.recompute(sample_rate as f32);
+            }
+        }
+    }
+
+    /// A part's voice settings (#238): the `TONE_CC` controllers given (None: leave it),
+    /// and XG multi part parameters (hh, nn, vv). The engine thread sends them, the
+    /// controllers to the port and the synth, the XG SysEx to the port.
+    pub fn set_tone(&self, part: usize, tone: [Option<u8>; TONE], xg: impl IntoIterator<Item = (u8, u8, u8)>) {
+        let part = part % COUNT;
+        for (a, v) in self.tone[part].iter().zip(tone) {
+            if let Some(v) = v {
+                a.store(v.min(127), Relaxed);
+            }
+        }
+        for (hh, nn, vv) in xg {
+            if let Some(i) = xg_slot(hh, nn) {
+                self.xg[part][i].store(vv & 0x7F, Relaxed);
+            }
+        }
+        self.tone_dirty.fetch_or(1 << part, Release);
+    }
+
+    /// A part's `TONE_CC` controllers as last set (None: never set).
+    pub fn tone(&self, part: usize) -> [Option<u8>; TONE] {
+        self.tone[part % COUNT].each_ref().map(|a| Some(a.load(Relaxed)).filter(|&v| v != NO_FX))
+    }
+
+    /// A part's XG multi part parameters as last set, (hh, nn, vv) in address order.
+    pub fn xg(&self, part: usize) -> Vec<(u8, u8, u8)> {
+        (0..XG_SLOTS)
+            .filter_map(|i| {
+                let v = self.xg[part % COUNT][i].load(Relaxed);
+                (v != NO_FX).then_some((if i < 128 { 0x08 } else { 0x0A }, (i & 0x7F) as u8, v))
+            })
+            .collect()
+    }
+
+    /// The part's voice changed: on the Genos the new voice brings its own filter, EG,
+    /// vibrato, portamento and mono/poly (its Voice Set, RM p.41); yahaha has no per-voice
+    /// data, so what an OTS or Registration set goes back to neutral (`TONE_NEUTRAL`, the
+    /// XG defaults), sent once. Pitch bend range is not a Voice Set parameter and stays.
+    pub fn voice_changed(&self, part: usize) {
+        let part = part % COUNT;
+        let mut any = false;
+        for (a, v) in self.tone[part].iter().zip(TONE_NEUTRAL) {
+            if a.load(Relaxed) != NO_FX {
+                a.store(v, Relaxed);
+                any = true;
+            }
+        }
+        for (i, a) in self.xg[part].iter().enumerate() {
+            if a.load(Relaxed) != NO_FX {
+                let (hh, nn) = if i < 128 { (0x08, i as u8) } else { (0x0A, (i - 128) as u8) };
+                match xg_default(hh, nn) {
+                    Some(v) => a.store(v, Relaxed),
+                    None => a.store(NO_FX, Relaxed),
+                }
+                any = true;
+            }
+        }
+        if any {
+            self.tone_dirty.fetch_or(1 << part, Release);
+        }
+    }
+
+    /// Engine thread: send the voice settings set since the last call (`set_tone`): the
+    /// controllers on the part's channel, the XG parameters as SysEx for the XG part of
+    /// that channel.
+    pub fn send_tone(&self, out: &mut impl FnMut(&[u8])) {
+        let dirty = self.tone_dirty.swap(0, Acquire);
+        for p in (0..COUNT).filter(|p| dirty & 1 << p != 0) {
+            let ch = CHANNEL[p];
+            for (a, cc) in self.tone[p].iter().zip(TONE_CC) {
+                let v = a.load(Relaxed);
+                if v != NO_FX {
+                    out(&[0xB0 | ch, cc, v]);
+                }
+            }
+            for (i, a) in self.xg[p].iter().enumerate() {
+                let v = a.load(Relaxed);
+                if v != NO_FX {
+                    let hh = if i < 128 { 0x08 } else { 0x0A };
+                    out(&[0xF0, 0x43, 0x10, 0x4C, hh, ch, (i & 0x7F) as u8, v, 0xF7]);
+                }
+            }
+        }
+    }
+
+    /// A part's pan, reverb and chorus sends from a sound library patch (None: leave it).
+    /// The engine thread sends them as CCs on the part's channel, to the port and the synth.
+    pub fn set_fx(&self, part: usize, fx: [Option<u8>; FX]) {
+        let part = part % COUNT;
+        for (a, v) in self.fx[part].iter().zip(fx) {
+            if let Some(v) = v {
+                a.store(v.min(127), Relaxed);
+            }
+        }
+        self.fx_dirty.fetch_or(1 << part, Release);
+    }
+
+    /// A part's pan, reverb send and chorus send (`PAN`, `REVERB`, `CHORUS`) as last set,
+    /// or the power-on value (`FX_DEFAULT`) where nothing has set it.
+    pub fn fx(&self, part: usize) -> [u8; FX] {
+        let part = part % COUNT;
+        std::array::from_fn(|i| match self.fx[part][i].load(Relaxed) {
+            NO_FX => FX_DEFAULT[part][i],
+            v => v,
+        })
+    }
+
+    /// Every part's pan and sends go out again on the engine thread's next `send_fx`
+    /// (the power-on values where nothing has set them): after a Panic, a Reset All
+    /// Controllers or a new synth, anything that may have put a channel back to its
+    /// power-on sends.
+    pub fn resend_fx(&self) {
+        self.fx_boot.fetch_or((1 << COUNT) - 1, Release);
+        // The voice settings too (#238): only those set.
+        self.tone_dirty.fetch_or((1 << COUNT) - 1, Release);
+    }
+
+    /// Engine thread: send the pan and sends set since the last call; on the first call,
+    /// every part's (the power-on values where nothing has set them).
+    pub fn send_fx(&self, out: &mut impl FnMut(&[u8])) {
+        let boot = self.fx_boot.swap(0, Acquire);
+        let dirty = self.fx_dirty.swap(0, Acquire) & !boot;
+        for p in (0..COUNT).filter(|p| boot & 1 << p != 0) {
+            for (v, cc) in self.fx(p).into_iter().zip(FX_CC) {
+                out(&[0xB0 | CHANNEL[p], cc, v]);
+            }
+        }
+        if dirty == 0 {
+            return;
+        }
+        for p in (0..COUNT).filter(|p| dirty & 1 << p != 0) {
+            for (a, cc) in self.fx[p].iter().zip(FX_CC) {
+                let v = a.load(Relaxed);
+                if v != NO_FX {
+                    out(&[0xB0 | CHANNEL[p], cc, v]);
+                }
+            }
+        }
+    }
+
+    /// The part soloed, if any.
+    pub fn solo(&self) -> Option<usize> {
+        let s = self.solo.load(Relaxed);
+        (s != NO_SOLO).then_some(s as usize & 3)
+    }
+
+    /// Solo a part (only it sounds, even if switched off), or end the solo. Notes already
+    /// sounding keep their note-offs (`live::Keys`).
+    pub fn set_solo(&self, part: Option<usize>) {
+        self.solo.store(part.map_or(NO_SOLO, |p| (p & 3) as u8), Relaxed);
+    }
+
+    /// The part sounds for the keys: the soloed part alone, else when it is on.
+    pub fn audible(&self, part: usize) -> bool {
+        match self.solo() {
+            Some(s) => s == part,
+            None => self.is_on(part),
+        }
+    }
+
+    /// The left hand plays the Left part: `left_sounds`, or Left soloed; not while another
+    /// part is soloed.
+    pub fn left_audible(&self) -> bool {
+        match self.solo() {
+            Some(s) => s == LEFT,
+            None => self.left_sounds(),
+        }
+    }
+
+    pub fn is_on(&self, part: usize) -> bool {
+        self.on[part].load(Relaxed)
+    }
+
+    /// Bitmask of the parts that are on (bit = part index).
+    pub fn on_mask(&self) -> u8 {
+        (0..COUNT).filter(|&p| self.is_on(p)).fold(0, |m, p| m | 1 << p)
+    }
+
+    /// The left hand sounds: Left is on, or Manual Bass plays the bass with it.
+    pub fn left_sounds(&self) -> bool {
+        self.is_on(LEFT) || self.manual_bass.load(Relaxed)
+    }
+
+    /// Bitmask of the parts that sound: `on_mask`, with Left lit under Manual Bass too.
+    /// What the LEDs and the screen show.
+    pub fn sounding_mask(&self) -> u8 {
+        self.on_mask() | (self.left_sounds() as u8) << LEFT
+    }
+
+    /// Bitmask of the parts the keys play now: `sounding_mask`, except that a solo leaves
+    /// the soloed part alone (switched off or not). Where the pedals and wheels go
+    /// (`Controllers::sync`).
+    pub fn audible_mask(&self) -> u8 {
+        match self.solo() {
+            Some(s) => 1 << s,
+            None => self.sounding_mask(),
+        }
+    }
+
+    /// Turn a part on or off. Refused for Left while Manual Bass is in effect (false): the
+    /// left hand sounds the bass then whatever Left's switch says, so a flip would change
+    /// nothing audible or visible.
+    pub fn toggle(&self, part: usize) -> bool {
+        if part & 3 == LEFT && self.manual_bass.load(Relaxed) {
+            return false;
+        }
+        self.on[part & 3].fetch_xor(true, Relaxed);
+        true
+    }
+
+    /// The octave shift the part plays at. Under Manual Bass the left hand plays the Style's
+    /// Bass voice at the pitch it is played: Left's octave belongs to its own voice (OTS set
+    /// it +1/+2 for pads and strings) and is not applied to the bass.
+    pub fn octave_of(&self, part: usize) -> i8 {
+        if part == LEFT && self.manual_bass.load(Relaxed) {
+            0
+        } else {
+            self.octave[part].load(Relaxed).clamp(-2, 2)
+        }
+    }
+
+    /// The part's volume (its CC7), or another Panel fader's level (`STYLE_LEVEL`,
+    /// `PAD_LEVEL`).
+    pub fn volume(&self, part: usize) -> u8 {
+        self.level[part].load(Relaxed) & VOLUME
+    }
+
+    pub fn select(&self, part: usize) {
+        self.selected.store((part & 3) as u8, Relaxed);
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected.load(Relaxed) as usize & 3
+    }
+
+    /// Set a part's voice (GM program). Its voice settings go back to neutral
+    /// (`voice_changed`).
+    pub fn set_program(&self, part: usize, program: u8) {
+        self.program[part & 3].store(program & 127, Relaxed);
+        self.voice_changed(part & 3);
+        self.changed.store(true, Release);
+    }
+
+    /// Previous/next voice for the selected part, as `set_program`.
+    pub fn step_program(&self, delta: i32) {
+        let p = self.selected();
+        let v = (self.program[p].load(Relaxed) as i32 + delta).rem_euclid(128) as u8;
+        self.program[p].store(v, Relaxed);
+        self.voice_changed(p);
+        self.changed.store(true, Release);
+    }
+
+    /// The program the part's channel plays: under Manual Bass, Left plays the Style's Bass voice.
+    pub fn channel_program(&self, part: usize) -> u8 {
+        if part == LEFT && self.manual_bass.load(Relaxed) {
+            self.bass_program.load(Relaxed)
+        } else {
+            self.program[part].load(Relaxed)
+        }
+    }
+
+    pub fn set_manual_bass(&self, on: bool) {
+        self.manual_bass.store(on, Relaxed);
+        self.changed.store(true, Release);
+    }
+
+    /// A new Style is loaded: its Bass voice is what Manual Bass plays.
+    pub fn set_bass_program(&self, prog: u8) {
+        self.bass_program.store(prog, Relaxed);
+        self.changed.store(true, Release);
+    }
+
+    /// Set a part's volume from software (OTS): its Panel fader has to pick it up first.
+    pub fn set_volume(&self, part: usize, v: u8) {
+        let v = v.min(127);
+        let hw = self.fader_hw[part].load(Relaxed);
+        self.level[part].store(pack(v, Takeover::at(hw, v).picked()), Relaxed);
+    }
+
+    /// Panel fader `part` moved from `prev` to `v` (input thread). Soft takeover as for the
+    /// Style faders; true if it now controls the part and set its volume.
+    pub fn hw_fader(&self, part: usize, prev: u8, v: u8) -> bool {
+        let v = v.min(127);
+        let mut ok = false;
+        // Judged and stored against one reading of volume + pickup: if an OTS recall set
+        // the volume meanwhile, the move is judged again against the new level.
+        let _ = self.level[part].fetch_update(Relaxed, Relaxed, |l| {
+            let mut t = Takeover::resume(prev, l & PICKED != 0);
+            ok = t.hardware(l & VOLUME, v);
+            Some(pack(if ok { v } else { l & VOLUME }, t.picked()))
+        });
+        ok
+    }
+
+    /// The part's Panel fader has moved but not yet picked the volume up.
+    pub fn waiting(&self, part: usize) -> bool {
+        self.fader_hw[part].load(Relaxed) != HW_UNKNOWN && self.level[part].load(Relaxed) & PICKED == 0
+    }
+
+    pub fn fader_page(&self) -> FaderPage {
+        if self.fader_page.load(Relaxed) == 0 {
+            FaderPage::Panel
+        } else {
+            FaderPage::Style
+        }
+    }
+
+    /// Switch the fader page. The physical faders now control other values: each picks its
+    /// new value up only once it gets there. The Panel side is rebound here; the Style side
+    /// by the engine (`take_rebind`, then `Engine::faders_at`).
+    pub fn set_fader_page(&self, page: FaderPage) {
+        let hw = self.fader_hw.each_ref().map(|a| a.load(Relaxed));
+        match page {
+            FaderPage::Panel => {
+                for (level, h) in self.level.iter().zip(hw) {
+                    let _ = level.fetch_update(Relaxed, Relaxed, |l| Some(pack(l & VOLUME, Takeover::at(h, l & VOLUME).picked())));
+                }
+            }
+            FaderPage::Style => {
+                for (a, h) in self.rebind_hw.iter().zip(hw) {
+                    a.store(h, Relaxed);
+                }
+                self.rebind.store(true, Release);
+            }
+        }
+        self.fader_page.store(page as u8, Relaxed);
+        self.layer_gen.fetch_add(1, Relaxed);
+    }
+
+    pub fn fader_layer(&self) -> FaderLayer {
+        FaderLayer::from_u8(self.fader_layer.load(Relaxed))
+    }
+
+    /// What Panel fader `f` (0-3) does in the Volume layer.
+    pub fn rack_fader(&self, f: usize) -> FaderRoute {
+        self.rack_fader.get(f).map_or(FaderRoute::Own, |a| FaderRoute::from_u8(a.load(Relaxed)))
+    }
+
+    /// The live rack's controller map changed: what Panel faders 1-4 do now.
+    pub fn set_rack_faders(&self, routes: [FaderRoute; COUNT]) {
+        for (a, r) in self.rack_fader.iter().zip(routes) {
+            a.store(r as u8, Relaxed);
+        }
+    }
+
+    /// Switch the fader layer. Back on Volume, the faders pick their parts' levels up
+    /// afresh (they moved sends meanwhile), as after a page switch; a send layer's faders
+    /// pick their values up in the input thread.
+    pub fn set_fader_layer(&self, layer: FaderLayer) {
+        if self.fader_layer.swap(layer as u8, Relaxed) != layer as u8 {
+            self.send_waiting.store(0, Relaxed);
+            self.layer_gen.fetch_add(1, Relaxed);
+            if layer == FaderLayer::Volume {
+                self.set_fader_page(self.fader_page());
+            }
+        }
+    }
+
+    /// Changes each time the faders change what they control (see `layer_gen`).
+    pub fn fader_layer_gen(&self) -> u8 {
+        self.layer_gen.load(Relaxed)
+    }
+
+    /// Step the fader layer by `d` (Shift + the master fader's button: +1).
+    pub fn step_fader_layer(&self, d: i8) -> FaderLayer {
+        let l = self.fader_layer().step(d);
+        self.set_fader_layer(l);
+        l
+    }
+
+    pub fn toggle_fader_page(&self) -> FaderPage {
+        let page = match self.fader_page() {
+            FaderPage::Panel => FaderPage::Style,
+            FaderPage::Style => FaderPage::Panel,
+        };
+        self.set_fader_page(page);
+        page
+    }
+
+    /// Engine thread: where the faders were when they last went to the Style page, once.
+    pub fn take_rebind(&self) -> Option<[u8; 8]> {
+        self.rebind.swap(false, Acquire).then(|| self.rebind_hw.each_ref().map(|a| a.load(Relaxed)))
+    }
+
+    /// Load a One Touch Setting into Right 1-3 and Left: voice, on/off, volume, octave, and
+    /// the pan and reverb/chorus sends the OTS sets (the engine thread sends them; one it
+    /// doesn't set stays as it is). Drum-kit voices (bank MSB 126/127) keep the part's
+    /// current voice. The voice settings (#238): a part the OTS gives a voice starts from
+    /// neutral (`voice_changed`), then takes the filter, EG, vibrato, portamento and XG
+    /// part parameters the OTS sets. Pitch bend range is the caller's (`Controllers`).
+    /// The part EQ (#247): the OTS's XG part EQ (`PartEq::from_xg`, its other bands at the
+    /// XG defaults); a part the OTS gives a voice but no EQ gets a flat one (the voice's
+    /// own EQ, which yahaha has no data for); any other part keeps its EQ.
+    /// The insert slot: the OTS's XG insertion type for the part (`OtsPart::insert`) turns
+    /// it on with the effect that plays it (`fx::xg::insert_kind`, as for the Style parts'),
+    /// or off when none does (THRU, an EQ, a delay...); a part the OTS gives a voice but no
+    /// insertion type turns it off; any other part keeps its slot.
+    ///
+    /// `sends`: whether the OTS's reverb, chorus and delay sends apply. An explicit recall
+    /// (an OTS button, the app) applies them; OTS Link firing on its own (a style start, a
+    /// section change) leaves the sends the player dialled in, and applies only the pan.
+    pub fn apply_ots(&self, ots: &yahaha_sff::sff::Ots, number: u8, sends: bool) {
+        for (p, part) in ots.parts.iter().enumerate() {
+            let voiced = part.voice.filter(|v| v.0 < 126);
+            if let Some((_, _, pc)) = voiced {
+                self.program[p].store(pc, Relaxed);
+                self.voice_changed(p);
+            }
+            if part.tone.iter().any(Option::is_some) || !part.xg.is_empty() {
+                self.set_tone(p, part.tone, part.xg.iter());
+            }
+            match PartEq::from_xg(part.xg.iter()) {
+                Some(eq) => self.set_eq(p, eq),
+                None if voiced.is_some() => self.set_eq(p, PartEq::FLAT),
+                None => {}
+            }
+            match part.insert.map(|(msb, lsb)| yahaha_fx::fx::xg::insert_kind(msb, lsb)) {
+                Some(Some((kind, amount))) => self.set_insert(p, PartInsert { effect: InsertEffect::from(kind), on: true, amount }),
+                Some(None) => self.edit_insert(p, |s| s.on = false),
+                None if voiced.is_some() => self.edit_insert(p, |s| s.on = false),
+                None => {}
+            }
+            self.on[p].store(part.on, Relaxed);
+            self.set_volume(p, part.volume);
+            self.octave[p].store(part.octave, Relaxed);
+            let mut fx = part.fx;
+            if !sends {
+                fx[REVERB..].fill(None);
+            }
+            if fx.iter().any(Option::is_some) {
+                self.set_fx(p, fx);
+            }
+        }
+        self.selected.store(RIGHT1 as u8, Relaxed);
+        self.ots_applied.store(number, Relaxed);
+        self.changed.store(true, Release);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yahaha_core::tone::*;
+
+    #[test]
+    fn channels_keep_right_1_and_left_where_they_were() {
+        assert_eq!(CHANNEL[RIGHT1], 0);
+        assert_eq!(CHANNEL[LEFT], 1);
+        assert_eq!((CHANNEL[RIGHT2], CHANNEL[RIGHT3]), (2, 3));
+        for (p, &ch) in CHANNEL.iter().enumerate() {
+            assert_eq!(part_of_channel(ch), Some(p));
+        }
+        assert_eq!(part_of_channel(4), None);
+        let parts = Parts::new();
+        assert_eq!(parts.on_mask(), 0b0001, "Right 1 alone at start, as on the Genos");
+        assert_eq!(parts.fader_page(), FaderPage::Panel);
+    }
+
+    #[test]
+    fn ots_fills_all_four_parts() {
+        let p = yahaha_sff::library::corpus_dir().join("MOX_v2/SlowWalker.T552.sty");
+        if !p.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let style = yahaha_sff::sff::Style::load(&p).unwrap();
+        let parts = Parts::new();
+        parts.select(LEFT);
+        parts.apply_ots(&style.ots[0], 1, true);
+        assert_eq!(parts.on_mask(), 0b1011, "Right 1 + Right 2 + Left");
+        assert_eq!(parts.program[RIGHT1].load(Relaxed), 80);
+        assert_eq!(parts.program[RIGHT2].load(Relaxed), 94);
+        assert_eq!(parts.program[LEFT].load(Relaxed), 52);
+        assert_eq!(parts.volume(LEFT), 40);
+        assert_eq!(parts.selected(), RIGHT1);
+        assert_eq!(parts.ots_applied.load(Relaxed), 1);
+        for (i, o) in style.ots[0].parts.iter().enumerate() {
+            assert_eq!(parts.volume(i), o.volume);
+            assert_eq!(parts.octave[i].load(Relaxed), o.octave);
+        }
+    }
+
+    /// An OTS recall sets each part's pan, reverb and chorus as its OTS track does (#198):
+    /// over the corpus, the CC10/91/93 that `send_fx` sends after `apply_ots` are the last
+    /// ones each part's channel carries in the raw OTSc track, and nothing else.
+    #[cfg(feature = "slow-tests")]
+    #[test]
+    fn ots_recalls_pan_and_sends_across_the_corpus() {
+        let dir = yahaha_sff::library::corpus_dir().join("MOX_v2");
+        if !dir.exists() {
+            eprintln!("corpus missing; skipping");
+            return;
+        }
+        let (mut settings, mut with_pan) = (0, 0);
+        // The MOX_v2 styles, in path order, from the shared parsed corpus.
+        for (f, style) in yahaha_sff::library::corpus_loaded().iter().filter(|(f, _)| f.starts_with(&dir)) {
+            let Some((_, otsc)) = style.other_chunks.iter().find(|(id, _)| id == "OTSc") else { continue };
+            // The OTS tracks, read here independently of `parse_ots`.
+            let mut tracks = Vec::new();
+            let mut p = 0;
+            while p + 8 <= otsc.len() && &otsc[p..p + 4] == b"MTrk" {
+                let len = u32::from_be_bytes(otsc[p + 4..p + 8].try_into().unwrap()) as usize;
+                let end = (p + 8 + len).min(otsc.len());
+                tracks.push(yahaha_sff::sff::parse_track(&otsc[p + 8..end]).unwrap_or_default());
+                p = end;
+            }
+            for (i, (ots, track)) in style.ots.iter().zip(&tracks).enumerate() {
+                let mut want = [[None; FX]; COUNT];
+                for e in track {
+                    if let yahaha_sff::sff::Ev::Cc { ch, cc, val } = e.ev
+                        && ch < 4
+                        && let Some(k) = FX_CC.iter().position(|&c| c == cc)
+                    {
+                        want[ch as usize][k] = Some(val);
+                    }
+                }
+                let parts = Parts::new();
+                parts.send_fx(&mut |_| {});
+                parts.apply_ots(ots, i as u8 + 1, true);
+                let mut got = [[None; FX]; COUNT];
+                parts.send_fx(&mut |m| {
+                    let p = part_of_channel(m[0] & 0x0F).unwrap();
+                    got[p][FX_CC.iter().position(|&c| c == m[1]).unwrap()] = Some(m[2]);
+                });
+                assert_eq!(got, want, "{} OTS {}", f.display(), i + 1);
+                settings += 1;
+                with_pan += want.iter().any(|w| w[0].is_some()) as usize;
+            }
+        }
+        eprintln!("{settings} OTS, {with_pan} with pan");
+        assert!(settings == 0 || with_pan * 2 > settings, "most OTS set pan ({with_pan} of {settings})");
+    }
+
+    /// An OTS recall sends each part's voice settings (#238): over the corpus, `send_tone`
+    /// after `apply_ots` sends exactly the `TONE_CC` controllers each OTS part sets, on the
+    /// part's channel, and its XG part parameters as SysEx for that channel's XG part.
+    #[cfg(feature = "slow-tests")]
+    #[test]
+    fn ots_recalls_voice_settings_across_the_corpus() {
+        let (mut settings, mut ccs, mut sysex) = (0, 0, 0);
+        for (f, style) in yahaha_sff::library::corpus_loaded() {
+            for (i, ots) in style.ots.iter().enumerate() {
+                let parts = Parts::new();
+                parts.apply_ots(ots, i as u8 + 1, true);
+                let mut got = Vec::new();
+                parts.send_tone(&mut |m| got.push(m.to_vec()));
+                let mut want = Vec::new();
+                for (p, q) in ots.parts.iter().enumerate() {
+                    let ch = CHANNEL[p];
+                    for (cc, v) in TONE_CC.into_iter().zip(q.tone) {
+                        want.extend(v.map(|v| vec![0xB0 | ch, cc, v]));
+                    }
+                    let mut xg: Vec<_> = q.xg.iter().collect();
+                    xg.sort();
+                    want.extend(xg.into_iter().map(|(hh, nn, vv)| vec![0xF0, 0x43, 0x10, 0x4C, hh, ch, nn, vv, 0xF7]));
+                }
+                got.sort();
+                want.sort();
+                assert_eq!(got, want, "{} OTS {}", f.display(), i + 1);
+                settings += 1;
+                sysex += got.iter().filter(|m| m[0] == 0xF0).count();
+                ccs += got.len();
+            }
+        }
+        ccs -= sysex;
+        eprintln!("{settings} OTS recalled: {ccs} controllers, {sysex} XG SysEx");
+        assert!(settings == 0 || (ccs > 0 && sysex > 0));
+    }
+
+    /// A voice change puts what an OTS set back to neutral, once (#238): the controllers to
+    /// `TONE_NEUTRAL`, XG parameters with a default to it, others forgotten; nothing that
+    /// was never set is sent.
+    #[test]
+    fn a_voice_change_resets_the_voice_settings() {
+        let parts = Parts::new();
+        let sent = |parts: &Parts| {
+            let mut v = Vec::new();
+            parts.send_tone(&mut |m| v.push(m.to_vec()));
+            v
+        };
+        parts.set_program(RIGHT2, 5);
+        assert!(sent(&parts).is_empty(), "nothing set, nothing to reset");
+        let mut tone = [None; TONE];
+        tone[CUTOFF] = Some(90);
+        tone[PORTAMENTO] = Some(127);
+        parts.set_tone(RIGHT2, tone, [(0x08, 0x05, 0), (0x08, 0x03, 7)]);
+        let ch = CHANNEL[RIGHT2];
+        assert_eq!(
+            sent(&parts),
+            vec![vec![0xB0 | ch, 74, 90], vec![0xB0 | ch, 65, 127], vec![0xF0, 0x43, 0x10, 0x4C, 0x08, ch, 0x03, 7, 0xF7], vec![0xF0, 0x43, 0x10, 0x4C, 0x08, ch, 0x05, 0, 0xF7]]
+        );
+        assert!(sent(&parts).is_empty(), "once");
+        parts.select(RIGHT2);
+        parts.step_program(1);
+        assert_eq!(sent(&parts), vec![vec![0xB0 | ch, 74, 64], vec![0xB0 | ch, 65, 0], vec![0xF0, 0x43, 0x10, 0x4C, 0x08, ch, 0x05, 1, 0xF7]]);
+        assert_eq!(parts.xg(RIGHT2), vec![(0x08, 0x05, 1)]);
+        // Other parts untouched; a reset (Panic) sends them all again.
+        assert!(parts.tone(RIGHT1).iter().all(Option::is_none));
+        parts.resend_fx();
+        assert_eq!(sent(&parts).len(), 3);
+    }
+
+    /// #247: an OTS's XG part EQ sets the part's channel-strip EQ; a part it gives a voice
+    /// and no EQ goes flat; a part it gives neither keeps the EQ it has.
+    #[test]
+    fn ots_xg_part_eq_sets_the_part_eq() {
+        use yahaha_fx::fx::part_eq::PartEq;
+        let parts = Parts::new();
+        let mine = PartEq { low_gain: -4, ..PartEq::FLAT };
+        for p in 0..COUNT {
+            parts.set_eq(p, mine);
+        }
+        let mut ots = yahaha_sff::sff::Ots::default();
+        ots.parts[RIGHT1].voice = Some((0, 0, 5));
+        ots.parts[RIGHT1].xg.set(0x08, 0x72, 0x46);
+        ots.parts[RIGHT1].xg.set(0x08, 0x77, 0x30);
+        ots.parts[RIGHT2].voice = Some((0, 0, 7));
+        ots.parts[LEFT].xg.set(0x08, 0x73, 0x3C);
+        parts.apply_ots(&ots, 1, true);
+        assert_eq!(parts.eq(RIGHT1), PartEq { low_gain: 6, high_freq: 5_000, ..PartEq::FLAT });
+        assert_eq!(parts.eq(RIGHT2), PartEq::FLAT, "a voice with no EQ");
+        assert_eq!(parts.eq(RIGHT3), mine, "nothing for the part");
+        assert_eq!(parts.eq(LEFT), PartEq { high_gain: -4, ..PartEq::FLAT });
+        // The audio thread gets the coefficients at the parts' sample rate.
+        parts.set_sample_rate(44_100);
+        let mut seen = yahaha_fx::fx::part_eq::EqCell::UNSEEN;
+        let c = parts.eq_cell(RIGHT1).read(&mut seen).unwrap();
+        assert_eq!(c, yahaha_fx::fx::part_eq::EqCoeffs::new(parts.eq(RIGHT1), 44_100.0));
+    }
+
+    /// An OTS's XG insertion type sets the part's insert slot (mapped as a Style part's);
+    /// a type nothing here plays turns it off; a part it gives a voice but no type turns
+    /// it off; a part it gives neither keeps its slot.
+    #[test]
+    fn ots_insertion_type_sets_the_insert_slot() {
+        let parts = Parts::new();
+        let mine = PartInsert { effect: InsertEffect::Tremolo, on: true, amount: 30 };
+        for p in 0..COUNT {
+            parts.set_insert(p, mine);
+        }
+        let mut ots = yahaha_sff::sff::Ots::default();
+        // British Combo (a distortion), an EQ, a voice with no type, nothing.
+        ots.parts[RIGHT1].insert = Some((96, 16));
+        ots.parts[RIGHT2].insert = Some((76, 0));
+        ots.parts[RIGHT3].voice = Some((0, 0, 7));
+        parts.apply_ots(&ots, 1, true);
+        let (kind, amount) = yahaha_fx::fx::xg::insert_kind(96, 16).unwrap();
+        assert_eq!(parts.insert(RIGHT1), PartInsert { effect: InsertEffect::from(kind), on: true, amount });
+        assert_eq!(parts.insert(RIGHT2), PartInsert { on: false, ..mine }, "an EQ plays dry");
+        assert_eq!(parts.insert(RIGHT3), PartInsert { on: false, ..mine }, "a voice with no type");
+        assert_eq!(parts.insert(LEFT), mine, "nothing for the part");
+        // The slot's fields change one at a time, the others kept.
+        parts.edit_insert(LEFT, |s| s.amount = 200);
+        assert_eq!(parts.insert(LEFT), PartInsert { amount: 127, ..mine });
+    }
+
+    /// The player's sends stick: an OTS recall with sends applies them; one without
+    /// leaves them; OTS Link firing by itself (`sends` false) keeps them too, with only
+    /// the pan applied; a voice change keeps them.
+    #[test]
+    fn ots_sends_apply_only_on_an_explicit_recall_that_has_them() {
+        let parts = Parts::new();
+        parts.set_fx(RIGHT1, [None, Some(77), Some(33), Some(22)]);
+        let mut with = yahaha_sff::sff::Ots::default();
+        with.parts[RIGHT1].fx = [Some(20), Some(100), Some(50), Some(10)];
+        let mut without = yahaha_sff::sff::Ots::default();
+        without.parts[RIGHT1].voice = Some((0, 0, 5));
+        // Without sends: unchanged, a voice change too.
+        parts.apply_ots(&without, 1, true);
+        assert_eq!(parts.fx(RIGHT1), [64, 77, 33, 22]);
+        parts.select(RIGHT1);
+        parts.step_program(1);
+        assert_eq!(parts.fx(RIGHT1), [64, 77, 33, 22], "a voice change keeps the sends");
+        // OTS Link by itself: the pan, not the sends.
+        parts.apply_ots(&with, 2, false);
+        assert_eq!(parts.fx(RIGHT1), [20, 77, 33, 22]);
+        // An explicit recall with sends: they apply.
+        parts.apply_ots(&with, 2, true);
+        assert_eq!(parts.fx(RIGHT1), [20, 100, 50, 10]);
+        assert_eq!(parts.fx(RIGHT2), [64, 0, 0, 0], "dry by default");
+    }
+
+    /// The first `send_fx` gives every keyboard part its power-on pan and sends, once: dry,
+    /// so a receiver's own power-on reverb never lingers; what a patch or OTS set before it
+    /// wins.
+    #[test]
+    fn the_first_send_gives_every_part_its_default_sends() {
+        let parts = Parts::new();
+        parts.set_fx(LEFT, [None, Some(90), None, None]);
+        let mut sent = Vec::new();
+        parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
+        for p in 0..COUNT {
+            let want = if p == LEFT { [64, 90, 0, 0] } else { FX_DEFAULT[p] };
+            for (cc, v) in FX_CC.into_iter().zip(want) {
+                assert!(sent.contains(&[0xB0 | CHANNEL[p], cc, v]), "part {p} CC{cc} {v}: {sent:?}");
+            }
+        }
+        assert_eq!(sent.len(), COUNT * FX, "once each: {sent:?}");
+        assert_eq!(parts.fx(RIGHT1), [64, 0, 0, 0], "dry");
+        let mut again = 0;
+        parts.send_fx(&mut |_| again += 1);
+        assert_eq!(again, 0, "only once");
+        // After a reset: all of them again, as they are now.
+        parts.resend_fx();
+        let mut sent = Vec::new();
+        parts.send_fx(&mut |m| sent.push([m[0], m[1], m[2]]));
+        assert_eq!(sent.len(), COUNT * FX);
+        assert!(sent.contains(&[0xB1, 91, 90]) && sent.contains(&[0xB0, 91, 0]), "{sent:?}");
+    }
+
+    #[test]
+    fn manual_bass_gives_left_the_bass_voice() {
+        let parts = Parts::new();
+        parts.set_bass_program(35);
+        assert!(!parts.left_sounds());
+        assert_eq!(parts.channel_program(LEFT), 48);
+        assert_eq!(parts.sounding_mask(), 0b0001);
+        parts.set_manual_bass(true);
+        assert!(parts.left_sounds(), "Manual Bass sounds the left hand with Left off");
+        assert_eq!(parts.channel_program(LEFT), 35);
+        assert_eq!(parts.channel_program(RIGHT1), 0, "only Left is affected");
+        assert_eq!((parts.on_mask(), parts.sounding_mask()), (0b0001, 0b1001), "the LEDs show Left sounding");
+    }
+
+    #[test]
+    fn voice_keys_edit_the_selected_part() {
+        let parts = Parts::new();
+        parts.select(RIGHT3);
+        parts.changed.store(false, Relaxed);
+        parts.step_program(1);
+        assert_eq!(parts.program[RIGHT3].load(Relaxed), 62);
+        assert!(parts.changed.load(Relaxed));
+        parts.step_program(-63);
+        assert_eq!(parts.program[RIGHT3].load(Relaxed), 127, "wraps");
+        assert_eq!(parts.program[RIGHT1].load(Relaxed), 0);
+        parts.toggle(RIGHT3);
+        parts.toggle(LEFT);
+        assert_eq!(parts.on_mask(), 0b1101);
+    }
+
+    /// Under Manual Bass the left hand plays the bass at the pitch played, whatever octave
+    /// an OTS gave Left, and Left's switch is refused (it would change nothing).
+    #[test]
+    fn manual_bass_ignores_left_octave_and_switch() {
+        let parts = Parts::new();
+        parts.octave[LEFT].store(1, Relaxed);
+        parts.octave[RIGHT1].store(1, Relaxed);
+        assert_eq!(parts.octave_of(LEFT), 1);
+        parts.set_manual_bass(true);
+        assert_eq!((parts.octave_of(LEFT), parts.octave_of(RIGHT1)), (0, 1));
+        assert!(!parts.toggle(LEFT));
+        assert!(!parts.is_on(LEFT));
+        assert!(parts.toggle(RIGHT2), "the Right parts still switch");
+        parts.set_manual_bass(false);
+        assert_eq!(parts.octave_of(LEFT), 1, "Left's own voice gets its octave back");
+        assert!(parts.toggle(LEFT));
+        assert!(parts.is_on(LEFT));
+    }
+
+    /// A fader moving on the input thread while an OTS recall sets the level on the UI
+    /// thread: the recall is never overwritten by a move judged against the old level.
+    #[test]
+    fn fader_layers_step_and_wrap() {
+        let parts = Parts::new();
+        assert_eq!(parts.fader_layer(), FaderLayer::Volume);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Pan);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Reverb);
+        assert_eq!(parts.step_fader_layer(-2), FaderLayer::Volume);
+        assert_eq!(parts.step_fader_layer(-1), FaderLayer::Delay);
+        assert_eq!(parts.step_fader_layer(1), FaderLayer::Volume);
+        assert_eq!(FaderLayer::Delay.fx_index(), Some(VARIATION));
+        assert_eq!(FaderLayer::Volume.fx_index(), None);
+        assert_eq!(serde_json::to_string(&FaderLayer::Reverb).unwrap(), r#""reverb""#);
+    }
+
+    #[test]
+    fn fader_move_never_overwrites_a_concurrent_recall() {
+        for _ in 0..200 {
+            let parts = std::sync::Arc::new(Parts::new());
+            parts.set_volume(RIGHT1, 10);
+            parts.fader_hw[RIGHT1].store(10, Relaxed);
+            parts.set_fader_page(FaderPage::Panel);
+            assert!(!parts.waiting(RIGHT1));
+            let stop = std::sync::Arc::new(AtomicBool::new(false));
+            let mover = {
+                let (parts, stop) = (parts.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    let mut v = 5;
+                    while !stop.load(Relaxed) {
+                        v = if v >= 15 { 5 } else { v + 1 };
+                        let prev = parts.fader_hw[RIGHT1].swap(v, Relaxed);
+                        parts.hw_fader(RIGHT1, prev, v);
+                    }
+                })
+            };
+            std::thread::yield_now();
+            parts.set_volume(RIGHT1, 90);
+            std::thread::yield_now();
+            stop.store(true, Relaxed);
+            mover.join().unwrap();
+            assert_eq!(parts.volume(RIGHT1), 90, "a fader between 5 and 15 never reaches 90");
+            assert!(parts.waiting(RIGHT1));
+        }
+    }
+
+    /// Panel faders: soft takeover after an OTS recall and across page switches.
+    #[test]
+    fn panel_faders_take_over_softly() {
+        let parts = Parts::new();
+        // A fader that never reported must reach the value first.
+        let mv = |f: usize, v: u8| {
+            let prev = parts.fader_hw[f].swap(v, Relaxed);
+            parts.hw_fader(f, prev, v)
+        };
+        assert!(!mv(RIGHT2, 30));
+        assert!(parts.waiting(RIGHT2));
+        assert!(mv(RIGHT2, 110), "crossed 100: picked up");
+        assert_eq!(parts.volume(RIGHT2), 110);
+        assert!(mv(RIGHT2, 60));
+        assert!(!parts.waiting(RIGHT2));
+        // OTS moves it: the fader waits for the new level.
+        parts.set_volume(RIGHT2, 90);
+        assert!(parts.waiting(RIGHT2));
+        assert!(!mv(RIGHT2, 70));
+        assert_eq!(parts.volume(RIGHT2), 90);
+        assert!(mv(RIGHT2, 89));
+        // On the Style page the fader goes to 10; back on Panel it must pick 89 up again.
+        parts.set_fader_page(FaderPage::Style);
+        let mut hw = [HW_UNKNOWN; 8];
+        hw[RIGHT2] = 89;
+        assert_eq!(parts.take_rebind(), Some(hw), "the engine rebinds the Style faders once");
+        assert_eq!(parts.take_rebind(), None);
+        parts.fader_hw[RIGHT2].store(10, Relaxed);
+        assert_eq!(parts.toggle_fader_page(), FaderPage::Panel);
+        assert_eq!(parts.take_rebind(), None, "nothing for the engine going to Panel");
+        assert!(parts.waiting(RIGHT2));
+        assert!(!mv(RIGHT2, 12), "no jump from 89 to 12");
+        assert_eq!(parts.volume(RIGHT2), 89);
+        // A fader already at its value on the new page keeps control.
+        parts.fader_hw[RIGHT1].store(101, Relaxed);
+        parts.set_fader_page(FaderPage::Panel);
+        assert!(!parts.waiting(RIGHT1));
+        assert!(mv(RIGHT1, 105));
+    }
+}
