@@ -1257,6 +1257,21 @@ mod publish_tests {
         ctl.offline.as_ref().map_or(0, |o| o.now)
     }
 
+    /// Pumps and publishes until a pump reports nothing new. Background jobs (the
+    /// plugin scan, the library indexer, the sound-font load, a Multi Pad rescan)
+    /// may finish at any moment and rightly report a change; this waits them out,
+    /// and fails if the pump never goes quiet.
+    fn settle(s: &Session, ctl: &mut Control, now: u64, what: &str) {
+        for _ in 0..2500 {
+            if !ctl.pump(now) {
+                return;
+            }
+            s.inner.publish(ctl, now);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        panic!("{what}: the pump kept reporting changes for ~5 s");
+    }
+
     #[test]
     fn the_pump_reports_only_changes() {
         let s = session();
@@ -1264,20 +1279,20 @@ mod publish_tests {
         let now = now_of(&ctl);
         ctl.pump(now);
         s.inner.publish(&mut ctl, now);
-        assert!(!ctl.pump(now), "nothing new");
-        assert!(!ctl.pump(now + 10_000_000), "time passing alone is no change");
+        settle(&s, &mut ctl, now, "nothing new");
+        settle(&s, &mut ctl, now + 10_000_000, "time passing alone is no change");
         ctl.say("hello", false);
         assert!(ctl.pump(now), "a message");
         s.inner.publish(&mut ctl, now);
-        assert!(!ctl.pump(now));
+        settle(&s, &mut ctl, now, "after the message");
         ctl.shared.master_hw.store(64, Relaxed);
         assert!(ctl.pump(now), "the master fader moved");
         s.inner.publish(&mut ctl, now);
-        assert!(!ctl.pump(now));
+        settle(&s, &mut ctl, now, "after the fader");
         let _ = ctl.apply(TransportCmd::SetTempo { bpm: 90 }.into());
         assert!(ctl.pump(now), "a command");
         s.inner.publish(&mut ctl, now);
-        assert!(!ctl.pump(now), "published: nothing left to rebuild");
+        settle(&s, &mut ctl, now, "published: nothing left to rebuild");
     }
 
     #[test]
