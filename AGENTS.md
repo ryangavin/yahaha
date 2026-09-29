@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file is the one place that says what must pass. CI on the pull request runs these commands, and it must pass before merge. There is no other required process. CI skips the jobs a change can't affect: a Markdown-docs-only PR runs only `api-doc`, a web-only PR skips the Rust jobs, and a Rust-only PR skips the web job (`.github/workflows/ci.yml`, the `changes` job, says which files count as what).
+This file is the one place that says what must pass. CI runs these commands in `develop`'s merge queue, on the PR merged onto `develop`'s tip, and it must pass before anything lands. On the PR itself CI builds nothing and its checks pass at once, so **run the checks below that cover your change locally before you open or update a PR**; if the queue then fails, fix it and re-queue. There is no other required process. The queue skips the jobs a change can't affect: a Markdown-docs-only change runs only `api-doc`, a web-only change skips the Rust jobs, and a Rust-only change skips the web job (`.github/workflows/ci.yml`, the `changes` job, says which files count as what).
 
 ## Checks
 
@@ -10,8 +10,8 @@ Run the ones that cover your change. Each command must exit 0.
 - `cargo check --no-default-features --lib`. This compiles the library with no features. Run it after any Rust change. It behaves the same on every platform, so CI runs it only on Linux.
 - `cargo test` in `app/src-tauri`. These are the app shell's Rust tests, and on macOS they run with plugins. Run them when `app/src-tauri`, `src/api` or `src/session` changed. CI runs them on macOS (the `macos-app` job); on Linux it only compile-checks the no-plugins version (`cargo check --all-targets` in `app/src-tauri`).
 - `npm run verify` in `app/`. This runs the type check, lint and web tests. Run it when anything under `app/` changed, after `npm ci` on a fresh checkout. CI runs it on Linux (the `web` job).
-- In bash, from the repo root: ``diff <(awk '/^## AppCmd/{f=1} /^### Result/{f=0} f && /^\| `/' docs/app-api.md | cut -d'|' -f2 | grep -o '`[^`]*`' | tr -d '`' | sort -u) <(awk '/^const EVERY_CMD/,/^\];/' tests/api_wire.rs | sed -n 's/^ *r#"{"type":"\([^"]*\)".*/\1/p' | sort -u)``. This checks that `EVERY_CMD` in `tests/api_wire.rs` names exactly the commands in the AppCmd tables of `docs/app-api.md`, and prints any difference. Run it when either file changed. CI runs it on every PR, docs-only ones included (the `api-doc` job). No code or test compiles in or reads a committed file under `docs/`; keep it that way, so a docs-only change can't change what CI tests.
-- `cargo run --no-default-features --example api_doc_check -- docs/app-api.md`. This checks that every `{"type": ...}` JSON example in `docs/app-api.md`, and its example `AppState`, parses into the app API's Rust types (`AppCmd`, `Event`, `AppState`) and serializes back unchanged; it prints each mismatch and exits 1. The doc is read at run time from the path given, never compiled in. Run it when `docs/app-api.md` or the API types in `src/api` changed. CI runs it on every PR, docs-only ones included (the `api-doc` job). Its own tests run with `cargo test`.
+- In bash, from the repo root: ``diff <(awk '/^## AppCmd/{f=1} /^### Result/{f=0} f && /^\| `/' docs/app-api.md | cut -d'|' -f2 | grep -o '`[^`]*`' | tr -d '`' | sort -u) <(awk '/^const EVERY_CMD/,/^\];/' tests/api_wire.rs | sed -n 's/^ *r#"{"type":"\([^"]*\)".*/\1/p' | sort -u)``. This checks that `EVERY_CMD` in `tests/api_wire.rs` names exactly the commands in the AppCmd tables of `docs/app-api.md`, and prints any difference. Run it when either file changed. CI runs it on every queued change, docs-only ones included (the `api-doc` job). No code or test compiles in or reads a committed file under `docs/`; keep it that way, so a docs-only change can't change what CI tests.
+- `cargo run --no-default-features --example api_doc_check -- docs/app-api.md`. This checks that every `{"type": ...}` JSON example in `docs/app-api.md`, and its example `AppState`, parses into the app API's Rust types (`AppCmd`, `Event`, `AppState`) and serializes back unchanged; it prints each mismatch and exits 1. The doc is read at run time from the path given, never compiled in. Run it when `docs/app-api.md` or the API types in `src/api` changed. CI runs it on every queued change, docs-only ones included (the `api-doc` job). Its own tests run with `cargo test`.
 
 The corpus tests need the git-ignored `corpus/` folder; in a worktree, symlink it from the main checkout. Without it they skip without failing, so a pass without the corpus doesn't cover them.
 
@@ -29,7 +29,7 @@ The jobs are in `bacon.toml`: `check`, `check-portable`, `clippy` and `test`. ba
 
 ## Review
 
-Every PR gets one review, posted on the PR itself as line comments plus a verdict (`gh pr review --approve` or `--request-changes`). The review runs as soon as the PR opens, alongside CI rather than after it. A PR merges when CI passes and the review is addressed.
+Every PR gets one review, posted on the PR itself as line comments plus a verdict (`gh pr review --approve` or `--request-changes`). The review runs as soon as the PR opens. A PR merges when the review approves and CI passes in the merge queue.
 
 **Review account:** `satori-miyamoto`. Post reviews with `GH_CONFIG_DIR=~/.config/gh-yahaha-bot gh …`, and check first that `gh api user --jq .login` prints `satori-miyamoto`. Use it only for reviews. Everything else (commits, PRs, merges) uses the owner's default `gh` login. `main` requires CI plus an approval from this account, with no admin bypass.
 
@@ -52,7 +52,7 @@ See "Developing on Linux" in README.md.
 
 PRs target `develop` and are squash-merged. `develop` merges into `main` only when the owner says so, with a merge commit, so `main` keeps `develop`'s commits and the next release PR shows only new work. The rulesets enforce both: `develop` allows squash only, `main` allows merge commits only.
 
-PRs into `develop` land through its merge queue. Turn on auto-merge as soon as the PR opens (`gh pr merge --auto --squash`): once the review approves and the PR's CI passes, GitHub queues it, runs CI again on the PR merged onto `develop`'s tip (with anything queued ahead of it), and squash-merges it if that passes. Nobody updates branches by hand or waits to press merge. A PR that fails in the queue drops out of it; push the fix and run `gh pr merge --auto --squash` again.
+PRs into `develop` land through its merge queue. Turn on auto-merge as soon as the PR opens (`gh pr merge --auto --squash`): once the review approves, GitHub queues it, runs CI on the PR merged onto `develop`'s tip (with anything queued ahead of it), and squash-merges it if that passes. Nobody updates branches by hand or waits to press merge. A PR that fails in the queue drops out of it; push the fix and run `gh pr merge --auto --squash` again.
 
 ## Never commit
 
