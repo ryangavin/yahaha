@@ -183,7 +183,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
 | `setFaderLayer` | `layer`: `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | The fader layer (the mixer's VOL · PAN · REV · CHO · DLY): what the faders move across the parts. Volume: each part's CC7 (as always). A send layer: Panel faders 1–4 move Right 1–3 and Left's pan / CC91 / CC93 / CC94 (as `setPartPan` / `setPartSend`, with soft takeover); Style faders 1–8 move the Style parts' reverb / chorus / delay sends (as `setStylePartSend`, with soft takeover; the Style parts have no pan, so PAN leaves them alone). Faders 5–6 on the Panel page stay the Style and Multi Pad levels, and the master fader stays the master. On the Launchkey, **Shift + the master fader's button** steps the layer; the button alone still switches the page. |
 | `stepFaderLayer` | `delta` | The next/previous fader layer, wrapping (VOL → PAN → REV → CHO → DLY → VOL). |
-| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The Launchkey pad page. |
+| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `quickRacks` \| `multiPads` | The Launchkey pad page (`registration`, page 4's old name, is still read as `quickRacks`). |
 | `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
 | `setSynthMuted` / `toggleSynthMute` | `on` | Mutes the synth audio. |
@@ -247,62 +247,14 @@ left hand ([ireal.md](ireal.md), "Chart player"). Playlists live in the session'
 | `setChartEnding` | `index` | The Ending 0–2 after the last bar, or `null`: the band stops at the end of the last bar. |
 | `setChartAutoStyle` | `on` | Load the suggested style whenever a song is chosen. |
 
-### Registration Memory (Snapshots)
+### Registration Memory and the Playlist: gone
 
-The Genos's Registration Memory buttons are **Snapshots**: eight per **snapshot bank**
-(Bank A, B, … up to H) in a bank file. `index` is a snapshot's place in the bank file,
-0-based: `bank * 8 + slot` (0 = A1, 9 = B2, up to 63 = H8). A bank file from before
-snapshots (ten buttons) loads with its buttons 1–8 as Bank A and 9–10 as B1–B2, the same
-indices, so its sequence and playlist records still point at them. The MEMORY button is
-**Store**; the wire names keep the Genos words (`pressRegist`, `toggleRegistMemory`,
-`registration.memory`). Groups are `style`, `voice`,
-`harmonyArp`, `multiPad`, `tempo`, `transpose`, `chordLooper`, `liveControl`, `assignable`
-(the Genos Freeze groups; docs/registration.md lists what each covers).
-
-| Command | Fields | Does |
-|---|---|---|
-| `pressRegist` | `index` | A snapshot button: recalls it, or stores into it while Store is armed. The pads follow to its snapshot bank. |
-| `pressSnapshot` | `slot` 0–7 | Snapshot `slot` of the snapshot bank on view (`snapshotBank`), as `pressRegist` (the Launchkey pads and the `regist1`–`regist8` assignable functions send this; `regist9`/`regist10` run on into the next bank's 1–2). |
-| `stepSnapshotBank` | `delta` | Snapshot bank −/+: views the previous/next eight. It stops at Bank A and at one empty bank past the last stored one (at most H), to store into. |
-| `selectSnapshotBank` | `bank` 0–7 | Views snapshot bank `bank` (0 = A). Refused past the one empty bank after the last stored one. |
-| `recallRegist` | `index` | Recalls a button: the groups it memorized, less the frozen ones while Freeze is on. The style comes first; when it changes, the rest follows once the new style plays (at once when stopped, at the next bar line when playing; `registration.pending` meanwhile). Refused if the button is empty. |
-| `memorizeRegist` | `index` | Stores the panel (the `memorizeGroups`) in a button, replacing what it held. A saved bank is written to its file at once. |
-| `toggleRegistMemory` | | The STORE button (the Genos's MEMORY): the next `pressRegist`/`pressSnapshot` stores. |
-| `setMemorizeGroup` | `group`, `on` | Ticks a group in the Memory window. |
-| `clearRegist` | `index` | Empties a button. |
-| `renameRegist` | `index`, `name` | Renames a button. |
-| `stepRegistBank` | `delta` | REGIST BANK −/+: the previous/next bank file in the folder (stops at the ends). Loading a bank recalls nothing. |
-| `selectRegistBank` | `path` | Loads a bank file. |
-| `newRegistBank` | | A new, empty, unsaved bank. |
-| `saveRegistBank` | `name` (null: its own file), `overwrite`? | Saves the bank; with a name, as a file of that name in the folder. Refused when another bank already has that file, unless `overwrite: true`. Fails without a data folder. |
-| `setFreeze` / `toggleFreeze` | `on` | Registration Freeze. |
-| `setFreezeGroup` | `group`, `on` | Ticks a group on the Freeze display: it stays unchanged on recall while Freeze is on. |
-| `setRegistSequence` | `steps` (snapshot indices 0–63), `end`: `stop` \| `top` \| `next` | Programs the bank's Registration Sequence. |
-| `setRegistSequenceOn` / `toggleRegistSequence` | `on` | Registration Sequence on/off. A panel setting, not part of the bank (as on the Genos): it stays when the bank changes, and is kept in the Registration folder's `setup.json`. |
-| `stepRegistSequence` | `delta` | Regist +/−: recalls the next/previous step. Past the end: `stop` stays, `top` wraps, `next` loads the next bank and recalls its first step. Refused while the sequence is off. |
-| `stepRegist` | `delta` | Regist +/− from a pedal (the `registNext`/`registPrev` assignable functions): the sequence's next/previous step while it is on and has steps, else the bank's next/previous stored button (empty ones skipped; from none, + the first and − the last; it stops at either end). Refused when the bank has nothing stored. |
-
-### Playlist
-
-Record `index` is a record's position in the playlist file (`PlaylistRow.index`), whatever
-the display order. A record is `{ "name", "kind": "bank", "path", "regist"? }` (a bank
-file, and the button to recall after loading it) or `{ "name", "kind": "style", "path" }`.
-
-| Command | Fields | Does |
-|---|---|---|
-| `newPlaylist` | | A new, empty, unsaved playlist. |
-| `loadPlaylist` | `path` | Opens a playlist file. |
-| `savePlaylist` | `name` (null: its own file), `overwrite`? | Saves in the displayed order and sets the sort back to `normal`; with a name, as a file of that name in the folder (refused when another playlist has it, unless `overwrite: true`). |
-| `addPlaylistRecord` | `record` | Adds a record at the end (at most 2,500). An empty name takes the file's. |
-| `addCurrentBank` | | Adds the bank in use (it must be saved), recalling the lit button. |
-| `addCurrentStyle` | | Adds the loaded style. |
-| `appendPlaylist` | `path` | Adds every record of another playlist file. |
-| `setPlaylistRecord` | `index`, `record` | Replaces a record (Record Edit). |
-| `movePlaylistRecord` | `index`, `delta` | Up (−1) / Down (+1). Refused while sorted. |
-| `deletePlaylistRecord` | `index` | Refused while sorted. |
-| `setPlaylistSort` | `sort`: `normal` \| `aToZ` \| `zToA` | Display order. |
-| `loadPlaylistRecord` | `index` | Loads its bank and recalls its button, or loads its style. |
-| `stepPlaylist` | `delta` | Loads the previous/next record in display order (Shift + Track ◀/▶). Does nothing on an empty playlist. |
+[Quick Racks](#quick-racks) replace Registration Memory (docs/racks.md, "Migration"). The
+Registration commands (`pressRegist`, `pressSnapshot`, `stepSnapshotBank`,
+`toggleRegistMemory`, `toggleFreeze`, `stepRegistBank`, `stepRegistSequence`, `stepRegist`
+and the rest) and the Playlist's (`newPlaylist` … `stepPlaylist`) are refused as unknown
+commands, and `registration` and `playlist` are no longer in the state. Registration bank
+and playlist files stay on disk, unread; they aren't imported.
 
 ### Chord Looper
 
@@ -626,6 +578,32 @@ The Launchkey and pedals, which have no dialog, switch racks with
 `Recovered: <name>` (numbered if taken, edited plugin states kept as the parts' edits, no
 sound saved), and the switch goes ahead. If that rack can't be written, nothing changes.
 
+### Quick Racks
+The one-press rack buttons (docs/racks.md): banks A–H of eight, each one of the user's
+racks (by `id`, so a rename keeps it) or empty, kept in `<data>/quick-racks.json` (format
+`yahaha.quick-racks`, version 1, written atomically; a file from a newer yahaha, or one that
+can't be read, is never saved over and leaves Quick Racks read-only). The bar, Launchkey
+pad page 4 and the pedals play them; the state is [`quickRacks`](#quickracks). `slot` is
+a button of the bank on view, 0–7.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `pressQuickRack` | `slot`, `discard`? | Not armed: loads the button's rack as `loadRack` does, with the same guard (`{"kind":"unsavedChanges"}` and `liveRack.prompt`; `discard: true` switches anyway). Armed (`toggleQuickRackStore`): stores the live rack on the button and disarms. A live rack with unsaved changes, or never saved, isn't stored yet: `quickRacks.storeWaiting` holds the button until `saveRack` / `saveRackAs` succeeds, which stores the saved rack there. Fails for an empty button, or one whose rack is gone. Slots 8 and 9 run on into the next bank's 1 and 2 (the `regist9`/`regist10` pedal functions). |
+| `stepQuickRackBank` | `delta` | Bank −/+: views the previous/next bank. It stops at A and at H. |
+| `toggleQuickRackStore` | | Store: arms or disarms it for the next press. Disarming lets a waiting button go. |
+| `clearQuickRack` | `bank` 0–7, `slot` 0–7 | Empties a button. |
+| `stepQuickRack` | `delta`, `discard`? | Previous/next rack in the bank on view: the stored button before/after the lit one (from none, + the first and − the last; it stops at either end), loaded as `pressQuickRack` loads. Fails when the bank has no racks. |
+
+`deleteRack` empties every button naming that rack; `dismissRackPrompt`, or loading
+another rack, lets a waiting button go.
+
+From the Launchkey (pad page 4, Shift + Track ◀ ▶), the pedals (`regist1`–`regist10`,
+`registNext`/`registPrev`, `registMemory`, `snapshotBankNext`/`snapshotBankPrev`) and the
+terminal keys, which have no dialog, a press with unsaved changes switches anyway and keeps
+them as a `Recovered: <name>` rack (as `Session::load_rack_from_hardware`), and Store needs
+a saved, unmodified rack (otherwise it says so and disarms). `Session::hardware(action)`
+runs a Launchkey action that way.
+
 ### Result: `CmdError`
 
 `send` returns `Ok(())` or one of these errors:
@@ -784,7 +762,7 @@ control's meaning, and every LED as the hardware shows it.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `page` | `sections` \| `chordSetup` \| `otsParts` \| `registration` \| `multiPads` | The current Launchkey pad page. |
+| `page` | `sections` \| `chordSetup` \| `otsParts` \| `quickRacks` \| `multiPads` | The current Launchkey pad page. Page 4, Quick Racks: top row Quick Racks 1–8 of the bank on view (red: the loaded rack, blue: a rack, dark: empty; all flashing while Store is armed); bottom row Bank −, Bank +, two dark pads, Store, a dark pad, Rack −, Rack + (`stepQuickRack`). |
 | `pageName`, `pageNumber` (1-based), `pageCount` | | For example `Chord/Setup`, 2, 3. |
 | `pads` | Pad[16] | This page: the top row (notes 96–103), then the bottom row (112–119). |
 | `connected` | bool | A Launchkey DAW port is connected. It is set once, at start: see the limitation below. |
@@ -1033,34 +1011,6 @@ The settings the `Style settings` commands set.
 | `swingGrid` | 8, 16 | The swing grid. Default 8. |
 | `sectionTempo` | bool | The tempo changes written inside sections play (`setSectionTempo`). Default on. |
 
-### `registration`
-
-| Field | Type | Meaning |
-|---|---|---|
-| `bank` | object | The bank in use: `name`, `path` (null until saved), `dirty` (changed since loaded or saved), `position` (its place in `banks`). |
-| `banks` | {name, path}[] | The bank files in the folder, in order. |
-| `folder` | string? | Where banks are saved (`<data dir>/Registration`); null when saving is off. |
-| `buttons` | RegistButton[] | Every snapshot of the bank file, by index: whole snapshot banks of eight, through the one on view. `index`, `stored`, `name`, `groups` (what it memorized), `style` (name)?, `tempo`?, `voices` ({name, on} for Right 1, Right 2, Right 3, Left; empty when it stores no parts). |
-| `selected` | 0–63? | The snapshot last recalled or stored (the red lamp), by index. |
-| `memory` | bool | Store is armed. |
-| `snapshotBank` | 0–7 | The snapshot bank on view (0 = Bank A): the pads press its eight. It follows a recall. |
-| `snapshotBanks` | 1–8 | Snapshot banks the file holds (enough for its last stored snapshot). |
-| `memorizeGroups`, `freezeGroups` | Group[] | The ticked groups. |
-| `freeze` | bool | Registration Freeze is on. |
-| `sequence` | object | `on`, `steps` (buttons), `end` (`stop` \| `top` \| `next`), `position` (the step last recalled)? |
-| `pending` | bool | A recall waits for its style to take over (the bar line). |
-
-### `playlist`
-
-| Field | Type | Meaning |
-|---|---|---|
-| `name`, `path`?, `dirty` | | The playlist in use. |
-| `sort` | `normal` \| `aToZ` \| `zToA` | Display order. |
-| `records` | PlaylistRow[] | In display order: `index` (file position), `record`, `missing` (its file isn't there). |
-| `current` | number? | The record last loaded (file position). |
-| `playlists` | {name, path}[] | The playlist files in the folder. |
-| `folder` | string? | Where playlists are saved (`<data dir>/Playlists`). |
-
 ### `looper`
 The Chord Looper.
 
@@ -1215,7 +1165,7 @@ Read-only: what the Home screen shows, derived from the rest of the state (no co
 |---|---|---|
 | `mains` | HomeMain[4] | Main A–D: `name`, `present`, `bars` (pattern length), `stepsPerBar` (sixteenths: 16 in 4/4), `density` (note-ons per step over the whole pattern, `bars × stepsPerBar` entries), `lanes` (`kick`, `snare`, `hats`, `bass`: the first bar, the loudest velocity per step, 0 = none), `fill` (`name` "Fill In AA", `present`, `bars`, `active`: queued or playing), `current` (the Main the style is on). Worked out once when the style loads. |
 | `progress` | object | `running`, `bar`, `beat` (1-based), `bars` (the section's length; null when stopped), `beatsPerBar`, `fraction` (0–1 through the section, at beat resolution). |
-| `snapshot` | object? | The snapshot last recalled or stored: `index`, `label` ("A3"), `name`, `bank` (the bank file's name). |
+| `snapshot` | object? | Always null now that Quick Racks replaced Registration Memory (it goes with the Registration code). It was the snapshot last recalled or stored: `index`, `label` ("A3"), `name`, `bank`. |
 | `ots` | object? | The OTS applied last: `index` (0–3), `name`. |
 | `bandSends` | HomeSend[3] | Reverb, Chorus, Delay: `block`, `name`, `effectName`, `level` (the band send, as `setBandSend`). |
 
@@ -1279,6 +1229,17 @@ part's sound is on a missing plugin (`plugins.needsAttention` names the parts). 
 is read at start, after each rack command, after each plugin scan, and within 2 s of a
 change on disk. A rack that can't be read is not listed.
 
+### `quickRacks`
+[Quick Racks](#quick-racks), as the bar and pad page 4 show them.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bank` | 0–7 | The bank on view (0 = A). |
+| `buttons` | QuickRackButton[] | Its eight buttons: `rack` (the rack's id; null when empty), `name` (the rack's; empty when the button is empty or its rack is gone), `missing` (it names a rack that isn't in `racks`), `loaded` (its rack is `liveRack.id`: lit). |
+| `store` | bool | Store is armed: the next press stores the live rack. |
+| `storeWaiting` | 0–7? | A button of the bank on view waiting for the live rack to be saved before it is stored there. |
+| `readOnly` | bool | Quick Racks can't be changed: no data folder, or the file is from a newer yahaha (or can't be read). |
+
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
 that fails to load. `seq` increases with every new message, so the same text arriving
@@ -1328,7 +1289,6 @@ Fill In BB queued, with OTS 1 recalled. Some lists are shortened here:
 - `styleParts` has 8.
 - `ots.settings` lists every OTS in the style.
 - `surface.controls` has 17 and `surface.faders` has 9.
-- `registration.buttons` has 8.
 
 The `library`, `surface.trackPrev`/`trackNext`, the master fader and `io` show what a
 live session reports with a library folder, a Launchkey and the synth.
@@ -1769,61 +1729,6 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "swingGrid": 8,
     "sectionTempo": true
   },
-  "registration": {
-    "bank": { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "dirty": false, "position": 0 },
-    "banks": [
-      { "name": "Friday Gig", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json" },
-      { "name": "Jazz Set", "path": "/Users/me/Documents/yahaha/Registration/Jazz Set.regist.json" }
-    ],
-    "folder": "/Users/me/Documents/yahaha/Registration",
-    "buttons": [
-      {
-        "index": 0,
-        "stored": true,
-        "name": "SlowWalker",
-        "groups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
-        "style": "SlowWalker",
-        "tempo": 91.0,
-        "voices": [
-          { "name": "Grand Piano", "on": true },
-          { "name": "Strings", "on": false },
-          { "name": "Brass Section", "on": false },
-          { "name": "Strings", "on": false }
-        ]
-      },
-      { "index": 1, "stored": false, "name": "", "groups": [], "style": null, "tempo": null, "voices": [] }
-    ],
-    "selected": 0,
-    "memory": false,
-    "snapshotBank": 0,
-    "snapshotBanks": 1,
-    "memorizeGroups": ["style", "voice", "harmonyArp", "multiPad", "tempo", "transpose", "chordLooper", "liveControl", "assignable"],
-    "freeze": false,
-    "freezeGroups": ["tempo"],
-    "sequence": { "on": true, "steps": [0, 2, 1], "end": "next", "position": 0 },
-    "pending": false
-  },
-  "playlist": {
-    "name": "Friday",
-    "path": "/Users/me/Documents/yahaha/Playlists/Friday.playlist.json",
-    "dirty": false,
-    "sort": "normal",
-    "records": [
-      {
-        "index": 0,
-        "record": { "name": "Opener", "kind": "bank", "path": "/Users/me/Documents/yahaha/Registration/Friday Gig.regist.json", "regist": 0 },
-        "missing": false
-      },
-      {
-        "index": 1,
-        "record": { "name": "SlowWalker", "kind": "style", "path": "/Users/me/Styles/MOX_v2/SlowWalker.T552.sty" },
-        "missing": false
-      }
-    ],
-    "current": 0,
-    "playlists": [{ "name": "Friday", "path": "/Users/me/Documents/yahaha/Playlists/Friday.playlist.json" }],
-    "folder": "/Users/me/Documents/yahaha/Playlists"
-  },
   "looper": {
     "mode": "looping",
     "hasData": true,
@@ -2030,6 +1935,22 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   "racks": [
     { "id": "r5f3a2c1d-0", "name": "Ballad", "parts": ["Grand Piano", "Sampler Deluxe", "Brass Section", "Strings"], "on": [true, true, false, true], "needsAttention": true }
   ],
+  "quickRacks": {
+    "bank": 0,
+    "buttons": [
+      { "rack": "r5f3a2c1d-0", "name": "Ballad", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": "r1b2c3d4e-1", "name": "", "missing": true, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false },
+      { "rack": null, "name": "", "missing": false, "loaded": false }
+    ],
+    "store": false,
+    "storeWaiting": null,
+    "readOnly": false
+  },
   "message": null
 }
 ```

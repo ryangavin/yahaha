@@ -1028,9 +1028,9 @@ fn launchkey_button_descriptions() {
     assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
     s.send(ChordCmd::SetManualBass { on: false }).unwrap();
     assert_eq!(b(&s, "faderButton3").level, Level::Bright);
-    // Page 3: ▼ to page 4 (Registration), ▲ back to page 2, both pink.
+    // Page 3: ▼ to page 4 (Quick Racks), ▲ back to page 2, both pink.
     s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Registration })));
+    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::QuickRacks })));
     let up = b(&s, "padBankUp");
     assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })));
     assert_eq!(up.rgb, [127, 0, 70]);
