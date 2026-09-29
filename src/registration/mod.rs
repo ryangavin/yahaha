@@ -29,6 +29,9 @@ pub mod sequence;
 pub use playlist::{Playlist, PlaylistSort, Record, RecordTarget};
 pub use sequence::{SeqMove, Sequence, SequenceEnd};
 
+pub use crate::data_files::file_name;
+pub(crate) use crate::data_files::{file_stem, list_files, write_atomic};
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
@@ -417,14 +420,6 @@ pub fn bank_name(path: &Path) -> String {
     file_stem(path, BANK_EXT)
 }
 
-/// A file name for a bank or playlist called `name` (characters a file name can't have
-/// become `_`).
-pub fn file_name(name: &str, ext: &str) -> String {
-    let clean: String = name.trim().chars().map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c }).collect();
-    let clean = clean.trim_start_matches('.');
-    format!("{}{ext}", if clean.is_empty() { "Untitled" } else { clean })
-}
-
 /// The file `file` (a name from `file_name`) names in `dir`, as it is on disk, or None if
 /// there is none. On a case-insensitive file system (APFS, the Mac's default; NTFS)
 /// "gig.regist.json" opens the existing "Gig.regist.json": this returns that entry, so a
@@ -467,34 +462,6 @@ pub enum SaveClash {
     Exists,
     /// Renaming the file to the new case failed.
     Rename(String),
-}
-
-pub(crate) fn list_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|rd| {
-            rd.filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.is_file() && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(ext) && !n.starts_with('.')))
-                .collect()
-        })
-        .unwrap_or_default();
-    v.sort_by_key(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
-    v
-}
-
-pub(crate) fn file_stem(path: &Path, ext: &str) -> String {
-    let n = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    n.strip_suffix(ext).map(str::to_string).unwrap_or(n)
-}
-
-/// Write via a temporary file and a rename, so a crash never leaves half a file.
-pub(crate) fn write_atomic(path: &Path, text: &str) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-    }
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, path).with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
 }
 
 #[cfg(test)]
