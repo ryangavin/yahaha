@@ -361,6 +361,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | Knobs 4 and 5 on the Style knob page |
 | **Track Mute order** | A starts from Rhythm 2, then Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1 and Phrase 2. B starts from Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2 and the rhythm parts last. | Style Track Mute A / B | — | — |
 | **MIDI out channel** | The channel this part plays on at yahaha's MIDI output: Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4, the band 9–16. Map a DAW track (Ableton: MIDI From yahaha, this channel) to record or re-voice it. | Part / Style channel | — | — |
+| **Mixer strip** | Selects this part: its strip lights up. A keyboard part (Right 1–3, Left) also becomes the part you edit, as the Launchkey's part buttons do. | Mixer › channel | — | — |
+| **Voice** | The sound this part plays. On a keyboard part, click to choose another in Library › Sounds, loading into this part. A Style part plays the voice the style names; the name is cut short on a narrow strip, so hover it for the whole name. | Mixer › Voice | — | — |
 | **Voice** | Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it. | Mixer › Voice | — | — |
 | **Track CPU** | How much of each audio buffer this track takes to render over the last second (its SoundFont voices, filter and insert effect, or its plugin), where 100% is the whole buffer. "pk" is its slowest single buffer, red past half the buffer, where dropouts start. A larger audio buffer (Settings) gives a heavy plugin more room. | — | — | — |
 | **Group CPU** | How much of each audio buffer this group's tracks take together to render over the last second, where 100% is the whole buffer; red past half the buffer. "≤ pk" adds up each track's slowest single buffer. Those need not happen in the same buffer, so it is only an upper bound and never turns the strip red: open the group's tab to see each track's own peak. | — | — | — |
@@ -597,7 +599,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Rack** | Opens the Rack: what's under your hands (the four keyboard parts with their sounds and mix, the split, Harmony/Arp, transpose) and the style's One Touch Settings. Press again to close. | Voice Setting, ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
 | **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
 | **Effects** | Opens the Effects screen: the Reverb, Chorus and Delay cards (type, settings, return and the band's and pads' sends) and the style's inserts. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
-| **Mixer** | Opens the full mixer. Press again to close. | Mixer | `Alt+M` (terminal: ) | — |
+| **Mixer details** | Shows the mixer row's details: its bar (fader page and layer, metronome, Track Mute, Style and Multi Pad volume, CPU) and, on every strip, its Chorus send, EQ, insert and CPU. Press again to hide them. | Mixer | `Alt+M` (terminal: ) | — |
 | **Chord Looper** | Opens the Chord Looper. Press again to close. | Menu › Chord Looper | `Alt+L` (terminal: ) | — |
 | **Charts** | Opens the iReal Pro chart player. Press again to close. | — | `Alt+C` (terminal: ) | — |
 | **Harmony/Arp** | Opens the Keyboard Harmony and Arpeggio panel. Press again to close. | HARMONY/ARPEGGIO | `Alt+H` (terminal: ) | — |
@@ -609,7 +611,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Rack** | Opens the Rack: Right 1–3 and Left with their sounds and mix, the split, Harmony/Arp, transpose, the controller map and the style's One Touch Settings. Alt+O too. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the part and OTS controls |
-| **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
+| **Mixer details** | Shows the mixer row's details: its bar (fader page and layer, metronome, Track Mute, Style and Multi Pad volume, CPU) and, on every strip, its Chorus send, EQ, insert and CPU. Press again to hide them. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
 | **Effects** | Opens the Effects screen: the Reverb, Chorus and Delay cards and the style's inserts. Beside it, the type each effect plays now; each strip's own sends stay on its knobs here. | Mixer › Effect | — | — |
 | **Charts** | Opens the iReal Pro chart player: import playlists, pick a song, and set how the band plays it. | — | — | — |
 | **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |
