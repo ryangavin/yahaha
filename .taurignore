@@ -1,0 +1,14 @@
+# Paths `cargo tauri dev` must not rebuild on (gitignore syntax).
+# The repo root is the cargo workspace, so the dev watcher covers the whole tree.
+# app/src-tauri/.taurignore holds the same list in case the CLI reads it only from the tauri dir.
+node_modules/
+.vite/
+.vite-temp/
+dist/
+target/
+.claude/
+corpus/
+soundfonts/
+*.log
+.bacon-result.json
+.DS_Store

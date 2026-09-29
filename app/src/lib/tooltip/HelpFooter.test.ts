@@ -28,17 +28,23 @@ const footer = () => document.querySelector<HTMLElement>('.help-footer')!
 const hover = (el: HTMLElement) => fireEvent.pointerEnter(el, { pointerType: 'mouse' })
 const leave = (el: HTMLElement) => fireEvent.pointerLeave(el, { pointerType: 'mouse' })
 
-beforeEach(() => vi.useFakeTimers())
-afterEach(() => {
-  vi.useRealTimers()
+// vitest runs with isolate: false, so earlier files can leave a focused element, stray DOM
+// and a hovered or focused control in the shared tooltip module. Start and end clean.
+function resetAll() {
+  ;(document.activeElement as HTMLElement | null)?.blur()
   cleanup()
   document.body.innerHTML = ''
+  tips.reset()
+}
+
+beforeEach(() => {
+  resetAll()
+  vi.useFakeTimers()
+})
+afterEach(() => {
+  vi.useRealTimers()
+  resetAll()
   app.detach()
-  tips.hide()
-  tips.help = false
-  tips.pinned = null
-  tips.focused = null
-  tips.setFloating(false)
 })
 
 describe('help footer', () => {

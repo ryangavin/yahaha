@@ -2,7 +2,7 @@
 //! clock), as `live::Input` runs it and `Leds` lights it.
 
 use super::Control;
-use crate::api::{ns_to_ms, AppCmd, ChordCmd, ClockState, HarmonyArpCmd, LooperCmd, MixerCmd, Neighbour, PadsCmd, PartsCmd, PluginCmd, RackCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
+use crate::api::{ns_to_ms, AppCmd, ChordCmd, ClockState, HarmonyArpCmd, LooperCmd, MixerCmd, Neighbour, PadsCmd, PartSend, PartsCmd, PluginCmd, RackCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
 use crate::launchkey::{self, Action, Panel};
 use crate::library::Library;
 use crate::parts::{self, FaderPage, FaderRoute};
@@ -106,7 +106,11 @@ impl Control {
         push("masterButton".into(), *launchkey::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
-        // Panel faders 1-4 in the Volume layer follow the live rack's controller map.
+        // Panel faders 1-4 in the Volume layer follow the live rack's controller map. In a
+        // send layer the faders show and set what the hardware faders move there (as a
+        // Genos slider's LED meter shows its Slider Assign Type's value, OM p.62-63):
+        // Panel faders 1-4 the part's pan or send, the Style faders the Style part's own
+        // send (nothing in PAN); Panel faders 5-6 stay levels.
         let s = &self.snap;
         let knobs_now = self.knobs_now();
         let mut faders: Vec<SurfaceFader> = (0..8u8)
@@ -115,6 +119,31 @@ impl Control {
                 let position = known(kp.fader_hw[p].load(Relaxed));
                 let volume_layer = layer == crate::parts::FaderLayer::Volume;
                 match fader_page {
+                    FaderPage::Panel if p < parts::COUNT && !volume_layer => {
+                        let fx = layer.fx_index().unwrap_or(parts::PAN);
+                        let set = match layer_send(layer) {
+                            Some(send) => PartsCmd::SetPartSend { part: i, send, value: 0 },
+                            None => PartsCmd::SetPartPan { part: i, pan: 0 },
+                        };
+                        SurfaceFader {
+                            label: launchkey::PART_LABELS[p].to_string(),
+                            value: Some(kp.fx(p)[fx]),
+                            waiting: kp.send_waiting.load(Relaxed) & (1 << p) != 0,
+                            position,
+                            set: Some(AppCmd::Parts(set)),
+                        }
+                    }
+                    FaderPage::Style if !volume_layer => match layer_send(layer) {
+                        Some(send) => SurfaceFader {
+                            label: STYLE_PART_NAMES[p].to_uppercase(),
+                            value: Some(s.style_sends[p][send.index() - parts::REVERB]),
+                            waiting: s.send_pickup & (1 << p) != 0,
+                            position,
+                            set: Some(AppCmd::Mixer(MixerCmd::SetStylePartSend { part: i, send, value: 0 })),
+                        },
+                        // The Style parts have no pan control: the fader does nothing.
+                        None => SurfaceFader { label: STYLE_PART_NAMES[p].to_uppercase(), position, ..SurfaceFader::default() },
+                    },
                     FaderPage::Panel if p < parts::COUNT && volume_layer && kp.rack_fader(p) != FaderRoute::Own => {
                         if kp.rack_fader(p) == FaderRoute::Off {
                             return SurfaceFader { position, ..SurfaceFader::default() };
@@ -196,6 +225,17 @@ impl Control {
     }
 }
 
+/// The effect send a fader layer moves; None for Volume and Pan.
+fn layer_send(layer: crate::parts::FaderLayer) -> Option<PartSend> {
+    use crate::parts::FaderLayer as L;
+    match layer {
+        L::Reverb => Some(PartSend::Reverb),
+        L::Chorus => Some(PartSend::Chorus),
+        L::Delay => Some(PartSend::Variation),
+        L::Volume | L::Pan => None,
+    }
+}
+
 /// A fader position as last reported (`HW_UNKNOWN` = never).
 pub(super) fn known(hw: u8) -> Option<u8> {
     (hw != crate::engine::HW_UNKNOWN).then_some(hw)
@@ -211,4 +251,77 @@ fn neighbour(lib: &Library, cur: usize, delta: i8) -> Option<Neighbour> {
         let e = lib.entry(id);
         Neighbour { id, name: e.name().to_string(), path: e.path.display().to_string() }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::api::{AppCmd, MixerCmd, PartSend, PartsCmd};
+    use crate::parts::{FaderLayer, FaderPage};
+    use crate::session::{Options, Port, Session};
+
+    /// #409: in a send layer the surface faders show and set the layer's value, the same
+    /// one the hardware faders move (with soft takeover); the parts' volumes stay put.
+    #[test]
+    fn send_layers_turn_the_faders_into_pan_and_sends() {
+        let path = std::env::temp_dir().join(format!("yahaha-fader-layers-{}.sty", std::process::id()));
+        std::fs::write(&path, crate::sff::test_style::synthetic_style_bytes()).unwrap();
+        let s = Session::offline(Options { paths: vec![path.clone()], ..Options::default() }).unwrap();
+        s.finish_indexing();
+        let _ = std::fs::remove_file(&path);
+        let fader = |i: u8| *crate::launchkey::FADER_CC.start() + i;
+        let set = |i: usize| s.state().surface.faders[i].set.clone();
+        let vol = s.state().keyboard_parts[0].volume;
+
+        // REV on the Panel page: fader 1 is Right 1's reverb send.
+        s.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Reverb }).unwrap();
+        let st = s.state();
+        let rev = st.keyboard_parts[0].reverb;
+        let f = &st.surface.faders[0];
+        assert_eq!((f.label.as_str(), f.value), ("RIGHT 1", Some(rev)));
+        assert_eq!(f.set, Some(AppCmd::Parts(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 0 })));
+        // The hardware fader, far from the send, waits; once it gets there it moves it.
+        let far = if rev > 64 { 0 } else { 127 };
+        s.midi_in(Port::Pads, &[0xB0, fader(0), far]);
+        let f = s.state().surface.faders[0].clone();
+        assert_eq!((f.value, f.waiting, f.position), (Some(rev), true, Some(far)));
+        s.midi_in(Port::Pads, &[0xB0, fader(0), rev]);
+        s.midi_in(Port::Pads, &[0xB0, fader(0), 90]);
+        let st = s.state();
+        assert_eq!((st.keyboard_parts[0].reverb, st.keyboard_parts[0].volume), (90, vol), "the send moves, not the volume");
+        let f = &st.surface.faders[0];
+        assert_eq!((f.value, f.waiting), (Some(90), false));
+        // The app's fader (the command it sends) does the same.
+        s.send(PartsCmd::SetPartSend { part: 0, send: PartSend::Reverb, value: 30 }).unwrap();
+        let st = s.state();
+        assert_eq!((st.surface.faders[0].value, st.keyboard_parts[0].volume), (Some(30), vol));
+        // Faders 5-6 stay levels in every layer.
+        assert_eq!(set(4), Some(AppCmd::Mixer(MixerCmd::SetStyleVolume { volume: 0 })));
+
+        // PAN and DLY.
+        s.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Pan }).unwrap();
+        assert_eq!(set(3), Some(AppCmd::Parts(PartsCmd::SetPartPan { part: 3, pan: 0 })));
+        assert_eq!(s.state().surface.faders[3].value, Some(s.state().keyboard_parts[3].pan));
+        s.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Delay }).unwrap();
+        assert_eq!(set(1), Some(AppCmd::Parts(PartsCmd::SetPartSend { part: 1, send: PartSend::Variation, value: 0 })));
+
+        // The Style page: the Style part's own send; PAN does nothing there.
+        s.send(MixerCmd::SetFaderPage { page: FaderPage::Style }).unwrap();
+        s.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Chorus }).unwrap();
+        let st = s.state();
+        let f = &st.surface.faders[2];
+        assert_eq!(f.value, Some(st.mixer.style_parts[2].chorus));
+        assert_eq!(f.set, Some(AppCmd::Mixer(MixerCmd::SetStylePartSend { part: 2, send: PartSend::Chorus, value: 0 })));
+        s.send(MixerCmd::SetStylePartSend { part: 2, send: PartSend::Chorus, value: 55 }).unwrap();
+        s.advance(1_000_000);
+        let st = s.state();
+        assert_eq!((st.surface.faders[2].value, st.mixer.style_parts[2].chorus), (Some(55), 55));
+        s.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Pan }).unwrap();
+        let f = s.state().surface.faders[2].clone();
+        assert_eq!((f.set, f.value), (None, None));
+
+        // Back to VOL: the volumes again.
+        s.send(MixerCmd::SetFaderLayer { layer: FaderLayer::Volume }).unwrap();
+        s.send(MixerCmd::SetFaderPage { page: FaderPage::Panel }).unwrap();
+        assert_eq!(set(0), Some(AppCmd::Parts(PartsCmd::SetPartVolume { part: 0, volume: 0 })));
+    }
 }

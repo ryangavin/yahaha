@@ -3,7 +3,8 @@
   each one's switch, and a ▸ button opening a small editor with each one's type, the
   compressor's Compression, Texture and Output and the EQ's eight bands (gain, frequency,
   Q, and shelf on the edge bands). The strip is narrow, so the types live in the editor. Both run on the whole mix, after the effects; off, the mix is
-  untouched. A later Effects screen is to host a fuller Master card.
+  untouched. The master column sits at the window's bottom, so the editor floats centred
+  over the screen; ✕, Escape or a press outside closes it.
 -->
 <script lang="ts">
   import { COMP_PRESETS, EQ_PRESETS, MASTER_EQ_FREQ_RANGE, type CompParam, type CompPreset, type EqBand, type EqPreset } from '../../lib/api/types'
@@ -15,6 +16,23 @@
 
   const master = $derived(app.state.effects.master)
   let open = $state(false)
+  let root: HTMLDivElement | undefined = $state()
+  let editor: HTMLDivElement | undefined = $state()
+
+  // The editor floats over the screen (the strip sits at the bottom of the window): a
+  // press outside it and outside this column's buttons, or Escape, closes it.
+  function outside(e: PointerEvent) {
+    if (!open || !(e.target instanceof Node)) return
+    if (editor?.contains(e.target) || root?.contains(e.target)) return
+    open = false
+  }
+  function escape(e: KeyboardEvent) {
+    if (open && e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      open = false
+    }
+  }
 
   const COMP_PARAMS: { param: CompParam; name: string; min: number; max: number; tip: TipKey; format: (v: number) => string }[] = [
     { param: 'compression', name: 'Compression', min: 0, max: 100, tip: 'fx.master_comp_compression', format: (v) => `${v}%` },
@@ -33,7 +51,9 @@
   }
 </script>
 
-<div class="master-fx">
+<svelte:window onpointerdown={outside} onkeydowncapture={escape} />
+
+<div class="master-fx" bind:this={root}>
   <div class="row">
     <button
       type="button"
@@ -61,7 +81,11 @@
   </div>
 
   {#if open}
-    <div class="editor" role="group" aria-label="Master Compressor and EQ">
+    <div class="editor" role="group" aria-label="Master Compressor and EQ" bind:this={editor}>
+      <div class="head">
+        <span class="title">Master</span>
+        <button type="button" class="close mat-raised" aria-label="Close master settings" use:tip={'fx.master_edit'} onclick={() => (open = false)}>✕</button>
+      </div>
       <div class="param">
         <span class="engraved label">Compressor</span>
         <select
@@ -195,12 +219,19 @@
     border-radius: 4px;
     color: var(--ink);
   }
+  /* A floating panel centred in the window, above the drawers (z 40–50) and under the
+     tooltips (z 100): the master column sits at the window's bottom, so the editor can't
+     hang below it. It scrolls within the viewport when the window is short. */
   .editor {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    z-index: 5;
-    width: min(30rem, calc(100vw - 48px));
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 60;
+    width: min(30rem, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    overflow: auto;
+    color: var(--ink);
     display: grid;
     gap: 0.35rem;
     padding: 0.5rem 0.6rem;
@@ -209,6 +240,22 @@
     background: var(--panel, var(--bg));
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.4);
     font-size: 0.85rem;
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  .close {
+    min-width: 1.8rem;
+    min-height: 1.6rem;
+    border-radius: 4px;
+    color: var(--ink);
   }
   .param,
   .band {

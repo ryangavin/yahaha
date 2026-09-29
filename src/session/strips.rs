@@ -11,14 +11,12 @@ use crate::api::{CmdError, StripCmd};
 
 impl Control {
     pub(super) fn strips_cmd(&mut self, c: StripCmd) -> Result<(), CmdError> {
-        let legacy = c.legacy();
-        let covered = legacy.is_some();
-        if let Some(old) = legacy {
+        // The older commands run first; a strip error is still returned after them
+        // (for example a setting on an empty or setting-less insert).
+        for old in c.legacy() {
             self.apply(old)?;
         }
         match self.strips.get_mut().apply(&c) {
-            // What the older command took, it decided.
-            Err(_) if covered => Ok(()),
             Err(e) => self.fail(e),
             Ok(()) => Ok(()),
         }
@@ -44,5 +42,19 @@ mod tests {
         assert_eq!(st.keyboard_parts[1].chorus, 70, "send 2 is the part's chorus");
         assert_eq!(st.keyboard_parts[1].strip.sends[1], 70);
         assert!(s.send(StripCmd::RemoveSend { send: 1 }).is_err());
+    }
+
+    #[test]
+    fn none_empties_a_keyboard_insert() {
+        let s = session();
+        s.send(StripCmd::SetStripInsertKind { strip: 0, slot: 0, kind: InsertType::Rotary }).unwrap();
+        s.send(StripCmd::SetStripInsertKind { strip: 0, slot: 0, kind: InsertType::None }).unwrap();
+        assert_eq!(s.state().keyboard_parts[0].strip.inserts[0].kind, InsertType::None);
+    }
+
+    #[test]
+    fn a_setting_on_an_empty_insert_is_refused() {
+        let s = session();
+        assert!(s.send(StripCmd::SetStripInsertSetting { strip: 0, slot: 0, setting: 0, value: 10 }).is_err());
     }
 }

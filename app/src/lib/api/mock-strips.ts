@@ -239,7 +239,22 @@ const PART_SENDS: PartSend[] = ['reverb', 'chorus', 'variation']
 
 /** The older command a strip command is, when one covers it (`StripCmd::legacy`): the mock
  * sends that one too, and still keeps the strip command for what the older one doesn't carry. */
-export function stripLegacy(c: StripCmd): AppCmd | null {
+export function stripLegacy(c: StripCmd): AppCmd[] {
+  // Emptying a keyboard strip's insert 1: the slot goes back to OFF_INSERT, which `fill`
+  // shows as none (turning it off alone would keep the old kind).
+  if (c.type === 'setStripInsertKind' && c.slot === 0 && c.kind === 'none' && Number.isInteger(c.strip) && c.strip >= 0 && c.strip < KEYBOARD_STRIPS) {
+    const part = c.strip
+    return [
+      { type: 'setKeyboardInsertEffect', part, effect: OFF_INSERT.effect },
+      { type: 'setKeyboardInsertOn', part, on: OFF_INSERT.on },
+      { type: 'setKeyboardInsertAmount', part, amount: OFF_INSERT.amount },
+    ]
+  }
+  const old = legacyOne(c)
+  return old ? [old] : []
+}
+
+function legacyOne(c: StripCmd): AppCmd | null {
   const kb = (strip: number) => (Number.isInteger(strip) && strip >= 0 && strip < KEYBOARD_STRIPS ? strip : null)
   const style = (strip: number) => (Number.isInteger(strip) && strip >= KEYBOARD_STRIPS && strip < KEYBOARD_STRIPS + 8 ? strip - KEYBOARD_STRIPS : null)
   const styleSend = (send: number) => Number.isInteger(send) && send >= 0 && send < STYLE_SENDS
@@ -259,7 +274,6 @@ export function stripLegacy(c: StripCmd): AppCmd | null {
     case 'setStripInsertKind': {
       const part = kb(c.strip)
       if (c.slot !== 0 || part === null) return null
-      if (c.kind === 'none') return { type: 'setKeyboardInsertOn', part, on: false }
       return own(INSERT_KINDS, c.kind) ? { type: 'setKeyboardInsertEffect', part, effect: c.kind as InsertEffect } : null
     }
     case 'setStripInsertOn': {

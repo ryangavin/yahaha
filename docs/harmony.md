@@ -1,6 +1,6 @@
 # Keyboard Harmony
 
-`src/harmony.rs` is our own implementation of the Genos Keyboard Harmony types. It follows the
+`crates/yahaha-core/src/harmony.rs` is our own implementation of the Genos Keyboard Harmony types. It follows the
 behaviour the manuals describe (Owner's Manual p.56–57, Reference Manual p.46–47, Data List p.74)
 and uses no Yamaha data. The manuals name the types but never give their voicings, so each
 voicing rule below is our own design. Rules marked **(guess)** should be checked by ear against
