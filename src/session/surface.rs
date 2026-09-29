@@ -19,7 +19,7 @@ impl Control {
         let quick_racks = self.quick_panel().stored != 0;
         let fader_page = kp.fader_page();
         let style_on = launchkey::style_lit(self.snap.parts, manual_bass_active);
-        let colours = launchkey::button_colours(page, styles, fader_page, pnl.parts_on, style_on, pnl.lamps());
+        let colours = launchkey::button_colours(page, styles, fader_page, kp.fader_layer(), pnl.parts_on, style_on, pnl.lamps());
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match cc_control(cc, shift)? {
                 C::Page(d) => {

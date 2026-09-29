@@ -884,11 +884,12 @@ Which button LEDs are lit, and in what colour:
 - **Pad Bank ▲/▼:** lit in the page's colour (white, cyan, pink) where there is a page to
   go to.
 - **Track ◀/▶:** white when the library has another style.
-- **Fader buttons on the Panel page:** blue, bright when the part sounds and dim when it
-  is off. Fader buttons 5–8 are dark.
-- **Fader buttons on the Style page:** green, bright when the part plays and dim when it
-  is muted or muted by Manual Bass.
-- **Master button:** the page's colour, bright.
+- **Fader buttons on the Panel page:** the fader layer's colour (`mixer.faderLayer`: VOL
+  blue, PAN yellow, REV cyan, CHO pink, DLY white), bright when the part sounds and dim
+  when it is off. Fader buttons 5–8 keep their own colours.
+- **Fader buttons on the Style page:** green in every layer, bright when the part plays and
+  dim when it is muted or muted by Manual Bass.
+- **Master button:** the page's colour (on the Panel page, the layer's), bright.
 
 #### SurfaceFader
 | Field | Type | Meaning |

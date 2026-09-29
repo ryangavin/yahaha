@@ -508,7 +508,7 @@ impl Control {
         let beats = self.led_beats_at(now);
         if let Some(leds) = self.leds.as_mut() {
             let styles = self.lib.count() > 1;
-            leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), self.shared.parts.fader_page(), styles, beats);
+            leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), (self.shared.parts.fader_page(), self.shared.parts.fader_layer()), styles, beats);
         }
         self.pump_index();
         self.pump_multipad();

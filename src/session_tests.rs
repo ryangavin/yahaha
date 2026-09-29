@@ -987,6 +987,11 @@ fn launchkey_button_descriptions() {
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 0 })), Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 }))));
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
+    // The Chorus fader layer: the part buttons and the master button pink, on/off as before.
+    s.send(crate::api::MixerCmd::SetFaderLayer { layer: crate::parts::FaderLayer::Chorus }).unwrap();
+    assert_eq!((b(&s, "faderButton1").level, b(&s, "faderButton1").rgb), (Level::Bright, [127, 0, 70]));
+    assert_eq!((b(&s, "faderButton2").level, b(&s, "masterButton").rgb), (Level::Dim, [127, 0, 70]));
+    s.send(crate::api::MixerCmd::SetFaderLayer { layer: crate::parts::FaderLayer::Volume }).unwrap();
     // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 reloads
     // the selected part's plugin (dark while there is nothing to reload); 7 is Left Hold;
     // 8 is the Chord Looper (ON/OFF, Shift: REC/STOP; dark with nothing recorded).
@@ -1240,11 +1245,11 @@ fn track_leds_follow_the_library() {
     let snap = s.inner.lock().snap;
     let mut leds = Leds::new(PacketSink::new(crate::rt::Target::Null), false);
     let pnl = Panel::default();
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     let n = leds.out.sent;
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     assert_eq!(leds.out.sent, n, "nothing changed, nothing sent");
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, true, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), true, 0.0);
     assert!(leds.out.sent > n, "Track LEDs re-sent");
 }
 
@@ -1464,15 +1469,15 @@ fn palette_leds_switch_at_runtime() {
     let mut leds = Leds::new(PacketSink::new(crate::rt::Target::Null), false);
     let snap = s.inner.lock().snap;
     let pnl = Panel::default();
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     let n = leds.out.sent;
     leds.set_palette(true);
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     assert!(leds.out.sent > n, "the pads in palette colours");
     // Back to RGB: every pad again, though its colour hasn't changed since RGB was last on.
     let n = leds.out.sent;
     leds.set_palette(false);
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     assert!(leds.out.sent > n, "every pad re-sent");
     s.send(SettingsCmd::SetPaletteLeds { on: false }).unwrap();
     assert!(s.state().pads.pads.iter().all(|p| p.palette.is_none()));

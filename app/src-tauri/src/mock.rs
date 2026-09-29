@@ -1343,7 +1343,7 @@ impl MockSession {
             LooperMode::LoopArmed => lk::LooperLamp::LoopArmed,
             LooperMode::Looping => lk::LooperLamp::Looping,
         };
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, left_hold: st.chord.left_hold, looper });
+        let colours = lk::button_colours(page, styles, fader_page, st.mixer.fader_layer, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, left_hold: st.chord.left_hold, looper });
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -3274,6 +3274,21 @@ mod tests {
         assert_eq!(s.controls[13].action, Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 })));
         assert_eq!(faders(&m), ["RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "PAD", "PHRASE 1", "PHRASE 2", "MASTER"]);
         assert_eq!(s.faders[5].set, Some(AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 5, volume: 0 })));
+    }
+
+    /// Each fader layer lights the Panel page's part buttons and master button in its own
+    /// colour (src/launchkey.rs `layer_colour`), as the engine's surface does.
+    #[test]
+    fn fader_layers_light_the_fader_buttons_in_their_colour() {
+        let mut m = MockSession::new();
+        let rgb = |m: &MockSession, id: &str| m.state.surface.controls.iter().find(|c| c.id == id).map(|c| (c.rgb, c.level)).unwrap();
+        let want = [[0, 0, 127], [127, 127, 0], [0, 100, 127], [127, 0, 70], [127, 127, 127]];
+        for (layer, want) in yahaha::parts::FaderLayer::ALL.into_iter().zip(want) {
+            m.send(MixerCmd::SetFaderLayer { layer });
+            assert_eq!(rgb(&m, "masterButton"), (want, Level::Bright), "{layer:?}");
+            assert_eq!(rgb(&m, "faderButton1").0, want, "{layer:?}");
+            assert_eq!(rgb(&m, "faderButton5").0, [90, 0, 127], "{layer:?}: HARM/ARP keeps purple");
+        }
     }
 
     #[test]
