@@ -334,9 +334,11 @@ fn the_meters_do_not_allocate() {
 
 /// Each track's CPU (#340) is timed in the callback, per channel, into atomics, without
 /// allocating: the channels playing take time, a silent one none, and every buffer counts
-/// its length (64 frames at 48 kHz). Off the callback, a reading turns them into shares.
+/// its length (64 frames at 48 kHz). Off the callback, a reading over a second of buffers
+/// turns them into shares.
 #[test]
 fn track_cpu_is_measured_per_track_without_allocating() {
+    const BUFFERS: u64 = 760;
     let font = sound_font();
     let rack = font.as_ref().map(|f| Rack::load(f, 48_000).unwrap());
     let (mut feed, rx) = rtrb::RingBuffer::<synth::Msg>::new(256);
@@ -348,17 +350,17 @@ fn track_cpu_is_measured_per_track_without_allocating() {
         feed.push(m).unwrap();
     }
     let mut window = synth::CpuWindow::default();
-    window.read(&ctl.cpu, 0);
+    window.read(&ctl.cpu);
     let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
     COUNT.with(|c| c.set(true));
-    for _ in 0..30 {
+    for _ in 0..BUFFERS {
         core.process(&mut out);
     }
     COUNT.with(|c| c.set(false));
     assert_eq!((ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f), (0, 0), "timing the tracks allocated");
-    assert_eq!(ctl.cpu.buffers.load(Ordering::Relaxed), 30);
-    assert_eq!(ctl.cpu.budget_ns.load(Ordering::Relaxed), 30 * 1_333_333, "64 frames at 48 kHz, each");
-    let r = window.read(&ctl.cpu, synth::CPU_WINDOW_NS);
+    assert_eq!(ctl.cpu.buffers.load(Ordering::Relaxed), BUFFERS);
+    assert_eq!(ctl.cpu.budget_ns.load(Ordering::Relaxed), BUFFERS * 1_333_333, "64 frames at 48 kHz, each");
+    let r = window.read(&ctl.cpu);
     assert!((r.buffer_us - 1333.333).abs() < 0.01, "{r:?}");
     if font.is_some() {
         let ns: Vec<u64> = ctl.cpu.track_ns.iter().map(|a| a.load(Ordering::Relaxed)).collect();

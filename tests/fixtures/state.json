@@ -1746,7 +1746,8 @@
     "scanning": false,
     "list": [],
     "missing": [],
-    "needsAttention": []
+    "needsAttention": [],
+    "instances": 0
   },
   "soundLibrary": {
     "patches": [],

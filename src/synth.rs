@@ -174,7 +174,7 @@ impl CpuCounters {
     }
 }
 
-/// How long a [`CpuReading`] averages over.
+/// How much audio a [`CpuReading`] averages over (1 s of buffers: live, a second).
 pub const CPU_WINDOW_NS: u64 = 1_000_000_000;
 
 /// The tracks' CPU over the last window (#340): shares of the buffers' time (1.0 = a track
@@ -192,42 +192,56 @@ pub struct CpuReading {
     pub buffer_us: f32,
 }
 
-/// Reads [`CpuCounters`] off the audio thread into a [`CpuReading`] once a window.
+/// Reads [`CpuCounters`] off the audio thread into a [`CpuReading`] once a window: once
+/// [`CPU_WINDOW_NS`] of buffers have played since the last reading (audio time, so an
+/// offline render reads the same as live).
 #[derive(Clone, Debug, Default)]
 pub struct CpuWindow {
-    /// The counters at the start of the window (None: not read yet), and when.
+    /// The counters at the start of the window: each channel's time, the buffers and
+    /// their length (None: not read yet).
     last: Option<([u64; 16], u64, u64)>,
-    at_ns: u64,
     latest: CpuReading,
 }
 
 impl CpuWindow {
-    /// The latest reading, first starting a new window if `now_ns` is at least
-    /// [`CPU_WINDOW_NS`] past the last one's start.
-    pub fn read(&mut self, c: &CpuCounters, now_ns: u64) -> CpuReading {
-        if self.last.is_some() && now_ns.saturating_sub(self.at_ns) < CPU_WINDOW_NS {
+    /// The latest reading, first making a new one if a window's worth of buffers has
+    /// played since the last. The first read only starts the window.
+    pub fn read(&mut self, c: &CpuCounters) -> CpuReading {
+        let budget = c.budget_ns.load(Relaxed);
+        let Some((last_ns, last_buffers, last_budget)) = self.last else {
+            self.start(c, budget);
+            return self.latest;
+        };
+        // A new synth's counters start again from 0: start a new window.
+        if budget < last_budget {
+            self.start(c, budget);
+            return self.latest;
+        }
+        let db = budget - last_budget;
+        if db < CPU_WINDOW_NS {
             return self.latest;
         }
         let ns: [u64; 16] = std::array::from_fn(|ch| c.track_ns[ch].load(Relaxed));
-        let (buffers, budget) = (c.buffers.load(Relaxed), c.budget_ns.load(Relaxed));
-        let peaks: [f32; 16] = std::array::from_fn(|ch| f32::from_bits(c.track_peak[ch].swap(0, Relaxed)));
-        let total_peak = f32::from_bits(c.total_peak.swap(0, Relaxed));
-        if let Some((last_ns, last_buffers, last_budget)) = self.last {
-            let db = budget.saturating_sub(last_budget);
-            let dn = buffers.saturating_sub(last_buffers);
-            let share = |t: u64, l: u64| if db == 0 { 0.0 } else { (t.saturating_sub(l) as f64 / db as f64) as f32 };
-            let track: [f32; 16] = std::array::from_fn(|ch| share(ns[ch], last_ns[ch]));
-            self.latest = CpuReading {
-                track,
-                track_peak: if dn == 0 { [0.0; 16] } else { peaks },
-                total: track.iter().sum(),
-                total_peak: if dn == 0 { 0.0 } else { total_peak },
-                buffer_us: if dn == 0 { self.latest.buffer_us } else { (db as f64 / dn as f64 / 1000.0) as f32 },
-            };
-        }
-        self.last = Some((ns, buffers, budget));
-        self.at_ns = now_ns;
+        let dn = c.buffers.load(Relaxed).saturating_sub(last_buffers).max(1);
+        let track: [f32; 16] = std::array::from_fn(|ch| (ns[ch].saturating_sub(last_ns[ch]) as f64 / db as f64) as f32);
+        self.latest = CpuReading {
+            track,
+            track_peak: std::array::from_fn(|ch| f32::from_bits(c.track_peak[ch].swap(0, Relaxed))),
+            total: track.iter().sum(),
+            total_peak: f32::from_bits(c.total_peak.swap(0, Relaxed)),
+            buffer_us: (db as f64 / dn as f64 / 1000.0) as f32,
+        };
+        self.start(c, budget);
         self.latest
+    }
+
+    /// Start a window at the counters as they are (the peaks were taken or are dropped).
+    fn start(&mut self, c: &CpuCounters, budget: u64) {
+        let ns = std::array::from_fn(|ch| c.track_ns[ch].load(Relaxed));
+        for p in c.track_peak.iter().chain(std::iter::once(&c.total_peak)) {
+            p.store(0, Relaxed);
+        }
+        self.last = Some((ns, c.buffers.load(Relaxed), budget));
     }
 }
 
@@ -2102,34 +2116,42 @@ mod rack_tests {
     }
 
     /// The tracks' CPU (#340): each channel's render time over the buffers' time, per
-    /// channel, averaged over a window, with the worst buffer; a read inside the window
-    /// hands out the same reading.
+    /// channel, averaged over a second of buffers, with the worst buffer; a read before the
+    /// next second is in hands out the same reading.
     #[test]
     fn track_cpu_is_each_channels_share_of_the_buffer() {
+        const MS: u64 = 1_000_000;
         let c = SynthControl::new(0);
         let mut w = CpuWindow::default();
-        assert_eq!(w.read(&c.cpu, 0), CpuReading::default(), "the first read starts the window");
-        // Four 1 ms buffers: Right 1 takes 0.1 ms each, the Bass part 0.2 ms then 0.5 ms.
+        assert_eq!(w.read(&c.cpu), CpuReading::default(), "the first read starts the window");
+        // Four 250 ms buffers: Right 1 takes 25 ms of each, the Bass part 50 ms, then 125.
         let mut ns = [0u64; 16];
-        for bass in [200_000, 200_000, 200_000, 500_000] {
-            ns[0] = 100_000;
-            ns[10] = bass;
-            c.cpu.record(&ns, 1_000_000);
+        for bass in [50, 50, 50, 125] {
+            ns[0] = 25 * MS;
+            ns[10] = bass * MS;
+            c.cpu.record(&ns, 250 * MS);
+            if bass == 50 {
+                assert_eq!(w.read(&c.cpu), CpuReading::default(), "less than a second of buffers: no reading yet");
+            }
         }
         let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
-        let r = w.read(&c.cpu, CPU_WINDOW_NS);
+        let r = w.read(&c.cpu);
         assert!(near(r.track[0], 0.1) && near(r.track_peak[0], 0.1), "Right 1: {r:?}");
         assert!(near(r.track[10], 0.275) && near(r.track_peak[10], 0.5), "the Bass part, average and worst buffer: {r:?}");
         assert!(r.track.iter().chain(&r.track_peak).enumerate().all(|(i, &x)| i % 16 == 0 || i % 16 == 10 || x == 0.0), "the others took nothing: {r:?}");
         assert!(near(r.total, 0.375) && near(r.total_peak, 0.6), "{r:?}");
-        assert!(near(r.buffer_us, 1000.0));
-        c.cpu.record(&[900_000; 16], 1_000_000);
-        assert_eq!(w.read(&c.cpu, CPU_WINDOW_NS + 1), r, "the same reading until the window ends");
-        let r = w.read(&c.cpu, 2 * CPU_WINDOW_NS);
-        assert!(near(r.track[3], 0.9) && near(r.track_peak[3], 0.9), "the next window's: {r:?}");
-        // No buffers in a window (the stream stopped): nothing, the buffer length kept.
-        let r = w.read(&c.cpu, 3 * CPU_WINDOW_NS);
-        assert_eq!((r.total, r.total_peak, r.track_peak[3], r.buffer_us), (0.0, 0.0, 0.0, 1000.0));
+        assert!(near(r.buffer_us, 250_000.0));
+        c.cpu.record(&[225 * MS; 16], 250 * MS);
+        assert_eq!(w.read(&c.cpu), r, "the same reading until the next second is in");
+        for _ in 0..3 {
+            c.cpu.record(&[225 * MS; 16], 250 * MS);
+        }
+        let r = w.read(&c.cpu);
+        assert!(near(r.track[3], 0.9) && near(r.track_peak[3], 0.9) && near(r.track[10], 0.9), "the next second's: {r:?}");
+        // A new synth: its counters start from 0, and so does the window.
+        let c = SynthControl::new(0);
+        c.cpu.record(&[MS; 16], 250 * MS);
+        assert_eq!(w.read(&c.cpu), r, "a new window starts");
     }
 
     #[test]

@@ -963,8 +963,8 @@ impl Session {
         let Some(control) = ctl.synth.as_ref().map(|sy| sy.control.clone()) else { return Meters { at_ms: ns_to_ms(now), ..Meters::default() } };
         let (peaks, master, clips) = synth::take_meters(&control);
         let (rms, master_rms) = synth::take_rms(&control);
-        // The tracks' CPU (#340): a new reading once a second, the same one between.
-        let cpu = ctl.cpu.read(&control.cpu, now);
+        // The tracks' CPU (#340): a new reading once a second of audio, the same one between.
+        let cpu = ctl.cpu.read(&control.cpu);
         Meters {
             at_ms: ns_to_ms(now),
             channels: synth::METER_CHANNELS
