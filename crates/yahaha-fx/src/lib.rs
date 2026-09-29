@@ -1,5 +1,7 @@
-//! yahaha-fx: the audio effects (AGENTS.md, Layering). Empty for now.
+//! yahaha-fx: the audio effects (AGENTS.md, Layering): the send bus, the insertion
+//! effects, the part EQ and the master chain, all real-time safe.
 //!
-//! Module that will move in from the `yahaha` facade: `fx`.
-//!
-//! Depends on `yahaha-core`.
+//! Depends on `yahaha-core` only. The `yahaha` facade re-exports `fx` under its old path
+//! (`yahaha::fx`, `crate::fx` in the facade), so nothing that uses it changes.
+
+pub mod fx;

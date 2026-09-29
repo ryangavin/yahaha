@@ -61,8 +61,9 @@ pub use insert::{ChannelInserts, Insert, InsertEffect, InsertKind, InsertSetting
 pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 
-/// The send buses: Reverb (CC91), Chorus (CC93), Variation (CC94).
-pub const BUSES: usize = 3;
+/// The send buses: Reverb (CC91), Chorus (CC93), Variation (CC94). Defined in core's
+/// `perf`, whose counters it sizes.
+pub use yahaha_core::perf::BUSES;
 pub const REVERB: usize = 0;
 pub const CHORUS: usize = 1;
 pub const VARIATION: usize = 2;
@@ -296,10 +297,10 @@ impl FxBus {
         self.delay.set(delay::Settings::from_params(DELAY_PARAMS.map(|p| p.clamp(ctl.params[p.index()].load(Relaxed)))), bpm);
         let returns = [ctl.reverb_return.load(Relaxed), ctl.chorus_return.load(Relaxed), ctl.variation_return.load(Relaxed)];
         // The performance view (`perf`): each block's time and output level.
-        let perf = &crate::perf::PERF;
+        let perf = &yahaha_core::perf::PERF;
         let prof = perf.on();
         for (b, block) in self.blocks.iter_mut().enumerate() {
-            let t0 = if prof { crate::rt::host_now() } else { 0 };
+            let t0 = if prof { yahaha_core::rt::host_now() } else { 0 };
             let (il, ir) = bus(b);
             let input = il.iter().chain(ir).any(|x| *x != 0.0);
             let target = return_gain(returns[b]);
@@ -327,8 +328,8 @@ impl FxBus {
             block.quiet = if input || peak >= IDLE_LEVEL { 0 } else { block.quiet.saturating_add(n as u32) };
             block.idle = block.quiet > block.hold;
             if prof {
-                perf.bus[b].add(crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0)));
-                crate::perf::Perf::peak(&perf.bus_peak[b], peak * block.gain);
+                perf.bus[b].add(yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0)));
+                yahaha_core::perf::Perf::peak(&perf.bus_peak[b], peak * block.gain);
             }
         }
     }

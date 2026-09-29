@@ -7,7 +7,7 @@
 //! from before them loads as it always did.
 
 use super::Control;
-use crate::api::{CmdError, FxCmd, MasterSettings};
+use crate::api::{CmdError, FxCmd, MasterSettings, MasterSettingsExt};
 use std::path::{Path, PathBuf};
 
 /// The settings' file in the data folder.
