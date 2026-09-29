@@ -29,7 +29,7 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
-  import type { RackControl, RackSwitch } from '../../lib/api/types'
+  import type { GmMapRow, RackControl, RackSwitch } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -48,8 +48,15 @@
   const chord = $derived(s.chord)
   const ots = $derived(s.ots)
   const h = $derived(s.harmonyArp)
-  const sl = $derived(s.soundLibrary)
-  const ctx = $derived({ patches: sl.patches, gmMap: sl.gmMap ?? [] })
+  // The slices themselves, so a state that leaves them alone re-runs nothing below.
+  const NO_ROWS: GmMapRow[] = []
+  const patches = $derived(s.soundLibrary.patches)
+  const gmMap = $derived(s.soundLibrary.gmMap ?? NO_ROWS)
+  const ctx = $derived.by(() => ({ patches, gmMap }))
+  const pluginList = $derived(s.plugins.list)
+  const soundFontFile = $derived(s.io.soundFontFile)
+  /** Each part's instrument and badge, for its slot. */
+  const slots = $derived(parts.map((p) => ({ instrument: instrumentName(p, ctx, pluginList, soundFontFile), badge: soundBadge(p, playingId(p, ctx)) })))
   const types = $derived(app.library.harmonyTypes ?? [])
   const patterns = $derived(app.library.arpPatterns ?? [])
   const waiting = $derived(parts.flatMap((p, i) => (p.waiting ? [i] : [])))
@@ -314,8 +321,8 @@
         <RackSlot
           part={p}
           index={i}
-          instrument={instrumentName(p, ctx, s.plugins.list, s.io.soundFontFile)}
-          badge={soundBadge(p, playingId(p, ctx))}
+          instrument={slots[i].instrument}
+          badge={slots[i].badge}
           {recalled}
         />
       {/each}

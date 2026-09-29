@@ -3,8 +3,10 @@
 //! `~/Library/Application Support/yahaha` and comes back when the session starts, so after
 //! a restart the keyboard parts sound and mix as they did, saved or not.
 //!
-//! - **Changes.** Every pump compares the rack playing now (captured without plugin states,
-//!   so nothing big is read or encoded) with the last one it saw. Any difference (a sound,
+//! - **Changes.** The pump compares the rack playing now (captured without plugin states,
+//!   so nothing big is read or encoded) with the last one it saw: after a command or
+//!   hardware action ([`Control::live_rack_check`]), every [`CHECK_NS`] otherwise, and on
+//!   every pump offline. Any difference (a sound,
 //!   the mix, the split, Harmony/Arp, the transpose, the controller map, or a plugin edit,
 //!   `soundEdited`) sets `modified` and schedules a save. A change to a part's plugin state
 //!   (the plugin host's 30-second reads, a load finishing) schedules a save without
@@ -50,6 +52,14 @@ const VERSION: u32 = 1;
 pub(super) const QUIET_NS: u64 = 1_000_000_000;
 /// ...or this long after the first unsaved change.
 pub(super) const MAX_WAIT_NS: u64 = 10_000_000_000;
+/// With no command to ask for it, the pump compares the rack this often (a live
+/// session): well inside [`QUIET_NS`], so a save is never later for it.
+pub(super) const CHECK_NS: u64 = 100_000_000;
+
+/// The periodic compare is due: never done, or [`CHECK_NS`] since the last.
+fn check_due(checked_ns: Option<u64>, now: u64) -> bool {
+    checked_ns.is_none_or(|t| now.saturating_sub(t) >= CHECK_NS)
+}
 
 /// The name of a live rack that came from nothing saved.
 pub const NEW_NAME: &str = "New rack";
@@ -185,6 +195,11 @@ pub(super) struct LiveRack {
     /// The rack as the last check saw it, without plugin states. None until the first
     /// pump after the start.
     seen: Option<Rack>,
+    /// A command or hardware action may have changed the rack: the next pump compares at
+    /// once ([`Control::live_rack_check`]).
+    check_requested: bool,
+    /// When the pump last compared (None: never).
+    checked_ns: Option<u64>,
     /// When the first unsaved change was, and the last.
     dirty_since: Option<u64>,
     changed_ns: u64,
@@ -281,30 +296,52 @@ impl Control {
         self.live_rack_touched(self.clock_ns);
     }
 
+    /// A command or hardware action was applied: the next pump compares the rack at once,
+    /// so `modified` shows with the command's own state.
+    pub(super) fn live_rack_check(&mut self) {
+        self.live_rack.check_requested = true;
+    }
+
     /// Each pump: a change sets `modified` (and schedules a save); a save that is due
-    /// goes to the `live-rack` thread.
-    pub(super) fn pump_live_rack(&mut self, now: u64) {
-        let rack = self.capture_rack_with(false);
-        match &self.live_rack.seen {
-            Some(seen) if *seen == rack => {}
-            Some(_) => {
-                self.live_rack.seen = Some(rack);
-                self.live_rack.modified = true;
-                self.live_rack_touched(now);
+    /// goes to the `live-rack` thread. Whether it changed anything the state shows (the
+    /// rack playing, `modified`, the message).
+    ///
+    /// The rack is captured and compared when a check was asked for
+    /// ([`Control::live_rack_check`]), every [`CHECK_NS`] (for what changes with no
+    /// command: the MIDI thread's controllers, the engine), and always offline, where
+    /// tests change fields directly and expect `modified` on the next pump.
+    pub(super) fn pump_live_rack(&mut self, now: u64) -> bool {
+        let mut changed = false;
+        let l = &self.live_rack;
+        if l.check_requested || self.offline.is_some() || check_due(l.checked_ns, now) {
+            self.live_rack.check_requested = false;
+            self.live_rack.checked_ns = Some(now);
+            let rack = self.capture_rack_with(false);
+            match &self.live_rack.seen {
+                Some(seen) if *seen == rack => {}
+                Some(_) => {
+                    self.live_rack.seen = Some(rack);
+                    self.live_rack.modified = true;
+                    self.live_rack_touched(now);
+                    changed = true;
+                }
+                None => self.live_rack.seen = Some(rack),
             }
-            None => self.live_rack.seen = Some(rack),
         }
         let errors: Vec<String> = self.live_rack.writer.as_ref().map(|w| w.errors.try_iter().collect()).unwrap_or_default();
         for e in errors {
             self.say(format!("the live rack could not be saved: {e}"), true);
+            changed = true;
         }
         let l = &self.live_rack;
         let due = l.dirty_since.is_some_and(|since| {
             now.saturating_sub(l.changed_ns) >= QUIET_NS || now.saturating_sub(since) >= MAX_WAIT_NS
         });
         if due && l.path.is_some() {
-            self.save_live_rack_soon();
+            // It says so if the thread can't start.
+            changed |= self.save_live_rack_soon();
         }
+        changed
     }
 
     /// The live rack as the file keeps it, plugin states included.
@@ -314,20 +351,25 @@ impl Control {
         LiveRackFile { format: FORMAT.into(), version: VERSION, modified: l.modified, rack }
     }
 
-    /// Hand the live rack to the `live-rack` thread (started on the first save).
-    fn save_live_rack_soon(&mut self) {
-        let Some(path) = self.live_rack.path.clone() else { return };
+    /// Hand the live rack to the `live-rack` thread (started on the first save). True when
+    /// it said something (the thread could not start).
+    fn save_live_rack_soon(&mut self) -> bool {
+        let Some(path) = self.live_rack.path.clone() else { return false };
         self.live_rack.dirty_since = None;
         if self.live_rack.writer.is_none() {
             match Writer::spawn(path) {
                 Ok(w) => self.live_rack.writer = Some(w),
-                Err(e) => return self.say(format!("the live rack could not be saved: {e}"), true),
+                Err(e) => {
+                    self.say(format!("the live rack could not be saved: {e}"), true);
+                    return true;
+                }
             }
         }
         let f = self.live_rack_file();
         if let Some(w) = &self.live_rack.writer {
             let _ = w.tx.send(f);
         }
+        false
     }
 
     /// Stopping: the playing plugins' states, then the live rack's last save, written here
@@ -369,3 +411,57 @@ impl Session {
 #[cfg(test)]
 #[path = "live_rack_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod cache_tests {
+    use super::{CHECK_NS, check_due};
+    use crate::racks::ControlTarget;
+
+    #[test]
+    fn the_periodic_compare_is_due_first_and_every_check_ns() {
+        assert!(check_due(None, 0));
+        assert!(!check_due(Some(5), 5 + CHECK_NS - 1));
+        assert!(check_due(Some(5), 5 + CHECK_NS));
+        assert!(!check_due(Some(10), 5), "a clock behind the last compare waits");
+    }
+
+    /// A live session (no offline clock) compares when asked, and every `CHECK_NS`
+    /// without: a change is never missed, only seen at the next compare.
+    #[test]
+    fn a_live_session_sees_a_change_when_asked_or_at_the_next_periodic_compare() {
+        let s = crate::session::testing::session();
+        let mut ctl = s.inner.lock();
+        let offline = ctl.offline.take();
+        let t = ctl.clock_ns + 1_000_000_000_000;
+        ctl.live_rack_check();
+        ctl.pump_live_rack(t);
+        assert!(!ctl.live_rack.modified, "nothing changed yet");
+
+        ctl.rack_controls.knobs[6] = ControlTarget::SplitPoint;
+        assert!(!ctl.pump_live_rack(t + 1), "not compared: not asked, not due");
+        assert!(!ctl.live_rack.modified);
+        ctl.live_rack_check();
+        assert!(ctl.pump_live_rack(t + 2), "asked: the change shows");
+        assert!(ctl.live_rack.modified);
+
+        ctl.live_rack.modified = false;
+        ctl.rack_controls.knobs[5] = ControlTarget::SplitPoint;
+        assert!(!ctl.pump_live_rack(t + 1 + CHECK_NS), "before the periodic compare");
+        assert!(ctl.pump_live_rack(t + 2 + CHECK_NS), "the periodic compare sees it");
+        assert!(ctl.live_rack.modified);
+        assert!(!ctl.pump_live_rack(t + 2 + 2 * CHECK_NS), "no change since: nothing new");
+        ctl.offline = offline;
+    }
+
+    /// Offline, every pump compares, as the live rack tests expect.
+    #[test]
+    fn offline_every_pump_compares() {
+        let s = crate::session::testing::session();
+        let mut ctl = s.inner.lock();
+        let t = ctl.clock_ns;
+        ctl.pump_live_rack(t);
+        ctl.rack_controls.knobs[6] = ControlTarget::SplitPoint;
+        assert!(ctl.pump_live_rack(t));
+        assert!(ctl.live_rack.modified);
+    }
+}

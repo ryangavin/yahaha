@@ -69,7 +69,7 @@ fn live_rack_view(s: &AppState) -> serde_json::Value {
         .iter()
         .map(|p| {
             let plugin = p.plugin.as_ref().map(|x| x.id.clone());
-            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, plugin, p.sound, p.sound_edited])
+            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.insert, p.patch, plugin, p.sound, p.sound_edited])
         })
         .collect();
     serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp, s.live_rack.controls])
@@ -260,6 +260,8 @@ impl MockSession {
             reverb: yahaha::parts::FX_DEFAULT[i][yahaha::parts::REVERB],
             chorus: yahaha::parts::FX_DEFAULT[i][yahaha::parts::CHORUS],
             variation: yahaha::parts::FX_DEFAULT[i][yahaha::parts::VARIATION],
+            eq: PartEq::FLAT,
+            insert: PartInsert::OFF,
             fader: None,
             plugin: None,
             patch: None,
@@ -490,7 +492,7 @@ impl MockSession {
 
     /// The sound catalog (#117).
     pub fn sounds(&self) -> SoundCatalog {
-        self.sounds.catalog(&self.state)
+        self.sounds.catalog(&self.state, self.sound.patches())
     }
 
     fn sounds_cmd(&mut self, c: SoundsCmd) {
@@ -516,7 +518,7 @@ impl MockSession {
             }
             return;
         }
-        match self.sounds.cmd(&self.state, c) {
+        match self.sounds.cmd(&self.state, self.sound.patches(), c) {
             Err(e) => self.message(e, true),
             Ok(sounds::Then::Nothing) => {}
             Ok(sounds::Then::Run(cmds)) => {
@@ -677,12 +679,62 @@ impl MockSession {
         self.advance(ms)
     }
 
+    /// The mock's clock (ms), what `state_now` reads `surface.clock` at: the shell's
+    /// `state` command serializes the state with it without cloning the state.
+    pub fn now_ms(&self) -> f64 {
+        self.now
+    }
+
     /// The state with its clock read now (`surface.clock.atMs`), as the engine's
     /// `Session::state_now`.
     pub fn state_now(&self) -> AppState {
         let mut st = self.state.clone();
         st.surface.clock = st.surface.clock.at(self.now);
         st
+    }
+
+    /// The meters (`Session::meters`). The mock has no audio: every level is 0, but each
+    /// track's CPU (#340) is a plausible one: a playing plugin's own `cpu`, a SoundFont
+    /// keyboard part that is on a little, the Style parts more while the band plays (the
+    /// drums most), the Multi Pads nothing. The worst buffer is a few times the average,
+    /// more so at a small buffer. As the engine's, a reading changes once a second.
+    pub fn meters(&self) -> Meters {
+        const STYLE: [f32; 8] = [0.021, 0.016, 0.011, 0.012, 0.010, 0.014, 0.008, 0.009];
+        let st = &self.state;
+        let frames = st.io.synth.as_ref().and_then(|s| s.buffer_frames).unwrap_or(256) as f32;
+        let rate = st.io.synth.as_ref().map_or(48_000, |s| s.sample_rate.max(1)) as f32;
+        let second = (self.now / 1000.0).floor();
+        let cpu = |ch: u8| -> f32 {
+            let wobble = 1.0 + 0.12 * (second * 0.7 + ch as f64 * 1.3).sin() as f32;
+            let base = if let Some(k) = st.keyboard_parts.iter().find(|k| k.channel == ch) {
+                match &k.plugin {
+                    Some(p) if p.status == PluginStatus::Playing => p.cpu,
+                    Some(_) => 0.0,
+                    None if k.on => 0.012,
+                    None => 0.0,
+                }
+            } else if (9..=16).contains(&ch) {
+                let p = (ch - 9) as usize;
+                if st.transport.running && st.mixer.style_parts.get(p).is_some_and(|s| s.on) { STYLE[p] } else { 0.0 }
+            } else {
+                0.0
+            };
+            base * wobble
+        };
+        let peak_of = |avg: f32| avg * (1.6 + 128.0 / frames);
+        let channels: Vec<ChannelMeter> = (1..=16u8)
+            .map(|ch| {
+                let c = cpu(ch);
+                ChannelMeter { channel: ch, peak: 0.0, rms: 0.0, cpu: c, cpu_peak: peak_of(c) }
+            })
+            .collect();
+        let total: f32 = channels.iter().map(|c| c.cpu).sum();
+        Meters {
+            at_ms: self.now,
+            cpu: CpuMeter { total, peak: peak_of(total) * 0.8, buffer_us: frames / rate * 1e6 },
+            channels,
+            ..Meters::default()
+        }
     }
 
     /// Move the clock on by `ms` milliseconds; true if anything changed.
@@ -1100,6 +1152,20 @@ impl MockSession {
                 }
                 self.sound.part_voice(i);
             }
+            // The part EQ, as `PartState::apply_ots` sets it (#247): the OTS's XG part EQ;
+            // a part it gives a voice but no EQ goes flat; others keep theirs.
+            match mock_ots_eq(n, i) {
+                Some(eq) => p.eq = eq,
+                None if o.program.is_some() => p.eq = PartEq::FLAT,
+                None => {}
+            }
+            // The insert slot, as `apply_ots` sets it: the OTS's insertion type turns it on
+            // with its effect; a part it gives a voice but no type turns it off.
+            match mock_ots_insert(n, i) {
+                Some(slot) => p.insert = slot,
+                None if o.program.is_some() => p.insert.on = false,
+                None => {}
+            }
             p.on = o.on;
             p.octave = o.octave;
             if p.volume != o.volume {
@@ -1249,6 +1315,9 @@ impl MockSession {
     /// The fields the engine computes from the others: names, flags, pads and lamps.
     fn derive(&mut self) {
         self.looper.publish(&mut self.state.looper);
+        // Plugin instances loaded (#407): one per keyboard part playing one.
+        self.state.plugins.instances =
+            self.state.keyboard_parts.iter().filter(|k| k.plugin.as_ref().is_some_and(|p| p.status == PluginStatus::Playing)).count() as u32;
         self.state.knobs = self.knobs.state(&self.knobs_now());
         let st = &mut self.state;
         let c = &mut st.chord;
@@ -1279,7 +1348,7 @@ impl MockSession {
         }
         // The parts' sounds and voice names.
         self.sound.derive(st);
-        self.sounds.derive(st);
+        self.sounds.derive(st, self.sound.patches());
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
             p.muted_by_manual_bass = i == 2 && mb;
         }
@@ -1343,7 +1412,7 @@ impl MockSession {
             LooperMode::LoopArmed => lk::LooperLamp::LoopArmed,
             LooperMode::Looping => lk::LooperLamp::Looping,
         };
-        let colours = lk::button_colours(page, styles, fader_page, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, left_hold: st.chord.left_hold, looper });
+        let colours = lk::button_colours(page, styles, fader_page, st.mixer.fader_layer, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, left_hold: st.chord.left_hold, looper });
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
@@ -1935,6 +2004,26 @@ impl MockSession {
                     }
                 }
             }
+            AppCmd::Parts(PartsCmd::SetPartEq { part, eq }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.eq = eq.clamped();
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetKeyboardInsertEffect { part, effect }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.insert.effect = effect;
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetKeyboardInsertOn { part, on }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.insert.on = on;
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetKeyboardInsertAmount { part, amount }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.insert.amount = amount.min(127);
+                }
+            }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
             AppCmd::Mixer(MixerCmd::SetFaderLayer { layer }) => self.state.mixer.fader_layer = layer,
             AppCmd::Mixer(MixerCmd::StepFaderLayer { delta }) => self.state.mixer.fader_layer = self.state.mixer.fader_layer.step(delta.signum()),
@@ -2088,9 +2177,11 @@ impl MockSession {
                     yahaha::fx::type_defaults(block.index(), block.type_index(effect), &mut params);
                     let kept = self.state.effects.blocks.clone();
                     let (inserts, inserts_on) = (self.state.effects.inserts.clone(), self.state.effects.inserts_on);
+                    let master = self.state.effects.master.clone();
                     self.state.effects = EffectsState::new(types, returns, band, params);
                     self.state.effects.inserts = inserts;
                     self.state.effects.inserts_on = inserts_on;
+                    self.state.effects.master = master;
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
@@ -2114,6 +2205,21 @@ impl MockSession {
                 None => self.message(format!("Style part {part} has no insertion effect"), true),
             },
             AppCmd::Fx(FxCmd::SetRotaryFast { on }) => self.state.effects.rotary_fast = on,
+            // The Master Compressor and Master EQ, as the session plays them (not saved).
+            AppCmd::Fx(
+                ref c @ (FxCmd::SetMasterCompressorOn { .. }
+                | FxCmd::SetMasterCompressorPreset { .. }
+                | FxCmd::SetMasterCompressorParam { .. }
+                | FxCmd::SetMasterEqOn { .. }
+                | FxCmd::SetMasterEqPreset { .. }
+                | FxCmd::SetMasterEqBand { .. }),
+            ) => {
+                let mut m = yahaha::api::MasterSettings::from_state(&self.state.effects.master);
+                match m.apply(c) {
+                    Some(Err(e)) => self.message(e, true),
+                    _ => self.state.effects.master = m.state(),
+                }
+            }
             AppCmd::Rack(c) => {
                 self.rack_cmd(c.clone());
                 self.quick_after_rack_cmd(&c);
@@ -2134,9 +2240,11 @@ impl MockSession {
                     let band = std::array::from_fn(|b| e.blocks[b].band_send);
                     let kept = self.state.effects.blocks.clone();
                     let (inserts, inserts_on) = (self.state.effects.inserts.clone(), self.state.effects.inserts_on);
+                    let master = self.state.effects.master.clone();
                     self.state.effects = EffectsState::new(types, returns, band, params);
                     self.state.effects.inserts = inserts;
                     self.state.effects.inserts_on = inserts_on;
+                    self.state.effects.master = master;
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
@@ -2197,7 +2305,7 @@ impl MockSession {
                 };
                 // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
                 if let SoundLibraryCmd::SetPartPatch { part, id: Some(id) } = &c
-                    && self.state.sound_library.patches.iter().any(|p| &p.patch.id == id && matches!(p.patch.source, PatchSource::SoundFont { .. }))
+                    && self.sound.patches().iter().any(|p| &p.id == id && matches!(p.source, PatchSource::SoundFont { .. }))
                     && self.sound.own_plugin(*part as usize)
                 {
                     self.state.keyboard_parts[(*part & 3) as usize].plugin = None;
@@ -2215,7 +2323,7 @@ impl MockSession {
     /// A rule's patch: a catalog id becomes its library patch, added once (#117).
     fn rule_patch(&mut self, patch: Option<String>) -> Result<Option<String>, String> {
         let Some(id) = patch else { return Ok(None) };
-        match self.sounds.patch_for(&self.state, &id)? {
+        match self.sounds.patch_for(&self.state, self.sound.patches(), &id)? {
             Ok(patch) => Ok(Some(patch)),
             Err(add) => {
                 self.cmd(add);
@@ -2474,9 +2582,59 @@ fn harmony_arp_cmd(h: &mut HarmonyArpState, c: HarmonyArpCmd) -> Result<(), Stri
     Ok(())
 }
 
+/// The XG part EQ the mock's OTS `n` sets on part `p` (#247), as an SFF's OTS carries it:
+/// only OTS 1's Right 1 has one; the TS mock has the same (`mockOtsEq`).
+fn mock_ots_eq(n: usize, p: usize) -> Option<PartEq> {
+    (n == 0 && p == 0).then_some(PartEq { low_gain: 3, high_gain: 2, ..PartEq::FLAT })
+}
+
+/// The insert slot the mock's OTS `n` sets on part `p`, from its XG insertion type: only
+/// OTS 1's Right 1 has one (a rotary speaker); the TS mock has the same (`mockOtsInsert`).
+fn mock_ots_insert(n: usize, p: usize) -> Option<PartInsert> {
+    (n == 0 && p == 0).then_some(PartInsert { effect: InsertEffect::Rotary, on: true, amount: 64 })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #247: an OTS recall sets the part EQ as the engine does: its XG part EQ (OTS 1's
+    /// Right 1 in the mock), flat for a part it gives a voice but no EQ.
+    #[test]
+    fn ots_recall_sets_the_part_eq() {
+        let mut m = MockSession::new();
+        let mine = PartEq { low_gain: -4, ..PartEq::FLAT };
+        for p in 0..4u8 {
+            m.send(PartsCmd::SetPartEq { part: p, eq: mine });
+        }
+        m.send(OtsCmd::RecallOts { index: 0 });
+        let voiced = |i: usize| m.state.ots.settings[0].parts[i].program.is_some();
+        assert_eq!(m.state.keyboard_parts[0].eq, mock_ots_eq(0, 0).unwrap());
+        for i in 1..4 {
+            assert_eq!(m.state.keyboard_parts[i].eq, if voiced(i) { PartEq::FLAT } else { mine }, "part {i}");
+        }
+    }
+
+    /// The insert slot's commands, and an OTS recall setting it as the engine does: its
+    /// insertion type (OTS 1's Right 1 in the mock), off for a part it gives a voice but
+    /// no type.
+    #[test]
+    fn insert_slot_commands_and_ots_recall() {
+        let mut m = MockSession::new();
+        for p in 0..4u8 {
+            m.send(PartsCmd::SetKeyboardInsertEffect { part: p, effect: InsertEffect::Tremolo });
+            m.send(PartsCmd::SetKeyboardInsertOn { part: p, on: true });
+            m.send(PartsCmd::SetKeyboardInsertAmount { part: p, amount: 200 });
+        }
+        let mine = PartInsert { effect: InsertEffect::Tremolo, on: true, amount: 127 };
+        assert_eq!(m.state.keyboard_parts[3].insert, mine);
+        m.send(OtsCmd::RecallOts { index: 0 });
+        let voiced = |i: usize| m.state.ots.settings[0].parts[i].program.is_some();
+        assert_eq!(m.state.keyboard_parts[0].insert, mock_ots_insert(0, 0).unwrap());
+        for i in 1..4 {
+            assert_eq!(m.state.keyboard_parts[i].insert, if voiced(i) { PartInsert { on: false, ..mine } } else { mine }, "part {i}");
+        }
+    }
 
     fn bar_ms(m: &MockSession) -> f64 {
         60000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64
@@ -2571,7 +2729,7 @@ mod tests {
         m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("My Grand".into()) });
         let saved = p0(&m).sound.unwrap().id;
         let patch_id = saved.strip_prefix("saved:").unwrap().to_string();
-        let p = m.state.sound_library.patches.iter().find(|p| p.patch.id == patch_id).unwrap().patch.clone();
+        let p = m.sound.patches().iter().find(|p| p.id == patch_id).unwrap().clone();
         let fields = PatchFields { name: "Renamed".into(), category: p.category, tags: p.tags, favourite: p.favourite, source: p.source };
         m.send(SoundLibraryCmd::UpdatePatch { id: patch_id.clone(), patch: fields });
         assert_eq!((p0(&m).sound.map(|t| t.name), p0(&m).voice_name), (Some("Renamed".to_string()), "Renamed".to_string()));
@@ -2665,6 +2823,33 @@ mod tests {
         assert!(entry(&m, "aumu dls  appl").in_process);
         m.send(PluginCmd::SetPluginInProcess { id: "aumu dls  appl".into(), in_process: false });
         assert!(!entry(&m, "aumu dls  appl").in_process);
+    }
+
+    /// The meters' CPU per track (#340): a plugin's on its own channel, a SoundFont keyboard
+    /// part's a little, the Style parts' only while the band plays; plugin instances (#407).
+    #[test]
+    fn the_meters_show_each_tracks_cpu_and_the_instances() {
+        let mut m = MockSession::new();
+        if m.state.transport.running {
+            m.send(TransportCmd::StartStop);
+        }
+        assert!(!m.state.transport.running);
+        let cpu = |m: &MockSession, ch: u8| m.meters().channels.iter().find(|c| c.channel == ch).map(|c| (c.cpu, c.cpu_peak)).unwrap();
+        assert_eq!(m.meters().channels.len(), 16);
+        assert!(cpu(&m, 1).0 > 0.0, "Right 1, a SoundFont part that is on");
+        assert_eq!(cpu(&m, 9).0, 0.0, "the band stopped");
+        assert_eq!(m.state.plugins.instances, 0);
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: MOCK_HEAVY_ID.into(), state: None });
+        assert_eq!(m.state.plugins.instances, 1);
+        m.send(TransportCmd::StartStop);
+        let (avg, peak) = cpu(&m, 3);
+        assert!(avg > 0.25 && peak > avg, "Right 2 (ch 3) plays the heavy plugin: {avg} {peak}");
+        assert!(cpu(&m, 9).0 > 0.0 && cpu(&m, 5).0 == 0.0, "Rhythm 1 plays, no Multi Pad");
+        let meters = m.meters();
+        let sum: f32 = meters.channels.iter().map(|c| c.cpu).sum();
+        assert!((meters.cpu.total - sum).abs() < 1e-6 && meters.cpu.buffer_us > 0.0);
+        m.send(PluginCmd::ClearPartPlugin { part: 1 });
+        assert_eq!(m.state.plugins.instances, 0);
     }
 
     /// A plugin the system won't host out of process loads in process and says so (#104).
@@ -3276,6 +3461,21 @@ mod tests {
         assert_eq!(s.faders[5].set, Some(AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 5, volume: 0 })));
     }
 
+    /// Each fader layer lights the Panel page's part buttons and master button in its own
+    /// colour (src/launchkey.rs `layer_colour`), as the engine's surface does.
+    #[test]
+    fn fader_layers_light_the_fader_buttons_in_their_colour() {
+        let mut m = MockSession::new();
+        let rgb = |m: &MockSession, id: &str| m.state.surface.controls.iter().find(|c| c.id == id).map(|c| (c.rgb, c.level)).unwrap();
+        let want = [[0, 0, 127], [127, 127, 0], [0, 100, 127], [127, 0, 70], [127, 127, 127]];
+        for (layer, want) in yahaha::parts::FaderLayer::ALL.into_iter().zip(want) {
+            m.send(MixerCmd::SetFaderLayer { layer });
+            assert_eq!(rgb(&m, "masterButton"), (want, Level::Bright), "{layer:?}");
+            assert_eq!(rgb(&m, "faderButton1").0, want, "{layer:?}");
+            assert_eq!(rgb(&m, "faderButton5").0, [90, 0, 127], "{layer:?}: HARM/ARP keeps purple");
+        }
+    }
+
     #[test]
     fn track_neighbours_skip_styles_that_do_not_load_and_wrap() {
         let m = MockSession::new();
@@ -3651,5 +3851,7 @@ fn mock_plugins() -> PluginsState {
         missing: vec![MissingPlugin { id: "aumu Str1 Fake".into(), name: "String Deluxe".into(), manufacturer: "Fake Instruments".into(), racks: 1, sounds: 0 }],
         // The saved rack that plays it (Library › Racks, Needs attention).
         needs_attention: vec![RackAttention { id: "strings-night".into(), name: "Strings Night".into(), parts: vec![1] }],
+        // `derive` counts them.
+        instances: 0,
     }
 }

@@ -1,0 +1,17 @@
+[package]
+name = "yahaha-sff"
+version = "0.1.0"
+edition = "2024"
+description = "yahaha: style files (SFF1/SFF2) and the style library index"
+license = "MIT"
+repository = "https://github.com/satoramoto/yahaha"
+
+# The crate split (AGENTS.md, Layering): sff sits on core.
+
+[features]
+# Tests gated with `#[cfg(feature = "slow-tests")]` run in CI only (AGENTS.md).
+slow-tests = ["yahaha-core/slow-tests"]
+
+[dependencies]
+yahaha-core = { path = "../yahaha-core" }
+anyhow = "1.0.104"

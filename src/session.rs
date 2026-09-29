@@ -44,6 +44,7 @@ mod library;
 mod live_rack;
 mod looper;
 mod looper_banks;
+mod master_fx;
 mod metronome;
 mod mixer;
 mod multipad;
@@ -213,6 +214,12 @@ struct Inner {
     version: AtomicU64,
     subscribers: Mutex<Vec<mpsc::Sender<Event>>>,
     stop: AtomicBool,
+    /// An offline session (its clock is the virtual one, under the control lock).
+    offline: bool,
+    /// `Control::led_clock`, for `Session::beats` without the control lock.
+    led_clock: Arc<Mutex<LedClock>>,
+    /// The meters' synth side, for `Session::meters` without the control lock.
+    meters: Mutex<MeterSide>,
 }
 
 /// What only a live session has.
@@ -279,11 +286,21 @@ struct Control {
     led_beats: f64,
     led_ns: u64,
     led_bpm: f64,
+    /// The same clock for `Session::beats`, which reads it without the control lock.
+    led_clock: Arc<Mutex<LedClock>>,
     /// The time of the last pump.
     clock_ns: u64,
     /// The pads use palette colours (`Options::palette_leds`).
     palette_leds: bool,
     offline: Option<Offline>,
+    /// A command was applied since the last publish: the next one rebuilds the state.
+    changed: bool,
+    /// When the state was last rebuilt (the control thread's safety net).
+    built_ns: u64,
+    /// What the last pump saw of the control side (`Watch`) and of the Panel: a change in
+    /// either is a change to publish.
+    watch: Option<Watch>,
+    last_panel: Option<Panel>,
     /// Style previews to the engine thread, and finished ones back to free here.
     audition_tx: Producer<Box<Audition>>,
     old_audition_rx: Consumer<Box<Audition>>,
@@ -336,6 +353,8 @@ struct Control {
     knobs: crate::knobs::Knobs,
     /// The effect bus's types and return levels (session/fx.rs).
     fx: fx::FxSettings,
+    /// The Master Compressor and Master EQ, and their file (session/master_fx.rs).
+    master: master_fx::MasterFile,
     /// The Launchkey display: what the control last touched did (session/display.rs).
     display: display::Display,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
@@ -368,6 +387,55 @@ struct Control {
     /// The command being applied came from the Launchkey or a pedal, which have no dialog
     /// (a rack switch keeps unsaved changes as a Recovered rack instead of asking).
     hardware: bool,
+}
+
+/// The pad flash clock: `beats` at `ns`, moving on at `bpm`.
+#[derive(Clone, Copy, Debug, Default)]
+struct LedClock {
+    beats: f64,
+    ns: u64,
+    bpm: f64,
+}
+
+impl LedClock {
+    fn at(&self, t: u64) -> f64 {
+        self.beats + (t as f64 - self.ns as f64) / 1e9 * self.bpm / 60.0
+    }
+}
+
+/// The meters' side of the synth: read by `Session::meters` without the control lock.
+#[derive(Default)]
+struct MeterSide {
+    /// The live synth's controls (set once at start; an offline session's are read from
+    /// `Control::synth`, which `Session::render_with` sets later).
+    control: Option<Arc<synth::SynthControl>>,
+    /// The tracks' CPU readings for the meters (#340).
+    cpu: synth::CpuWindow,
+}
+
+/// With no change seen, the control thread still rebuilds the state this often: a net for
+/// a background change no pump step reports (a Multi Pad bank rescan finishing).
+const SAFETY_NET_NS: u64 = 1_000_000_000;
+
+/// The cheap-to-read facts about the control side whose change means the state may have
+/// changed: a message, the library, the device list, a background job arriving or
+/// finishing, the Launchkey faders' positions and the control last touched. Compared
+/// before and after each pump.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Watch {
+    msg_seq: u64,
+    lib_rev: u64,
+    sources_ns: u64,
+    pads_connected: bool,
+    sf_load: bool,
+    sf_ready: bool,
+    scan: bool,
+    fader_hw: [u8; 8],
+    master_hw: u8,
+    touched: u32,
+    /// Plugins: a scan running, the CPU reading's time, and the reads, probes, preset
+    /// listings and saves running.
+    plugins: (bool, u64, usize, usize, usize, usize),
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -404,8 +472,11 @@ impl Control {
         Err(CmdError::Failed(t))
     }
 
-    /// Run a command: each group goes to its feature's handler.
+    /// Run a command: each group goes to its feature's handler. The next publish rebuilds
+    /// the state, and the live rack compares itself again.
     fn apply(&mut self, cmd: AppCmd) -> Result<(), CmdError> {
+        self.changed = true;
+        self.live_rack_check();
         match cmd {
             AppCmd::Transport(c) => self.transport_cmd(c),
             AppCmd::Mixer(c) => self.mixer_cmd(c),
@@ -464,25 +535,115 @@ impl Control {
 
     /// The pad flash clock at `t`.
     fn led_beats_at(&self, t: u64) -> f64 {
-        self.led_beats + (t as f64 - self.led_ns as f64) / 1e9 * self.led_bpm / 60.0
+        LedClock { beats: self.led_beats, ns: self.led_ns, bpm: self.led_bpm }.at(t)
     }
 
-    fn drain_snapshots(&mut self) {
+    /// Take the snapshots the engine sent. Whether the latest differs from the one before
+    /// (the engine also resends an unchanged one now and then).
+    fn drain_snapshots(&mut self) -> bool {
+        let before = self.snap;
         while let Ok(s) = self.snap_rx.pop() {
             self.snap = s;
         }
         self.promote_style();
+        self.snap != before
+    }
+
+    /// The control side's `Watch` now.
+    fn watch_now(&self) -> Watch {
+        let shared = &self.shared;
+        Watch {
+            msg_seq: self.msg_seq,
+            lib_rev: self.lib_rev,
+            sources_ns: self.sources_ns,
+            pads_connected: self.pads_connected,
+            sf_load: self.sf_load.is_some(),
+            sf_ready: self.sf_ready.is_some(),
+            scan: self.scan_rx.is_some(),
+            fader_hw: shared.parts.fader_hw.each_ref().map(|a| a.load(Relaxed)),
+            master_hw: shared.master_hw.load(Relaxed),
+            touched: shared.touched.load(Relaxed),
+            plugins: self.plugin_watch(),
+        }
+    }
+
+    #[cfg(feature = "plugins")]
+    fn plugin_watch(&self) -> (bool, u64, usize, usize, usize, usize) {
+        let p = &self.plugins;
+        (p.scan_rx.is_some(), p.stats_ns, p.state_reads.len(), p.probes.len(), p.listing.len(), p.preset_saves.len())
+    }
+
+    #[cfg(not(feature = "plugins"))]
+    fn plugin_watch(&self) -> (bool, u64, usize, usize, usize, usize) {
+        Default::default()
+    }
+
+    /// A job whose progress the state shows is running: a part's plugin loading (its
+    /// stage). The state is rebuilt at every pump while it runs.
+    #[cfg(feature = "plugins")]
+    fn busy(&self) -> bool {
+        let p = &self.plugins;
+        p.channels.iter().chain(p.playing.iter()).flatten().any(|c| c.load.is_some())
+    }
+
+    #[cfg(not(feature = "plugins"))]
+    fn busy(&self) -> bool {
+        false
+    }
+
+    /// Tests: the first background job still in flight whose completion `pump` merges
+    /// (and rightly reports as a change), or None when there is none.
+    #[cfg(test)]
+    fn in_flight(&self) -> Option<&'static str> {
+        #[cfg(feature = "plugins")]
+        {
+            let p = &self.plugins;
+            if p.scan_rx.is_some() {
+                return Some("plugin scan");
+            }
+            if !p.state_reads.is_empty() || !p.probes.is_empty() || !p.listing.is_empty() || !p.preset_saves.is_empty() {
+                return Some("plugin reads, probes, listings or saves");
+            }
+        }
+        if self.busy() {
+            return Some("plugin load");
+        }
+        if self.scan_rx.is_some() {
+            return Some("style folder rescan");
+        }
+        if self.index_rx.is_some() && self.lib.pending() > 0 {
+            return Some("library indexer");
+        }
+        if self.sf_load.is_some() || self.sf_ready.is_some() || self.sound.is_loading() {
+            return Some("sound-font load");
+        }
+        if self.multipad.scanning() {
+            return Some("Multi Pad rescan");
+        }
+        None
     }
 
     /// Everything that happens between commands: new snapshots, Launchkey actions, OTS
     /// Link, the LEDs, indexing. `now` is the clock the pad flashing follows. The steps
     /// run in this order; a feature that follows the engine (a snapshot) or a background
     /// job adds its `pump_*` step here.
-    fn pump(&mut self, now: u64) {
-        self.drain_snapshots();
+    ///
+    /// Returns whether the state may have changed: a new snapshot, a command applied (an
+    /// action, a pedal release), a background job that delivered or is running, or a
+    /// change in the `Watch` or the Panel. When it returns false, the state is as last
+    /// published and the control thread doesn't rebuild it.
+    fn pump(&mut self, now: u64) -> bool {
+        let before = self.watch.unwrap_or_else(|| self.watch_now());
+        // A plugin load or a bank rescan that finishes in this pump changes the state
+        // although nothing after the pump shows it: compare with before.
+        let was_busy = self.busy();
+        let was_scanning = self.multipad.scanning();
+        let mut dirty = self.drain_snapshots();
         // Launchkey pad/button actions: the same commands as their keyboard shortcuts.
         while let Ok(a) = self.act_rx.pop() {
             let _ = self.apply_hardware(a);
+            self.changed = true;
+            self.live_rack_check();
         }
         self.pump_ots_link();
         self.pump_pedal_releases();
@@ -493,7 +654,7 @@ impl Control {
         self.pump_devices(now);
         self.pump_looper();
         self.pump_metronome();
-        self.pump_chart();
+        dirty |= self.pump_chart();
         self.pump_fx();
 
         // Free-running beat clock for flashing/pulsing, following the current tempo.
@@ -502,20 +663,28 @@ impl Control {
             self.led_beats = self.led_beats_at(now);
             self.led_ns = now;
             self.led_bpm = s.bpm;
+            *self.led_clock.lock().unwrap_or_else(|e| e.into_inner()) = LedClock { beats: self.led_beats, ns: now, bpm: s.bpm };
+            // The state carries the clock's anchors.
+            dirty = true;
         }
         self.clock_ns = now;
         let pnl = self.panel();
         let beats = self.led_beats_at(now);
         if let Some(leds) = self.leds.as_mut() {
             let styles = self.lib.count() > 1;
-            leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), self.shared.parts.fader_page(), styles, beats);
+            leds.update(&s, &self.info.has, &pnl, self.shared.manual_bass(), (self.shared.parts.fader_page(), self.shared.parts.fader_layer()), styles, beats);
         }
+        dirty |= self.last_panel != Some(pnl);
+        self.last_panel = Some(pnl);
         self.pump_index();
         self.pump_multipad();
         self.pump_plugins(now);
-        self.pump_plugin_presence(now);
-        self.pump_sound_library(now);
-        self.pump_live_rack(now);
+        dirty |= self.pump_plugin_presence(now);
+        dirty |= self.pump_sound_library(now);
+        dirty |= self.pump_live_rack(now);
+        let after = self.watch_now();
+        self.watch = Some(after);
+        dirty || after != before || self.changed || was_busy || self.busy() || was_scanning != self.multipad.scanning()
     }
 
     /// The state: each feature builds its part, in `AppState`'s order.
@@ -582,9 +751,16 @@ impl Inner {
     /// and tell the subscribers. Also republishes the library when it changed (at most
     /// every 250 ms while indexing).
     fn publish(&self, ctl: &mut Control, now: u64) {
+        self.publish_if(ctl, now, true);
+    }
+
+    /// `publish`, but the state is only rebuilt when `dirty` (the pump saw a change) or
+    /// the library was republished. The library is checked every time.
+    fn publish_if(&self, ctl: &mut Control, now: u64, dirty: bool) {
         let mut events = Vec::new();
         // The library first, so the state's `library.revision` is always the revision
         // `library()` returns.
+        let mut rebuild = dirty;
         if ctl.lib_rev != ctl.lib_published
             && (ctl.lib_urgent || ctl.lib.pending() == 0 || now.saturating_sub(ctl.lib_published_ns) >= 250_000_000)
         {
@@ -594,11 +770,21 @@ impl Inner {
             ctl.lib_published = ctl.lib_rev;
             ctl.lib_published_ns = now;
             events.push(Event::LibraryChanged { revision: ctl.lib_rev });
+            rebuild = true;
+        }
+        if !rebuild {
+            return;
         }
         if let Some(revision) = ctl.sounds_touch() {
             events.push(Event::SoundsChanged { revision });
         }
+        ctl.shared.quick_racks.store(ctl.quick_panel().stored != 0, Relaxed);
         let mut st = ctl.build_state(now);
+        ctl.changed = false;
+        ctl.built_ns = now;
+        // What this state was built from: the next pump publishes again only when it moves.
+        ctl.watch = Some(ctl.watch_now());
+        ctl.last_panel = Some(ctl.panel());
         ctl.pump_display(&st, now);
         {
             let mut cur = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -626,17 +812,21 @@ impl Inner {
     }
 
     /// The control thread: wake on Launchkey actions and new snapshots, or every 10 ms
-    /// for the pad animation.
+    /// for the pad animation. The state is rebuilt only when something woke it (the engine
+    /// with a changed snapshot, the input thread with a change it shows, a rack applied
+    /// from another thread) or the pump saw a change; otherwise the wake only updates the
+    /// LEDs (and, once a second, rebuilds anyway: `SAFETY_NET_NS`).
     fn control_loop(&self) {
         while !self.stop.load(Relaxed) {
-            self.shared.ctl_wake.wait(10_000_000);
+            let woken = self.shared.ctl_wake.wait(10_000_000);
             if self.stop.load(Relaxed) {
                 break;
             }
             let now = rt::now_ns();
             let mut ctl = self.lock();
-            ctl.pump(now);
-            self.publish(&mut ctl, now);
+            let dirty = ctl.pump(now) | woken;
+            let due = now.saturating_sub(ctl.built_ns) >= SAFETY_NET_NS;
+            self.publish_if(&mut ctl, now, dirty || due);
         }
     }
 }
@@ -692,6 +882,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     let snap = engine.snapshot(0);
     let published = Arc::new(lib.clone());
     let fx_settings = fx::FxSettings::for_style(&info.effects);
+    let led_ns = if offline { 0 } else { rt::now_ns() };
     let control = Control {
         shared: shared.clone(),
         lib,
@@ -724,11 +915,16 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         inputs: Vec::new(),
         pads_connected: false,
         led_beats: 0.0,
-        led_ns: if offline { 0 } else { rt::now_ns() },
+        led_ns,
         led_bpm: snap.bpm,
-        clock_ns: if offline { 0 } else { rt::now_ns() },
+        led_clock: Arc::new(Mutex::new(LedClock { beats: 0.0, ns: led_ns, bpm: snap.bpm })),
+        clock_ns: led_ns,
         palette_leds: opts.palette_leds,
         offline: None,
+        changed: false,
+        built_ns: 0,
+        watch: None,
+        last_panel: None,
         audition_tx: ch.audition_tx,
         old_audition_rx: ch.old_audition_rx,
         style_seq: 0,
@@ -762,6 +958,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         dynamics: Default::default(),
         knobs: Default::default(),
         fx: fx_settings,
+        master: master_fx::MasterFile::load(opts.data_dir.as_deref()),
         display: Default::default(),
         sound_settings: gm_auto::settings_file(opts.data_dir.as_deref()),
         rack_controls: Default::default(),
@@ -871,11 +1068,13 @@ impl Session {
             drop(ctl);
             self.settle();
         } else {
-            // Publish now, so `state()` straight after `send` shows what the control side
-            // applied. The control thread republishes once the engine has run its part.
-            self.inner.publish(&mut ctl, rt::now_ns());
-            drop(ctl);
-            self.inner.shared.ctl_wake.signal();
+            // Pump and publish now, so `state()` straight after `send` shows what the
+            // control side applied, follow-ups included (OTS Link, the live rack). The
+            // control thread publishes again only if the engine's snapshot then changes
+            // (the engine wakes it itself).
+            let now = rt::now_ns();
+            ctl.pump(now);
+            self.inner.publish(&mut ctl, now);
         }
         r
     }
@@ -927,12 +1126,8 @@ impl Session {
     /// The free-running beat clock the Launchkey pads flash and pulse on (fractional
     /// beats, following the tempo): draw with it to flash in step with the hardware.
     pub fn beats(&self) -> f64 {
-        let ctl = self.inner.lock();
-        let now = match &ctl.offline {
-            Some(o) => o.now,
-            None => rt::now_ns(),
-        };
-        ctl.led_beats_at(now)
+        let now = self.now_ns();
+        self.inner.led_clock.lock().unwrap_or_else(|e| e.into_inner()).at(now)
     }
 
     /// The session clock, in ns (monotonic; the virtual clock offline): the time base of
@@ -944,10 +1139,10 @@ impl Session {
     }
 
     pub fn now_ns(&self) -> u64 {
-        match &self.inner.lock().offline {
-            Some(o) => o.now,
-            None => rt::now_ns(),
+        if !self.inner.offline {
+            return rt::now_ns();
         }
+        self.inner.lock().offline.as_ref().map_or(0, |o| o.now)
     }
 
     /// The output meters: each part's peak and the master's since the last call, and the
@@ -955,17 +1150,32 @@ impl Session {
     /// app's meter bridge), which applies its own decay and peak hold. Without the synth
     /// (offline, or no SoundFont), no channels and zero levels.
     pub fn meters(&self) -> Meters {
-        let ctl = self.inner.lock();
-        let now = ctl.offline.as_ref().map_or_else(rt::now_ns, |o| o.now);
-        let Some(sy) = &ctl.synth else { return Meters { at_ms: ns_to_ms(now), ..Meters::default() } };
-        let (peaks, master, clips) = synth::take_meters(&sy.control);
-        let (rms, master_rms) = synth::take_rms(&sy.control);
+        // Live, without the control lock: the synth's controls were set at start.
+        let (now, offline_control) = if self.inner.offline {
+            let ctl = self.inner.lock();
+            (ctl.offline.as_ref().map_or(0, |o| o.now), ctl.synth.as_ref().map(|sy| sy.control.clone()))
+        } else {
+            (rt::now_ns(), None)
+        };
+        let mut side = self.inner.meters.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(control) = offline_control.or_else(|| side.control.clone()) else { return Meters { at_ms: ns_to_ms(now), ..Meters::default() } };
+        let (peaks, master, clips) = synth::take_meters(&control);
+        let (rms, master_rms) = synth::take_rms(&control);
+        // The tracks' CPU (#340): a new reading once a second of audio, the same one between.
+        let cpu = side.cpu.read(&control.cpu);
         Meters {
             at_ms: ns_to_ms(now),
-            channels: synth::METER_CHANNELS.iter().map(|&c| ChannelMeter { channel: c + 1, peak: peaks[c as usize], rms: rms[c as usize] }).collect(),
+            channels: synth::METER_CHANNELS
+                .iter()
+                .map(|&c| {
+                    let i = c as usize;
+                    ChannelMeter { channel: c + 1, peak: peaks[i], rms: rms[i], cpu: cpu.track[i], cpu_peak: cpu.track_peak[i] }
+                })
+                .collect(),
             master,
             master_rms,
             clips,
+            cpu: CpuMeter { total: cpu.total, peak: cpu.total_peak, buffer_us: cpu.buffer_us },
         }
     }
 
@@ -1027,6 +1237,9 @@ impl Inner {
         let lib = control.published.clone();
         control.lib_published = control.lib_rev;
         let rev = control.lib_rev;
+        let offline = control.offline.is_some();
+        let led_clock = control.led_clock.clone();
+        let meters = MeterSide { control: control.synth.as_ref().map(|s| s.control.clone()), cpu: Default::default() };
         let inner = Inner {
             shared,
             ctl: Mutex::new(control),
@@ -1035,6 +1248,9 @@ impl Inner {
             version: AtomicU64::new(0),
             subscribers: Mutex::new(Vec::new()),
             stop: AtomicBool::new(false),
+            offline,
+            led_clock,
+            meters: Mutex::new(meters),
         };
         {
             let mut ctl = inner.lock();
@@ -1061,3 +1277,104 @@ const _: fn() = || {
 #[cfg(test)]
 #[path = "session_tests.rs"]
 mod tests;
+
+/// Publishing only on change (the control thread's pump, `publish_if`) and the clocks
+/// read without the control lock.
+#[cfg(test)]
+mod publish_tests {
+    use super::testing::session;
+    use super::*;
+
+    fn now_of(ctl: &Control) -> u64 {
+        ctl.offline.as_ref().map_or(0, |o| o.now)
+    }
+
+    /// Pumps and publishes until no background job whose completion the pump merges
+    /// (plugin scan and reads, plugin load, style rescan, library indexer, sound-font
+    /// load, Multi Pad rescan) is in flight; panics after ~5 s naming what is still busy.
+    /// After it returns the pump has no legitimate reason to report a change.
+    fn wait_idle(s: &Session, ctl: &mut Control, now: u64) {
+        for _ in 0..2500 {
+            ctl.pump(now);
+            s.inner.publish(ctl, now);
+            if ctl.in_flight().is_none() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        panic!("still busy after ~5 s: {}", ctl.in_flight().unwrap_or("?"));
+    }
+
+    #[test]
+    fn the_pump_reports_only_changes() {
+        let s = session();
+        let mut ctl = s.inner.lock();
+        let now = now_of(&ctl);
+        wait_idle(&s, &mut ctl, now);
+        assert!(!ctl.pump(now), "nothing new");
+        assert!(!ctl.pump(now + 10_000_000), "time passing alone is no change");
+        ctl.say("hello", false);
+        assert!(ctl.pump(now), "a message");
+        s.inner.publish(&mut ctl, now);
+        assert!(!ctl.pump(now));
+        ctl.shared.master_hw.store(64, Relaxed);
+        assert!(ctl.pump(now), "the master fader moved");
+        s.inner.publish(&mut ctl, now);
+        assert!(!ctl.pump(now));
+        let _ = ctl.apply(TransportCmd::SetTempo { bpm: 90 }.into());
+        assert!(ctl.pump(now), "a command");
+        s.inner.publish(&mut ctl, now);
+        assert!(!ctl.pump(now), "published: nothing left to rebuild");
+    }
+
+    #[test]
+    fn a_finished_bank_rescan_is_a_change() {
+        let s = session();
+        let mut ctl = s.inner.lock();
+        let now = now_of(&ctl);
+        ctl.pump(now);
+        s.inner.publish(&mut ctl, now);
+        ctl.rescan_pads();
+        assert!(ctl.multipad.scanning());
+        for _ in 0..500 {
+            let d = ctl.pump(now);
+            if !ctl.multipad.scanning() {
+                assert!(d, "the pump that merged the rescan reports it");
+                return;
+            }
+            s.inner.publish(&mut ctl, now);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the rescan didn't finish");
+    }
+
+    #[test]
+    fn a_quiet_publish_does_not_rebuild() {
+        let s = session();
+        let v = s.version();
+        let mut ctl = s.inner.lock();
+        let now = now_of(&ctl);
+        // A change the pump didn't report: a quiet publish leaves the state alone...
+        ctl.say("unseen", false);
+        s.inner.publish_if(&mut ctl, now, false);
+        assert_eq!(s.inner.version.load(Relaxed), v);
+        // ...and a dirty one publishes it.
+        s.inner.publish_if(&mut ctl, now, true);
+        drop(ctl);
+        assert_eq!(s.version(), v + 1);
+        assert_eq!(s.state().message.as_ref().map(|m| m.text.as_str()), Some("unseen"));
+    }
+
+    #[test]
+    fn beats_follow_the_tempo_without_the_control_lock() {
+        let s = session();
+        s.send(TransportCmd::SetTempo { bpm: 90 }).unwrap();
+        s.advance(500_000_000);
+        let now = s.now_ns();
+        let ctl = s.inner.lock();
+        assert!((ctl.led_bpm - 90.0).abs() < 0.5, "the LED clock took the new tempo");
+        let want = ctl.led_beats_at(now);
+        drop(ctl);
+        assert_eq!(s.beats(), want);
+    }
+}

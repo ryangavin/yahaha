@@ -36,9 +36,12 @@ impl Session {
             drop(ctl);
             self.settle();
         } else {
-            self.inner.publish(&mut ctl, crate::rt::now_ns());
-            drop(ctl);
-            self.inner.shared.ctl_wake.signal();
+            // Pump and publish now, as `send` does, so `state()` straight after shows the
+            // rack, follow-ups included. The control thread publishes again only if the
+            // engine's snapshot then changes (the engine wakes it itself).
+            let now = crate::rt::now_ns();
+            ctl.pump(now);
+            self.inner.publish(&mut ctl, now);
         }
         problems
     }
@@ -102,6 +105,8 @@ impl Control {
             octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
             tone: ToneReg::capture(kp, p),
             bend_range: self.shared.controllers.bend_range(p),
+            eq: kp.eq(p),
+            insert: kp.insert(p),
             other: Default::default(),
         }
     }
@@ -200,6 +205,11 @@ impl Control {
         kp.set_fx(p, [part.pan, part.reverb, part.chorus, part.variation].map(Some));
         kp.voice_changed(p);
         kp.set_tone(p, part.tone.controllers(), part.tone.xg.iter().map(|x| (x[0], x[1], x[2])));
+        // The rack's EQ, not the XG part EQ in its voice settings (#247): a rack saved
+        // before the part EQ plays flat, as it did.
+        kp.set_eq(p, part.eq);
+        // Its insert slot: a rack saved before it plays with none, as it did.
+        kp.set_insert(p, part.insert);
         self.shared.controllers.set_bend_range(p, part.bend_range);
         // Left plays the bass under Manual Bass: its switch stays as it is.
         let locked_left = p == parts::LEFT && self.shared.manual_bass();

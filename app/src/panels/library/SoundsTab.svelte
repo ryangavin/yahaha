@@ -18,6 +18,7 @@
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import { CATEGORY_LABELS } from '../../lib/api/sound-library'
+  import type { GmMapRow } from '../../lib/api/types'
   import { moveCursor } from '../browser/model'
   import { inMySounds } from '../sounds/instruments'
   import { instrumentOf, patchesById } from '../sounds/model'
@@ -27,21 +28,26 @@
 
   const ROW = 34
   const OVERSCAN = 8
+  // One empty GM map, so an engine without one doesn't make a new array per state.
+  const NO_ROWS: GmMapRow[] = []
 
   const part = $derived(ui.libraryPart)
   const catalog = $derived(app.sounds)
   const entries = $derived(catalog.entries)
-  const sl = $derived(app.state.soundLibrary)
-  const ctx = $derived({ patches: sl.patches, gmMap: sl.gmMap ?? [] })
-  const filter = $derived({ source: f.source, favourites: f.favourites, instrument: f.instrument, category: f.category, query: f.query })
+  // The slices themselves, so a state that leaves them alone re-runs nothing below.
+  const patches = $derived(app.state.soundLibrary.patches)
+  const gmMap = $derived(app.state.soundLibrary.gmMap ?? NO_ROWS)
+  const ctx = $derived.by(() => ({ patches, gmMap }))
+  const filter = $derived.by(() => ({ source: f.source, favourites: f.favourites, instrument: f.instrument, category: f.category, query: f.query }))
   const rows = $derived(librarySounds(catalog, filter, ctx))
   const cats = $derived(libraryCategories(catalog, filter, ctx))
   const total = $derived(cats.reduce((n, c) => n + c.count, 0))
   const names = $derived(instrumentNames(catalog))
-  const byId = $derived(patchesById(sl.patches))
+  const byId = $derived(patchesById(patches))
   const parts = $derived(app.state.keyboardParts)
   const playing = $derived(playingByPart(parts, ctx))
-  const listing = $derived(new Set(app.state.sounds?.listingPresets ?? []))
+  const listingPresets = $derived(app.state.sounds?.listingPresets)
+  const listing = $derived(new Set(listingPresets ?? []))
 
   const instName = (id: string | null) => (id ? (names.get(id) ?? id.replace(/^(sf|au):/, '').replace(/\.sf2$/i, '')) : '')
   const rowInst = (i: number) => instName(instrumentOf(entries[i], byId))
@@ -157,7 +163,7 @@
     { id: 'soundFont', label: 'SoundFont', tip: 'library.src_soundfont' },
   ]
   const usedIn = $derived(selected ? partsOn(selected.id).map((k) => parts[k].name) : [])
-  const mine = $derived(!!selected && selected.source !== 'saved' && inMySounds(sl.patches, selected.id))
+  const mine = $derived(!!selected && selected.source !== 'saved' && inMySounds(patches, selected.id))
   const listingNow = $derived(!!f.instrument && listing.has(f.instrument))
   const listError = $derived(f.instrument ? entries.find((e) => e.id === f.instrument)?.plugin?.presetsError : undefined)
 </script>

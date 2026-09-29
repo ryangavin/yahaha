@@ -5,7 +5,7 @@ style runs, then loop them, so the band carries on with the progression while bo
 are free. yahaha builds it as an engine chord source: while it loops, it feeds its chords
 to the style exactly as if they were played.
 
-Code: `src/looper.rs` (the sequence, pure), `src/engine/looper.rs` (recording, looping,
+Code: `crates/yahaha-core/src/looper.rs` (the sequence, pure), `crates/yahaha-engine/src/engine/looper.rs` (recording, looping,
 the bar-line timing, through the engine hooks), `src/session/looper.rs` (the eight
 memories and the app API). Commands and state: [app-api.md](app-api.md), "Chord Looper"
 and `looper`.

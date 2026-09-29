@@ -21,13 +21,35 @@ export type PatchCategory =
  * `user`), a factory preset by number, or an imported `.aupreset` file by path. */
 export type PluginOrigin = { kind: 'user' } | { kind: 'factory'; number: number } | { kind: 'file'; path: string }
 
-/** Where a patch's sound comes from: a SoundFont preset (bank 128 = drum kits), or an
- * Audio Unit with its saved state (base64). A plugin source is the one kind of plugin
- * sound; an empty state on a factory preset means it has not played yet (it is captured
- * the first time it does). */
+/** Where a patch's sound comes from, as `createPatch`/`updatePatch` send it: a SoundFont
+ * preset (bank 128 = drum kits), or an Audio Unit with its saved state (base64; absent or
+ * empty: none). `updatePatch` keeps the stored state when a plugin source with the same
+ * component and origin sends none. */
 export type PatchSource =
   | { kind: 'soundFont'; file: string; bank: number; program: number }
-  | { kind: 'plugin'; componentId: string; state: string; origin?: PluginOrigin }
+  | { kind: 'plugin'; componentId: string; state?: string; origin?: PluginOrigin }
+
+/** A patch's source as the state shows it: a plugin's state blob stays in the engine;
+ * `hasState` says it is non-empty (a factory preset without one has not played yet: it is
+ * captured the first time it does). */
+export type PatchSourceInfo =
+  | { kind: 'soundFont'; file: string; bank: number; program: number }
+  | { kind: 'plugin'; componentId: string; hasState: boolean; origin?: PluginOrigin }
+
+/** The command form of a state source: no state, so `updatePatch` keeps the stored one. */
+export function commandSource(s: PatchSourceInfo): PatchSource {
+  if (s.kind === 'soundFont') return s
+  return { kind: 'plugin', componentId: s.componentId, ...(s.origin ? { origin: s.origin } : {}) }
+}
+
+/** The same origin, absent counting as `user` (unlike `sameOrigin`, two `user` origins
+ * are equal): `updatePatch` keeps a stored state only for the same plugin and origin. */
+export function equalOrigin(a: PluginOrigin | undefined, b: PluginOrigin | undefined): boolean {
+  const x = a ?? { kind: 'user' }
+  const y = b ?? { kind: 'user' }
+  if (x.kind === 'user' || y.kind === 'user') return x.kind === y.kind
+  return sameOrigin(x, y)
+}
 
 /** A SoundFont preset as a map resolution records it (D6 provenance). */
 export interface FontPreset {
@@ -59,16 +81,21 @@ export function sameOrigin(a: PluginOrigin | undefined, b: PluginOrigin): boolea
 }
 
 /** A sound is the raw instrument: it has no mix (docs/racks.md). */
-export interface PatchFields {
+interface PatchMeta {
   name: string
   category: PatchCategory
   tags: string[]
   favourite: boolean
+}
+
+export interface PatchFields extends PatchMeta {
   source: PatchSource
 }
 
-export interface Patch extends PatchFields {
+/** A library patch as the state shows it. */
+export interface Patch extends PatchMeta {
   id: string
+  source: PatchSourceInfo
 }
 
 export interface PatchInfo extends Patch {

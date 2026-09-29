@@ -5,35 +5,56 @@ import type { AppCmd, AppState, CmdError, LibraryList, Meters, SessionEvent, Sou
 
 /**
  * The app shell's session, wired as docs/app-api.md describes: commands `send`, `state`,
- * `library`, `sounds` and `meters`, and `yahaha` events. On `stateChanged` it fetches the state, at most
- * once per animation frame (several changes merge into one fetch; the state is always
- * complete).
+ * `library`, `sounds` and `meters`, and `yahaha` events. On `stateChanged` it fetches the
+ * state on the next animation frame, one fetch at a time: changes before the fetch starts
+ * merge into it, and changes while it is in flight into one more fetch after it (the state
+ * is always complete).
  */
 export class TauriSession implements Session {
   readonly kind = 'tauri' as const
   private subs = new Set<(s: AppState) => void>()
   private last: AppState | null = null
   private unlisten: UnlistenFn | null = null
-  private pending = false
+  /** 'frame': a fetch waits for the next animation frame; 'fetching': one is in flight. */
+  private phase: 'idle' | 'frame' | 'fetching' = 'idle'
+  /** A change came while a fetch was in flight: fetch again after it. */
+  private again = false
 
   static async connect(): Promise<TauriSession> {
     const s = new TauriSession()
     s.unlisten = await listen<SessionEvent>('yahaha', (e) => {
       if (e.payload.type === 'stateChanged') s.schedule()
     })
-    s.emit(await invoke<AppState>('state'))
+    s.offer(await invoke<AppState>('state'))
     return s
   }
 
   private schedule() {
-    if (this.pending) return
-    this.pending = true
-    requestAnimationFrame(async () => {
-      this.pending = false
-      const st = await invoke<AppState>('state')
-      // Fetches can resolve out of order: only a newer snapshot goes out.
-      if (!this.last || st.version > this.last.version) this.emit(st)
-    })
+    if (this.phase === 'fetching') this.again = true
+    if (this.phase !== 'idle') return
+    this.phase = 'frame'
+    requestAnimationFrame(() => void this.fetch())
+  }
+
+  private async fetch() {
+    this.phase = 'fetching'
+    try {
+      this.offer(await invoke<AppState>('state'))
+    } catch {
+      // The next change fetches again.
+    } finally {
+      this.phase = 'idle'
+      if (this.again) {
+        this.again = false
+        this.schedule()
+      }
+    }
+  }
+
+  /** Emit `st` if it is newer than the last one out (the first fetch, in `connect`, can
+   * resolve after a later one). */
+  private offer(st: AppState) {
+    if (!this.last || st.version > this.last.version) this.emit(st)
   }
 
   private emit(state: AppState) {

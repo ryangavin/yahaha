@@ -3,7 +3,7 @@
 //! (`yahaha::api::SoundPrefs`). No audio. The twin of `app/src/lib/api/mock-sounds.ts`.
 
 use yahaha::api::*;
-use yahaha::patches::PatchSource;
+use yahaha::patches::{Patch, PatchSource};
 
 use super::sound::presets;
 
@@ -60,13 +60,13 @@ impl MockSounds {
         st.io.sound_fonts.iter().map(|f| (f.clone(), presets(f))).collect()
     }
 
-    pub fn catalog(&self, st: &AppState) -> SoundCatalog {
+    /// `lib`: the mock library's patches (the state has no plugin states).
+    pub fn catalog(&self, st: &AppState, lib: &[Patch]) -> SoundCatalog {
         let fonts = Self::fonts(st);
         let fonts: Vec<(&str, &[Preset])> = fonts.iter().map(|(f, p)| (f.as_str(), p.as_slice())).collect();
-        let patches: Vec<_> = st.sound_library.patches.iter().map(|p| p.patch.clone()).collect();
         SoundCatalog {
             revision: self.revision,
-            entries: self.prefs.entries(&fonts, &st.plugins.list, &self.presets, &patches),
+            entries: self.prefs.entries(&fonts, &st.plugins.list, &self.presets, lib),
             recents: self.prefs.recents.clone(),
             fonts: font_summaries(&fonts),
         }
@@ -77,7 +77,7 @@ impl MockSounds {
         self.presets.iter().find(|l| l.plugin == id)?.presets.iter().find(|p| p.key == key)
     }
 
-    fn known(&self, st: &AppState, id: &str) -> bool {
+    fn known(&self, st: &AppState, lib: &[Patch], id: &str) -> bool {
         if let Some((file, bank, program)) = parse_preset_id(id) {
             st.io.sound_fonts.iter().any(|f| f == file) && presets(file).iter().any(|p| p.bank == bank && p.program == program)
         } else if let Some((plugin, preset)) = parse_plugin_id(id) {
@@ -86,17 +86,17 @@ impl MockSounds {
                 Some(key) => self.preset(plugin, key).is_some(),
             }
         } else if let Some(patch) = id.strip_prefix("saved:") {
-            st.sound_library.patches.iter().any(|p| p.patch.id == patch)
+            lib.iter().any(|p| p.id == patch)
         } else {
             false
         }
     }
 
-    pub fn cmd(&mut self, st: &AppState, c: SoundsCmd) -> Result<Then, String> {
+    pub fn cmd(&mut self, st: &AppState, lib: &[Patch], c: SoundsCmd) -> Result<Then, String> {
         let no = |id: &str| format!("no sound {id}");
         match c {
             SoundsCmd::SetSoundFavourite { id, on } => {
-                if !self.known(st, &id) {
+                if !self.known(st, lib,&id) {
                     return Err(no(&id));
                 }
                 if let Some(patch) = id.strip_prefix("saved:") {
@@ -112,7 +112,7 @@ impl MockSounds {
                 if part > 3 {
                     return Err(format!("no keyboard part {part} (0-3)"));
                 }
-                if !self.known(st, &id) {
+                if !self.known(st, lib,&id) {
                     return Err(no(&id));
                 }
                 let then = if let Some(patch) = id.strip_prefix("saved:") {
@@ -127,11 +127,11 @@ impl MockSounds {
                     if st.io.sound_font_file.as_deref() == Some(file) && bank == 0 {
                         Then::Run(vec![PartsCmd::SetPartVoice { part, program }.into()])
                     } else {
-                        let existing = st.sound_library.patches.iter().find(|p| {
-                            matches!(&p.patch.source, PatchSource::SoundFont { file: f, bank: b, program: q } if f == file && *b == bank && *q == program)
+                        let existing = lib.iter().find(|p| {
+                            matches!(&p.source, PatchSource::SoundFont { file: f, bank: b, program: q } if f == file && *b == bank && *q == program)
                         });
                         match existing {
-                            Some(p) => Then::Run(vec![SoundLibraryCmd::SetPartPatch { part, id: Some(p.patch.id.clone()) }.into()]),
+                            Some(p) => Then::Run(vec![SoundLibraryCmd::SetPartPatch { part, id: Some(p.id.clone()) }.into()]),
                             None => Then::AddThenAssign(SoundLibraryCmd::AddPresetAsPatch { file: file.into(), bank, program, name: None }.into(), part),
                         }
                     }
@@ -140,11 +140,11 @@ impl MockSounds {
                 return Ok(then);
             }
             SoundsCmd::SetSoundCategory { id, category } => {
-                if !self.known(st, &id) {
+                if !self.known(st, lib,&id) {
                     return Err(no(&id));
                 }
                 if let Some(patch) = id.strip_prefix("saved:") {
-                    let p = st.sound_library.patches.iter().find(|p| p.patch.id == patch).map(|p| p.patch.clone()).ok_or_else(|| no(&id))?;
+                    let p = lib.iter().find(|p| p.id == patch).cloned().ok_or_else(|| no(&id))?;
                     let fields = PatchFields { name: p.name, category, tags: p.tags, favourite: p.favourite, source: p.source };
                     return Ok(Then::Run(vec![SoundLibraryCmd::UpdatePatch { id: p.id, patch: fields }.into()]));
                 }
@@ -222,7 +222,7 @@ impl MockSounds {
     /// sound's own or the library's patch for the preset or plugin (`Ok(Ok(id))`), else
     /// the command that adds it (`Ok(Err(cmd))`; the patch is then `lastAdded`). An id
     /// without a catalog prefix is a patch id already.
-    pub fn patch_for(&self, st: &AppState, id: &str) -> Result<Result<String, AppCmd>, String> {
+    pub fn patch_for(&self, st: &AppState, lib: &[Patch], id: &str) -> Result<Result<String, AppCmd>, String> {
         if let Some(patch) = id.strip_prefix("saved:") {
             return Ok(Ok(patch.into()));
         }
@@ -241,20 +241,20 @@ impl MockSounds {
         } else {
             return Ok(Ok(id.into()));
         };
-        if !self.known(st, id) {
+        if !self.known(st, lib,id) {
             return Err(format!("no sound {id}"));
         }
-        let same = |p: &&PatchInfo| match &source {
+        let same = |p: &&Patch| match &source {
             // Or the sound with exactly its settings (Save as… with an .aupreset), as the
             // session's.
             PatchSource::Plugin { component_id, origin, state } if !origin.is_user() => {
-                p.patch.source.same_plugin_origin(component_id, origin)
-                    || (!state.is_empty() && matches!(&p.patch.source, PatchSource::Plugin { component_id: c, state: s, .. } if c == component_id && s == state))
+                p.source.same_plugin_origin(component_id, origin)
+                    || (!state.is_empty() && matches!(&p.source, PatchSource::Plugin { component_id: c, state: s, .. } if c == component_id && s == state))
             }
-            _ => p.patch.source == source,
+            _ => p.source == source,
         };
-        if let Some(p) = st.sound_library.patches.iter().find(same) {
-            return Ok(Ok(p.patch.id.clone()));
+        if let Some(p) = lib.iter().find(same) {
+            return Ok(Ok(p.id.clone()));
         }
         Ok(Err(match source {
             PatchSource::SoundFont { file, bank, program } => SoundLibraryCmd::AddPresetAsPatch { file, bank, program, name: None }.into(),
@@ -275,9 +275,8 @@ impl MockSounds {
     }
 
     /// `state.sounds`: a new revision whenever what the catalog is built from changed.
-    pub fn derive(&mut self, st: &mut AppState) {
-        let patches: Vec<_> = st.sound_library.patches.iter().map(|p| &p.patch).collect();
-        let key = serde_json::to_string(&(&st.io.sound_fonts, &st.io.sound_font_file, &st.plugins.list, patches, &self.prefs, &self.presets)).unwrap_or_default();
+    pub fn derive(&mut self, st: &mut AppState, lib: &[Patch]) {
+        let key = serde_json::to_string(&(&st.io.sound_fonts, &st.io.sound_font_file, &st.plugins.list, lib, &self.prefs, &self.presets)).unwrap_or_default();
         if key != self.key || self.revision == 0 {
             self.key = key;
             self.revision += 1;

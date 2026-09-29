@@ -1,22 +1,51 @@
 // The stores every panel reads:
 //
-// - `app.state`: the latest `AppState` from the session, replaced whole on every change
-//   (up to ~60 times a second while playing). Only a snapshot with a higher `version`
-//   than the last one applied replaces it. Read slices of it with `$derived`; Svelte
-//   only touches the DOM where a value really changed.
+// - `app.state`: the latest `AppState` from the session, replaced on every change (up to
+//   ~60 times a second while playing). Only a snapshot with a higher `version` than the
+//   last one applied replaces it, and every part of it equal to the last one keeps the
+//   last one's object (`share`), so a `$derived` slice that didn't change stays the same
+//   object and nothing downstream of it re-runs.
 // - `app.send(cmd)`: every action goes through here.
 // - `app.library`: the style list, re-fetched when `state.library.revision` changes.
 // - `app.sounds`: the sound catalog (#117), re-fetched when `state.sounds.revision` changes.
 // - `clock.beats`: the engine's LED clock (lamps flash and pulse on it) and `clock.pos`:
-//   the position in the section, both run on from the state's anchors every frame.
+//   the position in the section, both run on from the state's anchors every frame while
+//   anything moves on them (`clockNeeded`).
 // - `ui`: app-only state (overlays, theme) that the engine doesn't know about.
 
-import { initialState } from './api/mock'
+import { emptyState } from './api/constants'
 import type { Session } from './api/session'
-import type { AppCmd, AppState, ClockState, LibraryList, SoundCatalog } from './api/types'
+import type { AppCmd, AppState, ClockState, LibraryList, Meters, SoundCatalog } from './api/types'
+
+/**
+ * `next`, with every part of it that is deep-equal to the same part of `prev` replaced by
+ * `prev`'s object; `prev` itself when the two are equal. Neither is changed: a part of
+ * `next` holding shared parts is a copy. For plain JSON values (objects, arrays,
+ * primitives), as a state snapshot is; one pass over `next`.
+ */
+export function share<T>(prev: unknown, next: T): T {
+  if (prev === next || typeof prev !== 'object' || typeof next !== 'object' || prev === null || next === null) return next
+  if (Array.isArray(prev) !== Array.isArray(next)) return next
+  const p = prev as Record<string, unknown>
+  const n = next as Record<string, unknown>
+  const keys = Object.keys(n)
+  let same = keys.length === Object.keys(p).length
+  let out: Record<string, unknown> | null = null
+  for (const k of keys) {
+    const had = k in p
+    const v = n[k]
+    const s = had ? share(p[k], v) : v
+    if (!had || s !== p[k]) same = false
+    if (s !== v) {
+      out ??= Array.isArray(n) ? (n.slice() as unknown as Record<string, unknown>) : { ...n }
+      out[k] = s
+    }
+  }
+  return (same ? prev : (out ?? n)) as T
+}
 
 class AppStore {
-  state = $state.raw<AppState>(initialState())
+  state = $state.raw<AppState>(emptyState())
   library = $state.raw<LibraryList>({ revision: 0, entries: [], voices: [], harmonyTypes: [], arpPatterns: [] })
   sounds = $state.raw<SoundCatalog>({ revision: 0, entries: [], recents: [] })
   kind = $state<'mock' | 'tauri' | null>(null)
@@ -45,6 +74,7 @@ class AppStore {
   apply(s: AppState): boolean {
     if (!(s.version > this.version)) return false
     this.version = s.version
+    s = share(this.state, s)
     this.state = s
     clock.sync(s)
     if (s.library.revision !== this.libraryRevision && this.session) {
@@ -70,6 +100,11 @@ class AppStore {
     this.session?.send(cmd)
   }
 
+  /** The latest meters (levels and, #340, each track's CPU); null without a session. */
+  meters(): Promise<Meters | null> {
+    return this.session ? this.session.meters() : Promise.resolve(null)
+  }
+
   /** Open (focus) or close a keyboard part's plugin editor window (the app shell's, on
    * its main thread). */
   pluginEditor(part: number, open: boolean) {
@@ -90,6 +125,11 @@ export const app = new AppStore()
  *
  * - `beats`: the LED clock, free-running. Lamps flash and pulse on it, as the hardware pads do.
  * - `pos`: quarter notes into the section playing (0 stopped), for position displays.
+ *
+ * The frame loop runs only while `start()`ed, the page is visible and `clockNeeded` says
+ * something moves on the clocks. Otherwise the values stay as last computed (and are
+ * recomputed on every state), which is all a reader needs: stopped, `pos` is 0, and a
+ * solid or dark lamp doesn't depend on `beats`.
  */
 class BeatClock {
   beats = $state(0)
@@ -97,11 +137,25 @@ class BeatClock {
   private c: ClockState | null = null
   private receivedMs = 0
   private raf = 0
+  private started = false
+  private needed = false
+  private hidden = false
+  private readonly onVisibility = () => {
+    this.hidden = document.visibilityState === 'hidden'
+    this.update()
+  }
+
+  /** Whether the frame loop is running. */
+  get looping(): boolean {
+    return this.raf !== 0
+  }
 
   sync(s: AppState) {
     this.c = s.surface?.clock ?? null
     this.receivedMs = now()
+    this.needed = clockNeeded(s)
     this.tick()
+    this.update()
   }
 
   tick() {
@@ -114,19 +168,70 @@ class BeatClock {
     this.beats = c.ledAnchorBeats + (t - c.ledAnchorMs) * perMs
   }
 
+  /** Run the frame loop whenever it's needed (App does, for its life), until `stop()`. */
   start() {
-    if (typeof requestAnimationFrame === 'undefined' || this.raf) return
-    const loop = () => {
-      this.tick()
-      this.raf = requestAnimationFrame(loop)
+    if (this.started) return
+    this.started = true
+    if (typeof document !== 'undefined') {
+      this.hidden = document.visibilityState === 'hidden'
+      document.addEventListener('visibilitychange', this.onVisibility)
     }
-    this.raf = requestAnimationFrame(loop)
+    this.update()
   }
 
   stop() {
-    if (this.raf) cancelAnimationFrame(this.raf)
-    this.raf = 0
+    if (!this.started) return
+    this.started = false
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility)
+    this.update()
   }
+
+  /** Start or stop the frame loop to match what's needed now. */
+  private update() {
+    const want = this.started && this.needed && !this.hidden
+    if (want && !this.raf && typeof requestAnimationFrame !== 'undefined') {
+      const loop = () => {
+        this.tick()
+        this.raf = requestAnimationFrame(loop)
+      }
+      this.tick()
+      this.raf = requestAnimationFrame(loop)
+    } else if (!want && this.raf) {
+      cancelAnimationFrame(this.raf)
+      this.raf = 0
+      this.tick()
+    }
+  }
+}
+
+/**
+ * Whether anything on screen moves on the clocks, so the frame loop must run:
+ * - the band is playing (`pos` runs; position displays and the chart follow it);
+ * - a lamp the engine sends flashes or pulses (any `anim` 'flash'/'pulse' not off, or a
+ *   palette pad's `mode` 'flash'/'pulse', which may flash to its second colour even when
+ *   off: pads, section lamps, the surface's buttons);
+ * - a lamp the app draws flashes or pulses: Quick Rack Store armed, a Multi Pad armed or
+ *   queued, the Chord Looper armed, a style queued for preview, a scan running.
+ * One pass over the state, on each state.
+ */
+export function clockNeeded(s: AppState): boolean {
+  if (s.transport?.running || s.surface?.clock?.running) return true
+  if (s.quickRacks?.store) return true
+  if (s.multiPad?.pads.some((p) => p.lamp === 'armed' || p.lamp === 'queued')) return true
+  if (s.looper?.mode === 'recArmed' || s.looper?.mode === 'loopArmed') return true
+  if (s.preview?.queued != null) return true
+  if (s.library?.scanning || s.sounds?.scanning || s.plugins?.scanning) return true
+  return animates(s)
+}
+
+function animates(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false
+  if (Array.isArray(v)) return v.some(animates)
+  const o = v as Record<string, unknown>
+  if ((o.anim === 'flash' || o.anim === 'pulse') && o.level !== 'off') return true
+  if (o.mode === 'flash' || o.mode === 'pulse') return true
+  for (const k in o) if (animates(o[k])) return true
+  return false
 }
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -185,6 +290,8 @@ class UiStore {
   /** The Rack panel's drawer on Stage (docs/racks.md). */
   rack = $state(false)
   mixer = $state(false)
+  /** The Effects screen: the Reverb, Chorus and Delay blocks and the style's inserts. */
+  effects = $state(false)
   charts = $state(false)
   looper = $state(false)
   multipad = $state(false)
@@ -204,9 +311,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'rack' | 'mixer' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony') {
+  toggleDrawer(d: 'rack' | 'mixer' | 'effects' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony') {
     const open = !this[d]
-    this.rack = this.mixer = this.settings = this.charts = this.looper = this.multipad = this.harmony = false
+    this.rack = this.mixer = this.effects = this.settings = this.charts = this.looper = this.multipad = this.harmony = false
     this[d] = open
   }
 
@@ -246,6 +353,7 @@ class UiStore {
     if (this.settings) return !(this.settings = false)
     if (this.rack) return !(this.rack = false)
     if (this.mixer) return !(this.mixer = false)
+    if (this.effects) return !(this.effects = false)
     if (this.charts) return !(this.charts = false)
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)

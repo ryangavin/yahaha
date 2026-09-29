@@ -1,13 +1,13 @@
 # Arpeggio engine
 
-`src/arp` is the arpeggio core for #33. It takes the held right-hand notes, the style
+`crates/yahaha-core/src/arp` is the arpeggio core for #33. It takes the held right-hand notes, the style
 tick clock and the arpeggio settings, and produces note events. It is pure and
 deterministic like `engine.rs`: there are no threads and no wall time, and nothing
 allocates after construction. The live wiring is `src/live/kbdfx.rs` (see "Wiring").
 
 The Genos arpeggio *engine* is in scope, but its preset *patterns* are not
 (genos-features.md §6 and "Out of scope"). Yamaha's pattern data is copyrighted and
-internal. Every pattern in `src/arp/library.rs` was written for yahaha and is not a
+internal. Every pattern in `crates/yahaha-core/src/arp/library.rs` was written for yahaha and is not a
 transcription of a Yamaha type.
 
 ## API
@@ -46,7 +46,7 @@ arp.all_off(now, &mut sink);        // stop and send the note-offs right away
   pattern with no steps plays nothing, and a zero step length counts as one tick, so
   neither can panic or hang the real-time thread.
 - **No allocation** in `process`, `note_on`, `note_off`, `set_sustain`, `set_settings`,
-  `set_hold`, `stop` or `all_off`. `tests/arp_no_alloc.rs` checks this with a counting
+  `set_hold`, `stop` or `all_off`. `tests/it/arp_no_alloc.rs` checks this with a counting
   global allocator. `set_pattern` moves the new pattern in and drops the old one. The
   library patterns are borrowed `Cow`s, so swapping between them frees nothing.
 - **Limits:** 16 notes held at once (later keys are ignored) and 64 queued note-ons

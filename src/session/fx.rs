@@ -4,7 +4,7 @@
 //! The audio thread reads them from `SynthControl::fx`, which `pump_fx` keeps up to date.
 
 use super::Control;
-use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxType, InsertEffect, InsertState, StyleEffectState};
+use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxType, InsertEffect, InsertState, MasterSettingsExt, StyleEffectState};
 use crate::fx::xg::StyleFx;
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -95,6 +95,10 @@ impl FxSettings {
 
 impl Control {
     pub(super) fn fx_cmd(&mut self, c: FxCmd) -> Result<(), CmdError> {
+        // The Master Compressor and Master EQ (session/master_fx.rs).
+        if let Some(r) = self.master_fx_cmd(&c) {
+            return r;
+        }
         match c {
             FxCmd::SetEffectType { block, effect } => {
                 if !block.types().contains(&effect) {
@@ -126,6 +130,13 @@ impl Control {
                 self.fx.insert_amount[part as usize] = Some(amount.min(127));
             }
             FxCmd::SetRotaryFast { on } => self.fx.rotary_fast = on,
+            // Taken above.
+            FxCmd::SetMasterCompressorOn { .. }
+            | FxCmd::SetMasterCompressorPreset { .. }
+            | FxCmd::SetMasterCompressorParam { .. }
+            | FxCmd::SetMasterEqOn { .. }
+            | FxCmd::SetMasterEqPreset { .. }
+            | FxCmd::SetMasterEqBand { .. } => {}
             FxCmd::SetEffectReturn { block, level } => self.fx.returns[block.index()] = level.min(127),
             FxCmd::SetBandSend { block, level } => self.fx.band[block.index()] = level.min(127),
             FxCmd::SetPadSend { block, level } => self.fx.pad[block.index()] = level.min(127),
@@ -182,6 +193,7 @@ impl Control {
             fx.insert_amount[p].store(a, Relaxed);
         }
         fx.rotary_fast.store(s.rotary_fast, Relaxed);
+        self.pump_master_fx();
         // The Style parts' own sends (#268): the engine owns them.
         for (a, own) in fx.part_send.iter().zip(&self.snap.style_send_own) {
             for (a, &v) in a.iter().zip(own) {
@@ -194,6 +206,7 @@ impl Control {
         let mut s = EffectsState::new(self.fx.effect, self.fx.returns, self.fx.band, self.fx.params);
         s.inserts_on = self.fx.inserts_on;
         s.rotary_fast = self.fx.rotary_fast;
+        s.master = self.master.settings.state();
         s.inserts = self
             .info
             .inserts
@@ -433,6 +446,7 @@ mod tests {
     /// #269: a style's insertion effects reach the audio thread on the parts they are on,
     /// show in the state, go off together, and another style brings its own.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn the_styles_inserts_reach_the_bus() {
         use crate::api::{FxCmd, InsertEffect, LibraryCmd};
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
@@ -554,6 +568,7 @@ mod tests {
     /// feedback from its SysEx); another style sets its own; a type the player picks
     /// stays through style changes until the block follows the style again.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn the_styles_own_effect_types() {
         use crate::api::{FxBlock, FxCmd, FxType, LibraryCmd};
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style");

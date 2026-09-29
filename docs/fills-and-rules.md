@@ -21,7 +21,7 @@ sibling branches.)
 | Fill Break | a break | `break` |
 
 - A fill function is a Main press with the fill forced, Auto Fill or not
-  (`Engine::press_main`, `src/engine/fills.rs`); the fill starts at the next beat, as any fill.
+  (`Engine::press_main`, `crates/yahaha-engine/src/engine/fills.rs`); the fill starts at the next beat, as any fill.
 - **Decision:** the fill played on the way to another Main is that Main's fill, because
   that is what a Main press with Auto Fill already plays in yahaha (Fill In BB into Main B).
 - **Decision:** Fill Up / Down skip Mains the style lacks (A → C when B is missing), because
@@ -90,7 +90,7 @@ and leaves the fill queued. While a fill plays:
   fill, not a landing.
 - The Launchkey and the app pulse the landing Main's pad while it isn't the fill's own (the
   fill's own flashes). The transport bar shows it after the queued section (`⤷ Main A`).
-- Tests: `src/sim_fill_landing_tests.rs` (one per row).
+- Tests: `crates/yahaha-engine/src/sim_fill_landing_tests.rs` (one per row).
 
 ## Fill late-press grace window (#265)
 
@@ -99,7 +99,7 @@ after a beat line counts as pressed on that beat. It starts at once, from that p
 pattern (aligned to the bar as any fill), and the notes already past are skipped, not
 crammed in. The window is a 32nd note at the tempo playing, capped at 60 ms
 (`FILL_GRACE_MAX_MS`, `Engine::fill_grace`, `Engine::fill_beat` in
-`src/engine/timing.rs`). The cap binds below 125 BPM; above it, a 32nd is shorter. A press
+`crates/yahaha-engine/src/engine/timing.rs`). The cap binds below 125 BPM; above it, a 32nd is shorter. A press
 later than that waits for the next beat, as before. A Half Bar Fill asked for just after
 the middle of the bar is a fill with the same window. There is no setting.
 
@@ -217,8 +217,8 @@ the nearest Main the style has when it lacks that one (RM p.12: D missing → C)
 
 | What | Where |
 |---|---|
-| Fill functions, Half Bar Fill | `src/engine/fills.rs`, `Change::HalfBar` in `src/engine/sections.rs` |
-| Stop ACMP modes, Change Behavior | `src/engine/change_rules.rs` (engine), `src/session/style_change.rs`, `src/api/style_change.rs` |
+| Fill functions, Half Bar Fill | `crates/yahaha-engine/src/engine/fills.rs`, `Change::HalfBar` in `crates/yahaha-engine/src/engine/sections.rs` |
+| Stop ACMP modes, Change Behavior | `crates/yahaha-engine/src/engine/change_rules.rs` (engine), `src/session/style_change.rs`, `src/api/style_change.rs` |
 | OTS Link timing, OTS → Sync Start | `src/session/ots.rs` (`pump_ots_link`, `recall_ots`), `live::Cmd::SyncStartOn` |
-| Tests | `src/engine/rules_tests.rs`, `src/session/style_change.rs`, `tests/engine_no_alloc.rs` |
+| Tests | `crates/yahaha-engine/src/engine/rules_tests.rs`, `src/session/style_change.rs`, `tests/it/engine_no_alloc.rs` |
 | App | Settings › Style (`StylePage.svelte`, `FillButtons.svelte`, `ChangeBehavior.svelte`) |

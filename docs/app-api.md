@@ -120,8 +120,8 @@ state, and pressing the button is the action. For settings, a GUI checkbox can u
 | `setStylePartVolume` | `part` 0–7, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach the new value before it takes over again. |
 | `setStylePartSend` | `part` 0–7, `send` `reverb` \| `chorus` \| `variation`, `value` 0–127 | The part's own send (#268): it goes out at once as the part's CC91/93/94, and every CC91/93/94 the style sends on that part goes out at this value instead, through section changes, style changes and restarts, on the MIDI port and in the synth. The block's band send scale (`setBandSend`) doesn't apply to it. |
 | `resetStylePartSends` | `part` 0–7 or null | Hand the part's sends (null: every part's) back to the style: the style's last value (or the default, reverb 40, chorus and variation 0, where it set none) goes out, and its own CCs pass as written again. |
-| `setStyleVolume` | `volume` 0–127 | The Style volume (the Genos Balance page's Style slider), 100 = as written: every Style part's CC7 goes out multiplied by `volume`/100 (at most 127), as a Fade In/Out scales it; the part levels (`styleParts[].volume`) do not move. One of the two exceptions to the mixer rule, with the Fade. Launchkey Panel fader 5, with soft takeover. Registered with the Style mixer. |
-| `setMultiPadVolume` | `volume` 0–127 | The Multi Pad volume (the Genos Balance page's M.Pad slider), 100 = as written: the pads' CC7 on channels 5–8 go out multiplied by `volume`/100 (at most 127); a pad channel whose phrase sets no CC7 counts as 100. The same exception to the mixer rule as `setStyleVolume`. Launchkey Panel fader 6, with soft takeover. Registered with the Multi Pad bank. |
+| `setStyleVolume` | `volume` 0–127 | The Style volume (the Genos Balance page's Style slider), 100 = as written: every Style part's CC7 goes out multiplied by `volume`/100 (at most 127), as a Fade In/Out scales it; the part levels (`styleParts[].volume`) do not move. It scales the CC7 that's sent, like the Fade, rather than adding gain (AGENTS.md, "Engine rules"). Launchkey Panel fader 5, with soft takeover. Registered with the Style mixer. |
+| `setMultiPadVolume` | `volume` 0–127 | The Multi Pad volume (the Genos Balance page's M.Pad slider), 100 = as written: the pads' CC7 on channels 5–8 go out multiplied by `volume`/100 (at most 127); a pad channel whose phrase sets no CC7 counts as 100. It scales CC7 the same way as `setStyleVolume`. Launchkey Panel fader 6, with soft takeover. Registered with the Multi Pad bank. |
 | `setStyleSolo` | `part` 0–7 or null | Solos a Style part: only it plays, even if it is switched off; the other parts' notes stop. `null` ends the solo. The on/off switches are not changed (`mixer.styleSolo`). |
 | `styleTrackMute` | `order` `a` \| `b`, `value` 0–127 | Style Track Mute, a Genos Live Control knob (RM p.148). `value` is the knob: fully left (0) leaves one part on, and turning up adds parts until all eight are on at 127. Order A: Rhythm 2, Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1, Phrase 2. Order B: Chord 1, Chord 2, Pad, Bass, Phrase 1, Phrase 2, Rhythm 1, Rhythm 2. It sets the parts' on/off switches. |
 
@@ -174,6 +174,10 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
 | `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
 | `setPartSend` | `part`, `send`: `reverb` \| `chorus` \| `variation`, `value` 0–127 | The part's reverb (CC91), chorus (CC93) or variation (CC94: the tempo delay) send depth to the effect bus (#204). |
+| `setPartEq` | `part`, `eq`: `{ lowGain, lowFreq, highGain, highFreq }` | The part's channel-strip EQ (#247): a low shelf and a high shelf, as the Genos Mixer's Part EQ. Gains in dB, −12..12; `lowFreq` 32–2000 Hz, `highFreq` 500–16000 Hz; out-of-range values are clamped. yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), before its level, pan, meters and sends. It is a tone control, not a level: a band at 0 dB is out of the signal, so a flat EQ leaves the part bit-identical. Saved with the rack (a rack without it plays flat). An OTS recall sets it from the OTS's XG part EQ (see `eq` under Keyboard parts). Example: `{"type":"setPartEq","part":0,"eq":{"lowGain":3,"lowFreq":80,"highGain":-2,"highFreq":10000}}`. |
+| `setKeyboardInsertEffect` | `part`, `effect`: `distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary` | The effect in the part's insert slot (Genos Mixer > Effect: Insertion Effect Type). yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), after its EQ and before its level, pan, meters and sends; the effect sees the part at full volume. It does not turn the slot on. Saved with the rack. Example: `{"type":"setKeyboardInsertEffect","part":0,"effect":"rotary"}`. |
+| `setKeyboardInsertOn` | `part`, `on` | The part's insert slot on or off. Off, the part plays bit-identical to no insert at all. `setInsertsOn` (the style's inserts) doesn't touch it. |
+| `setKeyboardInsertAmount` | `part`, `amount` 0–127 | The insert's amount: the distortion's drive, the compressor's squeeze, the wah's sensitivity, the tremolo's and rotary's depth. Out-of-range values are clamped. |
 | `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
@@ -365,8 +369,8 @@ every change. A patch id that doesn't exist fails the command.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `createPatch` | `patch`: PatchFields | Adds a patch at the end of the list; its new id is `soundLibrary.lastAdded`. PatchFields: `name`, `category`, `tags`, `favourite`, `source` (see [`soundLibrary`](#soundlibrary)). A sound is the raw instrument: it has no mix (docs/racks.md); an older client's `defaults` is ignored. |
-| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source); the id stays. |
+| `createPatch` | `patch`: PatchFields | Adds a patch at the end of the list; its new id is `soundLibrary.lastAdded`. PatchFields: `name`, `category`, `tags`, `favourite`, `source` (see [`soundLibrary`](#soundlibrary); a plugin source here takes `state`?, the plugin's state as base64, in place of `hasState`). A sound is the raw instrument: it has no mix (docs/racks.md); an older client's `defaults` is ignored. |
+| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source); the id stays. A plugin source with no `state`, for the patch's own plugin and `origin`, keeps the state the library holds (so the state's source, sent back without `hasState`, never wipes it). Another plugin or another `origin` (for example another factory preset) starts with no state; there is no command to clear a stored state otherwise. |
 | `deletePatch` | `id` | Deletes it. Map rules that name it go; a keyboard part playing it goes back to its GM voice. |
 | `duplicatePatch` | `id` | A copy ("… copy") right after it, with a new id. |
 | `movePatch` | `id`, `to` | Moves it to position `to` (0-based) in the list. |
@@ -442,6 +446,34 @@ scaled. A change glides in over about 30 ms.
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. |
 | `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). |
+| `setMasterCompressorOn` | `on` | The Master Compressor on or off (default off). Example: `{"type":"setMasterCompressorOn","on":true}`. |
+| `setMasterCompressorPreset` | `preset` `natural` \| `rich` \| `punchy` \| `electronic` \| `loud` | The Master Compressor's type; its Compression, Texture and Output come with it (see below). Example: `{"type":"setMasterCompressorPreset","preset":"punchy"}`. |
+| `setMasterCompressorParam` | `param` `compression` \| `texture` \| `output`, `value` | One Master Compressor parameter, clamped: `compression` 0–100 %, `texture` 0–100 %, `output` −12..12 dB. Example: `{"type":"setMasterCompressorParam","param":"output","value":-3}`. |
+| `setMasterEqOn` | `on` | The Master EQ on or off (default off). Example: `{"type":"setMasterEqOn","on":true}`. |
+| `setMasterEqPreset` | `preset` `flat` \| `mellow` \| `bright` \| `loudness` \| `powerful` | The Master EQ's type: every band comes with it. Example: `{"type":"setMasterEqPreset","preset":"loudness"}`. |
+| `setMasterEqBand` | `band` 0–7, `gain`, `freq`, `q`, `shelf` | One Master EQ band, clamped to its ranges (below). A band other than 0–7 is refused. Example: `{"type":"setMasterEqBand","band":7,"gain":3,"freq":10000,"q":7,"shelf":true}`. |
+
+**Master Compressor and Master EQ** (Genos RM p.130–131, p.136; OM p.106). They run on the
+whole mix, after the effect returns and before the output's safety clipper, compressor
+first; the metronome click doesn't go through them (as on the Genos). They are tone on the
+master, shown with their settings, and may boost (an EQ band, the compressor's Output). Off
+(the default), they aren't run: the output is bit-identical to the mix without them. They
+are a setup setting, saved in `<data>/master-effects.json` (never in a rack) and read at
+start; a missing or unreadable file, or a missing field, reads as its default (both off).
+
+- **Compressor.** `compression` 0–100 %: threshold −3 − 0.27 × `compression` dBFS, ratio
+  1 + 0.07 × `compression` (0 % compresses nothing, 100 % is −30 dBFS at 8:1), a 6 dB soft
+  knee, stereo-linked. `texture` 0–100 %: higher is lighter, attack 30 → 1 ms and release
+  500 → 60 ms. `output` −12..12 dB after it. A change glides; switched off, it glides back to
+  unity and then stops. Types (compression / texture / output): Natural 30 / 50 / +1, Rich
+  45 / 30 / +2, Punchy 70 / 80 / +4, Electronic 60 / 65 / +3, Loud 85 / 45 / +6.
+- **EQ.** Eight bands, each `{ gain, freq, q, shelf }`: `gain` −12..12 dB; `freq` Hz, band 0
+  32–2000, bands 1–6 100–10000, band 7 500–16000; `q` in tenths, 1–120 (0.1–12.0; higher is
+  narrower); `shelf` (bands 0 and 7 only) makes the band a low (high) shelf, with a fixed
+  slope rather than a Q. A band at 0 dB is out of the signal. Every type puts the bands at
+  80, 250, 500, 630, 800, 1000, 4000 and 8000 Hz, Q 0.7, bands 0 and 7 as shelves, with gains:
+  Flat all 0; Mellow −2 at 4 kHz and −4 at 8 kHz; Bright +2, +4 there; Loudness +4 at 80 Hz,
+  +1 at 250 Hz, +2 and +4 at the top; Powerful +4, +2, +1, +1, +1, +1, +2, +3.
 
 The effect parameters (`param`, its unit and range, and each type's own value):
 
@@ -728,6 +760,8 @@ Indices are 0-based unless a field says otherwise.
 | `pan` | 0–127 | Pan (CC10): 0 left, 64 centre, 127 right. 64 until something sets it (`setPartPan`, a library patch, an OTS). |
 | `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. They go out again after a Panic, a Reset All Controllers from the keyboard, or a new synth. |
 | `variation` | 0–127 | Variation send depth (CC94): the effect bus's tempo delay. 0 until something sets it. |
+| `eq` | PartEq | Its channel-strip EQ (`setPartEq`): `lowGain`, `highGain` (dB, −12..12) and `lowFreq`, `highFreq` (Hz). Flat (0 dB, 80 Hz, 0 dB, 10000 Hz) until something sets it. An OTS recall sets it from the OTS's XG part EQ (bass/treble gain and frequency, XG multi part 72H, 73H, 76H, 77H: 40H = 0 dB, 1 dB a step, frequencies from the XG EQ frequency table), the bands it leaves out flat; a part the OTS gives a voice but no EQ goes flat; any other part keeps its EQ. A voice change keeps it. |
+| `insert` | PartInsert | Its insert slot (`setKeyboardInsertEffect`, `setKeyboardInsertOn`, `setKeyboardInsertAmount`): `effect` (`distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary`), `on`, `amount` 0–127. Off (a distortion, amount 64) until something sets it. An OTS recall sets it from the OTS's XG Insertion Effect type for the part (block n is part n: Right 1, Right 2, Right 3, Left), mapped as the Style parts' are (`effects.inserts`): on with the effect that plays it and its amount, or off when nothing here plays that type (THRU, an EQ, a delay...); a part the OTS gives a voice but no insertion type turns it off; any other part keeps its slot. A voice change and a plugin swap keep it. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 | `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened), `missing` (the plugin isn't installed: the last scan did not find it. The status is `failed`, the part is silent rather than on its SoundFont voice, and its mix, sound and saved state are kept; once the plugin is back and the plugins are scanned again, it loads as it was. A plugin that is installed but fails to load is not missing). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
@@ -884,11 +918,12 @@ Which button LEDs are lit, and in what colour:
 - **Pad Bank ▲/▼:** lit in the page's colour (white, cyan, pink) where there is a page to
   go to.
 - **Track ◀/▶:** white when the library has another style.
-- **Fader buttons on the Panel page:** blue, bright when the part sounds and dim when it
-  is off. Fader buttons 5–8 are dark.
-- **Fader buttons on the Style page:** green, bright when the part plays and dim when it
-  is muted or muted by Manual Bass.
-- **Master button:** the page's colour, bright.
+- **Fader buttons on the Panel page:** the fader layer's colour (`mixer.faderLayer`: VOL
+  blue, PAN yellow, REV cyan, CHO pink, DLY white), bright when the part sounds and dim
+  when it is off. Fader buttons 5–8 keep their own colours.
+- **Fader buttons on the Style page:** green in every layer, bright when the part plays and
+  dim when it is muted or muted by Manual Bass.
+- **Master button:** the page's colour (on the Panel page, the layer's), bright.
 
 #### SurfaceFader
 | Field | Type | Meaning |
@@ -1058,6 +1093,7 @@ The instrument plugin host.
 | `list` | PluginEntry[] | The installed instrument Audio Units, by manufacturer then name, from the cached scan: `id` (what `setPartPlugin` takes), `name`, `manufacturer`, `version`, `format` (`AUv2` \| `AUv3`), `lastError` (why the last load failed, or null), `inProcess` (the player chose to run it in yahaha's process: `setPluginInProcess`), `canRunInProcess` (every AUv2, and an AUv3 that allows it), `new` (a scan found it for the first time and it hasn't been opened or played since: `markPluginSeen`; the first scan ever marks nothing new), `racks` (how many of the user's racks, `<data>/Racks/*.rack.json`, have a part that plays it), `sounds` (how many sound library sounds play it). |
 | `missing` | MissingPlugin[] | Plugins that were installed before and aren't now, and plugins the user's racks or sounds use that aren't installed, by name: `id`, `name` and `manufacturer` (as last installed; the id and `""` if it never was here), `racks`, `sounds`. Empty until the first scan is in. A plugin seen before stays known (`<data>/known-plugins.json`), so reinstalling it doesn't make it `new`. |
 | `needsAttention` | RackAttention[] | The user's racks that need attention, by file name: a part's sound (a plugin, or a library sound) is on a missing plugin. `id`, `name`, `parts` (those parts, 0–3). The racks folder is read after each scan and within 2 s of a change. Nothing is rewritten. |
+| `instances` | number | Plugin instances loaded now (#407): one for every part, keyboard or Style, that plays a plugin (each part has its own instance), plus one still playing out while its part's next plugin loads. The Mixer and Library › Instruments show it. |
 
 ### `multiPad`
 Multi Pads (docs/multipad.md).
@@ -1092,7 +1128,7 @@ The sound library (docs/sound-library.md).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state", "origin"? }` (the Audio Unit's id, as #91 writes it, and its state, base64). A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset's `state` is empty until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound (or a plugin sound with exactly the preset's settings, such as the one saved with an `.aupreset` by Save as…), adding it once. A patch has no mix settings (docs/racks.md). |
+| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "hasState", "origin"? }` (the Audio Unit's id, as #91 writes it, and whether the library holds its state). The state itself (base64, MBs for a sampler) stays in the library and is never in the state. A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset has no state (`hasState` false) until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound (or a plugin sound with exactly the preset's settings, such as the one saved with an `.aupreset` by Save as…), adding it once. A patch has no mix settings (docs/racks.md). |
 | `categories` | object[] | The Genos voice categories in display order: `id` (`piano`, `ePiano`, `organ`, `guitar`, `bass`, `strings`, `brass`, `saxWoodwind`, `synthLead`, `pad`, `choir`, `drumsPerc`, `sfx`) and `label`. |
 | `families` | string[16] | The GM family names; family `i` is programs 8i … 8i+7. |
 | `map` | ProgramMap | The global map: `families` (16 patch ids or null), `overrides` (`{ program, patch, volume? }`, by program) and `drums` (a patch id or null). Each rule may have a level: `familyVolumes` (16 levels or null, absent when none has one), an override's `volume`, and `drumsVolume` (absent: none). A rule's level (CC7, 0–127) is what a Style part that resolves by the rule takes when the style sets no level of its own (the mixer shows it); a library of format 2 or older had it on the sound, and it moved onto every rule naming the sound. |
@@ -1199,6 +1235,11 @@ plays as, null if nothing is near it), or null when the style sets none; and `fo
 Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
 `rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
 (`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
+`master`: the Master Compressor and Master EQ (see Effects), `{ compressor, eq }`.
+`compressor` is `{ on, preset, compression, texture, output, edited }`; `eq` is
+`{ on, preset, bands, edited }`, `bands` the eight `{ gain, freq, q, shelf }`, low to high.
+`preset` is the type the settings started from, and `edited` whether they now differ from
+it. Absent in an older state: both off.
 
 ### `liveRack`
 The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
@@ -1282,15 +1323,25 @@ this object); the `meters` command returns the latest frame.
 | Field | Type | Meaning |
 |---|---|---|
 | `atMs` | ms | The session clock at the read. |
-| `channels` | `{ channel, peak, rms }[]` | All 16 channels: 1–4 the keyboard parts, 5–8 the Multi Pads, 9–16 the Style parts. `peak`: the highest since the last read; `rms`: the loudest audio buffer's RMS since the last read. Linear (1.0 = full scale), after the master level, before the soft clipper. Empty without the synth. |
+| `channels` | `{ channel, peak, rms, cpu, cpuPeak }[]` | All 16 channels: 1–4 the keyboard parts, 5–8 the Multi Pads, 9–16 the Style parts. `peak`: the highest since the last read; `rms`: the loudest audio buffer's RMS since the last read. Linear (1.0 = full scale), after the master level, before the soft clipper. `cpu` (#340): the track's render time over the last second (its SoundFont voices, part filter and insertion effect, or the plugin that plays it) as a share of the audio buffers' time (1.0 = the whole buffer); `cpuPeak`: its slowest single buffer in that second, the same way. Empty without the synth. |
 | `master` | [l, r] | The peaks after the soft clipper. |
 | `masterRms` | [l, r] | The RMS after the soft clipper, the loudest buffer's since the last read. |
 | `clips` | number | Audio buffers in which the soft clipper worked (above −1 dBFS), since start. |
+| `cpu` | `{ total, peak, bufferUs }` | #340: every track together. `total`: their render time over the last second as a share of the buffers' time; `peak`: the slowest single buffer's; `bufferUs`: the audio buffer's length in µs (0 before the first buffer). The effect bus, the click and the output stage are not in it. |
 
 Each read takes the levels (they restart from 0), so there is one reader (the app shell's
 meter thread); the client does the decay and peak hold. Measuring costs no allocation or
 lock on the audio thread: the rack sums the squares of each part's stem as it mixes it
 (`src/synth/rack.rs`) and the callback folds the result into atomics.
+
+The CPU figures are not reset by a read: the audio callback times each track's render
+(the rack's lanes, filter and insert for the channel, and its plugin's render) and adds
+it, with the buffer's length, to running totals in atomics (`synth::CpuCounters`); the
+worst buffer goes into an atomic maximum. A read at least a second after the last reading
+takes the difference of the totals (`synth::CpuWindow`) off the audio thread, so a reading
+changes once a second and every client polling the meters sees the same one. The app's
+Mixer reads the meters twice a second while it is open. Both mocks make up plausible
+figures (a playing plugin's `cpu`, the Style parts while the band plays).
 
 ## Events
 
@@ -1413,6 +1464,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "reverb": 40,
       "chorus": 0,
       "variation": 0,
+      "eq": { "lowGain": 3, "lowFreq": 80, "highGain": -2, "highFreq": 10000 },
+      "insert": { "effect": "rotary", "on": true, "amount": 90 },
       "plugin": {
         "id": "aumu dls  appl",
         "name": "DLSMusicDevice",
@@ -1447,6 +1500,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "reverb": 40,
       "chorus": 0,
       "variation": 0,
+      "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     },
     {
@@ -1466,6 +1521,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "reverb": 40,
       "chorus": 0,
       "variation": 0,
+      "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     },
     {
@@ -1485,6 +1542,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "reverb": 40,
       "chorus": 0,
       "variation": 0,
+      "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     }
   ],
@@ -1807,7 +1866,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     ],
     "needsAttention": [
       { "id": "r5f3a2c1d-0", "name": "Ballad", "parts": [1] }
-    ]
+    ],
+    "instances": 1
   },
   "multiPad": {
     "bank": { "id": 0, "name": "Demo", "path": "/Users/me/Styles/Pads/Demo.pad" },
@@ -1870,7 +1930,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "category": "ePiano",
         "tags": [],
         "favourite": false,
-        "source": { "kind": "plugin", "componentId": "aumu dls  appl", "state": "" },
+        "source": { "kind": "plugin", "componentId": "aumu dls  appl", "hasState": false },
         "available": false,
         "note": "needs plugin hosting (#91)"
       }
@@ -1953,7 +2013,20 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ],
-    "inserts": [], "insertsOn": true, "rotaryFast": false
+    "inserts": [], "insertsOn": true, "rotaryFast": false,
+    "master": {
+      "compressor": { "on": true, "preset": "natural", "compression": 30, "texture": 50, "output": 1, "edited": false },
+      "eq": {
+        "on": false, "preset": "flat",
+        "bands": [
+          { "gain": 0, "freq": 80, "q": 7, "shelf": true }, { "gain": 0, "freq": 250, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 500, "q": 7, "shelf": false }, { "gain": 0, "freq": 630, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 800, "q": 7, "shelf": false }, { "gain": 0, "freq": 1000, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 4000, "q": 7, "shelf": false }, { "gain": 0, "freq": 8000, "q": 7, "shelf": true }
+        ],
+        "edited": false
+      }
+    }
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "ots": null, "bandSends": [] },
   "liveRack": {
@@ -2005,7 +2078,7 @@ These are for maintainers.
     the engine thread through a ring; it plays there beside the (stopped) band and goes
     back through another ring to be freed. A style change while playing waits inside the
     engine for the bar line; the style it replaces goes back the same way.
-    `tests/engine_no_alloc.rs` checks both allocate and free nothing on the engine thread.
+    `tests/it/engine_no_alloc.rs` checks both allocate and free nothing on the engine thread.
   - The input thread keeps each key's state (held, side, parts) and each source's held
     keys in atomics for the key strip; the control side reads them.
 - The audio thread measures each part's and the master's peak into atomics (`meters`).

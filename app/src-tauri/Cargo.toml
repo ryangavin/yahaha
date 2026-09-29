@@ -7,9 +7,9 @@ repository = "https://github.com/satoramoto/yahaha"
 edition = "2024"
 rust-version = "1.85"
 
-# A separate package, not part of the engine's build: `cargo build` at the repo root
-# doesn't build it, and it has its own lock file. Build it with `cargo tauri build` from app/.
-[workspace]
+# A member of the root workspace (../../Cargo.toml): it shares the engine's Cargo.lock and
+# target directory, so its builds reuse the engine's. `cargo build` at the repo root doesn't
+# build it (default-members); run cargo here, or `cargo tauri build` from app/.
 
 [lib]
 name = "yahaha_app_lib"

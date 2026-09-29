@@ -4,7 +4,7 @@
 
 import fixture from './mock-fixture.json'
 import { partSound } from './part-sound'
-import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, originOfPresetKey, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
+import { CATEGORY_LABELS, FAMILY_NAMES, commandSource, emptyMap, equalOrigin, originOfPresetKey, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type PatchSource, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
 import type { AppState } from './types'
 
 const GM: string[] = fixture.gm
@@ -95,7 +95,7 @@ export function initialSoundLibrary(): SoundLibraryState {
     {
       ...sf('keys-au', 'Keys (AU)', 0, 4),
       category: 'ePiano',
-      source: { kind: 'plugin', componentId: 'aumu dls  appl', state: '' },
+      source: { kind: 'plugin', componentId: 'aumu dls  appl', hasState: false },
     },
   ]
   const map = emptyMap()
@@ -136,11 +136,14 @@ function slug(name: string, taken: string[]): string {
   for (let n = 2; ; n++) if (!taken.includes(`${base}-${n}`)) return `${base}-${n}`
 }
 
+/** A patch as the state shows it: a plugin source says only whether it has state. */
 function info(id: string, f: PatchFields): PatchInfo {
   const missing = f.source.kind === 'soundFont' && !FONTS.includes(f.source.file)
+  const s = f.source
   return {
     id,
     ...f,
+    source: s.kind === 'plugin' ? { kind: 'plugin', componentId: s.componentId, hasState: !!s.state, ...(s.origin ? { origin: s.origin } : {}) } : s,
     // The desktop app builds with plugin hosting (#91): a plugin patch plays itself.
     available: !missing,
     note: missing ? `${(f.source as { file: string }).file} is not in the SoundFont folder` : null,
@@ -171,8 +174,38 @@ export class MockSoundLibrary {
     return m
   }
 
+  /** Each plugin patch's stored state (base64), by patch id: the state shows only
+   * `hasState`, as the engine's does. */
+  private states = new Map<string, string>()
+
+  /** A patch's stored plugin state ('' for none). */
+  stateOf(id: string): string {
+    return this.states.get(id) ?? ''
+  }
+
+  /** Sets a plugin patch's stored state, as playing it would capture it (tests). */
+  setState(id: string, state: string) {
+    const p = this.sl.patches.find((q) => q.id === id)
+    if (p?.source.kind !== 'plugin') return
+    this.keep(id, state)
+    p.source.hasState = state !== ''
+  }
+
+  private keep(id: string, state: string | undefined) {
+    if (state) this.states.set(id, state)
+    else this.states.delete(id)
+  }
+
+  /** A patch's fields with its stored state (the command form). */
+  private fieldsOf(p: PatchInfo): PatchFields {
+    const source: PatchSource = { ...commandSource(p.source) }
+    if (source.kind === 'plugin') source.state = this.stateOf(p.id)
+    return { name: p.name, category: p.category, tags: [...p.tags], favourite: p.favourite, source }
+  }
+
   private add(f: PatchFields): string {
     const id = slug(f.name, this.sl.patches.map((p) => p.id))
+    this.keep(id, f.source.kind === 'plugin' ? f.source.state : undefined)
     this.sl.patches.push(info(id, f))
     this.sl.lastAdded = id
     return id
@@ -255,7 +288,7 @@ export class MockSoundLibrary {
       if ((want?.id ?? null) === this.pluginParts[i]) return
       const had = this.pluginParts[i]
       this.pluginParts[i] = want?.id ?? null
-      if (want && want.source.kind === 'plugin') out.push([i, { componentId: want.source.componentId, state: want.source.state }])
+      if (want && want.source.kind === 'plugin') out.push([i, { componentId: want.source.componentId, state: this.stateOf(want.id) }])
       else if (had) out.push([i, null])
     })
     return out
@@ -273,13 +306,21 @@ export class MockSoundLibrary {
       case 'updatePatch': {
         const i = at(c.id)
         if (i < 0) return `no patch ${c.id} in the sound library`
-        sl.patches[i] = info(c.id, { ...c.patch, name: c.patch.name.trim() || sl.patches[i].name })
+        // A plugin source without state, on the same plugin and origin, keeps the stored
+        // state (the engine's `keep_plugin_state`); another origin starts with none.
+        const was = sl.patches[i].source
+        let source = c.patch.source
+        if (source.kind === 'plugin' && !source.state && was.kind === 'plugin' && was.componentId === source.componentId && equalOrigin(was.origin, source.origin))
+          source = { ...source, state: this.stateOf(c.id) }
+        this.keep(c.id, source.kind === 'plugin' ? source.state : undefined)
+        sl.patches[i] = info(c.id, { ...c.patch, source, name: c.patch.name.trim() || sl.patches[i].name })
         break
       }
       case 'deletePatch': {
         const i = at(c.id)
         if (i < 0) return `no patch ${c.id} in the sound library`
         sl.patches.splice(i, 1)
+        this.states.delete(c.id)
         this.forget(c.id)
         break
       }
@@ -289,6 +330,7 @@ export class MockSoundLibrary {
         const p = sl.patches[i]
         const id = slug(`${p.name} copy`, sl.patches.map((q) => q.id))
         sl.patches.splice(i + 1, 0, { ...structuredClone(p), id, name: `${p.name} copy` })
+        this.keep(id, this.states.get(c.id))
         sl.lastAdded = id
         break
       }
@@ -330,7 +372,7 @@ export class MockSoundLibrary {
         const base = id ? sl.patches.find((p) => p.id === id) : null
         const plugin = kp.plugin && kp.plugin.status !== 'failed' ? kp.plugin : null
         let f: PatchFields = base
-          ? { name: base.name, category: base.category, tags: [...base.tags], favourite: false, source: structuredClone(base.source) }
+          ? { ...this.fieldsOf(base), favourite: false }
           : { name: GM[kp.program], category: guessCategory(0, kp.program), tags: [], favourite: false, source: { kind: 'soundFont', file: SF2, bank: 0, program: kp.program } }
         if (plugin) {
           const source = { kind: 'plugin' as const, componentId: plugin.id, state: '' }
@@ -417,7 +459,7 @@ export class MockSoundLibrary {
         const p = sl.patches.find((q) => q.id === c.id)
         if (!p) return `no patch ${c.id} in the sound library`
         if (p.source.kind !== 'plugin') return `${p.name} is a SoundFont preset, not a plugin sound`
-        if (!p.source.state) return `${p.name} has no settings yet: play it once first`
+        if (!p.source.hasState) return `${p.name} has no settings yet: play it once first`
         if (this.exported.has(p.name) && !c.overwrite) return `a preset called ${p.name} already exists: save under another name, or replace it`
         this.exported.add(p.name)
         return null

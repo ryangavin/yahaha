@@ -25,6 +25,8 @@ fn part(sound: SoundRef, volume: u8) -> RackPart {
         octave: 0,
         tone: ToneReg::default(),
         bend_range: 2,
+        eq: PartEq::FLAT,
+        insert: PartInsert::OFF,
         other: Map::new(),
     }
 }
@@ -35,6 +37,8 @@ fn sample() -> Rack {
     plugin.edited_state = Some("AAEC".into());
     plugin.fallback_program = Some(88);
     plugin.tone = ToneReg { cutoff: Some(80), xg: vec![[8, 0x0E, 3]], ..ToneReg::default() };
+    plugin.eq = PartEq { low_gain: -3, low_freq: 125, high_gain: 4, high_freq: 8_000 };
+    plugin.insert = PartInsert { effect: crate::fx::InsertEffect::Rotary, on: true, amount: 90 };
     Rack {
         format: FORMAT.into(),
         version: VERSION,
@@ -100,6 +104,54 @@ fn a_newer_rack_is_refused_and_never_saved_over() {
     std::fs::write(&path, r#"{"format":"yahaha.registration-bank","version":1}"#).unwrap();
     assert!(Rack::load(&path).is_err());
     assert!(sample().save(&path).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #247: a rack saved before the part EQ (no `eq`) reads as flat and is written back
+/// exactly as it was; a part's EQ is saved and read back.
+#[test]
+fn a_rack_without_part_eq_loads_flat_and_is_unchanged() {
+    let dir = temp_dir("old-eq");
+    let _ = std::fs::create_dir_all(&dir);
+    let mut old = serde_json::to_value(sample()).unwrap();
+    let parts = old["parts"].as_array_mut().unwrap();
+    assert_eq!(parts[1]["eq"], json!({ "lowGain": -3, "lowFreq": 125, "highGain": 4, "highFreq": 8000 }), "saved");
+    assert!(parts[0].get("eq").is_none(), "a flat EQ is left out");
+    for p in parts.iter_mut() {
+        p.as_object_mut().unwrap().remove("eq");
+    }
+    let path = dir.join("Old.rack.json");
+    let text = serde_json::to_string_pretty(&old).unwrap();
+    std::fs::write(&path, &text).unwrap();
+    let r = Rack::load(&path).unwrap();
+    assert!(r.parts.iter().all(|p| p.eq == PartEq::FLAT && p.other.is_empty()));
+    r.save(&path).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&std::fs::read_to_string(&path).unwrap()).unwrap(), old, "written back unchanged");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A rack saved before the insert slot (no `insert`) reads as off and is written back
+/// exactly as it was; a part's slot is saved and read back, and one off at its defaults
+/// is left out.
+#[test]
+fn a_rack_without_an_insert_slot_loads_off_and_is_unchanged() {
+    let dir = temp_dir("old-insert");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("Old.rack.json");
+    sample().save(&path).unwrap();
+    assert_eq!(Rack::load(&path).unwrap().parts[1].insert, sample().parts[1].insert, "read back");
+    let mut old = serde_json::to_value(sample()).unwrap();
+    let parts = old["parts"].as_array_mut().unwrap();
+    assert_eq!(parts[1]["insert"], json!({ "effect": "rotary", "on": true, "amount": 90 }), "saved");
+    assert!(parts[0].get("insert").is_none(), "an off slot is left out");
+    for p in parts.iter_mut() {
+        p.as_object_mut().unwrap().remove("insert");
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&old).unwrap()).unwrap();
+    let r = Rack::load(&path).unwrap();
+    assert!(r.parts.iter().all(|p| p.insert == PartInsert::OFF && p.other.is_empty()));
+    r.save(&path).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&std::fs::read_to_string(&path).unwrap()).unwrap(), old, "written back unchanged");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

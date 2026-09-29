@@ -15,49 +15,66 @@
     where that fader physically sits (from the provisional `state.surface`).
   - Panel strips have Pan, Reverb, Chorus and Delay knobs (the part's CC 10, 91, 93, 94:
     `setPartPan`, `setPartSend`, #198/#204); double-click one to put it back to its default.
+    Under them, the part's channel-strip EQ (#247, `setPartEq`): Low and High shelf gain
+    (−12..+12 dB; 0 dB takes the band out of the signal) and each band's frequency, in the
+    XG EQ frequency steps. yahaha plays it on the part's audio, SoundFont or plugin; it is
+    tone, not level. An OTS's XG part EQ sets it; a rack saves it. Under the EQ, the part's
+    insert slot (`setKeyboardInsertEffect`, `On`, `Amount`): its effect, on/off and amount,
+    played on the part's audio, SoundFont or plugin. An OTS's insertion type sets it.
     Style strips have Reverb, Chorus and Delay (#268, `setStylePartSend`): they show the
     style's own sends until turned, then the part's own (marked •), which the engine sends in
     place of the style's through section and style changes. Double-click hands that part's
     sends back to the style; "Sends: style" by Track Mute resets every part
     (`resetStylePartSends`).
-  - Effects (#204): the shared effect bus's Reverb, Chorus and Variation (tempo delay)
-    blocks, each with its type and return level (`setEffectType`, `setEffectReturn`). Every
-    part, Panel and Style, SoundFont and plugin, feeds them through its sends. Each block's
-    Band send (#236, `setBandSend`) scales every Style part's send to it, in percent: the
-    band's reverb as written, its chorus and delay off until turned up. The ▸ button
-    opens a block's editor with its parameters (#236, `setEffectParam`), which a type
-    change puts back to that type's own values. The Style switch (#237, `setFollowStyle`):
-    lit, the block takes the style's own effect type at each style change (its XG name shows
-    beside it); choosing a type or changing a parameter (here or on a Launchkey effect knob page) turns it off. The editor ends with the block's Pads send
-    (#267, `setPadSend`): the same scale for the four Multi Pads' sends.
-  - Inserts (#269, `setInsertsOn`): the style's insertion effects, each on one Style part
-    (an amp simulator, a compressor, a wah, a tremolo or a rotary here), all on or off;
-    each part's on/off (`setPartInsertOn`) and amount (`setPartInsertAmount`), and the
-    rotary's fast/slow switch (`setRotaryFast`).
+  - Effects: the shared effect bus's blocks (Reverb, Chorus, Delay) and the style's inserts
+    have their own screen (panels/effects). A row here names what each block plays and
+    opens it; the strips keep their own send knobs.
   - Solo (S): only that part plays, even if it is off; the Style tab solos a band part,
     the Panel tab a keyboard part (`setStyleSolo` / `setPartSolo`, #30). Press again to end.
   - The metronome (on/off, bell, its own volume) sits above the strips: it is the
     built-in synth's click voice, never on the MIDI port. The Style tab adds Style Track
     Mute (a Genos Live Control knob, A/B order).
+  - CPU (#340): each strip shows its track's render time as a share of the audio buffer
+    over the last second, and its worst buffer (pk); the Panel page's Style and M.Pad
+    strips add up their tracks. A line above the strips gives every track together and
+    the plugin instances loaded (#407). Read from the meters twice a second while open.
+  - Master (MasterFx.svelte): above the master fader, the Master Compressor and Master EQ,
+    each on/off with its type, and ▸ for their parameters and the EQ's eight bands.
   - No level meters yet.
 -->
 <script lang="ts">
-  import type { EffectBlockState, FaderPage, FxBlock, InsertEffect, FxParam, FxType, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
-  import type { TipKey } from '../../help/tooltips'
+  import type { FaderPage, KeyboardPart, PartSend, StylePart, TrackMuteOrder } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
   import { css } from '../../lib/leds'
   import { surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
+  import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
   import Overlay from '../../lib/ui/Overlay.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
-  import FxKnob from './FxKnob.svelte'
-  import { FADER_LAYERS, type FaderLayer } from '../../lib/api/types'
+  import MasterFx from './MasterFx.svelte'
+  import { FADER_LAYERS, FLAT_EQ, OFF_INSERT, type FaderLayer, type InsertEffect, type PartEq } from '../../lib/api/types'
   const LAYER_NAMES: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
   import { partVoice, pluginBadge, pluginTip, styleVoice } from './voice'
+  import { CPU_POLL_MS, CPU_WARN, cpuOf, pct } from './cpu'
+  import type { Meters } from '../../lib/api/types'
+
+  // #340: each track's CPU, from the meters, read while the drawer is open.
+  let meters = $state.raw<Meters | null>(null)
+  $effect(() => {
+    let live = true
+    const read = () => app.meters().then((m) => live && (meters = m))
+    read()
+    const t = setInterval(read, CPU_POLL_MS)
+    return () => {
+      live = false
+      clearInterval(t)
+    }
+  })
+  const cpuTotal = $derived(meters && meters.channels.length > 0 ? meters.cpu : null)
 
   const mixer = $derived(app.state.mixer)
   const page = $derived(mixer.faderPage)
@@ -66,36 +83,6 @@
   const outPort = $derived(app.state.io.outputPort)
   const metronome = $derived(app.state.metronome)
   const effects = $derived(app.state.effects.blocks)
-  const inserts = $derived(app.state.effects.inserts)
-  const INSERT_NAMES: Record<InsertEffect, string> = { distortion: 'Distortion', compressor: 'Compressor', autoWah: 'Auto Wah', tremolo: 'Tremolo', rotary: 'Rotary' }
-  const FX_TIPS: Record<FxBlock, [TipKey, TipKey, TipKey, TipKey]> = {
-    reverb: ['fx.reverb_type', 'fx.reverb_return', 'fx.reverb_band', 'fx.reverb_pad'],
-    chorus: ['fx.chorus_type', 'fx.chorus_return', 'fx.chorus_band', 'fx.chorus_pad'],
-    variation: ['fx.variation_type', 'fx.variation_return', 'fx.variation_band', 'fx.variation_pad'],
-  }
-  /** Which blocks' editors are open. */
-  let editing = $state<Record<FxBlock, boolean>>({ reverb: false, chorus: false, variation: false })
-  const PARAM_TIPS: Record<FxParam, TipKey> = {
-    reverbTime: 'fx.param.reverb_time',
-    preDelay: 'fx.param.pre_delay',
-    reverbTone: 'fx.param.reverb_tone',
-    delaySync: 'fx.param.delay_sync',
-    delayNote: 'fx.param.delay_note',
-    delayTime: 'fx.param.delay_time',
-    delayFeedback: 'fx.param.delay_feedback',
-    delayTone: 'fx.param.delay_tone',
-    pingPong: 'fx.param.ping_pong',
-    chorusRate: 'fx.param.chorus_rate',
-    chorusDepth: 'fx.param.chorus_depth',
-  }
-  /** The delay's note value plays with tempo sync on, its free time with it off. */
-  function paramOff(b: EffectBlockState, p: FxParam): boolean {
-    const sync = b.params.find((x) => x.param === 'delaySync')
-    if (!sync) return false
-    return (p === 'delayTime' && sync.value === 1) || (p === 'delayNote' && sync.value === 0)
-  }
-  /** A return level as the Genos shows it: 64 = 0 dB, 127 = +6 dB, 0 = off. */
-  const returnText = (v: number) => (v === 0 ? 'Off' : `${v >= 64 ? '+' : ''}${(20 * Math.log10(v / 64)).toFixed(1)} dB`)
 
   // Style Track Mute is a knob: the engine keeps only the parts' switches it sets, so the
   // knob's position and order are this drawer's. Choosing an order only chooses what the
@@ -173,6 +160,13 @@
       onpan: (v: number) => app.send({ type: 'setPartPan', part: i, pan: v }),
       onsend: (send: PartSend, v: number) => app.send({ type: 'setPartSend', part: i, send, value: v }),
     },
+    eq: { value: p.eq ?? FLAT_EQ, onchange: (eq: PartEq) => app.send({ type: 'setPartEq', part: i, eq }) },
+    insert: {
+      value: p.insert ?? OFF_INSERT,
+      oneffect: (effect: InsertEffect) => app.send({ type: 'setKeyboardInsertEffect', part: i, effect }),
+      onon: (on: boolean) => app.send({ type: 'setKeyboardInsertOn', part: i, on }),
+      onamount: (amount: number) => app.send({ type: 'setKeyboardInsertAmount', part: i, amount }),
+    },
     lit: p.sounding,
     on: {
       led: ledAt(i),
@@ -190,6 +184,7 @@
       isSolo: mixer.partSolo === i,
       onclick: () => app.send({ type: 'setPartSolo', part: mixer.partSolo === i ? null : i }),
     },
+    cpu: cpuOf(meters, [p.channel]),
   })
 
   const styleStrip = (p: StylePart, i: number) => ({
@@ -223,7 +218,12 @@
       isSolo: mixer.styleSolo === i,
       onclick: () => app.send({ type: 'setStyleSolo', part: mixer.styleSolo === i ? null : i }),
     },
+    cpu: cpuOf(meters, [p.channel]),
   })
+
+  /** The Panel page's Style and M.Pad strips: their tracks' CPU together. */
+  const STYLE_CHANNELS = [9, 10, 11, 12, 13, 14, 15, 16]
+  const PAD_CHANNELS = [5, 6, 7, 8]
 </script>
 
 <Overlay id="mixer" title="Mixer" closeTip="drawer.close" onclose={() => (ui.mixer = false)}>
@@ -264,6 +264,20 @@
       <div class="out" use:tip={'mixer.channel'}>
         <span class="engraved">MIDI out</span> <b>{outPort || '—'}</b>
       </div>
+    </div>
+
+    <div class="load" data-testid="cpu-total">
+      <span use:tip={'mixer.cpu_total'} class:warn={cpuTotal !== null && cpuTotal.peak > CPU_WARN}>
+        <span class="engraved">CPU</span>
+        {#if cpuTotal}
+          <b>{pct(cpuTotal.total)}</b> · pk {pct(cpuTotal.peak)}{cpuTotal.bufferUs > 0 ? ` of a ${(cpuTotal.bufferUs / 1000).toFixed(1)} ms buffer` : ''}
+        {:else}
+          <b>—</b> (synth off)
+        {/if}
+      </span>
+      <span use:tip={'part.plugin_instances'}>
+        <span class="engraved">Plugin instances</span> <b>{app.state.plugins.instances ?? 0}</b>
+      </span>
     </div>
 
     <div class="extras">
@@ -308,150 +322,21 @@
       {/if}
     </div>
 
-    <div class="effects">
+    <!-- The effect blocks and the style's inserts live on the Effects screen; here, what each block plays and the way there. -->
+    <div class="effects" role="group" aria-label="Effects">
+      <DrawerButton tip="drawer.effects" open={ui.effects} onclick={() => ui.toggleDrawer('effects')}>Effects…</DrawerButton>
       {#each effects as b (b.block)}
-        <div class="block">
-          <button
-            type="button"
-            class="expand mat-raised"
-            aria-expanded={editing[b.block]}
-            aria-label="{b.name} settings"
-            use:tip={'fx.edit'}
-            disabled={b.params.length === 0}
-            onclick={() => (editing[b.block] = !editing[b.block])}>{editing[b.block] ? '▾' : '▸'}</button
-          >
-          <span class="engraved">{b.block === 'variation' ? 'Delay' : b.name}</span>
-          <select
-            class="field"
-            aria-label="{b.name} type"
-            use:tip={FX_TIPS[b.block][0]}
-            value={b.effect}
-            onchange={(e) => app.send({ type: 'setEffectType', block: b.block, effect: e.currentTarget.value as FxType })}
-          >
-            {#each b.types as t (t.effect)}
-              <option value={t.effect}>{t.name}</option>
-            {/each}
-          </select>
-          <div class="slider return">
-            <HSlider
-              value={b.returnLevel}
-              tip={FX_TIPS[b.block][1]}
-              label="{b.name} return"
-              unity={64}
-              format={returnText}
-              onchange={(v) => app.send({ type: 'setEffectReturn', block: b.block, level: v })}
-            />
-          </div>
-          <Toggle
-            on={b.followStyle}
-            tip="fx.follow_style"
-            onclick={() => app.send({ type: 'setFollowStyle', block: b.block, on: !b.followStyle })}>Style</Toggle
-          >
-          <span class="style-name" title={b.styleEffect?.name ?? ''}
-            >{b.styleEffect ? b.styleEffect.name + (b.styleEffect.effect ? '' : ' (no match)') : '—'}</span
-          >
-          <span class="band-label">Band</span>
-          <div class="slider return">
-            <HSlider
-              value={b.bandSend}
-              tip={FX_TIPS[b.block][2]}
-              label="{b.name} band send"
-              unity={100}
-              format={(v) => `${v}%`}
-              onchange={(v) => app.send({ type: 'setBandSend', block: b.block, level: v })}
-            />
-          </div>
-        </div>
+        <span class="fx-now"><span class="engraved">{b.block === 'variation' ? 'Delay' : b.name}</span> {b.effectName}</span>
       {/each}
     </div>
-    <div class="inserts" role="group" aria-label="Style inserts">
-      <Toggle
-        on={app.state.effects.insertsOn}
-        tip="fx.inserts"
-        onclick={() => app.send({ type: 'setInsertsOn', on: !app.state.effects.insertsOn })}>Inserts</Toggle
-      >
-      <Toggle
-        on={app.state.effects.rotaryFast}
-        tip="fx.rotary_fast"
-        onclick={() => app.send({ type: 'setRotaryFast', on: !app.state.effects.rotaryFast })}>Rotary Fast</Toggle
-      >
-      {#if inserts.length === 0}
-        <span class="style-name">The style has none</span>
-      {:else}
-        {#each inserts as i (i.part)}
-          <span class="insert" class:dry={!i.effect || !i.on || !app.state.effects.insertsOn} title={i.name}>
-            <Toggle
-              on={i.on}
-              tip="fx.insert_part"
-              onclick={() => app.send({ type: 'setPartInsertOn', part: i.part, on: !i.on })}>{i.partName}</Toggle
-            >
-            {i.name} → {i.effect ? INSERT_NAMES[i.effect] : 'dry'}
-            {#if i.effect}
-              <FxKnob
-                value={i.amount}
-                tip="fx.insert_amount"
-                label={`${i.partName} insert amount`}
-                caption="Amt"
-                reset={64}
-                onchange={(v) => app.send({ type: 'setPartInsertAmount', part: i.part, amount: v })}
-              />
-            {/if}
-          </span>
-        {/each}
-      {/if}
-    </div>
-    {#each effects.filter((b) => editing[b.block] && b.params.length > 0) as b (b.block)}
-      <div class="editor" role="group" aria-label="{b.name} parameters">
-        <span class="engraved">{b.block === 'variation' ? 'Delay' : b.name} · {b.effectName}</span>
-        {#each b.params as p (p.param)}
-          <div class="param">
-            {#if p.max - p.min === 1}
-              <Toggle
-                on={p.value === 1}
-                tip={PARAM_TIPS[p.param]}
-                onclick={() => app.send({ type: 'setEffectParam', block: b.block, param: p.param, value: p.value === 1 ? 0 : 1 })}
-                >{p.name}</Toggle
-              >
-            {:else}
-            <span class="band-label">{p.name}</span>
-            <div class="slider return">
-              <HSlider
-                disabled={paramOff(b, p.param)}
-                value={p.value}
-                min={p.min}
-                max={p.max}
-                unity={p.default}
-                tip={PARAM_TIPS[p.param]}
-                label="{b.name} {p.name}"
-                format={() => p.display}
-                onchange={(v) => app.send({ type: 'setEffectParam', block: b.block, param: p.param, value: v })}
-              />
-            </div>
-            {/if}
-          </div>
-        {/each}
-        <div class="param">
-          <span class="band-label">Pads</span>
-          <div class="slider return">
-            <HSlider
-              value={b.padSend}
-              tip={FX_TIPS[b.block][3]}
-              label="{b.name} Multi Pad send"
-              unity={100}
-              format={(v) => `${v}%`}
-              onchange={(v) => app.send({ type: 'setPadSend', block: b.block, level: v })}
-            />
-          </div>
-        </div>
-      </div>
-    {/each}
 
     <p class="info" use:tip={'mixer.info'}>
       <b>A fader is its channel’s CC 7</b>, 0–127, with no hidden gain. Loading a style sets the Style faders to the
       style’s own levels. <span class="wait">↕</span> waits for the Launchkey fader; the dashed cap is where it sits.
     </p>
 
-    <div class="strips" id="mixer-strips" role="tabpanel" aria-labelledby="mixer-tab-{page}">
+    <!-- The Panel strips' knob row holds the EQ under the sends (#247): taller, on every strip and the master, so the faders line up. -->
+    <div class="strips" id="mixer-strips" role="tabpanel" aria-labelledby="mixer-tab-{page}" style:--fx-h={page === 'panel' ? '10.2rem' : null}>
       {#if page === 'panel'}
         {#each parts as p, i (i)}
           <Strip {...panelStrip(p, i)} />
@@ -465,6 +350,7 @@
           onchange={(v) => app.send({ type: 'setStyleVolume', volume: v })}
           fxRow
           button={slotButton(STYLE_SLOT)}
+          cpu={cpuOf(meters, STYLE_CHANNELS)}
         />
         <Strip
           name="M.Pad"
@@ -475,6 +361,7 @@
           onchange={(v) => app.send({ type: 'setMultiPadVolume', volume: v })}
           fxRow
           button={slotButton(PAD_SLOT)}
+          cpu={cpuOf(meters, PAD_CHANNELS)}
         />
         {#each unusedSlots as n (n)}
           <Strip name="—" value={0} faderTip="launchkey.fader_unused" onchange={() => {}} unused fxRow button={slotButton(n)} />
@@ -487,7 +374,7 @@
 
       <div class="master knobs">
         <div class="ch engraved">Synth</div>
-        <div class="fx-space" aria-hidden="true"></div>
+        <MasterFx />
         <div class="fader">
           <Fader
             value={mixer.master ?? 0}
@@ -518,7 +405,7 @@
   }
   .mixer {
     display: grid;
-    grid-template-rows: auto auto auto auto 1fr;
+    grid-template-rows: auto auto auto auto auto 1fr;
     gap: 0.7rem;
     height: 100%;
     min-height: 27rem;
@@ -586,6 +473,18 @@
     font-size: 0.9rem;
     white-space: nowrap;
   }
+  /* #340/#407: every track's CPU together and the plugin instances loaded. */
+  .load {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1.4rem;
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .load .warn b {
+    color: var(--danger);
+  }
   .extras {
     display: flex;
     flex-wrap: wrap;
@@ -596,78 +495,13 @@
   .effects {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem 1.2rem;
-    align-items: center;
-    font-size: 0.9rem;
-  }
-  .block {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .field {
-    min-height: 2rem;
-    padding: 0 0.4rem;
-    border: 1px solid var(--seam);
-    border-radius: 4px;
-    background: var(--well);
-    color: var(--ink);
-    font: inherit;
-  }
-  .slider.return {
-    width: 7.5rem;
-  }
-  .expand {
-    min-width: 1.8rem;
-    min-height: 2rem;
-    border-radius: 5px;
-    color: var(--ink);
-  }
-  .expand:disabled {
-    opacity: 0.35;
-  }
-  .editor {
-    display: flex;
-    flex-wrap: wrap;
     gap: 0.4rem 1.2rem;
     align-items: center;
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--seam);
-    border-radius: 6px;
     font-size: 0.9rem;
   }
-  .param {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .style-name {
-    max-width: 9rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .fx-now {
+    font-family: var(--font-display);
     white-space: nowrap;
-    font-size: var(--fs-small);
-    color: var(--muted);
-  }
-  .inserts {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.35rem 0.8rem;
-    font-size: 0.8rem;
-    color: var(--muted);
-  }
-  .insert {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .insert.dry {
-    opacity: 0.6;
-  }
-  .band-label {
-    font-size: var(--fs-small);
-    color: var(--muted);
   }
   .metronome,
   .trackmute {
@@ -756,8 +590,8 @@
     line-height: 1.2;
     color: var(--muted);
     align-content: start;
-    /* The height of a strip's buttons, voice and badge, so the master fader lines up. */
-    min-height: 6.4rem;
+    /* The height of a strip's buttons, voice, badge and CPU, so the master fader lines up. */
+    min-height: 8.35rem;
     padding-top: 0.2rem;
   }
   .layers {

@@ -705,7 +705,7 @@ impl Report {
         let mut o = String::new();
         let t = self.totals();
         let _ = writeln!(o, "# yahaha oracle (docs/oracle.md). Counts only; score lines end in: notes exact pitch-class.");
-        let _ = writeln!(o, "# Regenerate with UPDATE_GOLDEN=1 cargo test --release oracle.");
+        let _ = writeln!(o, "# Regenerate with UPDATE_GOLDEN=1 cargo test --release --features slow-tests oracle.");
         let _ = writeln!(o, "styles {}", self.styles.len());
         let _ = writeln!(o, "unreadable {}", self.errors.len());
         let _ = writeln!(o, "pairs scored {}", t.pairs);
@@ -1121,6 +1121,7 @@ mod tests {
     /// Pins the corpus scores, so every change to the transposer reports what it did to them.
     /// Numbers only: nothing in tests/oracle/scores.txt is note content. Only the styles the
     /// file lists count, so adding styles to corpus/ does not move the pin.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_scores() {
         let corpus = root().join("corpus");
@@ -1148,7 +1149,7 @@ mod tests {
         let d = delta(&want, &rep.pinned());
         assert!(
             d.is_empty(),
-            "oracle scores changed (want -> got):\n{d}\nIf the change is intended, regenerate with UPDATE_GOLDEN=1 cargo test --release oracle, commit tests/oracle/scores.txt and quote this delta in the PR."
+            "oracle scores changed (want -> got):\n{d}\nIf the change is intended, regenerate with UPDATE_GOLDEN=1 cargo test --release --features slow-tests oracle, commit tests/oracle/scores.txt and quote this delta in the PR."
         );
     }
 

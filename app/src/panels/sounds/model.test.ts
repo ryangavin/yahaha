@@ -1,3 +1,4 @@
+// @vitest-environment node
 // The sound catalog model Library and the sound picker share (panels/sounds/model.ts), and
 // what a part plays, named (moved from the old Sound Browser's tests, racks item 13).
 
@@ -49,7 +50,7 @@ describe('sound catalog model', () => {
 
 describe('what a part plays, named (api::part_sound)', () => {
   const SMP = 'aumu Smp7 Fake'
-  const plugin = (id: string, name: string, origin: PluginOrigin): Patch => ({ id, name, category: 'piano', tags: [], favourite: false, source: { kind: 'plugin', componentId: SMP, state: '', origin } })
+  const plugin = (id: string, name: string, origin: PluginOrigin): Patch => ({ id, name, category: 'piano', tags: [], favourite: false, source: { kind: 'plugin', componentId: SMP, hasState: false, origin } })
   const patches: Patch[] = [
     { id: 'grand', name: 'Stage Grand', category: 'piano', tags: [], favourite: false, source: { kind: 'soundFont', file: 'A.sf2', bank: 0, program: 0 } },
     plugin('warm', 'Warm Keys', { kind: 'factory', number: 3 }),

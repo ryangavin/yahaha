@@ -1,10 +1,36 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { MockSession, noteName, transposeChord } from './mock'
+import { MockSession, mockOtsEq, mockOtsInsert, noteName, transposeChord } from './mock'
+import { FLAT_EQ } from './types'
 
 /** Milliseconds per bar at the mock's current tempo. */
 const bar = (m: MockSession) => (60000 / m.state.transport.tempo) * m.state.transport.beatsPerBar
 
 describe('mock session', () => {
+  it('meters: each track\'s CPU (#340), a plugin\'s on its own channel; plugin instances counted (#407)', async () => {
+    const m = new MockSession({ manual: true })
+    const cpu = async () => new Map((await m.meters()).channels.map((c) => [c.channel, c.cpu]))
+    let c = await cpu()
+    expect(c.size).toBe(16)
+    expect(c.get(1)).toBeGreaterThan(0) // Right 1, on, SoundFont
+    expect([...c.entries()].filter(([ch]) => ch >= 9).every(([, x]) => x === 0)).toBe(true) // the band stopped
+    // AUSampler (the heavy one) on Right 2 (channel 3).
+    m.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null })
+    expect(m.state.plugins.instances).toBe(0) // still loading
+    m.advance(1000)
+    expect(m.state.plugins.instances).toBe(1)
+    m.send({ type: 'startStop' })
+    c = await cpu()
+    expect(c.get(3)).toBeGreaterThan(0.25)
+    expect(c.get(9)).toBeGreaterThan(0) // Rhythm 1 plays
+    expect(c.get(5)).toBe(0) // no Multi Pad
+    const meters = await m.meters()
+    expect(meters.channels.find((x) => x.channel === 3)!.cpuPeak).toBeGreaterThan(c.get(3)!)
+    expect(meters.cpu.total).toBeCloseTo([...c.values()].reduce((a, b) => a + b, 0))
+    m.send({ type: 'clearPartPlugin', part: 1 })
+    expect(m.state.plugins.instances).toBe(0)
+  })
+
   it('starts stopped with Sync Start armed; Start/Stop starts it on Main A', () => {
     const m = new MockSession({ manual: true })
     expect(m.state.transport.running).toBe(false)
@@ -81,6 +107,33 @@ describe('mock session', () => {
     const styles = (m as unknown as { styles: { id: number; ots: number; sections: string[]; error?: string }[] }).styles
     return styles.find((s) => s.id !== m.state.style.id && s.ots > 0 && !s.error && s.sections.includes('Fill In BA') && s.sections.includes('Ending A') && s.sections.includes('Main A'))!
   }
+
+  it('an OTS recall sets the part EQ as the engine does (#247)', () => {
+    const m = new MockSession({ manual: true })
+    const mine = { ...FLAT_EQ, lowGain: -4 }
+    for (let p = 0; p < 4; p++) m.send({ type: 'setPartEq', part: p, eq: mine })
+    m.send({ type: 'recallOts', index: 0 })
+    expect(m.state.keyboardParts[0].eq).toEqual(mockOtsEq(0, 0))
+    m.state.ots.settings[0].parts.slice(1).forEach((o, j) => {
+      expect(m.state.keyboardParts[j + 1].eq).toEqual(o.program !== null ? FLAT_EQ : mine)
+    })
+  })
+
+  it('the insert slot commands set it, and an OTS recall sets it as the engine does', () => {
+    const m = new MockSession({ manual: true })
+    for (let p = 0; p < 4; p++) {
+      m.send({ type: 'setKeyboardInsertEffect', part: p, effect: 'tremolo' })
+      m.send({ type: 'setKeyboardInsertOn', part: p, on: true })
+      m.send({ type: 'setKeyboardInsertAmount', part: p, amount: 200 })
+    }
+    const mine = { effect: 'tremolo', on: true, amount: 127 }
+    expect(m.state.keyboardParts[3].insert).toEqual(mine)
+    m.send({ type: 'recallOts', index: 0 })
+    expect(m.state.keyboardParts[0].insert).toEqual(mockOtsInsert(0, 0))
+    m.state.ots.settings[0].parts.slice(1).forEach((o, j) => {
+      expect(m.state.keyboardParts[j + 1].insert).toEqual(o.program !== null ? { ...mine, on: false } : mine)
+    })
+  })
 
   it('a queued style recalls its OTS as it takes over in a Main', () => {
     const m = new MockSession({ manual: true })
@@ -263,14 +316,36 @@ describe('mock session', () => {
     expect(m.state.message?.text).toContain('no settings yet')
     m.send({ type: 'exportSoundPreset', id: 'stage-grand' })
     expect(m.state.message?.text).toContain('not a plugin sound')
-    const p = m.state.soundLibrary.patches.find((q) => q.id === 'keys-au')!
-    p.source = { kind: 'plugin', componentId: 'aumu Smp7 Fake', state: 'c2FtcGxlciBkZWx1eGU=' }
+    m.patchState('keys-au', 'c2FtcGxlciBkZWx1eGU=')
     m.send({ type: 'exportSoundPreset', id: 'keys-au' })
     expect(m.state.message).toMatchObject({ error: false, text: 'Keys (AU) exported to ~/Library/Audio/Presets' })
     m.send({ type: 'exportSoundPreset', id: 'keys-au' })
     expect(m.state.message?.text).toContain('already exists')
     m.send({ type: 'exportSoundPreset', id: 'keys-au', overwrite: true })
     expect(m.state.message?.error).toBe(false)
+  })
+
+  it('updatePatch without a plugin state keeps the stored one; the state shows only hasState', () => {
+    const m = new MockSession({ manual: true })
+    m.patchState('keys-au', 'c2FtcGxlciBkZWx1eGU=')
+    const p = m.state.soundLibrary.patches.find((q) => q.id === 'keys-au')!
+    expect(p.source).toEqual({ kind: 'plugin', componentId: 'aumu dls  appl', hasState: true })
+    m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu dls  appl' } } })
+    const q = m.state.soundLibrary.patches.find((x) => x.id === 'keys-au')!
+    expect(q.name).toBe('Renamed')
+    expect(q.source).toMatchObject({ hasState: true })
+    expect(m.patchState('keys-au')).toBe('c2FtcGxlciBkZWx1eGU=')
+    // The same plugin with another origin (a factory preset): the old state doesn't carry over.
+    m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu dls  appl', origin: { kind: 'factory', number: 3 } } } })
+    expect(m.state.soundLibrary.patches.find((x) => x.id === 'keys-au')!.source).toMatchObject({ hasState: false, origin: { kind: 'factory', number: 3 } })
+    expect(m.patchState('keys-au')).toBe('')
+    // That preset's own state is kept by the next update of the same preset.
+    m.patchState('keys-au', 'bmV3')
+    m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu dls  appl', origin: { kind: 'factory', number: 3 } } } })
+    expect(m.patchState('keys-au')).toBe('bmV3')
+    // Another plugin: its own (empty) state.
+    m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu Smp7 Fake' } } })
+    expect(m.state.soundLibrary.patches.find((x) => x.id === 'keys-au')!.source).toMatchObject({ hasState: false })
   })
 
   it('Chord Looper banks: Save As, a clash refused unless overwritten, Load (#201)', () => {

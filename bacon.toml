@@ -3,31 +3,46 @@
 # Run headless in a worktree with `bacon --headless`: bacon re-runs the job on every source
 # change and rewrites the exports below after EVERY run, so an agent reads the result instead
 # of running cargo itself.
+#
+# Every job runs with `--workspace --exclude yahaha-app`: the `yahaha` facade and the layer
+# crates under crates/ (AGENTS.md, Layering), not the app shell (app/src-tauri), which has
+# its own check. Without `--workspace`, default-members would build the facade alone.
 
 default_job = "check"
 # An edit during a run cancels it and starts over, so an export always covers every edit
 # made before the run started.
 on_change_strategy = "kill_then_restart"
 
-# The fastest useful signal: everything (lib, bin, tests) type-checks, plugin code included.
+# The fastest useful signal: everything (libs, bin, tests) type-checks, plugin code included.
 # Plugin hosting is macOS only; elsewhere use `check-portable`.
 [jobs.check]
-command = ["cargo", "check", "--all-targets", "--features", "plugins", "--color", "always"]
+command = ["cargo", "check", "--workspace", "--exclude", "yahaha-app", "--all-targets", "--features", "plugins", "--color", "always"]
 need_stdout = false
 
 [jobs.check-portable]
-command = ["cargo", "check", "--all-targets", "--color", "always"]
+command = ["cargo", "check", "--workspace", "--exclude", "yahaha-app", "--all-targets", "--color", "always"]
 need_stdout = false
 
 [jobs.clippy]
-command = ["cargo", "clippy", "--all-targets", "--features", "plugins", "--color", "always"]
+command = ["cargo", "clippy", "--workspace", "--exclude", "yahaha-app", "--all-targets", "--features", "plugins", "--color", "always"]
 need_stdout = false
 
+# The core suite (AGENTS.md, Checks) on every change: every package's library tests without
+# the slow ones, under the `test-quick` profile. On Linux use `core-portable`.
+[jobs.core]
+command = ["cargo", "test", "--workspace", "--exclude", "yahaha-app", "--profile", "test-quick", "--features", "plugins", "--lib", "--color", "always"]
+need_stdout = true
+
+[jobs.core-portable]
+command = ["cargo", "test", "--workspace", "--exclude", "yahaha-app", "--profile", "test-quick", "--lib", "--color", "always"]
+need_stdout = true
+
 # An agent's targeted tests: `bacon test -- <filter>` (the filter goes after `--`). Built with
-# the `test-quick` profile (Cargo.toml): our crate unoptimised, so a rebuild is quick. The
-# full suite and CI use the same profile.
+# the `test-quick` profile (Cargo.toml): our crates unoptimised, so a rebuild is quick. The
+# core suite and CI use the same profile. Add `--lib` before the filter for library tests
+# only (it skips building and linking the integration test crates).
 [jobs.test]
-command = ["cargo", "test", "--profile", "test-quick", "--features", "plugins", "--color", "always"]
+command = ["cargo", "test", "--workspace", "--exclude", "yahaha-app", "--profile", "test-quick", "--features", "plugins", "--color", "always"]
 need_stdout = true
 
 # Written after every run (git-ignored): `error_code` (null = the command exited 0), `stats`

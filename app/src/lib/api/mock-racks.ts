@@ -3,7 +3,7 @@
 // sound-names prompt, as the session does them.
 
 import type { AppCmd, AppState, ControlMap, ControlTarget, KeyboardPart, RackCmd, RackControl, RackEntry, RackSwitch } from './types'
-import { defaultControlMap } from './types'
+import { defaultControlMap, FLAT_EQ, OFF_INSERT } from './types'
 import { faderCommand } from './mock-knobs'
 
 /** What a mock rack holds: each part's switch, voice, own patch and mix, the split, the
@@ -11,7 +11,7 @@ import { faderCommand } from './mock-knobs'
 interface MockRack {
   id: string
   name: string
-  parts: Pick<KeyboardPart, 'on' | 'program' | 'patch' | 'volume' | 'octave' | 'pan' | 'reverb' | 'chorus' | 'variation'>[]
+  parts: Pick<KeyboardPart, 'on' | 'program' | 'patch' | 'volume' | 'octave' | 'pan' | 'reverb' | 'chorus' | 'variation' | 'eq' | 'insert'>[]
   names: string[]
   split: number
   transpose: number
@@ -189,7 +189,7 @@ export class MockRacks {
     st.keyboardParts.forEach((p, part) => {
       const r = rack?.parts[part]
       ctx.command({ type: 'setPartPatch', part, id: r?.patch ?? null })
-      Object.assign(p, r ?? { on: part === 0, program: DEFAULT_PROGRAMS[part], volume: 100, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0 })
+      Object.assign(p, r ? { ...r, eq: { ...r.eq }, insert: { ...r.insert } } : { on: part === 0, program: DEFAULT_PROGRAMS[part], volume: 100, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0, eq: { ...FLAT_EQ }, insert: { ...OFF_INSERT } })
     })
     st.chord.split = rack?.split ?? 54
     st.chord.transposeKeyboard = rack?.transpose ?? 0
@@ -208,7 +208,7 @@ export class MockRacks {
     return {
       id,
       name,
-      parts: st.keyboardParts.map(({ on, program, patch, volume, octave, pan, reverb, chorus, variation }) => ({ on, program, patch, volume, octave, pan, reverb, chorus, variation })),
+      parts: st.keyboardParts.map(({ on, program, patch, volume, octave, pan, reverb, chorus, variation, eq, insert }) => ({ on, program, patch, volume, octave, pan, reverb, chorus, variation, eq: { ...eq }, insert: { ...insert } })),
       names: st.keyboardParts.map((p) => p.sound?.name ?? p.voiceName),
       split: st.chord.split,
       transpose: st.chord.transposeKeyboard,

@@ -312,6 +312,23 @@ pub fn play_top(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
     Ok(())
 }
 
+/// Everything a front-panel frame shows that can change without a key press: the state
+/// (by version), the message line, and the pad colours at the current beat (the flashing
+/// and pulsing pads). The terminal is redrawn only when this changes, or on a terminal event.
+#[derive(PartialEq, Debug)]
+struct FrameKey {
+    version: u64,
+    message: String,
+    pads: Vec<(u8, u8, u8)>,
+}
+
+impl FrameKey {
+    fn new(st: &AppState, message: String, beats: f64) -> FrameKey {
+        let pads = st.pads.pads.iter().map(|p| launchkey::lit((p.rgb[0], p.rgb[1], p.rgb[2]), p.level, p.anim, beats)).collect();
+        FrameKey { version: st.version, message, pads }
+    }
+}
+
 /// Run the terminal front panel on a live session; `startup` commands run first (their
 /// errors show in the message line).
 pub fn play(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
@@ -327,26 +344,42 @@ pub fn play(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
     // replaced for good, and a newer message replaces it.
     let mut quit_prompt = false;
     let mut hidden_msg: Option<u64> = None;
+    // The state and library are fetched again only when the version moves (a library
+    // republish moves it too: the state carries `library.revision`). The version is bumped
+    // before the state is stored, so the state's own version is what we remember: a newer
+    // version seen early is fetched again on the next pass.
+    let mut st = session.state();
+    let mut lib = session.library();
+    // What the last frame showed; `None` forces a redraw (any terminal event: a key, a resize).
+    let mut drawn: Option<FrameKey> = None;
     let result: Result<()> = (|| loop {
-        let st = session.state();
-        let lib = session.library();
+        if session.version() != st.version {
+            st = session.state();
+            lib = session.library();
+        }
         let msg = st.message.as_ref().filter(|m| Some(m.seq) != hidden_msg);
         if quit_prompt && (msg.is_some() || !quit_guard.is_armed(clock.elapsed())) {
             quit_prompt = false;
         }
         let message = if quit_prompt { QuitGuard::MSG.to_string() } else { msg.map(|m| m.text.clone()).unwrap_or_default() };
         let beats = session.beats();
-        term.draw(|f| {
-            draw(f, &st, &message, beats);
-            if let Some(b) = &browser {
-                draw_browser(f, b, &lib, st.style.id, &message);
-            }
-        })?;
+        let key = FrameKey::new(&st, message, beats);
+        if drawn.as_ref() != Some(&key) {
+            term.draw(|f| {
+                draw(f, &st, &key.message, beats);
+                if let Some(b) = &browser {
+                    draw_browser(f, b, &lib, st.style.id, &key.message);
+                }
+            })?;
+            drawn = Some(key);
+        }
 
         if !event::poll(Duration::from_millis(16))? {
             continue;
         }
-        let Event::Key(k) = event::read()? else { continue };
+        let ev = event::read()?;
+        drawn = None;
+        let Event::Key(k) = ev else { continue };
         if k.kind != KeyEventKind::Press {
             continue;
         }
@@ -1080,5 +1113,30 @@ mod tests {
         assert_eq!(unmapped_text(0x01_B0_67_7F), "unmapped CC 103 = 127");
         assert_eq!(unmapped_text(0x01_BF_55_41), "unmapped CC 85 = 65 (ch 16)");
         assert_eq!(unmapped_text(0x01_99_24_5A), "unmapped note 36 = 90 (ch 10)");
+    }
+
+    /// The front panel redraws when the version, the message or a pad's animated colour
+    /// moves, and not while the beat only moves under solid pads.
+    #[test]
+    fn frame_key_changes_only_when_the_frame_would() {
+        use yahaha::launchkey::{Anim, Level};
+        let pad = |anim| Pad { rgb: [100, 50, 0], level: Level::Bright, anim, ..Pad::default() };
+        let mut st = AppState { version: 7, ..AppState::default() };
+        st.pads.pads = vec![pad(Anim::Solid), Pad { level: Level::Dim, ..pad(Anim::Flash) }];
+        let key = |st: &AppState, msg: &str, beats: f64| FrameKey::new(st, msg.to_string(), beats);
+
+        // Solid and dim pads: the beat moving changes nothing.
+        assert_eq!(key(&st, "", 0.1), key(&st, "", 3.7));
+        assert_ne!(key(&st, "", 0.1), key(&st, "hi", 0.1));
+        assert_ne!(key(&st, "", 0.1), key(&AppState { version: 8, ..st.clone() }, "", 0.1));
+
+        // A flashing pad changes on the half beat, not within it.
+        st.pads.pads.push(pad(Anim::Flash));
+        assert_eq!(key(&st, "", 0.1), key(&st, "", 0.4));
+        assert_ne!(key(&st, "", 0.4), key(&st, "", 0.6));
+
+        // A pulsing pad changes as the beat moves.
+        st.pads.pads.push(pad(Anim::Pulse));
+        assert_ne!(key(&st, "", 0.1), key(&st, "", 0.4));
     }
 }

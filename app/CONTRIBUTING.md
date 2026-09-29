@@ -26,7 +26,7 @@ npm install
 npm run dev                # the frontend alone, in a browser, on the mock session: http://localhost:5173
 cargo tauri dev            # the desktop app on the real engine (it runs `npm run dev` itself)
 YAHAHA_MOCK=1 cargo tauri dev   # the desktop app on the mock (no MIDI, no styles needed)
-cargo tauri build --debug  # a .app in src-tauri/target/debug/bundle/macos/
+cargo tauri build --debug  # a .app in the repo root's target/debug/bundle/macos/
 npm run verify             # svelte-check (fails on warnings) + eslint + vitest
 npm run docs:controls      # regenerate docs/controls.md from the tooltip catalog
 npm run screenshots        # docs/screenshots/*.png (needs `npm run dev` and Google Chrome)
@@ -380,8 +380,9 @@ always matches the hardware.
 ## Keeping up with the engine API
 
 - The shell depends on the engine library (`yahaha = { path = "../..",
-  default-features = false }`). `src-tauri/Cargo.toml` has its own `[workspace]`
-  table, so the root build is unchanged.
+  default-features = false }`). `src-tauri` is a member of the root workspace (one
+  Cargo.lock, one target directory), so its builds reuse the engine's; cargo at the repo
+  root still builds only the engine.
 - The Rust mock builds the engine's own types, so it can't drift. The TypeScript types
   (`src/lib/api/types.ts`) are the copy to keep in step with docs/app-api.md.
   `yahaha state-json <style> ["C Am F G7"]` and `--library` print real JSON: re-record

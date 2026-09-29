@@ -194,6 +194,22 @@ pub struct Meters {
     pub master_rms: [f32; 2],
     /// Audio buffers in which the soft clipper was working (above -1 dBFS), since start.
     pub clips: u64,
+    /// Every track's CPU together (#340; each track's is in `channels`).
+    #[serde(default)]
+    pub cpu: CpuMeter,
+}
+
+/// The tracks' CPU together (#340), over the last second, as shares of the audio buffer's
+/// time (1.0 = the whole buffer).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuMeter {
+    /// Every track's render time over the buffers' time: the average share.
+    pub total: f32,
+    /// The worst single buffer's.
+    pub peak: f32,
+    /// The audio buffer's length in µs (the time budget); 0 before the first buffer.
+    pub buffer_us: f32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -205,6 +221,14 @@ pub struct ChannelMeter {
     /// RMS (linear), the loudest audio buffer's since the previous read.
     #[serde(default)]
     pub rms: f32,
+    /// Its CPU (#340) over the last second: its render time (SoundFont voices, filter and
+    /// insertion effect, or its plugin) as a share of the buffers' time (1.0 = the whole
+    /// buffer). Updated once a second, not reset by a read.
+    #[serde(default)]
+    pub cpu: f32,
+    /// Its worst single buffer in that second, the same way.
+    #[serde(default)]
+    pub cpu_peak: f32,
 }
 
 #[cfg(test)]

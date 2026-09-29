@@ -21,7 +21,7 @@ use crate::api::{CmdError, PluginsState, RackCmd, RackEntry, RackPrompt, RackSwi
 use crate::parts;
 use crate::patches::FontPreset;
 use crate::racks::{self, Rack, RackPart, SoundRef, ToneReg};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 /// What a recovered rack's name starts with.
@@ -161,6 +161,8 @@ impl Control {
             octave: 0,
             tone: ToneReg::default(),
             bend_range: crate::controllers::DEFAULT_BEND_RANGE,
+            eq: Default::default(),
+            insert: Default::default(),
             other: Default::default(),
         };
         Rack {
@@ -310,14 +312,23 @@ impl Control {
 
     /// The user's racks, by name, for the app.
     pub(super) fn rack_entries(&self, plugins: &PluginsState) -> Vec<RackEntry> {
+        let racks = self.presence.racks();
+        if racks.is_empty() {
+            return Vec::new();
+        }
         let attention: HashSet<&str> = plugins.needs_attention.iter().map(|r| r.id.as_str()).collect();
-        self.presence
-            .racks()
+        // The lookups are built once per call, not searched per part per rack.
+        let sounds = racks.iter().flat_map(|r| &r.sounds);
+        let names = SoundNames::new(
+            sounds.clone().any(|s| matches!(s, SoundRef::Library { .. })).then(|| self.sound_patches()).unwrap_or_default(),
+            sounds.clone().any(|s| matches!(s, SoundRef::Plugin { .. })).then_some(plugins),
+        );
+        racks
             .iter()
             .map(|r| RackEntry {
                 id: r.id.clone(),
                 name: r.name.clone(),
-                parts: r.sounds.iter().map(|s| self.rack_sound_name(s, plugins)).collect(),
+                parts: r.sounds.iter().map(|s| self.rack_sound_name(s, &names)).collect(),
                 on: r.on.clone(),
                 needs_attention: attention.contains(r.id.as_str()),
             })
@@ -326,24 +337,49 @@ impl Control {
 
     /// A rack part's sound by name: the library's, the SoundFont preset's (a GM voice's),
     /// or the plugin's.
-    fn rack_sound_name(&self, s: &SoundRef, plugins: &PluginsState) -> String {
+    fn rack_sound_name(&self, s: &SoundRef, names: &SoundNames<'_>) -> String {
         match s {
-            SoundRef::Library { id } => {
-                self.sound_patches().iter().find(|p| p.id == *id).map_or_else(|| id.clone(), |p| p.name.clone())
-            }
+            SoundRef::Library { id } => names.patch(id),
             SoundRef::Font { file, bank, program } => {
                 self.font_preset_name(&FontPreset::new(file.clone(), *bank, *program)).unwrap_or_else(|| {
                     if *bank == 0 { crate::api::gm_name(*program).to_string() } else { format!("{file} {bank}:{}", program + 1) }
                 })
             }
-            SoundRef::Plugin { component } => plugins
-                .list
-                .iter()
-                .map(|p| (&p.id, &p.name))
-                .chain(plugins.missing.iter().map(|p| (&p.id, &p.name)))
-                .find(|(id, _)| *id == component)
-                .map_or_else(|| component.clone(), |(_, n)| n.clone()),
+            SoundRef::Plugin { component } => names.plugin(component),
         }
+    }
+}
+
+/// Names by id, for the racks list: the library's patches and the plugins (installed,
+/// then missing). The first of an id wins, as a search in that order would find it.
+struct SoundNames<'a> {
+    patches: HashMap<&'a str, &'a str>,
+    plugins: HashMap<&'a str, &'a str>,
+}
+
+impl<'a> SoundNames<'a> {
+    fn new(patches: &'a [crate::patches::Patch], plugins: Option<&'a PluginsState>) -> SoundNames<'a> {
+        let mut out = SoundNames { patches: HashMap::with_capacity(patches.len()), plugins: HashMap::new() };
+        for p in patches {
+            out.patches.entry(p.id.as_str()).or_insert(p.name.as_str());
+        }
+        if let Some(pl) = plugins {
+            let all = pl.list.iter().map(|p| (&p.id, &p.name)).chain(pl.missing.iter().map(|p| (&p.id, &p.name)));
+            for (id, name) in all {
+                out.plugins.entry(id.as_str()).or_insert(name.as_str());
+            }
+        }
+        out
+    }
+
+    /// Library patch `id`'s name (the id itself for a patch not in the library).
+    fn patch(&self, id: &str) -> String {
+        self.patches.get(id).map_or_else(|| id.to_string(), |n| n.to_string())
+    }
+
+    /// Plugin `id`'s name (the id itself for a plugin not listed).
+    fn plugin(&self, id: &str) -> String {
+        self.plugins.get(id).map_or_else(|| id.to_string(), |n| n.to_string())
     }
 }
 
@@ -399,9 +435,11 @@ impl Session {
             drop(ctl);
             self.settle();
         } else {
-            self.inner.publish(&mut ctl, crate::rt::now_ns());
-            drop(ctl);
-            self.inner.shared.ctl_wake.signal();
+            // As `send`: pump and publish here, so the control thread has nothing left
+            // to rebuild unless the engine changes something.
+            let now = crate::rt::now_ns();
+            ctl.pump(now);
+            self.inner.publish(&mut ctl, now);
         }
         r
     }
@@ -410,3 +448,41 @@ impl Session {
 #[cfg(test)]
 #[path = "rack_cmds_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod cache_tests {
+    use super::SoundNames;
+    use crate::api::{MissingPlugin, PluginEntry, PluginsState};
+    use crate::patches::{Patch, PatchSource};
+
+    fn patch(id: &str, name: &str) -> Patch {
+        Patch {
+            id: id.into(),
+            name: name.into(),
+            category: Default::default(),
+            tags: Vec::new(),
+            favourite: false,
+            source: PatchSource::SoundFont { file: "gm.sf2".into(), bank: 0, program: 0 },
+        }
+    }
+
+    /// The lookups name what a search in order would: the first of an id, installed plugins
+    /// before missing ones, and the id itself for one not there.
+    #[test]
+    fn the_name_lookups_match_a_search_in_order() {
+        let patches = vec![patch("a", "Alpha"), patch("b", "Beta"), patch("a", "Second alpha")];
+        let plugins = PluginsState {
+            list: vec![PluginEntry { id: "p1".into(), name: "Installed".into(), ..Default::default() }],
+            missing: vec![
+                MissingPlugin { id: "p1".into(), name: "Missing too".into(), ..Default::default() },
+                MissingPlugin { id: "p2".into(), name: "Gone".into(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let n = SoundNames::new(&patches, Some(&plugins));
+        assert_eq!((n.patch("a"), n.patch("b"), n.patch("zz")), ("Alpha".into(), "Beta".into(), "zz".into()));
+        assert_eq!((n.plugin("p1"), n.plugin("p2"), n.plugin("p3")), ("Installed".into(), "Gone".into(), "p3".into()));
+        let none = SoundNames::new(&[], None);
+        assert_eq!((none.patch("a"), none.plugin("p1")), ("a".into(), "p1".into()));
+    }
+}

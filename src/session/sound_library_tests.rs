@@ -225,7 +225,7 @@ fn a_keyboard_part_takes_its_patch_and_keeps_its_mix() {
     let st = s.state();
     let p = st.sound_library.patches.last().unwrap();
     assert_eq!(p.patch.name, "My Strings");
-    assert_eq!(p.patch.source, PatchSource::SoundFont { file: SF2.into(), bank: 0, program: 48 });
+    assert_eq!(p.patch.source, PatchSourceView::SoundFont { file: SF2.into(), bank: 0, program: 48 });
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -244,7 +244,7 @@ fn saving_a_part_again_and_again_makes_one_record() {
     let st = s.state();
     assert_eq!(st.sound_library.patches.len(), n + 1, "one record for three saves");
     let p = &st.sound_library.patches.last().unwrap().patch;
-    assert_eq!((p.name.as_str(), &p.source), (gm_name(program), &PatchSource::SoundFont { file: SF2.into(), bank: 0, program }));
+    assert_eq!((p.name.as_str(), &p.source), (gm_name(program), &PatchSourceView::SoundFont { file: SF2.into(), bank: 0, program }));
     assert_eq!(st.keyboard_parts[1].patch.as_deref(), Some(p.id.as_str()), "the part plays the new sound");
     assert_eq!(s.inner.shared.routes.part(1).map(|r| r.program), Some(program));
 
@@ -281,7 +281,7 @@ fn saving_a_part_saves_the_patch_the_map_plays() {
     let p = &st.sound_library.patches.last().unwrap().patch;
     assert_ne!(p.id, id);
     assert_eq!((p.name.as_str(), &p.tags), ("Lush Strings", &vec!["warm".to_string()]));
-    assert_eq!(p.source, PatchSource::SoundFont { file: OTHER.into(), bank: 0, program: 50 }, "the mapped patch's sound");
+    assert_eq!(p.source, PatchSourceView::SoundFont { file: OTHER.into(), bank: 0, program: 50 }, "the mapped patch's sound");
     let _ = std::fs::remove_dir_all(&data);
 }
 
@@ -599,6 +599,7 @@ fn channel_routes_follow_the_new_styles_voices() {
 /// B3 (review of #106): a patch naming a SoundFont that can't be read neither blocks the
 /// other extra SoundFonts nor sets the loader going again and again.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn a_bad_soundfont_does_not_loop_or_block_the_others() {
     let Some((s, data)) = session("b3", &["SlowWalker.T552.sty"], true) else { return };
     std::fs::write(data.join("sf").join("bad.sf2"), b"RIFF\x04\x00\x00\x00sfbk").unwrap();
@@ -610,29 +611,40 @@ fn a_bad_soundfont_does_not_loop_or_block_the_others() {
     }
     let mut loads = 0;
     let mut was_loading = false;
-    for _ in 0..300 {
+    let mut pump = || {
         s.advance(10 * MS);
         let loading = s.inner.lock().sound.loading.is_some();
         if loading && !was_loading {
             loads += 1;
         }
         was_loading = loading;
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        loading
+    };
+    // Until the loader settles with the good extra SoundFont in (a loop never settles)...
+    let t0 = std::time::Instant::now();
+    while (pump() || s.inner.lock().sound.rack_fonts != [SF2, OTHER]) && t0.elapsed() < std::time::Duration::from_secs(10) {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    // ...then a pump would start it again at once if the bad one were retried.
+    for _ in 0..20 {
+        pump();
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
     let fonts = s.inner.lock().sound.rack_fonts.clone();
     assert_eq!(fonts, [SF2, OTHER], "the good extra SoundFont plays");
     assert!(loads <= 2, "the loader is not started again and again ({loads})");
     let msg = s.state().message.clone().unwrap();
     assert!(msg.error && msg.text.contains("bad.sf2"), "{msg:?}");
-    // The file changes (fixed): it is tried again, and loads.
-    std::thread::sleep(std::time::Duration::from_millis(20));
+    // The file changes (fixed; its size differs, so no wait for a new modification time):
+    // it is tried again, and loads.
     std::fs::write(data.join("sf").join("bad.sf2"), patches::sf2::tiny_gm_sound_font()).unwrap();
-    for _ in 0..300 {
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_secs(10) {
         s.advance(10 * MS);
         if s.inner.lock().sound.rack_fonts.len() == 3 {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
     assert_eq!(s.inner.lock().sound.rack_fonts.len(), 3, "the fixed SoundFont loads");
     let _ = std::fs::remove_dir_all(&data);
@@ -783,4 +795,30 @@ fn version_1_and_bare_files_back_up_as_v1() {
         drop(s);
         let _ = std::fs::remove_dir_all(&data);
     }
+}
+
+/// `updatePatch` with a plugin source and no state (as a client sends back the state's
+/// source, which shows only `hasState`) keeps the stored state for the same plugin and
+/// origin (#436); another factory preset of the plugin starts with none.
+#[test]
+fn an_update_without_state_keeps_the_stored_plugin_state() {
+    let data = folder("keep-state");
+    let s = gen_session(&data);
+    let source = |state: &str, number| PatchSource::Plugin { component_id: "aumu Smp7 Fake".into(), state: state.into(), origin: PluginOrigin::Factory { number } };
+    let plugin_fields = |name: &str, state: &str, number| PatchFields { name: name.into(), category: patches::Category::EPiano, tags: vec![], favourite: false, source: source(state, number) };
+    s.send(SoundLibraryCmd::CreatePatch { patch: plugin_fields("Keys", "c2FtcGxlcg==", 1) }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    let stored = |s: &Session| s.inner.lock().sound.lib.patches.iter().find(|p| p.id == id).unwrap().source.clone();
+    s.send(SoundLibraryCmd::UpdatePatch { id: id.clone(), patch: plugin_fields("Renamed", "", 1) }).unwrap();
+    assert_eq!(stored(&s), source("c2FtcGxlcg==", 1), "the stored blob is unchanged");
+    let st = s.state();
+    let p = st.sound_library.patches.iter().find(|p| p.patch.id == id).unwrap();
+    assert_eq!(p.patch.name, "Renamed");
+    assert!(matches!(p.patch.source, PatchSourceView::Plugin { has_state: true, .. }));
+    assert!(std::fs::read_to_string(data.join(patches::FILE_NAME)).unwrap().contains("c2FtcGxlcg=="), "and so is the file");
+    // Another factory preset of the same plugin: the old preset's state doesn't carry over.
+    s.send(SoundLibraryCmd::UpdatePatch { id: id.clone(), patch: plugin_fields("Renamed", "", 2) }).unwrap();
+    assert_eq!(stored(&s), source("", 2));
+    drop(s);
+    let _ = std::fs::remove_dir_all(&data);
 }

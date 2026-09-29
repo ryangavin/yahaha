@@ -45,6 +45,11 @@ struct Loaded {
 }
 
 impl Pads {
+    /// A bank rescan is running.
+    pub(super) fn scanning(&self) -> bool {
+        self.scan_rx.is_some()
+    }
+
     /// The bank files under `roots`, as the start of a session finds them.
     pub(super) fn scan(roots: &[PathBuf]) -> Pads {
         let mut p = Pads::default();
@@ -187,6 +192,15 @@ impl Control {
         };
         if std::thread::Builder::new().name("yahaha-pad-scan".into()).spawn(scan).is_ok() {
             self.multipad.scan_rx = Some(rx);
+        }
+    }
+
+    /// Wait for a running bank rescan, and merge it (`Control::finish_rescan`).
+    pub(super) fn finish_pad_scan(&mut self) {
+        if let Some(rx) = self.multipad.scan_rx.take()
+            && let Ok(scan) = rx.recv()
+        {
+            self.multipad.merge(scan);
         }
     }
 

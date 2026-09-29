@@ -1,0 +1,23 @@
+[package]
+name = "yahaha-engine"
+version = "0.1.0"
+edition = "2024"
+description = "yahaha: the arranger engine, Multi Pads, keyboard parts, controllers and the Launchkey mapping"
+license = "MIT"
+repository = "https://github.com/satoramoto/yahaha"
+
+# The crate split (AGENTS.md, Layering): the engine sits on core, sff and fx.
+
+[features]
+# Tests gated with `#[cfg(feature = "slow-tests")]` run in CI only (AGENTS.md).
+slow-tests = ["yahaha-core/slow-tests", "yahaha-sff/slow-tests", "yahaha-fx/slow-tests"]
+
+[dependencies]
+yahaha-core = { path = "../yahaha-core" }
+yahaha-sff = { path = "../yahaha-sff" }
+yahaha-fx = { path = "../yahaha-fx" }
+anyhow = "1.0.104"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

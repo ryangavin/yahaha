@@ -6,6 +6,26 @@ description = "A software arranger keyboard that plays Yamaha Genos/PSR style fi
 license = "MIT"
 repository = "https://github.com/satoramoto/yahaha"
 
+# One workspace, one Cargo.lock and one target directory for the `yahaha` facade (this
+# package), the layer crates under crates/ and the app shell (app/src-tauri), so the app's
+# tests reuse the engine's dependency builds instead of building everything a second time.
+# The layer crates are the planned crate split, core -> sff, fx -> engine -> synth -> this
+# facade (AGENTS.md, Layering); modules move into them lane by lane. A plain `cargo build`
+# at the repo root builds only the facade (default-members); the member crates' own tests
+# need `--workspace --exclude yahaha-app` (AGENTS.md, Checks). In app/src-tauri cargo
+# builds the app shell.
+[workspace]
+members = [
+    ".",
+    "app/src-tauri",
+    "crates/yahaha-core",
+    "crates/yahaha-sff",
+    "crates/yahaha-fx",
+    "crates/yahaha-engine",
+    "crates/yahaha-synth",
+]
+default-members = ["."]
+
 # The engine, the runtime and the app API are the `yahaha` library; the terminal front
 # panel and the developer tools are the `yahaha` binary. A client such as the desktop
 # app depends on the library alone: `yahaha = { path = "..", default-features = false }`.
@@ -26,121 +46,62 @@ test = true
 
 [features]
 default = ["tui"]
+# Tests gated with `#[cfg(feature = "slow-tests")]` are left out of the local core suite and run in CI.
+slow-tests = [
+    "yahaha-core/slow-tests",
+    "yahaha-sff/slow-tests",
+    "yahaha-fx/slow-tests",
+    "yahaha-engine/slow-tests",
+    "yahaha-synth/slow-tests",
+]
 # The terminal UI (ratatui, crossterm). Only the binary needs it.
 tui = ["dep:ratatui", "dep:crossterm"]
-# Plugin hosting (#35): Audio Unit instruments (src/plugin/, `yahaha plugin-test`). Off by
-# default. Pulls in the objc2 framework bindings below; none of them is built otherwise.
-plugins = [
-    "dep:objc2",
-    "dep:objc2-foundation",
-    "dep:objc2-core-foundation",
-    "dep:objc2-core-audio-types",
-    "dep:objc2-audio-toolbox",
-    "dep:objc2-app-kit",
-    "dep:objc2-core-audio-kit",
-    "dep:block2",
-]
+# Plugin hosting (#35): Audio Unit instruments (yahaha-synth's `plugin` module,
+# `yahaha plugin-test`). Off by default; macOS only. The objc2 framework bindings are
+# yahaha-synth's.
+plugins = ["yahaha-synth/plugins"]
 
 [dependencies]
+# The layer crates (AGENTS.md, Layering).
+yahaha-core = { path = "crates/yahaha-core" }
+yahaha-sff = { path = "crates/yahaha-sff" }
+yahaha-fx = { path = "crates/yahaha-fx" }
+yahaha-engine = { path = "crates/yahaha-engine" }
+yahaha-synth = { path = "crates/yahaha-synth" }
 anyhow = "1.0.104"
-cpal = "0.18.2"
 crossterm = { version = "0.29.0", optional = true }
-libc = "0.2.189"
-ratatui = { version = "0.30.2", optional = true }
+# Only the crossterm backend: the default features add the termwiz stack, palette and the
+# calendar widget, none of which the TUI uses.
+ratatui = { version = "0.30.2", optional = true, default-features = false, features = ["crossterm_0_29"] }
 rtrb = "0.4.0"
 # rustysynth (MIT, https://github.com/sinshu/rustysynth), unmodified from crates.io. Never
-# vendor or patch it (AGENTS.md). What it lacks is built in yahaha on its public API
-# (#346): one synthesizer per part, with meters, sends and inserts on the part's stem
-# (src/synth/rack.rs); mono and portamento (src/synth/voicing.rs); CC74/71/77 tone controls
-# (src/synth/part_tone.rs); CC73/75/72 envelope shaping (src/synth/envelope.rs);
-# velocity -> filter cutoff baked into the SoundFont as it loads (src/synth/font.rs); and
-# XG Drum Setup kits derived from the SoundFont (src/synth/kit.rs).
+# vendor or patch it (AGENTS.md). What it lacks is built in yahaha-synth on its public API
+# (#346; see crates/yahaha-synth/Cargo.toml).
 rustysynth = "1.3.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# CoreMIDI and Mach: macOS and iOS (iPad). On Linux (development only) rt/perf use libc
-# instead.
+# Mach and the run loop for `bench` (macOS and iOS); CoreMIDI and the rest are the layer
+# crates'.
 [target.'cfg(target_vendor = "apple")'.dependencies]
 core-foundation = "0.10.1"
-coremidi-sys = "3.2.1"
 mach2 = "0.7.0"
 
-# Plugin hosting only (the `plugins` feature). The objc2 project's generated bindings to
-# AudioToolbox, CoreAudioKit and AppKit; cpal already depends on objc2 / audio-toolbox.
-# macOS only: elsewhere the feature pulls in nothing and src/lib.rs stops with a
-# compile_error.
-[target.'cfg(target_os = "macos")'.dependencies.objc2]
-version = "0.6.4"
-optional = true
-features = ["exception"]
-
-[target.'cfg(target_os = "macos")'.dependencies.block2]
-version = "0.6.2"
-optional = true
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-foundation]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread", "NSNotification", "NSOperation", "block2"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-core-foundation]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "CFString", "CFData", "CFError", "CFPropertyList"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-types]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "CoreAudioBaseTypes"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-audio-toolbox]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "AudioComponent", "AUComponent", "AudioUnitProperties", "MusicDevice", "block2", "objc2-core-audio-types", "objc2-core-foundation"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-app-kit]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "NSApplication", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSViewController", "NSGraphics", "NSEvent", "objc2-core-foundation"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-kit]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]
-
-# Optional, for running tests with release semantics (no debug assertions, no overflow
-# checks), as the app ships: `cargo test --profile test-fast`. Our own crate builds
-# incrementally with light optimisation, and the dependencies (rustysynth included) at full
-# optimisation. The checks in AGENTS.md and CI use test-quick below: compiling our crate at
-# opt-level 2 took CI three and a half minutes, for tests that then ran in seconds.
-[profile.test-fast]
-inherits = "release"
-opt-level = 2
-incremental = true
-codegen-units = 256
-debug = 0
-
-[profile.test-fast.package."*"]
-opt-level = 3
-codegen-units = 16
+# Profiles live here, in the workspace root: cargo applies them to every member crate.
 
 # The test profile: the full suite and CI (`cargo test --profile test-quick`, see
-# AGENTS.md) and an agent's targeted tests (the bacon `test` job). Our crate unoptimised and
-# incremental, so it compiles and relinks in the least time; the dependencies at full
-# optimisation so audio-rendering tests still run quickly. Debug semantics (debug
-# assertions, overflow checks).
+# AGENTS.md) and an agent's targeted tests (the bacon `test` job). Everything unoptimised
+# and incremental, so it compiles and relinks in the least time, with debug semantics
+# (debug assertions, overflow checks). Only rustysynth, whose voices every audio-rendering
+# test runs, is optimised. Not `package."*"`: that also matches proc-macros and build
+# scripts (a package override beats `build-override`), and optimising serde_derive,
+# strum_macros, thiserror-impl and the rest cost a cold build tens of seconds for code
+# that only runs at compile time. Release semantics: `cargo test --release`.
 [profile.test-quick]
 inherits = "dev"
 opt-level = 0
 incremental = true
 debug = 0
 
-[profile.test-quick.package."*"]
+[profile.test-quick.package.rustysynth]
 opt-level = 3

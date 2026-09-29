@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import { isTipKey } from '../../help/tooltips'
+import { FLAT_EQ, OFF_INSERT } from '../../lib/api/types'
 import Mixer from './Mixer.svelte'
 import { partVoice, styleVoice } from './voice'
 
@@ -26,11 +27,14 @@ afterEach(() => {
   cleanup()
   app.detach()
   ui.mixer = false
+  ui.effects = false
 })
 
 /** The channel faders and the master (not the Panel strips' pan/send knobs). */
 const sliders = () => [...document.querySelectorAll<HTMLElement>('.strips [role="slider"]:not(.knob)')]
-const knobs = () => [...document.querySelectorAll<HTMLElement>('.strips .knob')]
+const knobs = () => [...document.querySelectorAll<HTMLElement>('.strips .fx .knob')]
+/** The Panel strips' EQ knobs (#247): low gain, low frequency, high gain, high frequency per part. */
+const eqKnobs = () => [...document.querySelectorAll<HTMLElement>('.strips .eq .knob')]
 const tab = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((t) => t.textContent?.includes(name))!
 
 describe('Mixer drawer', () => {
@@ -93,113 +97,21 @@ describe('Mixer drawer', () => {
     expect(document.body.textContent).toContain('104/0/49')
   })
 
-  it('Effects: each block\'s type and return level (#204)', async () => {
+  it('the effect blocks live on the Effects screen: a row names each block\'s type and opens it', async () => {
     const s = setup()
-    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
-    expect([...types].map((e) => e.getAttribute('aria-label'))).toEqual(['Reverb type', 'Chorus type', 'Variation type'])
-    expect(types[0].value).toBe('hall')
-    await fireEvent.change(types[2], { target: { value: 'pingPong' } })
-    expect(s.state.effects.blocks[2].effect).toBe('pingPong')
-    const ret = document.querySelector<HTMLElement>('[aria-label="Reverb return"]')!
-    expect(ret.getAttribute('aria-valuetext')).toBe('+0.0 dB')
-    await fireEvent.keyDown(ret, { key: 'Home' })
-    expect(s.state.effects.blocks[0].returnLevel).toBe(0)
-  })
-
-  it('Effects: a block\'s editor sets its parameters; a type change puts them back (#236)', async () => {
-    const s = setup()
-    const open = document.querySelector<HTMLElement>('[aria-label="Reverb settings"]')!
-    expect(open.getAttribute('aria-expanded')).toBe('false')
-    await fireEvent.click(open)
+    const row = document.querySelector<HTMLElement>('[aria-label="Effects"]')!
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Reverb Hall')
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Delay Delay 1/8.')
+    // No effect controls of its own any more: the type pickers, editors and inserts moved.
+    // (The keyboard strips' own insert slot pickers stay on the strips.)
+    expect(document.querySelector('select:not(.ins-kind)')).toBeNull()
+    expect(document.querySelector('[aria-label="Style inserts"]')).toBeNull()
+    s.send({ type: 'setEffectType', block: 'reverb', effect: 'plate' })
     flushSync()
-    const time = document.querySelector<HTMLElement>('[aria-label="Reverb Time"]')!
-    expect(time.getAttribute('aria-valuetext')).toBe('2.4 s')
-    await fireEvent.keyDown(time, { key: 'End' })
-    expect(s.state.effects.blocks[0].params[0].value).toBe(100)
-    expect(s.state.effects.blocks[0].params[0].display).toBe('10.0 s')
-    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
-    await fireEvent.change(types[0], { target: { value: 'room' } })
-    expect(s.state.effects.blocks[0].params.map((p) => p.value)).toEqual([9, 4, 60])
-  })
-
-  it('Effects: the delay editor, note or free time, and its switches (#236)', async () => {
-    const s = setup()
-    await fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Variation settings"]')!)
-    flushSync()
-    const note = document.querySelector<HTMLElement>('[aria-label="Variation Note"]')!
-    const time = document.querySelector<HTMLElement>('[aria-label="Variation Time"]')!
-    expect(note.getAttribute('aria-valuetext')).toBe('1/8.')
-    expect(time.getAttribute('aria-disabled')).toBe('true')
-    const sync = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((e) => e.textContent?.includes('Tempo sync'))!
-    await fireEvent.click(sync)
-    flushSync()
-    expect(s.state.effects.blocks[2].params[0].value).toBe(0)
-    expect(document.querySelector<HTMLElement>('[aria-label="Variation Time"]')!.getAttribute('aria-disabled')).toBeNull()
-    const pp = [...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((e) => e.textContent?.includes('Ping-pong'))!
-    await fireEvent.click(pp)
-    expect(s.state.effects.blocks[2].params[5].display).toBe('On')
-  })
-
-  it('Effects: the chorus editor has rate and depth (#236)', async () => {
-    const s = setup()
-    await fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Chorus settings"]')!)
-    flushSync()
-    const depth = document.querySelector<HTMLElement>('[aria-label="Chorus Depth"]')!
-    expect(depth.getAttribute('aria-valuetext')).toBe('2.2 ms')
-    await fireEvent.keyDown(depth, { key: 'ArrowUp' })
-    expect(s.state.effects.blocks[1].params[1].display).toBe('2.3 ms')
-  })
-
-  it('Effects: the Style switch per block; choosing a type turns it off (#237)', async () => {
-    const s = setup()
-    const styleSwitch = (i: number) => [...document.querySelectorAll<HTMLElement>('.effects [role="switch"]')][i]
-    expect(styleSwitch(0).getAttribute('aria-checked')).toBe('true')
-    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
-    await fireEvent.change(types[0], { target: { value: 'plate' } })
-    flushSync()
-    expect(s.state.effects.blocks[0].followStyle).toBe(false)
-    expect(styleSwitch(0).getAttribute('aria-checked')).toBe('false')
-    await fireEvent.click(styleSwitch(0))
-    expect(s.state.effects.blocks[0].followStyle).toBe(true)
-    expect(s.state.effects.blocks[0].effect).toBe('hall')
-  })
-
-  it('Effects: a band send per block, the band\'s chorus and delay off at start (#236)', async () => {
-    const s = setup()
-    const band = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} band send"]`)!
-    expect(['Reverb', 'Chorus', 'Variation'].map((n) => band(n).getAttribute('aria-valuetext'))).toEqual(['100%', '0%', '0%'])
-    await fireEvent.keyDown(band('Variation'), { key: 'PageUp' })
-    expect(s.state.effects.blocks[2].bandSend).toBe(10)
-    await fireEvent.keyDown(band('Reverb'), { key: 'Home' })
-    expect(s.state.effects.blocks[0].bandSend).toBe(0)
-  })
-
-  it('Effects: a Multi Pad send per block in its editor, the pads\' chorus and delay off at start (#267)', async () => {
-    const s = setup()
-    for (const b of ['Reverb', 'Chorus', 'Delay']) {
-      await fireEvent.click(document.querySelector<HTMLElement>(`[aria-label="${b === 'Delay' ? 'Variation' : b} settings"]`)!)
-    }
-    flushSync()
-    const pad = (name: string) => document.querySelector<HTMLElement>(`[aria-label="${name} Multi Pad send"]`)!
-    expect(['Reverb', 'Chorus', 'Variation'].map((n) => pad(n).getAttribute('aria-valuetext'))).toEqual(['100%', '0%', '0%'])
-    expect(pad('Chorus').dataset.tip).toBe('fx.chorus_pad')
-    await fireEvent.keyDown(pad('Variation'), { key: 'PageUp' })
-    expect(s.state.effects.blocks[2].padSend).toBe(10)
-    expect(s.state.effects.blocks[2].bandSend).toBe(0)
-    await fireEvent.keyDown(pad('Reverb'), { key: 'Home' })
-    expect(s.state.effects.blocks[0].padSend).toBe(0)
-  })
-
-  it('Effects: the style\'s inserts listed, with one switch for them all (#269)', async () => {
-    const s = setup()
-    const group = document.querySelector<HTMLElement>('[aria-label="Style inserts"]')!
-    expect(group.textContent).toContain('Chord 1')
-    expect(group.textContent).toContain('British Combo Classic → Distortion')
-    const sw = group.querySelector<HTMLElement>('[data-tip="fx.inserts"]')!
-    await fireEvent.click(sw)
-    expect(s.state.effects.insertsOn).toBe(false)
-    await fireEvent.click(sw)
-    expect(s.state.effects.insertsOn).toBe(true)
+    expect(row.textContent).toContain('Plate')
+    await fireEvent.click(row.querySelector<HTMLElement>('[data-tip="drawer.effects"]')!)
+    expect(ui.effects).toBe(true)
+    expect(ui.mixer).toBe(false)
   })
 
   it('follows the page when the Launchkey switches it', () => {
@@ -243,6 +155,55 @@ describe('Mixer drawer', () => {
     await fireEvent.keyDown(k[1], { key: 'End' })
     await fireEvent.dblClick(k[1])
     expect(s.state.keyboardParts[0].reverb).toBe(0)
+  })
+
+  it('Panel strips have the part EQ: low and high shelf gain and frequency, sent as setPartEq (#247)', async () => {
+    const s = setup()
+    const k = eqKnobs()
+    expect(k).toHaveLength(16)
+    expect(k.slice(0, 4).map((e) => e.getAttribute('aria-label'))).toEqual(['Right 1 EQ low', 'Right 1 EQ low frequency', 'Right 1 EQ high', 'Right 1 EQ high frequency'])
+    expect(k.slice(0, 4).map((e) => e.getAttribute('aria-valuetext'))).toEqual(['0', '80', '0', '10k'])
+    await fireEvent.keyDown(k[0], { key: 'ArrowUp' })
+    expect(s.state.keyboardParts[0].eq).toEqual({ ...FLAT_EQ, lowGain: 1 })
+    await fireEvent.keyDown(k[14], { key: 'Home' })
+    expect(s.state.keyboardParts[3].eq).toEqual({ ...FLAT_EQ, highGain: -12 })
+    await fireEvent.keyDown(k[15], { key: 'Home' })
+    expect(s.state.keyboardParts[3].eq.highFreq).toBe(500)
+    await fireEvent.keyDown(k[5], { key: 'End' })
+    expect(s.state.keyboardParts[1].eq.lowFreq).toBe(2000)
+    flushSync()
+    expect(eqKnobs()[14].getAttribute('aria-valuetext')).toBe('−12')
+    expect(eqKnobs()[5].getAttribute('aria-valuetext')).toBe('2k')
+    // Double-click: back to flat.
+    await fireEvent.dblClick(eqKnobs()[14])
+    expect(s.state.keyboardParts[3].eq.highGain).toBe(0)
+    // The Style tab has no EQ.
+    await fireEvent.click(tab('Style'))
+    expect(eqKnobs()).toHaveLength(0)
+  })
+
+  it('Panel strips have an insert slot: effect, on and amount, each with its command and tooltip', async () => {
+    const s = setup()
+    const kinds = () => [...document.querySelectorAll<HTMLSelectElement>('.strips .ins select')]
+    const ons = () => [...document.querySelectorAll<HTMLButtonElement>('.strips .ins button')]
+    const amounts = () => [...document.querySelectorAll<HTMLElement>('.strips .ins .knob')]
+    expect([kinds().length, ons().length, amounts().length]).toEqual([4, 4, 4])
+    expect(kinds()[0].getAttribute('aria-label')).toBe('Right 1 insert effect')
+    expect([kinds()[0].dataset.tip, ons()[0].dataset.tip, amounts()[0].dataset.tip]).toEqual(['mixer.part.insert_effect', 'mixer.part.insert_on', 'mixer.part.insert_amount'])
+    expect(kinds()[0].value).toBe('distortion')
+    expect(ons()[0].getAttribute('aria-pressed')).toBe('false')
+    await fireEvent.change(kinds()[3], { target: { value: 'rotary' } })
+    expect(s.state.keyboardParts[3].insert).toEqual({ effect: 'rotary', on: false, amount: 64 })
+    await fireEvent.click(ons()[3])
+    expect(s.state.keyboardParts[3].insert.on).toBe(true)
+    await fireEvent.keyDown(amounts()[3], { key: 'End' })
+    expect(s.state.keyboardParts[3].insert.amount).toBe(127)
+    flushSync()
+    expect(ons()[3].getAttribute('aria-pressed')).toBe('true')
+    expect(kinds()[3].value).toBe('rotary')
+    // The Style tab has none.
+    await fireEvent.click(tab('Style'))
+    expect(kinds()).toHaveLength(0)
   })
 
   it('Style strips have Reverb, Chorus and Delay knobs: the style\'s until turned, then the part\'s own (#268)', async () => {
@@ -333,6 +294,44 @@ describe('Mixer drawer', () => {
     expect(s.state.mixer.styleParts.map((p) => p.on)).toEqual([false, false, false, true, false, false, false, false])
   })
 
+  it('each strip shows its own track\'s CPU from the meters, the total and the plugin instances (#340, #407)', async () => {
+    const s = new MockSession({ manual: true, demo: true })
+    // A distinct reading per channel: channel n takes n %, its worst buffer 2n %.
+    s.meters = () =>
+      Promise.resolve({
+        atMs: 0,
+        channels: Array.from({ length: 16 }, (_, i) => ({ channel: i + 1, peak: 0, rms: 0, cpu: (i + 1) / 100, cpuPeak: (2 * (i + 1)) / 100 })),
+        master: [0, 0] as [number, number],
+        masterRms: [0, 0] as [number, number],
+        clips: 0,
+        cpu: { total: 1.36, peak: 0.4, bufferUs: 1333 },
+      })
+    s.send({ type: 'setPartPlugin', part: 1, id: 'aumu dls  appl', state: null })
+    s.advance(1000)
+    expect(s.state.plugins.instances).toBe(1)
+    app.attach(s)
+    ui.mixer = true
+    flushSync()
+    render(Mixer)
+    await new Promise((r) => setTimeout(r, 0))
+    flushSync()
+    const cpu = () => [...document.querySelectorAll('.strips [data-testid="cpu"]')].map((e) => e.textContent?.replace(/\s+/g, ' ').trim())
+    // Right 1 (ch 1), Right 2 (ch 3), Right 3 (ch 4), Left (ch 2); Style: ch 9–16 together; M.Pad: ch 5–8.
+    expect(cpu()).toEqual(['1.0% pk 2.0%', '3.0% pk 6.0%', '4.0% pk 8.0%', '2.0% pk 4.0%', '100% ≤ pk 200%', '26% ≤ pk 52%', '', ''])
+    expect(document.querySelector('.strips [data-testid="cpu"] [data-tip="mixer.cpu"]')).not.toBeNull()
+    // Red: Style by its 100% average; M.Pad's summed peak (52%) is past CPU_WARN but its
+    // average (26%) isn't, so it stays un-warned; a single track warns by its own peak.
+    const warn = () => [...document.querySelectorAll('.strips [data-testid="cpu"]')].map((e) => e.classList.contains('warn'))
+    expect(warn()).toEqual([false, false, false, false, true, false, false, false])
+    expect(document.querySelectorAll('.strips [data-tip="mixer.cpu_group"]').length).toBe(2)
+    const total = document.querySelector('[data-testid="cpu-total"]')!.textContent!.replace(/\s+/g, ' ')
+    expect(total).toContain('CPU 136% · pk 40% of a 1.3 ms buffer')
+    expect(total).toContain('Plugin instances 1')
+    await fireEvent.click(tab('Style'))
+    flushSync()
+    expect(cpu()).toEqual(['9.0% pk 18%', '10% pk 20%', '11% pk 22%', '12% pk 24%', '13% pk 26%', '14% pk 28%', '15% pk 30%', '16% pk 32%'])
+  })
+
   it('every control has a tooltip, on both tabs', async () => {
     setup()
     expect(untipped(document.body)).toEqual([])
@@ -351,7 +350,7 @@ describe('voice lines', () => {
     expect(styleVoice(null)).toEqual({ plays: '—', writtenFor: '' })
   })
   it('a keyboard part under Manual Bass plays the Style Bass', () => {
-    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, fader: null, patch: null }
+    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, eq: FLAT_EQ, insert: OFF_INSERT, fader: null, patch: null }
     expect(partVoice(p).writtenFor).toContain('Manual Bass')
     expect(partVoice({ ...p, playsBass: false, voiceName: 'Strings' })).toEqual({ plays: 'Strings', writtenFor: 'GM 49' })
   })

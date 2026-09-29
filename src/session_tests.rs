@@ -22,6 +22,24 @@ pub(crate) fn offline(name: &str) -> Option<Session> {
     Some(Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap())
 }
 
+/// The synthetic style (`sff::test_style`, no corpus needed) in a temp file of its own for
+/// test `test`, removed when this is dropped.
+struct SyntheticStyle(PathBuf);
+
+impl SyntheticStyle {
+    fn new(test: &str) -> SyntheticStyle {
+        let p = std::env::temp_dir().join(format!("yahaha-{test}-{}.sty", std::process::id()));
+        std::fs::write(&p, crate::sff::test_style::synthetic_style_bytes()).unwrap();
+        SyntheticStyle(p)
+    }
+}
+
+impl Drop for SyntheticStyle {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 const MS: u64 = 1_000_000;
 
 fn keys(s: &Session, on: bool, notes: &[u8]) {
@@ -664,7 +682,8 @@ fn an_empty_library_is_an_error() {
 #[test]
 fn launchkey_hardware_matches_its_commands() {
     use crate::launchkey::{FUNCTION_CC, PAD_UP_CC, PLAY_CC, SCENE_CC, STOP_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC};
-    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let style = SyntheticStyle::new("launchkey_hardware_matches_its_commands");
+    let p = &style.0;
     let mk = |setup: u8| {
         let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
         // The index thread would otherwise land in one twin and not the other under load.
@@ -861,6 +880,7 @@ fn cycle_pad_page_takes_any_delta() {
 /// While the library indexes, `library_list()` is labelled with the revision its entries
 /// are, and the state's library status describes that same list.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn library_list_revision_matches_its_entries() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
     let root = p.parent().unwrap().parent().unwrap().to_path_buf();
@@ -880,6 +900,25 @@ fn library_list_revision_matches_its_entries() {
     }
     s.finish_indexing();
     assert_eq!(s.state().library.pending, 0);
+}
+
+/// `finish_indexing` after the control side already applied every index result is no new
+/// library revision, so twin sessions agree however the index thread was timed.
+#[test]
+fn finish_indexing_after_the_index_landed_keeps_the_revision() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+    for _ in 0..50_000 {
+        s.send(SystemCmd::ClearMessage).unwrap(); // the control side applies index results
+        if s.state().library.pending == 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+    let rev = s.state().library.revision;
+    assert_eq!(s.state().library.pending, 0);
+    s.finish_indexing();
+    assert_eq!(s.state().library.revision, rev);
 }
 
 /// Live (real CoreMIDI, no Launchkey, no synth): what `send` applied on the control side
@@ -910,9 +949,12 @@ fn live_send_is_visible_at_once() {
 /// does nothing. On every pad page, on both fader pages.
 #[test]
 fn launchkey_buttons_are_what_the_state_says() {
-    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let style = SyntheticStyle::new("launchkey_buttons_are_what_the_state_says");
+    let p = &style.0;
     let mk = |page: Page, fp: FaderPage| {
         let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
+        // The index thread would otherwise land in one twin and not the other under load.
+        s.finish_indexing();
         s.send(PadsCmd::SetPadPage { page }).unwrap();
         s.send(MixerCmd::SetFaderPage { page: fp }).unwrap();
         s.take_output();
@@ -987,6 +1029,11 @@ fn launchkey_button_descriptions() {
     assert_eq!((f1.label.as_str(), f1.action, f1.shift_action), ("RIGHT 1", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 0 })), Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 }))));
     assert_eq!((f1.level, f1.rgb), (Level::Bright, [0, 0, 127]));
     assert_eq!(b(&s, "faderButton2").level, Level::Dim);
+    // The Chorus fader layer: the part buttons and the master button pink, on/off as before.
+    s.send(crate::api::MixerCmd::SetFaderLayer { layer: crate::parts::FaderLayer::Chorus }).unwrap();
+    assert_eq!((b(&s, "faderButton1").level, b(&s, "faderButton1").rgb), (Level::Bright, [127, 0, 70]));
+    assert_eq!((b(&s, "faderButton2").level, b(&s, "masterButton").rgb), (Level::Dim, [127, 0, 70]));
+    s.send(crate::api::MixerCmd::SetFaderLayer { layer: crate::parts::FaderLayer::Volume }).unwrap();
     // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 reloads
     // the selected part's plugin (dark while there is nothing to reload); 7 is Left Hold;
     // 8 is the Chord Looper (ON/OFF, Shift: REC/STOP; dark with nothing recorded).
@@ -1240,11 +1287,11 @@ fn track_leds_follow_the_library() {
     let snap = s.inner.lock().snap;
     let mut leds = Leds::new(PacketSink::new(crate::rt::Target::Null), false);
     let pnl = Panel::default();
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     let n = leds.out.sent;
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     assert_eq!(leds.out.sent, n, "nothing changed, nothing sent");
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, true, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), true, 0.0);
     assert!(leds.out.sent > n, "Track LEDs re-sent");
 }
 
@@ -1282,7 +1329,10 @@ fn advance_until(s: &Session, mut f: impl FnMut(&AppState) -> bool) -> bool {
     f(&s.state())
 }
 
-/// Wait in real time (a background thread) for `f`, advancing the offline clock.
+/// Wait in real time for a background thread (a rescan, a rack load) to make `f` hold.
+/// Each step advances the offline clock by 1 ms, which runs the session's pumps (they
+/// take the thread's result with `try_recv`, whatever the clock says), then checks `f`;
+/// only when it doesn't hold yet does it sleep 1 ms to let the thread work.
 fn wait_for(s: &Session, mut f: impl FnMut(&AppState) -> bool) -> bool {
     let t0 = std::time::Instant::now();
     while t0.elapsed() < std::time::Duration::from_secs(60) {
@@ -1290,12 +1340,36 @@ fn wait_for(s: &Session, mut f: impl FnMut(&AppState) -> bool) -> bool {
         if f(&s.state()) {
             return true;
         }
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
     false
 }
 
+/// The tiny test SoundFont's file (`.0`), in a folder of its own that is removed when
+/// this is dropped: keep it while the session may read the file.
+struct TinyFontFile(PathBuf);
+
+impl Drop for TinyFontFile {
+    fn drop(&mut self) {
+        if let Some(dir) = self.0.parent() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+/// The tiny test SoundFont (`patches::sf2::tiny_gm_sound_font`) as `Test.sf2`, alone in
+/// a fresh folder of its own.
+fn tiny_font_file(tag: &str) -> TinyFontFile {
+    let dir = std::env::temp_dir().join(format!("yahaha-session-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("Test.sf2");
+    std::fs::write(&p, crate::patches::sf2::tiny_gm_sound_font()).unwrap();
+    TinyFontFile(p)
+}
+
 #[test]
+#[cfg(feature = "slow-tests")]
 fn style_preview_plays_four_bars_and_leaves_the_setup_alone() {
     let Some(s) = library_session() else { return };
     s.send(MixerCmd::SetStylePartVolume { part: 2, volume: 33 }).unwrap();
@@ -1346,6 +1420,7 @@ fn style_preview_is_refused_while_the_band_plays_and_ends_on_start() {
 }
 
 #[test]
+#[cfg(feature = "slow-tests")]
 fn queue_style_waits_for_the_bar_line_and_loads_at_once_when_stopped() {
     let Some(s) = library_session() else { return };
     let first = s.state().style.id;
@@ -1464,15 +1539,15 @@ fn palette_leds_switch_at_runtime() {
     let mut leds = Leds::new(PacketSink::new(crate::rt::Target::Null), false);
     let snap = s.inner.lock().snap;
     let pnl = Panel::default();
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     let n = leds.out.sent;
     leds.set_palette(true);
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     assert!(leds.out.sent > n, "the pads in palette colours");
     // Back to RGB: every pad again, though its colour hasn't changed since RGB was last on.
     let n = leds.out.sent;
     leds.set_palette(false);
-    leds.update(&snap, &[true; 16], &pnl, false, FaderPage::Panel, false, 0.0);
+    leds.update(&snap, &[true; 16], &pnl, false, (FaderPage::Panel, crate::parts::FaderLayer::Volume), false, 0.0);
     assert!(leds.out.sent > n, "every pad re-sent");
     s.send(SettingsCmd::SetPaletteLeds { on: false }).unwrap();
     assert!(s.state().pads.pads.iter().all(|p| p.palette.is_none()));
@@ -1493,18 +1568,39 @@ fn midi_input_choice() {
     assert!(s.state().io.all_inputs);
 }
 
+/// The meters carry each track's CPU (#340): a keyboard part playing takes a share of the
+/// buffer, one that is silent none, and the total is at least the parts'. A reading covers
+/// a second of the session's clock.
+#[test]
+fn the_meters_carry_each_tracks_cpu() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let sf2 = tiny_font_file("cpu-meters");
+    let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+    s.offline_audio(Some(&sf2.0), 48_000).unwrap();
+    let m = s.meters();
+    assert!(m.channels.iter().all(|c| c.cpu == 0.0) && m.cpu.total == 0.0, "the first read starts the window");
+    s.midi_in(Port::Keys, &[0x90, 72, 110]);
+    s.render(48_000 + 4800);
+    let m = s.meters();
+    let cpu = |ch: u8| m.channels.iter().find(|c| c.channel == ch).map_or(-1.0, |c| c.cpu);
+    let right1 = m.channels.iter().find(|c| c.channel == 1).unwrap();
+    assert!(right1.cpu > 0.0 && right1.cpu_peak >= right1.cpu, "Right 1 plays: {m:?}");
+    assert_eq!(cpu(2), 0.0, "Left is silent");
+    assert!(m.cpu.total >= right1.cpu && m.cpu.peak > 0.0 && m.cpu.buffer_us > 0.0, "{:?}", m.cpu);
+}
+
 #[test]
 fn the_main_font_loads_into_a_rack_once_there_is_a_synth() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
-    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-    let fonts = library::sound_font_files(&sf_dir);
-    let sf2 = fonts.first().map(|f| sf_dir.join(f));
-    let s = Session::offline(Options { paths: vec![p], sf2: sf2.clone(), ..Options::default() }).unwrap();
+    let sf2 = tiny_font_file("main-font-rack");
+    let fonts = library::sound_font_files(sf2.0.parent().unwrap());
+    assert_eq!(fonts, vec!["Test.sf2".to_string()]);
+    let s = Session::offline(Options { paths: vec![p], sf2: Some(sf2.0.clone()), ..Options::default() }).unwrap();
     let st = s.state();
     assert_eq!(st.io.sound_fonts, fonts);
     assert_eq!(st.io.sound_font_file, None, "no synth offline");
     assert_eq!(s.meters().channels.len(), 0, "no synth, no meters");
-    let Some(file) = fonts.first().cloned() else { return };
+    let file = fonts[0].clone();
     // A synth as a live session has one, with the rings its audio thread would drain.
     let (tx, mut rx) = RingBuffer::<Box<synth::Rack>>::new(2);
     let (_old_tx, old) = RingBuffer::<Box<synth::Rack>>::new(4);
@@ -1530,13 +1626,11 @@ fn the_main_font_loads_into_a_rack_once_there_is_a_synth() {
 #[test]
 fn audio_buffer_changes_keep_notes_and_report_the_size() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };
+    // Outlives the sessions (dropped after them), so its folder goes once nothing reads it.
+    let sf2 = tiny_font_file("audio-buffer");
     let s = Session::offline(Options { paths: vec![p.clone()], ..Options::default() }).unwrap();
     assert!(s.send(SettingsCmd::SetAudioBuffer { frames: 128 }).is_err(), "no synth");
-    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-    let Some(sf2) = library::sound_font_files(&sf_dir).into_iter().map(|f| sf_dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)) else {
-        return;
-    };
-    s.offline_audio(Some(&sf2), 48_000).unwrap();
+    s.offline_audio(Some(&sf2.0), 48_000).unwrap();
     let energy = |(l, r): (Vec<f32>, Vec<f32>)| l.iter().chain(&r).map(|x| (*x as f64).powi(2)).sum::<f64>();
     s.midi_in(Port::Keys, &[0x90, 72, 110]);
     assert!(energy(s.render(4800)) > 1e-4);
@@ -1985,6 +2079,7 @@ fn solo_track_mute_tempo_and_metronome() {
 /// In on (#92 vs #98): the chart's chords never recall an OTS or start a fill; only its
 /// section change does, and the OTS comes when Main B starts (not during its fill).
 #[test]
+#[cfg(feature = "slow-tests")]
 fn chart_chords_trigger_no_ots_or_fill() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     s.send(ChartCmd::ImportCharts { text: TEST_CHART.into() }).unwrap();
@@ -2024,6 +2119,7 @@ fn chart_chords_trigger_no_ots_or_fill() {
 /// change nothing the band sends before its bar line (#129): the output matches a session
 /// where no pad was pressed, 5 ms at a time, up to the Ending's start.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn an_ending_pad_changes_nothing_before_the_ending() {
     let Some(p) = style("NightCruiser.S930.STY") else { return };
     for pad in [100u8, 101, 102] {

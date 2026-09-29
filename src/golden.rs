@@ -215,6 +215,7 @@ fn pick(listing: &str, which: &[usize]) -> String {
     out
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn golden_snapshots() {
     let dir = root().join("tests/golden");
@@ -222,15 +223,22 @@ fn golden_snapshots() {
     let script = std::fs::read_to_string(dir.join("chords.script")).unwrap();
     let update = std::env::var("UPDATE_GOLDEN").is_ok_and(|v| v == "1");
     let mut failures = Vec::new();
+    let mut zero_length = Vec::new();
     let mut ran = 0;
     for name in STYLES {
-        let Some(path) = find_style(name) else {
+        let Some(style) = crate::library::corpus_style(name) else {
             eprintln!("golden: {name} not in corpus; skipping");
             continue;
         };
         ran += 1;
-        let style = Style::load(&path).unwrap();
-        let got = sim::snapshot(&style, &script).unwrap();
+        let got = sim::snapshot(style, &script).unwrap();
+        // #47: no snapshot holds a zero-length note (`~0`): a chord change never retriggers a
+        // note the pattern ends at that tick. (#45 found about 72 of them across these six
+        // styles.) Checked on the same run as the digest, in update mode too.
+        let zero = got.split_whitespace().filter(|w| w.ends_with("~0")).count();
+        if zero > 0 {
+            zero_length.push(format!("{name}: {zero} zero-length notes"));
+        }
         let got_digest = digest(&got);
         let current = local.join(format!("{name}.txt"));
         std::fs::create_dir_all(&local).unwrap();
@@ -283,24 +291,12 @@ fn golden_snapshots() {
     if ran == 0 {
         eprintln!("golden: no corpus; skipping");
     }
+    assert!(zero_length.is_empty(), "{}", zero_length.join("\n"));
     assert!(
         failures.is_empty(),
-        "{}\n\nIf the change is intended, regenerate with UPDATE_GOLDEN=1 cargo test --release golden and commit the digests.",
+        "{}\n\nIf the change is intended, regenerate with UPDATE_GOLDEN=1 cargo test --release --features slow-tests golden and commit the digests.",
         failures.join("\n\n")
     );
-}
-
-/// #47: no snapshot holds a zero-length note (`~0`): a chord change never retriggers a note
-/// the pattern ends at that tick. (#45 found about 72 of them across these six styles.)
-#[test]
-fn snapshots_hold_no_zero_length_notes() {
-    let script = std::fs::read_to_string(root().join("tests/golden/chords.script")).unwrap();
-    for name in STYLES {
-        let Some(path) = find_style(name) else { continue };
-        let got = sim::snapshot(&Style::load(&path).unwrap(), &script).unwrap();
-        let zero: Vec<&str> = got.split_whitespace().filter(|w| w.ends_with("~0")).collect();
-        assert!(zero.is_empty(), "{name}: {} zero-length notes", zero.len());
-    }
 }
 
 /// Same script, same style, same listing: nothing in the snapshot depends on the run (two

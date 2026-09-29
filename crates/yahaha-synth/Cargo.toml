@@ -1,0 +1,107 @@
+[package]
+name = "yahaha-synth"
+version = "0.1.0"
+edition = "2024"
+description = "yahaha: the built-in SoundFont synth (on rustysynth), the sound library and Audio Unit plugin hosting"
+license = "MIT"
+repository = "https://github.com/satoramoto/yahaha"
+
+# The crate split (AGENTS.md, Layering): the synth sits on core, sff, fx and the engine
+# (it reads the keyboard parts, engine::Parts).
+
+[features]
+# Tests gated with `#[cfg(feature = "slow-tests")]` run in CI only (AGENTS.md).
+slow-tests = [
+    "yahaha-core/slow-tests",
+    "yahaha-sff/slow-tests",
+    "yahaha-fx/slow-tests",
+    "yahaha-engine/slow-tests",
+]
+# Plugin hosting (#35): Audio Unit instruments. Off by default; the root `plugins` feature
+# forwards here. Pulls in the objc2 framework bindings below; none of them is built
+# otherwise.
+plugins = [
+    "dep:objc2",
+    "dep:objc2-foundation",
+    "dep:objc2-core-foundation",
+    "dep:objc2-core-audio-types",
+    "dep:objc2-audio-toolbox",
+    "dep:objc2-app-kit",
+    "dep:objc2-core-audio-kit",
+    "dep:block2",
+]
+
+[dependencies]
+yahaha-core = { path = "../yahaha-core" }
+yahaha-sff = { path = "../yahaha-sff" }
+yahaha-fx = { path = "../yahaha-fx" }
+yahaha-engine = { path = "../yahaha-engine" }
+anyhow = "1.0.104"
+cpal = "0.18.2"
+rtrb = "0.4.0"
+# rustysynth (MIT, https://github.com/sinshu/rustysynth), unmodified from crates.io. Never
+# vendor or patch it (AGENTS.md). What it lacks is built here on its public API (#346): one
+# synthesizer per part, with meters, sends and inserts on the part's stem
+# (src/synth/rack.rs); mono and portamento (src/synth/voicing.rs); CC74/71/77 tone controls
+# (src/synth/part_tone.rs); CC73/75/72 envelope shaping (src/synth/envelope.rs);
+# velocity -> filter cutoff baked into the SoundFont as it loads (src/synth/font.rs); and
+# XG Drum Setup kits derived from the SoundFont (src/synth/kit.rs).
+rustysynth = "1.3.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# perf reads the process's memory: Mach on Apple platforms, libc (/proc) elsewhere.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+mach2 = "0.7.0"
+
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
+libc = "0.2.189"
+
+# Plugin hosting only (the `plugins` feature). The objc2 project's generated bindings to
+# AudioToolbox, CoreAudioKit and AppKit; cpal already depends on objc2 / audio-toolbox.
+# macOS only: elsewhere the feature pulls in nothing and src/lib.rs stops with a
+# compile_error.
+[target.'cfg(target_os = "macos")'.dependencies.objc2]
+version = "0.6.4"
+optional = true
+features = ["exception"]
+
+[target.'cfg(target_os = "macos")'.dependencies.block2]
+version = "0.6.2"
+optional = true
+
+[target.'cfg(target_os = "macos")'.dependencies.objc2-foundation]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread", "NSNotification", "NSOperation", "block2"]
+
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-foundation]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "CFString", "CFData", "CFError", "CFPropertyList"]
+
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-types]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "CoreAudioBaseTypes"]
+
+[target.'cfg(target_os = "macos")'.dependencies.objc2-audio-toolbox]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "AudioComponent", "AUComponent", "AudioUnitProperties", "MusicDevice", "block2", "objc2-core-audio-types", "objc2-core-foundation"]
+
+[target.'cfg(target_os = "macos")'.dependencies.objc2-app-kit]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "NSApplication", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSViewController", "NSGraphics", "NSEvent", "objc2-core-foundation"]
+
+[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-kit]
+version = "0.3.2"
+optional = true
+default-features = false
+features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]

@@ -53,7 +53,7 @@ Guitar sources are not scored on identity. There are two reasons:
 So every Guitar note is played on every chord its channel plays: all 12 roots, every CASM chord type, as the chord and root mutes allow. Each output must be what a guitar can sound for that chord. The check is independent of how our voicings are built. Per Guitar table of the note's own zone, the pin counts:
 
 - `notes`: the Guitar note-ons. `noise`: those at key 96 (C7) or above. These are MegaVoice strum, fret and body noises, not pitches.
-- `noise-moved`: noise keys that did not come back untouched on every chord. Should be 0. This checks the conversion. The engine then leaves noise keys out at the output when the part's voice is a MegaVoice, since it sounds none (#223, `src/megavoice.rs`).
+- `noise-moved`: noise keys that did not come back untouched on every chord. Should be 0. This checks the conversion. The engine then leaves noise keys out at the output when the part's voice is a MegaVoice, since it sounds none (#223, `crates/yahaha-core/src/megavoice.rs`).
 - `plays`: note × chord plays of the other notes. `muted`: plays that sounded nothing, which is Stroke leaving strings out ("some notes may sound as if they are muted", RM p.30).
 - `not-chord-tone`: a sounding output that is not a tone of the played chord. Should be 0.
 - `out-of-range`: a sounding output below the open low E (MIDI 40) or outside the channel's Note Limit. Should be 0.
@@ -69,7 +69,7 @@ It does not check how many strings a voicing uses, or which string plays which t
   identity RootTrans moved-in-limit: [1426] -> [0]
 ```
 
-If the change is intended, run `UPDATE_GOLDEN=1 cargo test --profile test-fast oracle`, commit the file, and quote the delta in the PR. `yahaha oracle corpus/ --diff tests/oracle/scores.txt` prints the same delta without the test harness. It also works on part of the corpus (`yahaha oracle corpus/MOX_v2 --diff tests/oracle/scores.txt`): each style is matched to the pinned key that ends in its path, and since the corpus totals cannot be compared then, only those styles' own lines are. Without `corpus/` the test skips, like the golden snapshots.
+If the change is intended, run `UPDATE_GOLDEN=1 cargo test --profile test-quick --features slow-tests oracle`, commit the file, and quote the delta in the PR. `yahaha oracle corpus/ --diff tests/oracle/scores.txt` prints the same delta without the test harness. It also works on part of the corpus (`yahaha oracle corpus/MOX_v2 --diff tests/oracle/scores.txt`): each style is matched to the pinned key that ends in its path, and since the corpus totals cannot be compared then, only those styles' own lines are. Without `corpus/` the test skips, like the golden snapshots.
 
 The file holds counts only: style paths, table names, chord-change labels and integers. `committed_scores_hold_only_numbers` checks that. No note, pitch or pattern from a style is ever written out.
 

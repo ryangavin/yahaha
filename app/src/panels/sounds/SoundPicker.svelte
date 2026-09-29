@@ -17,6 +17,7 @@
 -->
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import type { GmMapRow } from '../../lib/api/types'
   import { app, ui, type SoundPick } from '../../lib/store.svelte'
   import { tip, tips } from '../../lib/tooltip/tip.svelte'
   import Overlay from '../../lib/ui/Overlay.svelte'
@@ -27,16 +28,21 @@
 
   const ROW = 36
   const OVERSCAN = 8
+  // One empty GM map, so an engine without one doesn't make a new array per state.
+  const NO_ROWS: GmMapRow[] = []
 
   const catalog = $derived(app.sounds)
   const entries = $derived(catalog.entries)
-  const sl = $derived(app.state.soundLibrary)
-  const ctx = $derived({ patches: sl.patches, gmMap: sl.gmMap ?? [] })
+  // The slices themselves, so a state that leaves them alone re-runs nothing below.
+  const patches = $derived(app.state.soundLibrary.patches)
+  const gmMap = $derived(app.state.soundLibrary.gmMap ?? NO_ROWS)
+  const ctx = $derived.by(() => ({ patches, gmMap }))
   let view = $state<SoundView>({ kind: 'all' })
   let query = $state('')
   const rows = $derived(visibleSounds(catalog, view, query, ctx))
-  const listing = $derived(new Set(app.state.sounds?.listingPresets ?? []))
-  const slots = $derived(mapSlots(ctx.gmMap))
+  const listingPresets = $derived(app.state.sounds?.listingPresets)
+  const listing = $derived(new Set(listingPresets ?? []))
+  const slots = $derived(mapSlots(gmMap))
   const allIds = $derived(allSoundIds(ctx))
   const allCount = $derived(entries.reduce((n, e) => n + (allIds.has(e.id) ? 1 : 0), 0))
   const cats = $derived(categoryCounts(entries.filter((e) => allIds.has(e.id))))

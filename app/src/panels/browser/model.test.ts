@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { LIBRARY, MockSession } from '../../lib/api/mock'
 import { syntheticStyles } from '../../lib/api/mock-library'

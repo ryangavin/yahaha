@@ -93,6 +93,7 @@ mod with_plugins {
     const SAMPLER: &str = "aumu Smp7 Fake";
     const PADS: &str = "aumu Pad1 Fake";
     const ORGAN: &str = "aumu Org1 Fake";
+    #[cfg(feature = "slow-tests")]
     const DLS: &str = "aumu dls  appl";
 
     fn info(id: &str, name: &str, manufacturer: &str) -> PluginInfo {
@@ -122,6 +123,7 @@ mod with_plugins {
         info(ORGAN, "Organ Deluxe", "Fake Instruments")
     }
     /// Apple's DLSMusicDevice (every Mac has it): the plugin that really plays.
+    #[cfg(feature = "slow-tests")]
     fn dls() -> PluginInfo {
         info(DLS, "DLSMusicDevice", "Apple")
     }
@@ -139,7 +141,7 @@ mod with_plugins {
         while s.inner.lock().plugins.scan_rx.is_some() {
             assert!(t0.elapsed() < Duration::from_secs(60), "the plugin scan did not finish");
             s.advance(1_000_000);
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 
@@ -248,7 +250,7 @@ mod with_plugins {
         loop {
             s.advance(1_000_000);
             match s.state().keyboard_parts[part].plugin.as_ref().map(|p| p.status) {
-                Some(PluginStatus::Loading) if t0.elapsed() < Duration::from_secs(20) => std::thread::sleep(Duration::from_millis(5)),
+                Some(PluginStatus::Loading) if t0.elapsed() < Duration::from_secs(20) => std::thread::sleep(Duration::from_millis(1)),
                 Some(x) => return x,
                 None => panic!("no plugin on the part"),
             }
@@ -256,6 +258,7 @@ mod with_plugins {
     }
 
     /// Part `part`'s plugin state, once read (`savePartPluginState`).
+    #[cfg(feature = "slow-tests")]
     fn saved_state(s: &Session, part: usize) -> Option<Vec<u8>> {
         s.inner.lock().saved_parts().parts[part].as_ref().and_then(|v| v.state.clone())
     }
@@ -264,6 +267,7 @@ mod with_plugins {
         s.inner.lock().synth.as_ref().unwrap().control.routes.source(crate::parts::CHANNEL[part])
     }
 
+    #[cfg(feature = "slow-tests")]
     fn energy(l: &[f32], r: &[f32]) -> f64 {
         l.iter().chain(r).map(|x| (*x as f64).powi(2)).sum()
     }
@@ -272,14 +276,15 @@ mod with_plugins {
     /// SoundFont) and say so, their mix and the rack's reference stay, nothing is written;
     /// once the plugin is back and scanned, they play it again with the state they had.
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn a_part_whose_plugin_is_missing_is_silent_and_plays_again_when_it_is_back() {
         let d = data_dir("presence-silent");
         let s = session(&d);
-        // A SoundFont (git-ignored, local) makes the silence audible; without one, the
-        // route says it.
-        let sf2 = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts/GeneralUser-GS.sf2");
-        let sf2 = sf2.exists().then_some(sf2);
-        s.offline_audio(sf2.as_deref(), 48_000).unwrap();
+        // A SoundFont (the tiny test font, which sounds on every GM program) makes the
+        // silence audible: the parts are not on it.
+        let sf2 = d.join("Tiny.sf2");
+        std::fs::write(&sf2, crate::patches::sf2::tiny_gm_sound_font()).unwrap();
+        s.offline_audio(Some(&sf2), 48_000).unwrap();
         s.fx_returns_off();
         scan(&s, &d, vec![dls(), sampler()]);
         // A real DLS state, read at run time (none is committed).
@@ -293,7 +298,7 @@ mod with_plugins {
                 break st;
             }
             assert!(t0.elapsed() < Duration::from_secs(20), "the state was never read");
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(Duration::from_millis(1));
         };
         s.send(PluginCmd::ClearPartPlugin { part: 2 }).unwrap();
         // Right 1 plays DLS with that state; Right 2 a library sound on DLS (its default

@@ -1,0 +1,20 @@
+[package]
+name = "yahaha-fx"
+version = "0.1.0"
+edition = "2024"
+description = "yahaha: the audio effects (real-time safe DSP) the engine and the synth use"
+license = "MIT"
+repository = "https://github.com/satoramoto/yahaha"
+
+# The crate split (AGENTS.md, Layering): fx sits on core, below the engine.
+
+[features]
+# Tests gated with `#[cfg(feature = "slow-tests")]` run in CI only (AGENTS.md).
+slow-tests = ["yahaha-core/slow-tests"]
+
+[dependencies]
+yahaha-core = { path = "../yahaha-core" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

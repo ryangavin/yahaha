@@ -1,7 +1,7 @@
 //! The sound library (#103): patches, the program map, and what the current style uses.
 
 pub use crate::patches::sf2::Preset;
-pub use crate::patches::{Category as PatchCategory, Patch, PatchSource, ProgramMap, ProgramOverride, RuleKind};
+pub use crate::patches::{Category as PatchCategory, Patch, PatchSource, PluginOrigin, ProgramMap, ProgramOverride, RuleKind};
 use serde::{Deserialize, Serialize};
 
 /// A patch's editable fields (all but its id). A sound is the raw instrument: it has no
@@ -108,10 +108,84 @@ pub enum SoundLibraryCmd {
 #[serde(rename_all = "camelCase")]
 pub struct PatchInfo {
     #[serde(flatten)]
-    pub patch: Patch,
+    pub patch: PatchView,
     /// It plays itself (false: it plays the SoundFont fallback; `note` says why).
     pub available: bool,
     pub note: Option<String>,
+}
+
+/// A library [`Patch`] as the state shows it: the same fields, with a plugin source's
+/// state (a base64 blob, MBs for a sampler) reduced to whether it has one. Whatever
+/// needs the state reads the library's `Patch`, never this.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchView {
+    pub id: String,
+    pub name: String,
+    pub category: PatchCategory,
+    pub tags: Vec<String>,
+    pub favourite: bool,
+    pub source: PatchSourceView,
+}
+
+/// A [`PatchSource`] as the state shows it: a plugin's `hasState` in place of its state.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum PatchSourceView {
+    SoundFont {
+        file: String,
+        bank: u16,
+        program: u8,
+    },
+    /// `has_state`: the stored state is not empty (false on a factory preset: it has not
+    /// played yet).
+    Plugin {
+        component_id: String,
+        has_state: bool,
+        #[serde(default, skip_serializing_if = "PluginOrigin::is_user")]
+        origin: PluginOrigin,
+    },
+}
+
+impl From<&PatchSource> for PatchSourceView {
+    fn from(s: &PatchSource) -> Self {
+        match s {
+            PatchSource::SoundFont { file, bank, program } => PatchSourceView::SoundFont { file: file.clone(), bank: *bank, program: *program },
+            PatchSource::Plugin { component_id, state, origin } => {
+                PatchSourceView::Plugin { component_id: component_id.clone(), has_state: !state.is_empty(), origin: origin.clone() }
+            }
+        }
+    }
+}
+
+/// `updatePatch`'s rule: a plugin source with no state, for the same plugin and origin as
+/// the patch's `old` source, keeps its stored state (the state shows none to send back).
+/// Another plugin, or another origin (e.g. another factory preset), starts with none: the
+/// old state belongs to the old sound.
+pub fn keep_plugin_state(new: &mut PatchSource, old: &PatchSource) {
+    if let (
+        PatchSource::Plugin { component_id, state, origin },
+        PatchSource::Plugin { component_id: was, state: stored, origin: was_origin },
+    ) = (new, old)
+        && state.is_empty()
+        && component_id == was
+        && origin == was_origin
+    {
+        state.clone_from(stored);
+    }
+}
+
+impl From<&Patch> for PatchView {
+    fn from(p: &Patch) -> Self {
+        PatchView {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            category: p.category,
+            tags: p.tags.clone(),
+            favourite: p.favourite,
+            source: (&p.source).into(),
+        }
+    }
 }
 
 /// A category, for pickers.
@@ -193,4 +267,52 @@ pub struct SoundLibraryState {
     /// that decided it, and the font preset behind it).
     #[serde(default)]
     pub gm_map: Vec<crate::patches::GmMapRow>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plugin(state: &str) -> Patch {
+        Patch {
+            id: "keys".into(),
+            name: "Keys".into(),
+            category: PatchCategory::EPiano,
+            tags: vec![],
+            favourite: false,
+            source: PatchSource::Plugin { component_id: "aumu Smp7 Fake".into(), state: state.into(), origin: PluginOrigin::Factory { number: 2 } },
+        }
+    }
+
+    #[test]
+    fn the_state_shows_whether_a_plugin_sound_has_state_never_the_state() {
+        let json = serde_json::to_value(PatchInfo { patch: (&plugin("c2FtcGxlcg==")).into(), available: true, note: None }).unwrap();
+        assert_eq!(json["source"], serde_json::json!({ "kind": "plugin", "componentId": "aumu Smp7 Fake", "hasState": true, "origin": { "kind": "factory", "number": 2 } }));
+        assert!(!json.to_string().contains("c2FtcGxlcg"));
+        let fresh = PatchView::from(&plugin(""));
+        assert!(matches!(fresh.source, PatchSourceView::Plugin { has_state: false, .. }), "a factory preset that has not played");
+        let back: PatchInfo = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(back).unwrap(), json);
+    }
+
+    #[test]
+    fn an_update_without_state_keeps_the_stored_one_for_the_same_plugin() {
+        let stored = plugin("c2FtcGxlcg==").source;
+        let mut same = plugin("").source;
+        keep_plugin_state(&mut same, &stored);
+        assert_eq!(same, stored);
+        let mut other = PatchSource::plugin("aumu dls  appl", "");
+        keep_plugin_state(&mut other, &stored);
+        assert_eq!(other, PatchSource::plugin("aumu dls  appl", ""), "another plugin's state never carries over");
+        let preset = |number| PatchSource::Plugin { component_id: "aumu Smp7 Fake".into(), state: String::new(), origin: PluginOrigin::Factory { number } };
+        let mut another_preset = preset(3);
+        keep_plugin_state(&mut another_preset, &stored);
+        assert_eq!(another_preset, preset(3), "another factory preset of the same plugin starts with none");
+        let mut made_here = PatchSource::plugin("aumu Smp7 Fake", "");
+        keep_plugin_state(&mut made_here, &stored);
+        assert_eq!(made_here, PatchSource::plugin("aumu Smp7 Fake", ""), "nor does a user origin take a factory preset's");
+        let mut given = plugin("bmV3").source;
+        keep_plugin_state(&mut given, &stored);
+        assert_eq!(given, plugin("bmV3").source, "a state sent replaces it");
+    }
 }

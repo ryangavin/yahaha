@@ -13,7 +13,8 @@
 
   The fader head names the rack ("Rack: <name> ●" while modified) and carries the Rack,
   Sounds and Mixer drawer buttons; under each part fader, its sound. The pad-page
-  row the Multi Pads one (lib/ui/DrawerButton: small and quieter, not hardware).
+  row the Multi Pads one (lib/ui/DrawerButton: small and quieter, not hardware). The eight
+  knobs are in their own panel under the mirror, over the Quick Racks (panels/knobracks).
 
   Every element shows its function on the current pad/fader page and Shift layer, has a
   tooltip from the catalog, and clicking it sends exactly what the hardware sends. Every
@@ -32,7 +33,6 @@
   import Control from './Control.svelte'
   import FaderBank from './FaderBank.svelte'
   import HwPad from './HwPad.svelte'
-  import KnobStrip from './KnobStrip.svelte'
   import StatusDisplay from './StatusDisplay.svelte'
   import { rackName } from '../rack/rack'
 
@@ -40,8 +40,11 @@
   const surface = $derived(surfaceOf(s, app.library))
   const shift = $derived(ui.shift || surface.shift)
   const beats = $derived(clock.beats)
-  const top = $derived(s.pads.pads.filter((p) => p.note < 112))
-  const bottom = $derived(s.pads.pads.filter((p) => p.note >= 112))
+  // The same array while the pads don't change (the store shares equal parts of each
+  // state), so the rows below aren't re-filtered on every state.
+  const pads = $derived(s.pads.pads)
+  const top = $derived(pads.filter((p) => p.note < 112))
+  const bottom = $derived(pads.filter((p) => p.note >= 112))
   const pageIndex = $derived(PAD_PAGES.findIndex((p) => p.id === s.pads.page))
 
   /** Page identity colours for the tabs (src/launchkey.rs: white, cyan, magenta, orange). */
@@ -125,7 +128,6 @@
       <Control {surface} id="play" legend="▶" shape="square" caption={surface.controls.find((c) => c.id === 'play')?.label} />
     </div>
   </div>
-  <KnobStrip />
 </section>
 
 <style>

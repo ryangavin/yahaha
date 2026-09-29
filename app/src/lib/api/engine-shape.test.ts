@@ -1,3 +1,4 @@
+// @vitest-environment node
 // The mock speaks the engine's JSON: every key path the real engine emits (recorded from
 // #16's `yahaha state-json` in engine-shape.json; see scripts/engine-shape.ts) exists in
 // the mock's state and library with the same kind of value. Null in the recording (an
