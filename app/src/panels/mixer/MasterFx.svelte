@@ -1,8 +1,8 @@
 <!--
   The Master Compressor and Master EQ on the mixer's master strip (Genos Mixer › Master):
-  each one's switch and type, and a ▸ button opening a small editor with the compressor's
-  Compression, Texture and Output and the EQ's eight bands (gain, frequency, Q, and shelf
-  on the edge bands). Both run on the whole mix, after the effects; off, the mix is
+  each one's switch, and a ▸ button opening a small editor with each one's type, the
+  compressor's Compression, Texture and Output and the EQ's eight bands (gain, frequency,
+  Q, and shelf on the edge bands). The strip is narrow, so the types live in the editor. Both run on the whole mix, after the effects; off, the mix is
   untouched. A later Effects screen is to host a fuller Master card.
 -->
 <script lang="ts">
@@ -44,17 +44,6 @@
       use:tip={'fx.master_comp'}
       onclick={() => app.send({ type: 'setMasterCompressorOn', on: !master.compressor.on })}><span class="led" class:on={master.compressor.on}></span>Comp</button
     >
-    <select
-      class="field"
-      aria-label="Master Compressor type"
-      use:tip={'fx.master_comp_type'}
-      value={master.compressor.preset}
-      onchange={(e) => app.send({ type: 'setMasterCompressorPreset', preset: e.currentTarget.value as CompPreset })}
-    >
-      {#each COMP_PRESETS as p (p.preset)}
-        <option value={p.preset}>{p.name}{master.compressor.edited && p.preset === master.compressor.preset ? '*' : ''}</option>
-      {/each}
-    </select>
   </div>
   <div class="row">
     <button
@@ -66,17 +55,6 @@
       use:tip={'fx.master_eq'}
       onclick={() => app.send({ type: 'setMasterEqOn', on: !master.eq.on })}><span class="led" class:on={master.eq.on}></span>EQ</button
     >
-    <select
-      class="field"
-      aria-label="Master EQ type"
-      use:tip={'fx.master_eq_type'}
-      value={master.eq.preset}
-      onchange={(e) => app.send({ type: 'setMasterEqPreset', preset: e.currentTarget.value as EqPreset })}
-    >
-      {#each EQ_PRESETS as p (p.preset)}
-        <option value={p.preset}>{p.name}{master.eq.edited && p.preset === master.eq.preset ? '*' : ''}</option>
-      {/each}
-    </select>
     <button type="button" class="expand mat-raised" aria-expanded={open} aria-label="Master settings" use:tip={'fx.master_edit'} onclick={() => (open = !open)}
       >{open ? '▾' : '▸'}</button
     >
@@ -84,7 +62,20 @@
 
   {#if open}
     <div class="editor" role="group" aria-label="Master Compressor and EQ">
-      <span class="engraved">Compressor</span>
+      <div class="param">
+        <span class="engraved label">Compressor</span>
+        <select
+          class="field"
+          aria-label="Master Compressor type"
+          use:tip={'fx.master_comp_type'}
+          value={master.compressor.preset}
+          onchange={(e) => app.send({ type: 'setMasterCompressorPreset', preset: e.currentTarget.value as CompPreset })}
+        >
+          {#each COMP_PRESETS as p (p.preset)}
+            <option value={p.preset}>{p.name}{master.compressor.edited && p.preset === master.compressor.preset ? ' (edited)' : ''}</option>
+          {/each}
+        </select>
+      </div>
       {#each COMP_PARAMS as p (p.param)}
         <div class="param">
           <span class="label">{p.name}</span>
@@ -101,7 +92,20 @@
           </div>
         </div>
       {/each}
-      <span class="engraved">EQ</span>
+      <div class="param">
+        <span class="engraved label">EQ</span>
+        <select
+          class="field"
+          aria-label="Master EQ type"
+          use:tip={'fx.master_eq_type'}
+          value={master.eq.preset}
+          onchange={(e) => app.send({ type: 'setMasterEqPreset', preset: e.currentTarget.value as EqPreset })}
+        >
+          {#each EQ_PRESETS as p (p.preset)}
+            <option value={p.preset}>{p.name}{master.eq.edited && p.preset === master.eq.preset ? ' (edited)' : ''}</option>
+          {/each}
+        </select>
+      </div>
       <div class="bands">
         {#each master.eq.bands as b, i (i)}
           <div class="band" role="group" aria-label="EQ band {i + 1}">
@@ -141,6 +145,8 @@
               <label class="shelf">
                 <input type="checkbox" use:tip={'fx.master_eq_shelf'} checked={b.shelf} onchange={(e) => setBand(i, { shelf: e.currentTarget.checked })} />Shelf
               </label>
+            {:else}
+              <span class="shelf" aria-hidden="true"></span>
             {/if}
           </div>
         {/each}
@@ -163,6 +169,7 @@
     align-items: center;
   }
   .sw {
+    flex: 1;
     display: inline-flex;
     align-items: center;
     gap: 0.3em;
@@ -181,10 +188,6 @@
   }
   .led.on {
     background: var(--accent);
-  }
-  select.field {
-    max-width: 4.6rem;
-    font-size: 0.72rem;
   }
   .expand {
     min-width: 1.4rem;
@@ -232,6 +235,7 @@
     width: 3.4rem;
   }
   .shelf {
+    min-width: 3.8rem;
     display: inline-flex;
     align-items: center;
     gap: 0.2em;
