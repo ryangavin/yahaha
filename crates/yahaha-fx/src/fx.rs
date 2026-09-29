@@ -558,6 +558,15 @@ mod tests {
         assert!(b[63].abs() < 1e-6, "faded out by the end of the first buffer: {}", b[63]);
         assert!(b[64].abs() < 0.02 && b[65].abs() < 0.04, "fading in: {:?}", &b[64..68]);
         assert!(rms(&b[96..]) > 0.01, "the phaser plays");
+        // The fade-out buffer runs the old kind at its old params: the same as a change
+        // that kept the chorus's params.
+        let ctl2 = with_send(0, SendKind::Chorus);
+        let mut bus2 = FxBus::new(48_000);
+        run_slots(&mut bus2, &ctl2, &src, 3, 4800);
+        ctl2.sends[0].set(&SendSlot { kind: SendKind::Phaser, ..SendSlot::of(SendKind::Chorus) });
+        assert_ne!(SendSlot::of(SendKind::Phaser).params, SendSlot::of(SendKind::Chorus).params);
+        let (b2, _) = run_slots(&mut bus2, &ctl2, |i| src(i + 4800), 3, 64);
+        assert_eq!(&b[..64], &b2[..], "the old kind keeps its params while it fades out");
     }
 
     /// Each channel's send to sends 4-6 reads as a gain, 0 by default.
