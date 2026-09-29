@@ -1389,7 +1389,7 @@ mod tests {
     #[test]
     fn ots_insertion_types_parse() {
         let ins = |nn: u8, aa: u8, data: &[u8]| {
-            let mut m = vec![0x00, 0xF0, 6 + data.len() as u8, 0x43, 0x10, 0x4C, 0x03, nn, aa];
+            let mut m = vec![0x00, 0xF0, 7 + data.len() as u8, 0x43, 0x10, 0x4C, 0x03, nn, aa];
             m.extend_from_slice(data);
             m.push(0xF7);
             m
