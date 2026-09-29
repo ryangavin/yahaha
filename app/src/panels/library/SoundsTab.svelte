@@ -213,7 +213,6 @@
       </div>
       <div class="screen mat-screen">
         <div class="scroller" bind:this={list} onscroll={() => (scrollTop = list?.scrollTop ?? 0)}>
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex (the list takes ↑ ↓ after a click) -->
           <div class="rows" id="library-sounds" role="listbox" tabindex="0" aria-label="Sounds" style:height="{rows.length * ROW}px" bind:this={box} onkeydown={onkey} use:tip={'library.list'}>
             {#each slice as i, k (entries[i].id)}
               {@const e = entries[i]}
