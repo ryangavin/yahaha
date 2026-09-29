@@ -237,6 +237,28 @@ fn a_rack_carries_the_strips_and_send_effects() {
     let _ = std::fs::remove_dir_all(&d2);
 }
 
+/// A rack carries only the keyboard strips: applying one with no added sends leaves a
+/// Style strip's level to send 4, which shows again once a send 4 is added.
+#[test]
+fn a_rack_leaves_the_style_strips_send_levels() {
+    let d = data_dir("style-send-level");
+    let s = session(&d);
+    s.send(StripCmd::AddSend { kind: SendKind::Phaser }).unwrap();
+    s.send(StripCmd::SetStripSend { strip: 4, send: 3, level: 50 }).unwrap();
+    s.send(StripCmd::SetStripSend { strip: 0, send: 3, level: 40 }).unwrap();
+    let mut rack = s.capture_rack("NoSends");
+    rack.sends.added.clear();
+    rack.parts[0].strip.sends[3] = 0;
+    let problems = s.apply_rack(&rack);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(s.state().effects.sends.len(), 3, "no added sends");
+    s.send(StripCmd::AddSend { kind: SendKind::Phaser }).unwrap();
+    let st = s.state();
+    assert_eq!(st.mixer.style_parts[0].strip.sends[3], 50, "the Style strip's level stays");
+    assert_eq!(st.keyboard_parts[0].strip.sends[3], 0, "the keyboard strip's is the rack's");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// A rack saved before the strips (no `strip`, no `sends`) plays the keyboard parts flat
 /// and drops the added sends and the override; the Style parts' strips stay.
 #[test]

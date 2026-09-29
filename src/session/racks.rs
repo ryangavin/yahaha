@@ -267,15 +267,16 @@ impl Control {
         cell.sends[racks::STYLE_SENDS..].copy_from_slice(&strip.sends[racks::STYLE_SENDS..]);
     }
 
-    /// The rack's send effects: sends 4-6 as it adds them (every strip's level to a send
-    /// it hasn't goes to 0), and sends 1-3 as it overrides them, or the style's where it
+    /// The rack's send effects: sends 4-6 as it adds them (every keyboard strip's level to
+    /// a send it hasn't goes to 0; the Style strips keep theirs), and sends 1-3 as it overrides them, or the style's where it
     /// doesn't. Returns what could not be applied.
     fn apply_rack_sends(&mut self, sends: &RackSends) -> Vec<String> {
         let mut problems = Vec::new();
         let strips = self.strips.get_mut();
         strips.added = sends.added.iter().take(racks::ADDED_SENDS).cloned().collect();
         let n = strips.sends();
-        for s in &mut strips.strips {
+        // A rack carries only the keyboard strips: the Style parts' levels stay.
+        for s in &mut strips.strips[..crate::api::KEYBOARD_STRIPS] {
             s.sends[n..].fill(0);
         }
         for (i, o) in sends.override_.iter().enumerate() {
