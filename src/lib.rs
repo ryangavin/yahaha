@@ -20,7 +20,10 @@ pub mod knobs;
 mod golden;
 pub use yahaha_core::harmony;
 pub mod launchkey;
-pub mod library;
+pub use yahaha_sff::library;
+// Tests of sff/library that read the facade's own source.
+#[cfg(test)]
+mod library_tests;
 pub mod live;
 pub use yahaha_core::looper;
 pub use yahaha_core::megavoice;
@@ -50,7 +53,7 @@ pub mod racks;
 pub use yahaha_core::route;
 pub use yahaha_core::rt;
 pub mod session;
-pub mod sff;
+pub use yahaha_sff::sff;
 pub mod sim;
 pub use yahaha_core::style_types;
 pub mod synth;
