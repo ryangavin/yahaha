@@ -60,6 +60,7 @@ mod quick_racks;
 mod style_racks;
 mod racks;
 mod rack_cmds;
+mod rack_controls;
 mod settings;
 mod style_change;
 mod sound_library;

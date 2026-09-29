@@ -523,15 +523,19 @@ README › Knobs). A page gives each knob a function; the knobs are relative, so
 the value from where it is now, whoever set it last. A turn runs the command of the knob's
 function (`setDynamics`, `stepRetriggerRate`, `toggleRetrigger`, `styleTrackMute`,
 `setTempo`, `setSwing`, `setPartVolume`, `setHarmonyVolume`, `setMetronomeVolume`, `setPartPan`,
-`setPartSend`, `setEffectReturn`, `setEffectParam`), so it behaves
-exactly as that command does.
+`setPartSend`, `setEffectReturn`, `setEffectParam`, `toggleHarmonyArp`, `setSplit`), so it
+behaves exactly as that command does.
+
+The `rack` page's knobs do what the live rack's controller map says (`liveRack.controls`,
+set with `setRackControl`). With the default map it is the page it replaced (`parts`): Right
+1–3 and Left volume, Harmony volume, Metronome volume, none, Tempo.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `setKnobPage` | `page` `style` \| `parts` \| `pan` \| `reverb` \| `chorus` \| `delay` | The Knob Assign page. One page per effect: knobs 1–4 are Right 1, Right 2, Right 3 and Left's send to it (`setPartSend`, CC91/93/94), knob 8 its return (`setEffectReturn`), knobs 5–7 its parameters (`setEffectParam`, #236): `reverb` Time, Pre-delay, Tone; `chorus` Rate, Depth, (none); `delay` Time, Feedback, Tone. A parameter turn pins its block to the player's own (`followStyle` off, #237). The old names `effects` and `fx` are read as `reverb` and `delay`. |
+| `setKnobPage` | `page` `style` \| `rack` \| `pan` \| `reverb` \| `chorus` \| `delay` | The Knob Assign page. The old name `parts` is read as `rack`. One page per effect: knobs 1–4 are Right 1, Right 2, Right 3 and Left's send to it (`setPartSend`, CC91/93/94), knob 8 its return (`setEffectReturn`), knobs 5–7 its parameters (`setEffectParam`, #236): `reverb` Time, Pre-delay, Tone; `chorus` Rate, Depth, (none); `delay` Time, Feedback, Tone. A parameter turn pins its block to the player's own (`followStyle` off, #237). The old names `effects` and `fx` are read as `reverb` and `delay`. |
 | `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
-| `resetKnob` | `knob` 0–7 | Puts a knob's function back to its default (the app's double-click): Dynamics to 127, part and Harmony volumes 100, Metronome 90, pan centre, sends dry (0), returns 64, Swing 0, Retrigger off at 1/8, Track Mute all on, Tempo the style's (`resetTempo`), an effect parameter its current type's own. No Assign does nothing. |
-| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. An effect parameter moves its own step (reverb time 0.1 s, pre-delay 2 ms, tones 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms); the Delay Time knob steps the note value every 3 steps with tempo sync on, or 10 ms a step with it off. A knob with No Assign does nothing. |
+| `resetKnob` | `knob` 0–7 | Puts a knob's function back to its default (the app's double-click): Dynamics to 127, part and Harmony volumes 100, Metronome 90, pan centre, sends dry (0), returns 64, Swing 0, Retrigger off at 1/8, Track Mute all on, Tempo the style's (`resetTempo`), an effect parameter its current type's own, Harmony/Arpeggio off, the split point F#2. No Assign does nothing. |
+| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. An effect parameter moves its own step (reverb time 0.1 s, pre-delay 2 ms, tones 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms); the Delay Time knob steps the note value every 3 steps with tempo sync on, or 10 ms a step with it off. Harmony/Arpeggio switches every 3 steps (right: on); the split point moves a semitone a step (24–96). A knob with No Assign does nothing. |
 
 ### Sound catalog
 One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
@@ -573,6 +577,8 @@ except `newRack`.
 | `duplicateRack` | `id` | Copies rack `id` as `<name> copy` (`<name> copy 2`… if taken), with a new id. |
 | `deleteRack` | `id` | Deletes rack `id`'s file. Refused for the loaded rack (`liveRack.id`): load another first. Quick Rack buttons holding it are emptied, and any style's OTS that loaded it (`setOtsRack`) is the style's own again. |
 | `dismissRackPrompt` | | Keep editing: clears `liveRack.prompt`; nothing else changes. |
+| `setRackControl` | `control` (`fader` \| `knob`), `index` (0-based: faders 1–4, knobs 1–8), `target` | Sets what that Launchkey fader or knob does in the live rack's controller map (`liveRack.controls`; a target as listed there). The live rack becomes modified; Save rack keeps the map. The Rack knob page and the Panel faders follow it at once. Fails for a target this build doesn't know, a part outside 0–3, the tempo on a fader, or no such controller. |
+| `moveRackFader` | `fader` 0–3, `volume` 0–127 | Panel fader `fader` moved to `volume`, where the controller map gives it something other than its own part's level: runs its target's command (`setPartVolume`, `setPartPan`, `setPartSend`, `setHarmonyVolume`, `setMetronomeVolume` with the value; `setHarmonyArpOn` on from 64; `setSplit` across 24–96). Nothing for none. The Launchkey sends it (Volume layer), and it is the `set` of such a fader in `surface.faders`. |
 
 The Launchkey and pedals, which have no dialog, switch racks with
 `Session::load_rack_from_hardware`: unsaved changes are kept as a rack of the user's,
@@ -632,7 +638,10 @@ The session owns the Launchkey, so it works the same whichever client is running
   before.
 - Some controls stay on the MIDI thread for real-time reasons: the faders (soft takeover
   against session-internal atomics), Pad Bank ▲/▼ and the fader-page button. A pad
-  pressed straight after a page change must already read the new page.
+  pressed straight after a page change must already read the new page. A Panel fader 1–4
+  that the live rack's controller map gives another target than its own part's level
+  becomes `moveRackFader` (Volume layer; none does nothing); the map reaches the MIDI
+  thread as a fixed table, updated when it changes.
 - The encoders and their page buttons ▲/▼ become `turnKnob` and `stepKnobPage` (see
   Knob Assign pages). On entering DAW mode the session turns the encoders' relative
   output on (feature control 45h); in the Transport encoder mode they are relative anyway.
@@ -884,11 +893,11 @@ Which button LEDs are lit, and in what colour:
 #### SurfaceFader
 | Field | Type | Meaning |
 |---|---|---|
-| `label` | string | What it controls on this page, for example `RIGHT 1`, `BASS` or `MASTER`. Empty when unused: faders 5–8 on the Panel page, or the master fader without the synth. |
-| `value` | 0–127? | The level it controls. Null when unused. |
+| `label` | string | What it controls on this page, for example `RIGHT 1`, `BASS` or `MASTER`. Empty when unused: faders 5–8 on the Panel page, a Panel fader 1–4 the controller map sets to none, or the master fader without the synth. A Panel fader 1–4 the map gives another target shows that target's short knob name in capitals (`PANR2`, `HARMARP`, `SPLIT`). |
+| `value` | 0–127? | The level it controls (for another target, where it is in its range). Null when unused. |
 | `waiting` | bool | The level is waiting for the hardware fader (soft takeover). |
 | `position` | 0–127? | Where the hardware fader physically is, as last reported. It is the same physical fader on both pages. Null until it moves. |
-| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume`, `setStyleVolume`, `setMultiPadVolume` or `setMasterVolume`; `volume` is 0 here). Null when unused. |
+| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume`, `setStyleVolume`, `setMultiPadVolume`, `setMasterVolume`, or `moveRackFader` for a Panel fader the controller map gives another target; `volume` is 0 here). Null when unused. |
 
 #### `surface.clock`
 Everything here is about time: the playing position, and the clock the pads flash on.
@@ -1143,14 +1152,15 @@ Style Dynamics: `{ control, level, touch, accent, accentThreshold, accentMode, a
 
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
-- `page`: `style` (the default), `parts`, `pan`, `reverb`, `chorus` or `delay`. `pageNumber` is 1-based.
+- `page`: `style` (the default), `rack` (the live rack's controller map), `pan`, `reverb`, `chorus` or `delay`. `pageNumber` is 1-based.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
     `trackMuteB`, `tempo`, `swing`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
     `partReverb`, `partChorus`, `partDelay`, `fxReturn` (an effect block's return level; the `pan` page's
     knobs 5–7 are Reverb, Chorus and Delay Return), `fxParam` (an effect parameter, #236; the
-    `name` says which, "Reverb Time") or `delayTime` (the delay's note value, or its ms with
-    tempo sync off).
+    `name` says which, "Reverb Time"), `delayTime` (the delay's note value, or its ms with
+    tempo sync off), `harmonyArp` (the HARMONY/ARPEGGIO switch) or `splitPoint` (its value
+    a note name, "F#2").
   - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
     "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
   - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM", a pan "L20" /
@@ -1201,12 +1211,16 @@ plugin states included. `{ name, id, modified, controls, prompt }`.
   keyboard transpose, Harmony/Arp, the controller map, or a plugin edit (`soundEdited`).
   It shows at once (a Launchkey fader within the control thread's next 10 ms). Loading or
   saving a rack clears it (the rack commands, docs/racks.md).
-- `controls`: its controller map, `{ faders, knobs }`: four and eight targets for
+- `controls`: its controller map, `{ version, faders, knobs }`: `version` is 1 (written
+  with every map; the app ignores it), then four and eight targets for
   Launchkey faders 1–4 and knobs 1–8 on the Rack knob page. A target is `{ "kind": "none" }`,
-  `partLevel`, `partPan`, `partReverb` or `partChorus` with `part` 0–3, `harmonyArp` or
-  `splitPoint`; a target a newer build wrote is passed through as it is. A new rack has the
-  four parts' levels on faders 1–4 and knobs 1–4, and none on knobs 5–8. The Rack panel
-  shows it.
+  `partLevel`, `partPan`, `partReverb` or `partChorus` with `part` 0–3, `harmonyArp`,
+  `splitPoint`, `harmonyVolume`, `metronomeVolume` or `tempo` (knobs only); a target a
+  newer build wrote is passed through as it is. A new rack has the four parts' levels on
+  faders 1–4 and knobs 1–4, then Harmony volume, Metronome volume, none and Tempo on
+  knobs 5–8 (the Parts knob page before racks). A map saved before the map could be edited
+  (no `version`), with none on knobs 5–8, reads as that; a map with a `version` is kept
+  as saved. The Rack panel edits it (`setRackControl`).
 - `prompt`: a rack command waiting for the player's answer, or null. It is set when a
   command is refused for it, and cleared by `dismissRackPrompt` or once a rack is loaded
   or saved.
@@ -1945,8 +1959,9 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   "liveRack": {
     "name": "Restored", "id": null, "modified": true,
     "controls": {
+      "version": 1,
       "faders": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }],
-      "knobs": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }, { "kind": "none" }]
+      "knobs": [{ "kind": "partLevel", "part": 0 }, { "kind": "partLevel", "part": 1 }, { "kind": "partLevel", "part": 2 }, { "kind": "partLevel", "part": 3 }, { "kind": "harmonyVolume" }, { "kind": "metronomeVolume" }, { "kind": "none" }, { "kind": "tempo" }]
     },
     "prompt": null
   },

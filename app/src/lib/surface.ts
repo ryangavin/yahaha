@@ -46,6 +46,7 @@ export function faderTip(f: SurfaceFader): TipKey {
   if (f.set.type === 'setStylePartVolume') return 'mixer.style.volume'
   if (f.set.type === 'setStyleVolume') return 'mixer.style_level'
   if (f.set.type === 'setMultiPadVolume') return 'mixer.pad_level'
+  if (f.set.type === 'moveRackFader') return 'launchkey.fader_rack'
   return 'mixer.master'
 }
 

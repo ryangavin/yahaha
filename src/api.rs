@@ -269,6 +269,7 @@ impl From<Action> for AppCmd {
             Action::MultiPad(c) => MultiPadCmd::from(c).into(),
             Action::Knob(knob, delta) => KnobsCmd::TurnKnob { knob, delta }.into(),
             Action::KnobPage(delta) => KnobsCmd::StepKnobPage { delta }.into(),
+            Action::RackFader(fader, volume) => RackCmd::MoveRackFader { fader, volume }.into(),
         }
     }
 }

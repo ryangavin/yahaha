@@ -124,6 +124,20 @@ fn stop_then_start_restores_the_parts_the_mix_and_a_plugins_state() {
 }
 
 #[test]
+fn an_edited_map_with_none_on_knobs_5_to_8_survives_a_restart() {
+    let d = dir("map-none");
+    let a = session(&d);
+    for k in 4..8 {
+        a.send(RackCmd::SetRackControl { control: crate::racks::RackControl::Knob, index: k, target: ControlTarget::None }).unwrap();
+    }
+    a.stop();
+    let b = session(&d);
+    assert_eq!(live(&b).controls.knobs[4..], [ControlTarget::None, ControlTarget::None, ControlTarget::None, ControlTarget::None], "not migrated back to the default");
+    drop(b);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
 fn a_change_autosaves_once_things_are_quiet() {
     let d = dir("autosave");
     let a = session(&d);

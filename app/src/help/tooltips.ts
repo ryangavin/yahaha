@@ -1487,7 +1487,7 @@ const catalog = {
   // ── Knob Assign pages (#197) ───────────────────────────────────────────
   'knobs.page': {
     title: 'Knob Assign page',
-    body: 'What the eight Launchkey knobs do, on six pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Parts has the keyboard parts\' volumes, Harmony and metronome volume and tempo; Pan has the parts\' pan, the effect returns and tempo; Reverb, Chorus and Delay each have Right 1, Right 2, Right 3 and Left\'s send to that effect on knobs 1–4, then the effect\'s own settings and its return on knob 8: Reverb time, pre-delay and tone; Chorus rate and depth; Delay time, feedback and tone. Turning an effect setting keeps that effect as yours through style changes (its Style switch goes off).',
+    body: 'What the eight Launchkey knobs do, on six pages. Style has Dynamics, Retrigger length and on/off, Style Track Mute A and B and tempo; Rack has whatever the loaded rack\'s controller map says (the Rack panel sets it; by default the keyboard parts\' volumes, Harmony and metronome volume and tempo); Pan has the parts\' pan, the effect returns and tempo; Reverb, Chorus and Delay each have Right 1, Right 2, Right 3 and Left\'s send to that effect on knobs 1–4, then the effect\'s own settings and its return on knob 8: Reverb time, pre-delay and tone; Chorus rate and depth; Delay time, feedback and tone. Turning an effect setting keeps that effect as yours through style changes (its Style switch goes off).',
     genos: 'KNOB ASSIGN',
     keys: [],
     launchkey: '▲ / ▼ right of the knobs',
@@ -1661,6 +1661,13 @@ const catalog = {
     genos: null,
     keys: [],
     launchkey: null,
+  },
+  'launchkey.fader_rack': {
+    title: 'Rack fader',
+    body: 'The loaded rack\'s controller map gives this Panel fader something other than its part\'s level: moving it sets what its label says (a pan or send, Harmony/Arp on from halfway up, the split point, a volume). Set it in the Rack panel\'s Controller map.',
+    genos: null,
+    keys: [],
+    launchkey: 'Panel fader page: faders 1–4',
   },
   'launchkey.fader_unused': {
     title: 'Unused fader',
@@ -2531,10 +2538,17 @@ const catalog = {
   },
   'rack.map': {
     title: 'Controller map',
-    body: 'Shows what Launchkey faders 1–4 and knobs 1–8 do while this rack is loaded, on the Rack knob page. It is saved with the rack.',
+    body: 'Shows and sets what Launchkey faders 1–4 (Panel page) and knobs 1–8 (Rack knob page) do while this rack is loaded. It is saved with the rack.',
     genos: null,
     keys: [],
     launchkey: null,
+  },
+  'rack.map_target': {
+    title: 'Controller target',
+    body: 'What this Launchkey fader or knob does while this rack is loaded: a part\'s level, pan, reverb or chorus, Harmony/Arp on or off, the split point, Harmony or Metronome volume, or (knobs only) the tempo. Changing it marks the rack modified; Save rack keeps it. A new rack has the parts\' levels on faders 1–4 and knobs 1–4, then Harmony volume, Metronome volume, nothing and Tempo.',
+    genos: null,
+    keys: [],
+    launchkey: 'Panel faders 1–4; the eight knobs on the Rack knob page',
   },
   'rack.part': {
     title: 'Keyboard part',

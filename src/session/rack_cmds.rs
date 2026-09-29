@@ -71,6 +71,8 @@ impl Control {
                 self.live_rack.held = None;
                 Ok(())
             }
+            RackCmd::SetRackControl { control, index, target } => self.set_rack_control(control, index, target),
+            RackCmd::MoveRackFader { fader, volume } => self.move_rack_fader(fader, volume),
         }
     }
 

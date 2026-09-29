@@ -8,7 +8,7 @@
   │ YOUR HANDS                                                                    │
   │ Split − F#2 +   Harmony/Arp [Duet ▾] (on)   Transpose − 0 +                   │
   │ Manual Bass  Left Hold                                                        │
-  │ ▸ Controller map   (faders 1–4, knobs 1–8: what each does for this rack)      │
+  │ ▸ Controller map   (faders 1–4, knobs 1–8: a select each, setRackControl)     │
   │ KEYBOARD PARTS                                                                │
   │ four RackSlots: R1, R2, R3, L                                                 │
   │ ONE TOUCH SETTINGS · <style>                                                  │
@@ -22,14 +22,14 @@
   setArpPattern, setHarmonyArpOn, toggleManualBass, toggleLeftHold, recallOts,
   toggleOtsLink and the part commands in RackSlot), and the rack commands: Save rack
   (`saveRack`), Save as… (a name form, `saveRackAs`), Revert (`revertRack`, only when
-  modified). `liveRack.prompt` shows inline under the head: `soundNames` as a name field
+  modified), the Controller map's selects (`setRackControl`). `liveRack.prompt` shows inline under the head: `soundNames` as a name field
   per edited part, resent with `soundNames`; `unsavedChanges` as Save first (`saveRack`;
   the engine makes the held switch once saved), Discard and switch (the switch with `discard`) and Keep editing
   (`dismissRackPrompt`).
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
-  import type { RackSwitch } from '../../lib/api/types'
+  import type { RackControl, RackSwitch } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -37,7 +37,7 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import { PART_SHORT, linkedMain, otsLine, otsTip } from '../parts/parts'
   import { instrumentName, playingId } from '../sounds/model'
-  import { rackName, signed, soundBadge, targetLabel } from './rack'
+  import { rackName, signed, soundBadge, targetKey, targetLabel, targetOptions } from './rack'
   import RackSlot from './RackSlot.svelte'
 
   let { docked = false }: { docked?: boolean } = $props()
@@ -56,6 +56,17 @@
   const panelPage = $derived(s.mixer.faderPage === 'panel')
 
   let showMap = $state(false)
+
+  // ── Controller map (the wireframe's `mapTable`): a select per fader 1–4 and knob 1–8 ──
+  const mapRows = $derived([
+    ...rack.controls.faders.map((target, index) => ({ control: 'fader' as const, index, target, name: `Fader ${index + 1}` })),
+    ...rack.controls.knobs.map((target, index) => ({ control: 'knob' as const, index, target, name: `Knob ${index + 1}` })),
+  ])
+
+  function setTarget(control: RackControl, index: number, key: string) {
+    const o = targetOptions(control).find((x) => x.key === key)
+    if (o) app.send({ type: 'setRackControl', control, index, target: o.target })
+  }
 
   // ── Saving (the rack commands, docs/app-api.md `liveRack.prompt`) ─────────────
   const PART_NAMES = ['Right 1', 'Right 2', 'Right 3', 'Left']
@@ -267,14 +278,30 @@
       </div>
       <div class="row">
         <button type="button" class="disc" aria-expanded={showMap} use:tip={'rack.map'} onclick={() => (showMap = !showMap)}>{showMap ? '▾' : '▸'} Controller map</button>
-        <span class="note">What the Launchkey faders and knobs do on the Rack knob page</span>
+        <span class="note">What the Launchkey faders and knobs do while this rack is loaded</span>
       </div>
       {#if showMap}
         <table class="map">
           <thead><tr><th>Launchkey</th><th>Controls</th></tr></thead>
           <tbody>
-            {#each rack.controls.faders as t, i (i)}<tr><td>Fader {i + 1}</td><td>{targetLabel(t)}</td></tr>{/each}
-            {#each rack.controls.knobs as t, i (i)}<tr><td>Knob {i + 1}</td><td>{targetLabel(t)}</td></tr>{/each}
+            {#each mapRows as row (row.name)}
+              {@const opts = targetOptions(row.control)}
+              {@const key = targetKey(row.target)}
+              <tr>
+                <td>{row.name}</td>
+                <td>
+                  <select
+                    aria-label="{row.name} target"
+                    use:tip={'rack.map_target'}
+                    value={key}
+                    onchange={(e) => setTarget(row.control, row.index, e.currentTarget.value)}
+                  >
+                    {#if !opts.some((o) => o.key === key)}<option value={key} disabled>{targetLabel(row.target)}</option>{/if}
+                    {#each opts as o (o.key)}<option value={o.key}>{o.label}</option>{/each}
+                  </select>
+                </td>
+              </tr>
+            {/each}
           </tbody>
         </table>
       {/if}

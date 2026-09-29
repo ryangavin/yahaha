@@ -6,9 +6,11 @@
 //! This is the pure model: the session hands it the values in effect (`Now`) and runs the
 //! command a turn gives back, the same command the app's control for it sends.
 
-use crate::api::{AppCmd, DynamicsCmd, FxBlock, FxCmd, KnobState, KnobsState, HarmonyArpCmd, PartSend, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
+use crate::api::{AppCmd, ChordCmd, DynamicsCmd, FxBlock, FxCmd, KnobState, KnobsState, HarmonyArpCmd, PartSend, MetronomeCmd, MixerCmd, PartsCmd, StyleSettingsCmd, TrackMuteOrder, TransportCmd};
 use crate::engine::RETRIGGER_RATES;
 use crate::fx::Param;
+use crate::parts::FaderRoute;
+use crate::racks::{ControlMap, ControlTarget};
 use serde::{Deserialize, Serialize};
 
 /// A Knob Assign page.
@@ -18,8 +20,11 @@ pub enum KnobPage {
     /// The Style's live functions: Dynamics, Retrigger, Track Mute A/B, tempo.
     #[default]
     Style,
-    /// Levels: the keyboard parts' volumes, Harmony, the metronome, tempo.
-    Parts,
+    /// The live rack's controller map (docs/racks.md): its knobs 1-8. The default map is
+    /// the page this was before racks: the keyboard parts' volumes, Harmony, the metronome,
+    /// tempo. (A `parts` page from before racks opens this one.)
+    #[serde(alias = "parts")]
+    Rack,
     /// The keyboard parts' pan, tempo.
     Pan,
     /// One page per effect block: knobs 1-4 the keyboard parts' sends to it (Right 1-3,
@@ -36,12 +41,12 @@ pub enum KnobPage {
 }
 
 impl KnobPage {
-    pub const ALL: [KnobPage; 6] = [KnobPage::Style, KnobPage::Parts, KnobPage::Pan, KnobPage::Reverb, KnobPage::Chorus, KnobPage::Delay];
+    pub const ALL: [KnobPage; 6] = [KnobPage::Style, KnobPage::Rack, KnobPage::Pan, KnobPage::Reverb, KnobPage::Chorus, KnobPage::Delay];
 
     pub fn name(self) -> &'static str {
         match self {
             KnobPage::Style => "Style",
-            KnobPage::Parts => "Parts",
+            KnobPage::Rack => "Rack",
             KnobPage::Pan => "Pan",
             KnobPage::Reverb => "Reverb",
             KnobPage::Chorus => "Chorus",
@@ -58,13 +63,14 @@ impl KnobPage {
         KnobPage::ALL[(self as i16 + d as i16).clamp(0, KnobPage::ALL.len() as i16 - 1) as usize]
     }
 
-    /// Knobs 1-8. Tempo is knob 8 on the Style, Parts and Pan pages; on an effect page
-    /// knobs 1-4 are the parts' sends to it and knob 8 its return.
+    /// Knobs 1-8. Tempo is knob 8 on the Style and Pan pages (and the default Rack page);
+    /// on an effect page knobs 1-4 are the parts' sends to it and knob 8 its return. The
+    /// Rack page's are the default controller map's (`Knobs::function` has the live rack's).
     pub fn functions(self) -> [KnobFn; 8] {
         use KnobFn::*;
         match self {
             KnobPage::Style => [Dynamics, RetriggerRate, RetriggerOnOff, TrackMuteA, TrackMuteB, Swing, None, Tempo],
-            KnobPage::Parts => [PartVolume(0), PartVolume(1), PartVolume(2), PartVolume(3), HarmonyVolume, MetronomeVolume, None, Tempo],
+            KnobPage::Rack => rack_functions(&ControlMap::default()),
             KnobPage::Pan => [PartPan(0), PartPan(1), PartPan(2), PartPan(3), FxReturn(0), FxReturn(1), FxReturn(2), Tempo],
             KnobPage::Reverb => [
                 PartReverb(0),
@@ -141,7 +147,76 @@ pub enum KnobFn {
     /// The delay's time: its note value with tempo sync on (a step every 3 knob steps),
     /// its free time in ms with it off.
     DelayTime,
+    /// The HARMONY/ARPEGGIO switch: right turns it on, left off (stepped, as Retrigger
+    /// On/Off).
+    HarmonyArp,
+    /// The split point, a semitone a step.
+    SplitPoint,
 }
+
+/// What a controller map target does on a knob. A target this build doesn't know does
+/// nothing.
+pub fn rack_function(t: &ControlTarget) -> KnobFn {
+    match *t {
+        ControlTarget::PartLevel { part } => KnobFn::PartVolume(part & 3),
+        ControlTarget::PartPan { part } => KnobFn::PartPan(part & 3),
+        ControlTarget::PartReverb { part } => KnobFn::PartReverb(part & 3),
+        ControlTarget::PartChorus { part } => KnobFn::PartChorus(part & 3),
+        ControlTarget::HarmonyArp => KnobFn::HarmonyArp,
+        ControlTarget::SplitPoint => KnobFn::SplitPoint,
+        ControlTarget::HarmonyVolume => KnobFn::HarmonyVolume,
+        ControlTarget::MetronomeVolume => KnobFn::MetronomeVolume,
+        ControlTarget::Tempo => KnobFn::Tempo,
+        ControlTarget::None | ControlTarget::Unknown(_) => KnobFn::None,
+    }
+}
+
+/// The command a fader at `v` (0-127) runs for controller map target `t`
+/// (`moveRackFader`): a level, pan or send set to `v`, Harmony/Arp on from 64 (None when
+/// it is that already: `harmony_arp` is the switch now), the split point across its
+/// range. None for none, the tempo and a target this build doesn't know.
+pub fn fader_command(t: &ControlTarget, v: u8, harmony_arp: bool) -> Option<AppCmd> {
+    let v = v.min(127);
+    Some(match *t {
+        ControlTarget::PartLevel { part } => PartsCmd::SetPartVolume { part, volume: v }.into(),
+        ControlTarget::PartPan { part } => PartsCmd::SetPartPan { part, pan: v }.into(),
+        ControlTarget::PartReverb { part } => PartsCmd::SetPartSend { part, send: PartSend::Reverb, value: v }.into(),
+        ControlTarget::PartChorus { part } => PartsCmd::SetPartSend { part, send: PartSend::Chorus, value: v }.into(),
+        ControlTarget::HarmonyArp => {
+            let on = v >= 64;
+            if on == harmony_arp {
+                return None;
+            }
+            HarmonyArpCmd::SetHarmonyArpOn { on }.into()
+        }
+        ControlTarget::SplitPoint => ChordCmd::SetSplit { note: split_at(v) }.into(),
+        ControlTarget::HarmonyVolume => HarmonyArpCmd::SetHarmonyVolume { volume: v }.into(),
+        ControlTarget::MetronomeVolume => MetronomeCmd::SetMetronomeVolume { volume: v }.into(),
+        ControlTarget::Tempo | ControlTarget::None | ControlTarget::Unknown(_) => return None,
+    })
+}
+
+/// What each Panel fader 1-4 does on the input thread for controller map `m`: its own
+/// part's level stays there; none (and the tempo, which no fader has) does nothing; any
+/// other target goes to the control side.
+pub fn fader_routes(m: &ControlMap) -> [FaderRoute; 4] {
+    std::array::from_fn(|f| match &m.faders[f] {
+        ControlTarget::PartLevel { part } if *part as usize == f => FaderRoute::Own,
+        ControlTarget::None | ControlTarget::Tempo | ControlTarget::Unknown(_) => FaderRoute::Off,
+        _ => FaderRoute::Control,
+    })
+}
+
+/// The Rack page's knobs 1-8 for controller map `m`.
+pub fn rack_functions(m: &ControlMap) -> [KnobFn; 8] {
+    std::array::from_fn(|k| rack_function(&m.knobs[k]))
+}
+
+/// The split point's range (`ChordCmd::SetSplit`).
+pub const SPLIT_MIN: u8 = 24;
+pub const SPLIT_MAX: u8 = 96;
+/// The split point a double-click puts back (the Genos default, F#2).
+pub const DEFAULT_SPLIT: u8 = 54;
 
 /// Knob steps per Retrigger length, and per Retrigger on/off switch.
 const RTG_STEPS: i16 = 3;
@@ -175,6 +250,8 @@ impl KnobFn {
             KnobFn::FxReturn(_) => "fxReturn",
             KnobFn::FxParam(_) => "fxParam",
             KnobFn::DelayTime => "delayTime",
+            KnobFn::HarmonyArp => "harmonyArp",
+            KnobFn::SplitPoint => "splitPoint",
         }
     }
 
@@ -199,6 +276,8 @@ impl KnobFn {
             KnobFn::FxReturn(b) => ["RevRtn", "ChoRtn", "DlyRtn"][(b as usize).min(2)],
             KnobFn::FxParam(p) => p.spec().short,
             KnobFn::DelayTime => "DlyTime",
+            KnobFn::HarmonyArp => "HarmArp",
+            KnobFn::SplitPoint => "Split",
         }
     }
 
@@ -223,6 +302,8 @@ impl KnobFn {
             KnobFn::FxReturn(b) => ["Reverb Return", "Chorus Return", "Delay Return"][(b as usize).min(2)],
             KnobFn::FxParam(p) => p.spec().full,
             KnobFn::DelayTime => "Delay Time",
+            KnobFn::HarmonyArp => "Harmony/Arpeggio",
+            KnobFn::SplitPoint => "Split Point",
         }
     }
 }
@@ -247,6 +328,10 @@ pub struct Now {
     pub fx_params: [u16; crate::fx::PARAMS],
     /// The effect parameters' defaults for each block's current type (what a reset goes to).
     pub fx_defaults: [u16; crate::fx::PARAMS],
+    /// The HARMONY/ARPEGGIO switch.
+    pub harmony_arp: bool,
+    /// The split point (a MIDI note).
+    pub split: u8,
 }
 
 /// A keyboard part's, and the Harmony's, volume a double-click puts back (the Genos default).
@@ -260,10 +345,12 @@ pub struct Reading {
     pub level: Option<u8>,
 }
 
-/// The knobs: the page, and what a turn carries over.
+/// The knobs: the page, the Rack page's functions, and what a turn carries over.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Knobs {
     pub page: KnobPage,
+    /// The Rack page's knobs, from the live rack's controller map (`set_rack`).
+    rack: [KnobFn; 8],
     /// Steps turned toward the next switch of a stepped function (Retrigger), per knob.
     acc: [i16; 8],
     /// The Track Mute A and B knob positions (0-127). They set the Style parts' switches
@@ -273,7 +360,7 @@ pub struct Knobs {
 
 impl Default for Knobs {
     fn default() -> Knobs {
-        Knobs { page: KnobPage::default(), acc: [0; 8], mute: [127; 2] }
+        Knobs { page: KnobPage::default(), rack: rack_functions(&ControlMap::default()), acc: [0; 8], mute: [127; 2] }
     }
 }
 
@@ -285,9 +372,27 @@ impl Knobs {
         }
     }
 
+    /// The live rack's controller map changed: the Rack page's knobs do what it says. A
+    /// knob whose function changed starts its stepped count again.
+    pub fn set_rack(&mut self, m: &ControlMap) {
+        let rack = rack_functions(m);
+        if self.page == KnobPage::Rack {
+            for k in 0..8 {
+                if rack[k] != self.rack[k] {
+                    self.acc[k] = 0;
+                }
+            }
+        }
+        self.rack = rack;
+    }
+
     /// The function of knob `knob` (0-7) on the page.
     pub fn function(&self, knob: u8) -> KnobFn {
-        self.page.functions().get(knob as usize).copied().unwrap_or(KnobFn::None)
+        let k = knob as usize;
+        if k >= 8 {
+            return KnobFn::None;
+        }
+        if self.page == KnobPage::Rack { self.rack[k] } else { self.page.functions()[k] }
     }
 
     /// Knob `knob` (0-7) turned `delta` steps (positive: clockwise): the command that
@@ -375,6 +480,20 @@ impl Knobs {
                     fx_param(p, to)
                 }
             }
+            KnobFn::HarmonyArp => {
+                let steps = self.stepped(k, d)?;
+                if (steps > 0) == now.harmony_arp {
+                    return None;
+                }
+                HarmonyArpCmd::ToggleHarmonyArp.into()
+            }
+            KnobFn::SplitPoint => {
+                let to = (now.split as i16 + d).clamp(SPLIT_MIN as i16, SPLIT_MAX as i16) as u8;
+                if to == now.split {
+                    return None;
+                }
+                ChordCmd::SetSplit { note: to }.into()
+            }
         };
         Some(cmd)
     }
@@ -422,6 +541,11 @@ impl Knobs {
                 let p = if now.fx_params[Param::DelaySync.index()] != 0 { Param::DelayNote } else { Param::DelayTime };
                 fx_param(p, now.fx_defaults[p.index()])
             }
+            KnobFn::HarmonyArp => {
+                self.acc[k] = 0;
+                now.harmony_arp.then(|| HarmonyArpCmd::ToggleHarmonyArp.into())?
+            }
+            KnobFn::SplitPoint => (now.split != DEFAULT_SPLIT).then(|| ChordCmd::SetSplit { note: DEFAULT_SPLIT }.into())?,
         };
         Some(cmd)
     }
@@ -453,8 +577,13 @@ impl Knobs {
 
     /// Knob `knob` as it reads now.
     pub fn reading(&self, knob: u8, now: &Now) -> Reading {
+        self.read(self.function(knob), now)
+    }
+
+    /// Function `f` as it reads now (on a knob, or on a fader the controller map gives it).
+    pub fn read(&self, f: KnobFn, now: &Now) -> Reading {
         let r = |value: String, level: Option<u8>| Reading { value, level };
-        match self.function(knob) {
+        match f {
             KnobFn::None => r(String::new(), None),
             KnobFn::Dynamics => r(now.dynamics.to_string(), Some(now.dynamics)),
             KnobFn::RetriggerRate => {
@@ -494,8 +623,20 @@ impl Knobs {
                 let v = now.fx_return[(b as usize).min(2)];
                 r(v.to_string(), Some(v))
             }
+            KnobFn::HarmonyArp => r(if now.harmony_arp { "On" } else { "Off" }.into(), Some(if now.harmony_arp { 127 } else { 0 })),
+            KnobFn::SplitPoint => r(crate::api::note_name(now.split), Some(split_level(now.split))),
         }
     }
+}
+
+/// Where split point `n` sits in its range, 0-127.
+pub fn split_level(n: u8) -> u8 {
+    ((n.clamp(SPLIT_MIN, SPLIT_MAX) - SPLIT_MIN) as u16 * 127 / (SPLIT_MAX - SPLIT_MIN) as u16) as u8
+}
+
+/// The split point a fader at `v` (0-127) puts it at.
+pub fn split_at(v: u8) -> u8 {
+    SPLIT_MIN + (v.min(127) as u16 * (SPLIT_MAX - SPLIT_MIN) as u16 / 127) as u8
 }
 
 /// A pan as the Genos shows it: L63 … C … R63.
@@ -538,6 +679,8 @@ mod tests {
             fx_return: [64, 40, 0],
             fx_params: crate::fx::default_params(),
             fx_defaults: crate::fx::default_params(),
+            harmony_arp: false,
+            split: 54,
         }
     }
 
@@ -562,7 +705,7 @@ mod tests {
     #[test]
     fn pages_step_and_stop_at_the_ends() {
         assert_eq!(KnobPage::Style.step(-1), KnobPage::Style);
-        assert_eq!(KnobPage::Style.step(1), KnobPage::Parts);
+        assert_eq!(KnobPage::Style.step(1), KnobPage::Rack);
         assert_eq!(KnobPage::Pan.step(1), KnobPage::Reverb);
         assert_eq!(KnobPage::Reverb.step(1), KnobPage::Chorus);
         assert_eq!(KnobPage::Chorus.step(1), KnobPage::Delay);
@@ -570,7 +713,7 @@ mod tests {
         for p in KnobPage::ALL {
             assert!(p.functions().iter().all(|f| f.short().len() <= 8));
         }
-        for p in [KnobPage::Style, KnobPage::Parts, KnobPage::Pan] {
+        for p in [KnobPage::Style, KnobPage::Rack, KnobPage::Pan] {
             assert_eq!(p.functions()[7], KnobFn::Tempo, "tempo is knob 8 on {p:?}");
         }
         // One page per effect: the four parts' sends to it, then its parameters and return.
@@ -593,6 +736,7 @@ mod tests {
         // A page saved under the old names opens its successor.
         assert_eq!(serde_json::from_str::<KnobPage>("\"effects\"").unwrap(), KnobPage::Reverb);
         assert_eq!(serde_json::from_str::<KnobPage>("\"fx\"").unwrap(), KnobPage::Delay);
+        assert_eq!(serde_json::from_str::<KnobPage>("\"parts\"").unwrap(), KnobPage::Rack);
     }
 
     /// The knobs move the value from where it is now (OM p.63).
@@ -607,10 +751,54 @@ mod tests {
         assert_eq!(k.turn(5, 1, &now()), Some(StyleSettingsCmd::SetSwing { amount: 2 }.into()), "knob 6 is Swing");
         assert_eq!(k.turn(5, -1, &now()), None, "swing stops at 0");
         assert_eq!(k.turn(6, 1, &now()), None, "knob 7 is unassigned on the Style page");
-        k.set_page(KnobPage::Parts);
+        k.set_page(KnobPage::Rack);
         assert_eq!(k.turn(1, -1, &now()), Some(PartsCmd::SetPartVolume { part: 1, volume: 88 }.into()));
         assert_eq!(k.turn(4, 1, &now()), Some(HarmonyArpCmd::SetHarmonyVolume { volume: 102 }.into()));
         assert_eq!(k.turn(5, 1, &now()), Some(MetronomeCmd::SetMetronomeVolume { volume: 66 }.into()));
+    }
+
+    /// The Rack page with the default controller map is the Parts page it replaced: part
+    /// volumes, Harmony volume, the metronome, nothing, the tempo.
+    #[test]
+    fn the_default_rack_page_is_the_parts_page() {
+        use KnobFn::{HarmonyVolume, MetronomeVolume, PartVolume, Tempo};
+        let parts = [PartVolume(0), PartVolume(1), PartVolume(2), PartVolume(3), HarmonyVolume, MetronomeVolume, KnobFn::None, Tempo];
+        let mut k = Knobs::default();
+        k.set_page(KnobPage::Rack);
+        assert_eq!(std::array::from_fn::<_, 8, _>(|i| k.function(i as u8)), parts);
+        let shorts: Vec<_> = (0..8).map(|i| k.function(i).short()).collect();
+        assert_eq!(shorts, ["Right1", "Right2", "Right3", "Left", "HarmVol", "MetroVol", "---", "Tempo"]);
+        assert_eq!(k.turn(7, 1, &now()), Some(TransportCmd::SetTempo { bpm: 121 }.into()));
+        assert_eq!(k.turn(6, 1, &now()), None);
+    }
+
+    /// A knob on the Rack page does what the controller map says: its command, its name,
+    /// its reading.
+    #[test]
+    fn the_rack_page_follows_the_controller_map() {
+        let mut m = ControlMap::default();
+        m.knobs[0] = ControlTarget::PartPan { part: 2 };
+        m.knobs[1] = ControlTarget::HarmonyArp;
+        m.knobs[2] = ControlTarget::SplitPoint;
+        m.knobs[3] = ControlTarget::Unknown(serde_json::json!({ "kind": "pluginMacro" }));
+        let mut k = Knobs::default();
+        k.set_page(KnobPage::Rack);
+        k.set_rack(&m);
+        assert_eq!(k.turn(0, 1, &now()), Some(PartsCmd::SetPartPan { part: 2, pan: 102 }.into()));
+        assert_eq!((k.function(0).short(), k.function(1).short(), k.function(2).short(), k.function(3).short()), ("PanR3", "HarmArp", "Split", "---"));
+        assert_eq!(k.turn(1, 2, &now()), None, "stepped");
+        assert_eq!(k.turn(1, 1, &now()), Some(HarmonyArpCmd::ToggleHarmonyArp.into()), "right: on");
+        assert_eq!(k.turn(1, 3, &Now { harmony_arp: true, ..now() }), None, "already on");
+        assert_eq!(k.reading(1, &Now { harmony_arp: true, ..now() }).value, "On");
+        assert_eq!(k.turn(2, -2, &now()), Some(ChordCmd::SetSplit { note: 52 }.into()));
+        assert_eq!(k.turn(2, -1, &Now { split: SPLIT_MIN, ..now() }), None);
+        assert_eq!(k.reading(2, &now()), Reading { value: "F#2".into(), level: Some(52) });
+        assert_eq!(k.reset(2, &Now { split: 60, ..now() }), Some(ChordCmd::SetSplit { note: DEFAULT_SPLIT }.into()));
+        assert_eq!(k.turn(3, 5, &now()), None, "a target this build doesn't know does nothing");
+        // Other pages don't change.
+        k.set_page(KnobPage::Pan);
+        assert_eq!(k.function(0), KnobFn::PartPan(0));
+        assert_eq!((split_at(0), split_at(127)), (SPLIT_MIN, SPLIT_MAX));
     }
 
     /// Retrigger steps once per few knob steps; turning back starts the count again.

@@ -2294,6 +2294,7 @@
     "id": null,
     "modified": false,
     "controls": {
+      "version": 1,
       "faders": [
         {
           "kind": "partLevel",
@@ -2330,16 +2331,16 @@
           "part": 3
         },
         {
-          "kind": "none"
+          "kind": "harmonyVolume"
+        },
+        {
+          "kind": "metronomeVolume"
         },
         {
           "kind": "none"
         },
         {
-          "kind": "none"
-        },
-        {
-          "kind": "none"
+          "kind": "tempo"
         }
       ]
     },

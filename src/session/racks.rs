@@ -135,7 +135,7 @@ impl Control {
         if let Err(e) = self.set_transpose(Transpose::new(r.transpose, self.transpose.master)) {
             problems.push(e.to_string());
         }
-        self.rack_controls = r.controls.clone();
+        self.set_rack_controls(r.controls.clone());
         problems
     }
 
