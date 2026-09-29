@@ -5016,20 +5016,12 @@ name = "yahaha"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "block2",
  "core-foundation",
  "coremidi-sys",
  "cpal",
  "crossterm",
  "libc",
  "mach2 0.7.0",
- "objc2",
- "objc2-app-kit",
- "objc2-audio-toolbox",
- "objc2-core-audio-kit",
- "objc2-core-audio-types",
- "objc2-core-foundation",
- "objc2-foundation",
  "ratatui",
  "rtrb",
  "rustysynth",
@@ -5099,7 +5091,11 @@ dependencies = [
 name = "yahaha-synth"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "block2",
+ "cpal",
+ "libc",
+ "mach2 0.7.0",
  "objc2",
  "objc2-app-kit",
  "objc2-audio-toolbox",
@@ -5107,7 +5103,10 @@ dependencies = [
  "objc2-core-audio-types",
  "objc2-core-foundation",
  "objc2-foundation",
+ "rtrb",
  "rustysynth",
+ "serde",
+ "serde_json",
  "yahaha-core",
  "yahaha-engine",
  "yahaha-fx",

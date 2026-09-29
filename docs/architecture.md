@@ -17,26 +17,26 @@ This document is about the inside.
 | `src/session.rs`, `src/session/*` | `Session`: owns the runtime, runs commands, builds `AppState`. One module per feature. |
 | `crates/yahaha-engine/src/engine.rs`, `crates/yahaha-engine/src/engine/*` | `Engine`: the arranger (sections, pattern playback, chord following). Deterministic, allocation-free. |
 | `src/live.rs`, `src/live/*` | The real-time threads' code: MIDI input (`Input`, the key pipeline) and the engine loop (`EngineLoop`). |
-| `src/synth.rs`, `src/synth/` | The built-in SoundFont synth (cpal audio thread), on upstream rustysynth. |
+| `crates/yahaha-synth/src/synth.rs`, `crates/yahaha-synth/src/synth/` | The built-in SoundFont synth (cpal audio thread), on upstream rustysynth. |
 | `crates/yahaha-core/src/midi.rs`, `crates/yahaha-core/src/rt.rs` | CoreMIDI, real-time helpers (clock, wakeups, packet sink, histograms). |
 | `crates/yahaha-sff/src/sff.rs`, `crates/yahaha-sff/src/library.rs` | Style files (SFF1/SFF2) and the style library index. |
 | `crates/yahaha-core/src/theory.rs`, `crates/yahaha-core/src/fingering.rs` | Chords, chord recognition, fingering types. |
 | `crates/yahaha-engine/src/parts.rs`, `crates/yahaha-engine/src/launchkey.rs` | Keyboard parts (Right 1-3, Left) and the Launchkey mapping. |
 | `crates/yahaha-engine/src/multipad/` | Multi Pads: bank parser, player core, bank scan; wired through `engine/multipad.rs` (docs/multipad.md). |
-| `src/patches/` | The sound library (#103): patches, the program map and its resolution, the versioned library file, the route table the synth and the port read, `.sf2` preset headers (docs/sound-library.md). The synth's side is `src/synth/routing.rs`. |
+| `crates/yahaha-synth/src/patches/` | The sound library (#103): patches, the program map and its resolution, the versioned library file, the route table the synth and the port read, `.sf2` preset headers (docs/sound-library.md). The synth's side is `crates/yahaha-synth/src/synth/routing.rs`. |
 | `crates/yahaha-engine/src/controllers.rs` | Pedals, wheels and the assignable-function table (atomics in `Shared`; the input thread and the engine thread send them to the parts). docs/controllers.md. |
 | `crates/yahaha-core/src/harmony.rs`, `crates/yahaha-core/src/arp/` | Keyboard Harmony and the arpeggio (pure, real-time safe), wired in by `src/live/pipeline.rs` and `src/live/kbdfx.rs`. |
-| `src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
+| `crates/yahaha-synth/src/plugin/` | Feature libraries not yet wired in (pure, real-time safe). |
 | `crates/yahaha-core/src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
 | `crates/yahaha-core/src/looper.rs`, `crates/yahaha-core/src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
-| `crates/` | The layer crates of the planned crate split (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). `yahaha-core` (with `perf`'s collection side), `yahaha-sff`, `yahaha-fx` (`crates/yahaha-fx/src/fx/`) and `yahaha-engine` (engine, multipad, parts, controllers, launchkey, sim) hold their modules; `yahaha-synth` is empty for now. |
+| `crates/` | The layer crates (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). `yahaha-core` (with `perf`'s collection side), `yahaha-sff`, `yahaha-fx` (`crates/yahaha-fx/src/fx/`), `yahaha-engine` (engine, multipad, parts, controllers, launchkey, sim) and `yahaha-synth` (synth, patches, plugin with the `plugins` feature, perf's view). |
 
-The modules above are moving, lane by lane, out of the one `yahaha` crate into layer
-crates under `crates/`: core → sff, fx → engine → synth → the `yahaha` facade (session,
-API, live threads, UI). A module moves only once nothing it imports sits above its crate,
-and the facade re-exports it, so `yahaha::theory::…` paths keep working. AGENTS.md
-("Layering") has the table of which module goes where.
+The library is split into layer crates under `crates/`: core → sff, fx → engine → synth
+→ the `yahaha` facade at the repo root (session, API, live threads, UI and the other
+modules left in `src/`). Each crate depends only on the ones below it, and the facade
+re-exports every moved module, so `yahaha::theory::…` paths keep working. AGENTS.md
+("Layering") has the table of which module lives where.
 
 ## Threads
 

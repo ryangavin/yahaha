@@ -35,14 +35,15 @@ pub use yahaha_engine::multipad;
 pub mod oracle;
 pub use yahaha_engine::parts;
 pub use yahaha_core::parts_data;
-pub mod patches;
-pub mod perf;
+pub use yahaha_synth::patches;
+// Tests of patches that need a higher layer (session).
+#[cfg(test)]
+mod patches_tests;
+pub use yahaha_synth::perf;
+// Plugin hosting (`plugins` forwards to yahaha-synth's feature, which also holds the
+// macOS-only guard).
 #[cfg(feature = "plugins")]
-pub mod plugin;
-// Plugin hosting is Audio Units: macOS only. Without the feature, session's rack is the
-// stub it already uses when plugins are off.
-#[cfg(all(feature = "plugins", not(target_os = "macos")))]
-compile_error!("the `plugins` feature (Audio Unit hosting) is macOS only; build without it on this platform");
+pub use yahaha_synth::plugin;
 #[cfg(test)]
 mod recognizer_golden;
 // Tests of core modules that need a higher layer (engine, sff, sim, library).
@@ -62,7 +63,7 @@ pub mod session;
 pub use yahaha_sff::sff;
 pub use yahaha_engine::sim;
 pub use yahaha_core::style_types;
-pub mod synth;
+pub use yahaha_synth::synth;
 pub use yahaha_core::theory;
 pub use yahaha_core::tone;
 pub use yahaha_core::voice_gm;

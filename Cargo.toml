@@ -56,19 +56,10 @@ slow-tests = [
 ]
 # The terminal UI (ratatui, crossterm). Only the binary needs it.
 tui = ["dep:ratatui", "dep:crossterm"]
-# Plugin hosting (#35): Audio Unit instruments (src/plugin/, `yahaha plugin-test`). Off by
-# default. Pulls in the objc2 framework bindings below; none of them is built otherwise.
-plugins = [
-    "dep:objc2",
-    "dep:objc2-foundation",
-    "dep:objc2-core-foundation",
-    "dep:objc2-core-audio-types",
-    "dep:objc2-audio-toolbox",
-    "dep:objc2-app-kit",
-    "dep:objc2-core-audio-kit",
-    "dep:block2",
-    "yahaha-synth/plugins",
-]
+# Plugin hosting (#35): Audio Unit instruments (yahaha-synth's `plugin` module,
+# `yahaha plugin-test`). Off by default; macOS only. The objc2 framework bindings are
+# yahaha-synth's.
+plugins = ["yahaha-synth/plugins"]
 
 [dependencies]
 # The layer crates (AGENTS.md, Layering).
@@ -86,12 +77,8 @@ libc = "0.2.189"
 ratatui = { version = "0.30.2", optional = true, default-features = false, features = ["crossterm_0_29"] }
 rtrb = "0.4.0"
 # rustysynth (MIT, https://github.com/sinshu/rustysynth), unmodified from crates.io. Never
-# vendor or patch it (AGENTS.md). What it lacks is built in yahaha on its public API
-# (#346): one synthesizer per part, with meters, sends and inserts on the part's stem
-# (src/synth/rack.rs); mono and portamento (src/synth/voicing.rs); CC74/71/77 tone controls
-# (src/synth/part_tone.rs); CC73/75/72 envelope shaping (src/synth/envelope.rs);
-# velocity -> filter cutoff baked into the SoundFont as it loads (src/synth/font.rs); and
-# XG Drum Setup kits derived from the SoundFont (src/synth/kit.rs).
+# vendor or patch it (AGENTS.md). What it lacks is built in yahaha-synth on its public API
+# (#346; see crates/yahaha-synth/Cargo.toml).
 rustysynth = "1.3.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -102,55 +89,6 @@ serde_json = "1"
 core-foundation = "0.10.1"
 coremidi-sys = "3.2.1"
 mach2 = "0.7.0"
-
-# Plugin hosting only (the `plugins` feature). The objc2 project's generated bindings to
-# AudioToolbox, CoreAudioKit and AppKit; cpal already depends on objc2 / audio-toolbox.
-# macOS only: elsewhere the feature pulls in nothing and src/lib.rs stops with a
-# compile_error.
-[target.'cfg(target_os = "macos")'.dependencies.objc2]
-version = "0.6.4"
-optional = true
-features = ["exception"]
-
-[target.'cfg(target_os = "macos")'.dependencies.block2]
-version = "0.6.2"
-optional = true
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-foundation]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "NSString", "NSBundle", "NSURL", "NSObject", "NSDate", "NSRunLoop", "NSGeometry", "NSThread", "NSNotification", "NSOperation", "block2"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-core-foundation]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "CFString", "CFData", "CFError", "CFPropertyList"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-types]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "CoreAudioBaseTypes"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-audio-toolbox]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "AudioComponent", "AUComponent", "AudioUnitProperties", "MusicDevice", "block2", "objc2-core-audio-types", "objc2-core-foundation"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-app-kit]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "NSApplication", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSViewController", "NSGraphics", "NSEvent", "objc2-core-foundation"]
-
-[target.'cfg(target_os = "macos")'.dependencies.objc2-core-audio-kit]
-version = "0.3.2"
-optional = true
-default-features = false
-features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]
 
 # Profiles live here, in the workspace root: cargo applies them to every member crate.
 

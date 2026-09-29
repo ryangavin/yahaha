@@ -778,7 +778,7 @@ mod tests {
     #[cfg(feature = "slow-tests")]
     #[test]
     fn real_fonts_bake_within_the_limits() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../soundfonts");
         let Ok(entries) = std::fs::read_dir(&dir) else {
             eprintln!("no soundfonts; skipping");
             return;

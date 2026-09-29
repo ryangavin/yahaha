@@ -557,8 +557,7 @@ impl Unit {
     }
 
     /// Set a parameter, as the plugin's own window does when a knob turns (tests). Not
-    /// RT-safe.
-    #[cfg(test)]
+    /// RT-safe. Not test-only: the facade's tests call it through `PluginInstance`.
     pub(crate) fn set_parameter(&self, id: u32, scope: u32, element: u32, value: f32) -> Result<()> {
         check(unsafe { objc2_audio_toolbox::AudioUnitSetParameter(self.raw, id, scope, element, value, 0) }, "AudioUnitSetParameter")
     }

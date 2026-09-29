@@ -259,8 +259,9 @@ mod tests {
     /// the 128 melodic programs on bank 0.
     #[test]
     fn real_soundfonts_list_presets() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-        for f in crate::library::sound_font_files(&dir) {
+        // The checkout's root, two levels above this crate (crates/yahaha-synth).
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../soundfonts");
+        for f in yahaha_sff::library::sound_font_files(&dir) {
             let got = presets(&dir.join(&f)).unwrap();
             assert!(!got.is_empty(), "{f}");
             if f.contains("GeneralUser") {

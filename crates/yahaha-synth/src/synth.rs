@@ -11,7 +11,7 @@
 //!
 //! Each MIDI channel renders from the SoundFont or, with the `plugins` feature, from an
 //! Audio Unit instrument in the plugin rack: the per-channel route table
-//! ([`crate::route`], `SynthControl::routes`) says which. [`AudioCore`] is the whole
+//! ([`yahaha_core::route`], `SynthControl::routes`) says which. [`AudioCore`] is the whole
 //! callback as a plain struct, so offline renders (tests, `Session::render`) run exactly
 //! the code the audio device does.
 
@@ -23,9 +23,9 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::{Acquire, Relaxed}};
 use std::sync::Arc;
 
-use crate::click::{Click, CLICK};
-use crate::parts::{self, Parts};
-use crate::route::ChannelRoutes;
+use yahaha_core::click::{Click, CLICK};
+use yahaha_engine::parts::{self, Parts};
+use yahaha_core::route::ChannelRoutes;
 #[cfg(feature = "plugins")]
 use crate::plugin::{PluginRack, RackControl};
 
@@ -110,11 +110,11 @@ pub struct SynthControl {
     /// The metronome's click volume (0-127), read when a click starts.
     pub click_volume: AtomicU8,
     /// Which engine renders each MIDI channel: the SoundFont or the plugin rack
-    /// (`crate::route`). The control side writes it; the audio thread reads it once per
+    /// (`yahaha_core::route`). The control side writes it; the audio thread reads it once per
     /// buffer.
     pub routes: ChannelRoutes,
     /// The shared effect bus's settings (#204): types, return levels.
-    pub fx: crate::fx::FxControl,
+    pub fx: yahaha_fx::fx::FxControl,
     /// Each track's render time (#340), for the Mixer's CPU readout.
     pub cpu: CpuCounters,
 }
@@ -435,9 +435,9 @@ impl SynthControl {
             swaps: AtomicU64::new(0),
             xruns: AtomicU64::new(0),
             late: AtomicU64::new(0),
-            click_volume: AtomicU8::new(crate::click::DEFAULT_VOLUME),
+            click_volume: AtomicU8::new(yahaha_core::click::DEFAULT_VOLUME),
             routes: ChannelRoutes::new(),
-            fx: crate::fx::FxControl::new(),
+            fx: yahaha_fx::fx::FxControl::new(),
             cpu: CpuCounters::default(),
         }
     }
@@ -476,7 +476,7 @@ pub fn gm_fallback(dest: u8, msb: u8, prog: u8) -> u8 {
     if msb == 0 {
         return prog;
     }
-    let prog = crate::voice_gm::gm_program(msb, prog).unwrap_or(prog);
+    let prog = yahaha_core::voice_gm::gm_program(msb, prog).unwrap_or(prog);
     match dest {
         10 if !(32..=39).contains(&prog) => 33, // Bass part -> Finger Bass
         _ => prog,
@@ -527,7 +527,7 @@ pub fn render_offline(
     end_ns: u64,
     sample_rate: u32,
     bpm: f64,
-    inserts: &[(u8, crate::fx::InsertKind, u8)],
+    inserts: &[(u8, yahaha_fx::fx::InsertKind, u8)],
 ) -> Result<(Vec<f32>, Vec<f32>)> {
     const BLOCK: usize = 64;
     let rack = if legacy_fx() { Rack::load_legacy(sf2, sample_rate)? } else { Rack::load(sf2, sample_rate)? };
@@ -721,15 +721,15 @@ pub struct AudioCore {
     router: Option<Router>,
     /// The shared effect bus (#204) and its send buses (see `Rack::render`): the playing
     /// rack's, then the fading one's.
-    fx: crate::fx::FxBus,
+    fx: yahaha_fx::fx::FxBus,
     sends: Vec<f32>,
     sends2: Vec<f32>,
     /// Each channel's send controllers (CC91/93/94) as last sent, the gains they make, and
     /// the gains the racks have now: the keyboard parts' glide to theirs (a knob or fader
     /// turning a send never zippers), the others' are set at once.
-    send_cc: [[u8; crate::fx::BUSES]; 16],
-    send_target: [[f32; crate::fx::BUSES]; 16],
-    send_gains: [[f32; crate::fx::BUSES]; 16],
+    send_cc: [[u8; yahaha_fx::fx::BUSES]; 16],
+    send_target: [[f32; yahaha_fx::fx::BUSES]; 16],
+    send_gains: [[f32; yahaha_fx::fx::BUSES]; 16],
     /// The racks' send gains need setting again (a send changed, a rack came in).
     sends_dirty: bool,
     /// A keyboard part's send gain is still gliding to its target.
@@ -738,20 +738,20 @@ pub struct AudioCore {
     legacy: bool,
     /// The parts' insertion effects on the SoundFont side (#269): the Style parts' and the
     /// keyboard parts' own slots.
-    inserts: Box<crate::fx::ChannelInserts>,
+    inserts: Box<yahaha_fx::fx::ChannelInserts>,
     /// The band send scales (#236) as they glide towards `FxControl::band_send`.
-    band_scale: [f32; crate::fx::BUSES],
+    band_scale: [f32; yahaha_fx::fx::BUSES],
     /// The Style parts' own sends (#268, `FxControl::part_send`) as last applied.
-    part_send: [[u8; crate::fx::BUSES]; 8],
+    part_send: [[u8; yahaha_fx::fx::BUSES]; 8],
     /// The Multi Pad send scales (#267) as they glide towards `FxControl::pad_send`.
-    pad_scale: [f32; crate::fx::BUSES],
+    pad_scale: [f32; yahaha_fx::fx::BUSES],
     sample_rate: f32,
     /// The keyboard parts' EQ coefficients (#247) as last taken from `Parts` (and the
     /// publication they came from), for the racks and the plugin rack.
     eq_seen: [u32; parts::COUNT],
-    eq: [crate::fx::part_eq::EqCoeffs; parts::COUNT],
+    eq: [yahaha_fx::fx::part_eq::EqCoeffs; parts::COUNT],
     /// The Master Compressor and Master EQ, after the effect returns.
-    master_fx: crate::fx::master::MasterDsp,
+    master_fx: yahaha_fx::fx::master::MasterDsp,
 }
 
 impl AudioCore {
@@ -805,23 +805,23 @@ impl AudioCore {
             #[cfg(test)]
             passed: Vec::new(),
             router: None,
-            fx: crate::fx::FxBus::new(sample_rate),
-            sends: vec![0f32; 2 * crate::fx::BUSES * 8192],
-            sends2: vec![0f32; 2 * crate::fx::BUSES * 8192],
-            send_cc: [crate::fx::DEFAULT_SENDS; 16],
-            send_target: [[0f32; crate::fx::BUSES]; 16],
-            send_gains: [[0f32; crate::fx::BUSES]; 16],
+            fx: yahaha_fx::fx::FxBus::new(sample_rate),
+            sends: vec![0f32; 2 * yahaha_fx::fx::BUSES * 8192],
+            sends2: vec![0f32; 2 * yahaha_fx::fx::BUSES * 8192],
+            send_cc: [yahaha_fx::fx::DEFAULT_SENDS; 16],
+            send_target: [[0f32; yahaha_fx::fx::BUSES]; 16],
+            send_gains: [[0f32; yahaha_fx::fx::BUSES]; 16],
             sends_dirty: true,
             sends_gliding: false,
             legacy: false,
-            inserts: Box::new(crate::fx::ChannelInserts::new(sample_rate.max(1) as f32)),
-            band_scale: crate::fx::BAND_SEND_DEFAULT.map(crate::fx::band_scale),
-            part_send: [[crate::fx::SEND_STYLE; crate::fx::BUSES]; 8],
-            pad_scale: crate::fx::PAD_SEND_DEFAULT.map(crate::fx::band_scale),
+            inserts: Box::new(yahaha_fx::fx::ChannelInserts::new(sample_rate.max(1) as f32)),
+            band_scale: yahaha_fx::fx::BAND_SEND_DEFAULT.map(yahaha_fx::fx::band_scale),
+            part_send: [[yahaha_fx::fx::SEND_STYLE; yahaha_fx::fx::BUSES]; 8],
+            pad_scale: yahaha_fx::fx::PAD_SEND_DEFAULT.map(yahaha_fx::fx::band_scale),
             sample_rate: sample_rate.max(1) as f32,
-            eq_seen: [crate::fx::part_eq::EqCell::UNSEEN; parts::COUNT],
-            eq: [crate::fx::part_eq::EqCoeffs::FLAT; parts::COUNT],
-            master_fx: crate::fx::master::MasterDsp::new(sample_rate.max(1) as f32),
+            eq_seen: [yahaha_fx::fx::part_eq::EqCell::UNSEEN; parts::COUNT],
+            eq: [yahaha_fx::fx::part_eq::EqCoeffs::FLAT; parts::COUNT],
+            master_fx: yahaha_fx::fx::master::MasterDsp::new(sample_rate.max(1) as f32),
         };
         (core, RackSwap { tx: swap_tx, old: old_rx, kits: kits_link }, Some(link))
     }
@@ -1012,7 +1012,7 @@ impl AudioCore {
                     self.shadow.note(&m);
                     // A send to the effect bus (#204).
                     if m[0] & 0xF0 == 0xB0
-                        && let Some(b) = crate::fx::SEND_CC.iter().position(|&c| c == m[1])
+                        && let Some(b) = yahaha_fx::fx::SEND_CC.iter().position(|&c| c == m[1])
                     {
                         self.send_cc[(m[0] & 0x0F) as usize][b] = m[2];
                         self.sends_dirty = true;
@@ -1064,17 +1064,17 @@ impl AudioCore {
             self.sends_gliding = true;
             for (ch, (g, cc)) in self.send_target.iter_mut().zip(&self.send_cc).enumerate() {
                 *g = if legacy {
-                    [0.0; crate::fx::BUSES]
-                } else if crate::fx::BAND_CHANNELS.contains(&ch) {
-                    let own = self.part_send[ch - crate::fx::BAND_CHANNELS.start];
+                    [0.0; yahaha_fx::fx::BUSES]
+                } else if yahaha_fx::fx::BAND_CHANNELS.contains(&ch) {
+                    let own = self.part_send[ch - yahaha_fx::fx::BAND_CHANNELS.start];
                     std::array::from_fn(|b| match own[b] {
-                        crate::fx::SEND_STYLE => crate::fx::band_send_gain(cc[b], self.band_scale[b]),
-                        v => crate::fx::send_gain(v),
+                        yahaha_fx::fx::SEND_STYLE => yahaha_fx::fx::band_send_gain(cc[b], self.band_scale[b]),
+                        v => yahaha_fx::fx::send_gain(v),
                     })
-                } else if crate::fx::PAD_CHANNELS.contains(&ch) {
-                    std::array::from_fn(|b| crate::fx::band_send_gain(cc[b], self.pad_scale[b]))
+                } else if yahaha_fx::fx::PAD_CHANNELS.contains(&ch) {
+                    std::array::from_fn(|b| yahaha_fx::fx::band_send_gain(cc[b], self.pad_scale[b]))
                 } else {
-                    cc.map(crate::fx::send_gain)
+                    cc.map(yahaha_fx::fx::send_gain)
                 };
             }
         }
@@ -1086,11 +1086,11 @@ impl AudioCore {
         }
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         let (left2, right2) = (&mut self.left2[..frames], &mut self.right2[..frames]);
-        let sends = &mut self.sends[..2 * crate::fx::BUSES * frames];
+        let sends = &mut self.sends[..2 * yahaha_fx::fx::BUSES * frames];
         // Each channel's insert (#269; a keyboard part's own slot), run by whatever plays
         // the part: the SoundFont rack on its stem, the plugin rack on the plugin's output.
         // The other side's fades out (an insert off is not run at all).
-        let mut ins = crate::fx::InsertSettings::channels(&ctl.fx);
+        let mut ins = yahaha_fx::fx::InsertSettings::channels(&ctl.fx);
         for p in 0..parts::COUNT {
             let ch = parts::CHANNEL[p] as usize;
             ins[ch] = ins[ch].with(self.parts.insert(p));
@@ -1098,9 +1098,9 @@ impl AudioCore {
         for (ch, s) in ins.iter_mut().enumerate() {
             let plugin = active >> ch & 1 == 1;
             #[cfg(feature = "plugins")]
-            self.plugins.set_insert(ch as u8, if plugin && !self.legacy { *s } else { crate::fx::InsertSettings { kind: crate::fx::InsertKind::None, ..*s } });
+            self.plugins.set_insert(ch as u8, if plugin && !self.legacy { *s } else { yahaha_fx::fx::InsertSettings { kind: yahaha_fx::fx::InsertKind::None, ..*s } });
             if plugin {
-                s.kind = crate::fx::InsertKind::None;
+                s.kind = yahaha_fx::fx::InsertKind::None;
             }
         }
         self.inserts.set(&ins);
@@ -1133,7 +1133,7 @@ impl AudioCore {
             }
         }
         if let Some(mut f) = self.fading.take() {
-            let sends2 = &mut self.sends2[..2 * crate::fx::BUSES * frames];
+            let sends2 = &mut self.sends2[..2 * yahaha_fx::fx::BUSES * frames];
             f.render(left2, right2, sends2, &self.unmetered, Some((1.0, 0.0)), None);
             for i in 0..frames {
                 left[i] += left2[i];
@@ -1154,7 +1154,7 @@ impl AudioCore {
             // Their sends too, at the master gain the SoundFont's carry (its channels'
             // mix includes it).
             let g = master_gain(master);
-            let gains: [[f32; crate::fx::BUSES]; 16] = std::array::from_fn(|ch| self.send_gains[ch].map(|x| x * g));
+            let gains: [[f32; yahaha_fx::fx::BUSES]; 16] = std::array::from_fn(|ch| self.send_gains[ch].map(|x| x * g));
             self.plugins.render_add_sends(left2, right2, Some((&mut *sends, &gains)));
             for i in 0..frames {
                 left[i] += left2[i] * g;
@@ -1232,7 +1232,7 @@ impl AudioCore {
 /// The racks' send gains a buffer on towards their targets: the keyboard parts' glide
 /// (`k` of the way, as the band scales), every other channel's is set at once. True while
 /// any is still on its way.
-fn glide_sends(gains: &mut [[f32; crate::fx::BUSES]; 16], targets: &[[f32; crate::fx::BUSES]; 16], k: f32) -> bool {
+fn glide_sends(gains: &mut [[f32; yahaha_fx::fx::BUSES]; 16], targets: &[[f32; yahaha_fx::fx::BUSES]; 16], k: f32) -> bool {
     let mut moving = false;
     for (ch, (g, t)) in gains.iter_mut().zip(targets).enumerate() {
         let keys = parts::part_of_channel(ch as u8).is_some();
@@ -1249,10 +1249,10 @@ fn glide_sends(gains: &mut [[f32; crate::fx::BUSES]; 16], targets: &[[f32; crate
     moving
 }
 
-fn glide_scales(scales: &mut [f32; crate::fx::BUSES], targets: &[std::sync::atomic::AtomicU8; crate::fx::BUSES], k: f32) -> bool {
+fn glide_scales(scales: &mut [f32; yahaha_fx::fx::BUSES], targets: &[std::sync::atomic::AtomicU8; yahaha_fx::fx::BUSES], k: f32) -> bool {
     let mut moved = false;
     for (scale, t) in scales.iter_mut().zip(targets) {
-        let target = crate::fx::band_scale(t.load(Relaxed));
+        let target = yahaha_fx::fx::band_scale(t.load(Relaxed));
         if *scale != target {
             let d = target - *scale;
             *scale = if d.abs() < 1e-3 { target } else { *scale + d * k };
@@ -1394,10 +1394,10 @@ pub fn start(sf2: &Path, consumers: Vec<Consumer<Msg>>, out_pair: Option<u8>, pa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::Prepared;
-    use crate::sim::{run, Step};
-    use crate::sff::Style;
-    use crate::theory::Chord;
+    use yahaha_engine::engine::Prepared;
+    use yahaha_engine::sim::{run, Step};
+    use yahaha_sff::sff::Style;
+    use yahaha_core::theory::Chord;
 
     /// Multi Pad channels (5-8): a Yamaha drum kit bank goes to the SoundFont's drum bank,
     /// any other voice to its GM bank.
@@ -1417,7 +1417,7 @@ mod tests {
     /// Render a style's engine output offline through the SoundFont and measure each part.
     #[test]
     fn soundfont_renders_every_part() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let sf2 = root.join("soundfonts/GeneralUser-GS.sf2");
         let style_path = root.join("corpus/MOX_v2/SlowWalker.T552.sty");
         if !sf2.exists() || !style_path.exists() {
@@ -1434,7 +1434,7 @@ mod tests {
             .map(|(i, c)| (i as u64 * bar, Step::Chord(*c)))
             .collect();
         // Fill In AA (uses Rhythm 1 on ch 9) during bar 2.
-        script.insert(2, (bar + bar / 8, Step::Button(crate::engine::Button::Main(0))));
+        script.insert(2, (bar + bar / 8, Step::Button(yahaha_engine::engine::Button::Main(0))));
         let (_, rec) = run(prep, &script, 4 * bar);
         let sr = 48_000;
         let mut rms_by_part = Vec::new();
@@ -1491,7 +1491,7 @@ mod silent_tests {
     fn silent_channel_drops_note_ons_only() {
         let (mut tx, rx) = RingBuffer::<Msg>::new(16);
         let ctl = Arc::new(SynthControl::new(0));
-        ctl.routes.set(0, crate::route::Source::Silent);
+        ctl.routes.set(0, yahaha_core::route::Source::Silent);
         let (mut core, _swap, _link) = AudioCore::new(None, vec![rx], Arc::new(Parts::new()), ctl, 48_000, 2);
         let sent = [[0x90, 60, 100], [0x80, 60, 0], [0x90, 61, 0], [0xB0, 7, 90], [0x91, 60, 100]];
         for m in sent {
@@ -1519,7 +1519,7 @@ mod parts_tests {
         assert_eq!(style_bass_program(Some((0, 0, 35))), 35);
         assert_eq!(style_bass_program(Some((8, 0, 4))), 33); // Genos-only bank, not a bass number
         assert_eq!(style_bass_program(None), 33);
-        let sf2 = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts/GeneralUser-GS.sf2");
+        let sf2 = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../soundfonts/GeneralUser-GS.sf2");
         if !sf2.exists() {
             eprintln!("soundfont missing; skipping");
             return;
@@ -1594,7 +1594,7 @@ mod curve_tests {
 
     #[test]
     fn velocity_cc7_cc11_follow_gm_curves() {
-        let sf2 = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts/GeneralUser-GS.sf2");
+        let sf2 = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../soundfonts/GeneralUser-GS.sf2");
         if !sf2.exists() {
             eprintln!("soundfont missing; skipping");
             return;
@@ -1620,17 +1620,17 @@ mod curve_tests {
 #[cfg(test)]
 mod loudness_probe {
     use super::*;
-    use crate::engine::Prepared;
-    use crate::sim::{run, Step};
-    use crate::sff::Style;
-    use crate::theory::Chord;
+    use yahaha_engine::engine::Prepared;
+    use yahaha_engine::sim::{run, Step};
+    use yahaha_sff::sff::Style;
+    use yahaha_core::theory::Chord;
 
     #[test]
     #[ignore]
     fn part_loudness() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let font = crate::synth::font::open(&root.join("soundfonts/GeneralUser-GS.sf2")).unwrap();
-        let files = crate::library::corpus_styles();
+        let files = yahaha_sff::library::corpus_styles();
         for f in &files {
             let style = Style::load(f).unwrap();
             let prep = Box::new(Prepared::new(&style));
@@ -1711,8 +1711,8 @@ mod rack_tests {
         }
         static FONT: std::sync::OnceLock<Option<Arc<SoundFont>>> = std::sync::OnceLock::new();
         let font = FONT.get_or_init(|| {
-            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-            let f = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX));
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../soundfonts");
+            let f = yahaha_sff::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX));
             f.map(|f| crate::synth::font::open(&f).unwrap())
         });
         if font.is_none() {
@@ -2025,19 +2025,19 @@ mod rack_tests {
     /// never zippers); a Style part's is set at once.
     #[test]
     fn keyboard_part_sends_glide() {
-        let mut gains = [[0f32; crate::fx::BUSES]; 16];
+        let mut gains = [[0f32; yahaha_fx::fx::BUSES]; 16];
         let mut targets = gains;
-        targets[parts::CHANNEL[parts::RIGHT1] as usize][crate::fx::REVERB] = 1.0;
-        targets[10][crate::fx::REVERB] = 1.0;
+        targets[parts::CHANNEL[parts::RIGHT1] as usize][yahaha_fx::fx::REVERB] = 1.0;
+        targets[10][yahaha_fx::fx::REVERB] = 1.0;
         assert!(glide_sends(&mut gains, &targets, 0.25));
-        assert_eq!(gains[10][crate::fx::REVERB], 1.0, "a Style part: at once");
-        assert_eq!(gains[0][crate::fx::REVERB], 0.25, "Right 1: on its way");
+        assert_eq!(gains[10][yahaha_fx::fx::REVERB], 1.0, "a Style part: at once");
+        assert_eq!(gains[0][yahaha_fx::fx::REVERB], 0.25, "Right 1: on its way");
         let mut n = 1;
         while glide_sends(&mut gains, &targets, 0.25) {
             n += 1;
             assert!(n < 100);
         }
-        assert_eq!(gains[0][crate::fx::REVERB], 1.0);
+        assert_eq!(gains[0][yahaha_fx::fx::REVERB], 1.0);
         assert!(n > 5, "{n} buffers");
     }
 
@@ -2047,7 +2047,7 @@ mod rack_tests {
         let play = |ch: u8, band: Option<u8>, send: u8| -> (f64, f64) {
             let e = delay_tail(&font, ch, send, |ctl| {
                 if let Some(b) = band {
-                    ctl.fx.band_send[crate::fx::VARIATION].store(b, Relaxed);
+                    ctl.fx.band_send[yahaha_fx::fx::VARIATION].store(b, Relaxed);
                 }
             });
             (e, 0.0)
@@ -2068,16 +2068,16 @@ mod rack_tests {
         let mut out = vec![0f32; 256];
         core.process(&mut out);
         assert_eq!(core.band_scale, [1.0, 0.0, 0.0], "the defaults: reverb as written, no chorus, no delay");
-        ctl.fx.band_send[crate::fx::CHORUS].store(100, Relaxed);
+        ctl.fx.band_send[yahaha_fx::fx::CHORUS].store(100, Relaxed);
         core.process(&mut out);
-        let first = core.band_scale[crate::fx::CHORUS];
+        let first = core.band_scale[yahaha_fx::fx::CHORUS];
         assert!(first > 0.0 && first < 0.2, "the first buffer moves a little: {first}");
         // 128 frames a buffer: 0.4 s.
         for _ in 0..150 {
             core.process(&mut out);
         }
-        assert_eq!(core.band_scale[crate::fx::CHORUS], 1.0, "and arrives");
-        assert_eq!(core.send_gains[10][crate::fx::CHORUS], 0.0, "no send, no gain");
+        assert_eq!(core.band_scale[yahaha_fx::fx::CHORUS], 1.0, "and arrives");
+        assert_eq!(core.send_gains[10][yahaha_fx::fx::CHORUS], 0.0, "no send, no gain");
     }
 
     /// #268: a Style part's own send replaces its style's CC and is not scaled by the band
@@ -2086,7 +2086,7 @@ mod rack_tests {
     #[test]
     fn a_style_parts_own_send_is_not_scaled() {
         let font = tiny_font_with(TAIL);
-        let v = crate::fx::VARIATION;
+        let v = yahaha_fx::fx::VARIATION;
         let dry = delay_tail(&font, 10, 127, |_| {});
         let scaled = delay_tail(&font, 10, 127, |c| c.fx.band_send[v].store(100, Relaxed));
         let own = delay_tail(&font, 10, 0, |c| c.fx.part_send[2][v].store(127, Relaxed));
@@ -2110,7 +2110,7 @@ mod rack_tests {
     #[test]
     fn the_pad_send_scales_only_the_pads() {
         let font = tiny_font_with(TAIL);
-        let v = crate::fx::VARIATION;
+        let v = yahaha_fx::fx::VARIATION;
         let dry = delay_tail(&font, 5, 0, |_| {});
         let pad_default = delay_tail(&font, 5, 127, |_| {});
         let pad_full = delay_tail(&font, 5, 127, |c| c.fx.pad_send[v].store(100, Relaxed));
@@ -2131,7 +2131,7 @@ mod rack_tests {
     /// compressor on brings a loud chord down, and neither touches the metronome click.
     #[test]
     fn the_master_effects_run_on_the_mix_and_off_change_nothing() {
-        use crate::fx::master::{CompPreset, EqPreset, MasterComp, MasterEq};
+        use yahaha_fx::fx::master::{CompPreset, EqPreset, MasterComp, MasterEq};
         let render = |font: Option<&Arc<SoundFont>>, msgs: &[Msg], setup: &dyn Fn(&SynthControl)| -> Vec<f32> {
             let rack = font.map(|f| Box::new(Rack::new(f, 48_000).unwrap()));
             let (mut tx, rx) = RingBuffer::<Msg>::new(64);
@@ -2179,7 +2179,7 @@ mod rack_tests {
     #[test]
     fn a_style_parts_insert_runs_on_that_part_only() {
         let font = tiny_font_with(SOFT);
-        let play = |ch: u8, kind: crate::fx::InsertKind, reverb: bool| -> (Vec<f32>, f32) {
+        let play = |ch: u8, kind: yahaha_fx::fx::InsertKind, reverb: bool| -> (Vec<f32>, f32) {
             let rack = Box::new(Rack::new(&font, 48_000).unwrap());
             let (mut tx, rx) = RingBuffer::<Msg>::new(64);
             let ctl = Arc::new(SynthControl::new(0));
@@ -2205,24 +2205,24 @@ mod rack_tests {
         };
         // High frequencies: the energy of the first difference, per unit of level.
         let bright = |x: &[f32], rms: f32| (x[9600..].windows(2).map(|w| (w[1] - w[0]).powi(2)).sum::<f32>() / (x.len() - 9600) as f32).sqrt() / rms;
-        let (dry, dry_rms) = play(11, crate::fx::InsertKind::None, false);
-        let (dist, dist_rms) = play(11, crate::fx::InsertKind::Distortion, false);
+        let (dry, dry_rms) = play(11, yahaha_fx::fx::InsertKind::None, false);
+        let (dist, dist_rms) = play(11, yahaha_fx::fx::InsertKind::Distortion, false);
         assert!(dry_rms > 1e-3);
         assert!(bright(&dist, dist_rms) > 1.5 * bright(&dry, dry_rms), "distorted: {} vs {} (rms {dist_rms} vs {dry_rms})", bright(&dist, dist_rms), bright(&dry, dry_rms));
         assert!(dist_rms > dry_rms * 0.3 && dist_rms < dry_rms * 3.0, "a similar level: {dist_rms} vs {dry_rms}");
         // Another part: untouched.
-        let (other, _) = play(12, crate::fx::InsertKind::None, false);
-        let (other_ins, _) = play(12, crate::fx::InsertKind::Distortion, false);
+        let (other, _) = play(12, yahaha_fx::fx::InsertKind::None, false);
+        let (other_ins, _) = play(12, yahaha_fx::fx::InsertKind::Distortion, false);
         assert_eq!(other, other_ins, "only the part it is on");
         // The reverb hears the distorted part: the wet difference is brighter too.
-        let (dry_w, _) = play(11, crate::fx::InsertKind::None, true);
-        let (dist_w, _) = play(11, crate::fx::InsertKind::Distortion, true);
+        let (dry_w, _) = play(11, yahaha_fx::fx::InsertKind::None, true);
+        let (dist_w, _) = play(11, yahaha_fx::fx::InsertKind::Distortion, true);
         let wet = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x - y).collect::<Vec<f32>>();
         let (w_dry, w_dist) = (wet(&dry_w, &dry), wet(&dist_w, &dist));
         let r = |x: &[f32]| (x[9600..].iter().map(|v| v * v).sum::<f32>() / (x.len() - 9600) as f32).sqrt();
         assert!(bright(&w_dist, r(&w_dist)) > 1.2 * bright(&w_dry, r(&w_dry)), "the send is after the insert");
         // None on the part: exactly the dry part.
-        let (none, _) = play(11, crate::fx::InsertKind::None, false);
+        let (none, _) = play(11, yahaha_fx::fx::InsertKind::None, false);
         assert_eq!(none, dry);
     }
 
@@ -2231,7 +2231,7 @@ mod rack_tests {
     /// amount, the output is bit-identical to no slot ever set; Left is untouched.
     #[test]
     fn a_keyboard_parts_insert_slot_runs_on_that_part_only() {
-        use crate::fx::{InsertEffect, PartInsert};
+        use yahaha_fx::fx::{InsertEffect, PartInsert};
         let font = tiny_font_with(SOFT);
         let play = |ch: u8, slot: Option<PartInsert>| -> (Vec<f32>, u64) {
             let rack = Box::new(Rack::new(&font, 48_000).unwrap());

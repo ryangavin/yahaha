@@ -20,7 +20,7 @@ pub const PART_NAMES: [&str; CHANNELS] = [
 /// The rows in the order shown: the keyboard parts, the Style parts, then the pads.
 const ROW_ORDER: [usize; CHANNELS] = [0, 2, 3, 1, 8, 9, 10, 11, 12, 13, 14, 15, 4, 5, 6, 7];
 
-const BUS_NAMES: [&str; crate::fx::BUSES] = ["Reverb", "Chorus", "Variation"];
+const BUS_NAMES: [&str; yahaha_fx::fx::BUSES] = ["Reverb", "Chorus", "Variation"];
 /// The insertion effect rows (#269), by Style part.
 const INSERT_NAMES: [&str; crate::perf::INSERTS] = ["Ins Rhythm1", "Ins Rhythm2", "Ins Bass", "Ins Chord1", "Ins Chord2", "Ins Pad", "Ins Phrase1", "Ins Phrase2"];
 

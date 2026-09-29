@@ -67,9 +67,9 @@ use std::time::{Duration, Instant};
 
 use super::PartGain;
 use super::part_voice::PartVoice;
-use crate::fx::BUSES;
-use crate::fx::part_eq::{EqCoeffs, EqDsp};
-use crate::fx::{Insert, InsertSettings};
+use yahaha_fx::fx::BUSES;
+use yahaha_fx::fx::part_eq::{EqCoeffs, EqDsp};
+use yahaha_fx::fx::{Insert, InsertSettings};
 use super::instance::{PluginInstance, RenderError};
 
 /// Slots: one per MIDI channel.
@@ -295,7 +295,7 @@ impl Slot {
         }
         // The effect sends (CC91/93/94) are the shared effect bus's (#204): the plugin's
         // own reverb or chorus would play them a second time.
-        if m[0] & 0xF0 == 0xB0 && crate::fx::SEND_CC.contains(&m[1]) {
+        if m[0] & 0xF0 == 0xB0 && yahaha_fx::fx::SEND_CC.contains(&m[1]) {
             return true;
         }
         self.gain.take(m)
@@ -796,9 +796,9 @@ impl PluginRack {
         }
         slot.insert_ns = 0;
         if insert {
-            let t0 = crate::rt::host_now();
+            let t0 = yahaha_core::rt::host_now();
             slot.insert.process(l, r, 1.0, &slot.insert_set);
-            slot.insert_ns = crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
+            slot.insert_ns = yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0));
         }
         let gain = slot.gain.ramp(n);
         let (bl0, br0) = slot.bal;

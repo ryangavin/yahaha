@@ -65,25 +65,8 @@ fn a_factory_preset_is_captured_the_first_time_it_plays() {
     assert_ne!(lib.add_plugin_preset("aumu Smp7 Fake", PluginOrigin::User, "Mine", Category::Pad, None).unwrap(), u);
 }
 
-/// plugin-parts.json from before sounds had ids: a part's voice (a factory preset by key,
-/// no state yet) reads with no sound, and becomes the library's sound for that preset.
-#[test]
-fn plugin_parts_json_migrates_to_a_sound() {
-    let old = r#"{"id": "aumu Smp7 Fake", "state": null, "preset": {"key": "f:1", "name": "Bright Grand"}}"#;
-    let v: crate::session::PluginVoice = serde_json::from_str(old).unwrap();
-    assert_eq!(v.sound, None);
-    let mut lib = SoundLibrary::default();
-    let p = v.preset.clone().unwrap();
-    let id = lib.add_plugin_preset(&v.id, PluginOrigin::from_preset_key(&p.key).unwrap(), &p.name, Category::Piano, None).unwrap();
-    let tag = lib.patch(&id).unwrap().tag();
-    assert_eq!(tag, SoundTag { id: "saved:bright-grand".into(), name: "Bright Grand".into() });
-    let v = crate::session::PluginVoice { sound: Some(tag), ..v };
-    let json = serde_json::to_value(&v).unwrap();
-    assert_eq!(json["sound"], serde_json::json!({"id": "saved:bright-grand", "name": "Bright Grand"}));
-    // A voice with no sound writes none (older builds read the file as before).
-    let bare = crate::session::PluginVoice { id: "x".into(), ..Default::default() };
-    assert!(serde_json::to_value(&bare).unwrap().get("sound").is_none());
-}
+// plugin_parts_json_migrates_to_a_sound reads the session's PluginVoice, so it lives in the
+// facade (src/patches_tests.rs).
 
 /// A plugin state saved before sounds had ids: the library's sound with exactly that state
 /// is found for it.

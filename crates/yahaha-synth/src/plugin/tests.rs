@@ -556,7 +556,7 @@ fn a_plugin_assigned_later_gets_the_parts_bend_range() {
 #[cfg(feature = "slow-tests")]
 #[test]
 fn a_plugin_part_plays_its_eq_velocity_curve_and_mono() {
-    use crate::fx::part_eq::{EqCoeffs, PartEq};
+    use yahaha_fx::fx::part_eq::{EqCoeffs, PartEq};
     // Channel 0, a chord at velocity 100, `blocks` blocks of 512 frames after it.
     let play = |setup: &dyn Fn(&mut PluginRack), notes: &[[u8; 3]]| {
         let (mut rack, mut ctl) = rack(512, RATE);
@@ -595,7 +595,7 @@ fn a_plugin_part_plays_its_eq_velocity_curve_and_mono() {
 /// the part, and its time counts in the part's CPU. Another channel's insert leaves it be.
 #[test]
 fn a_plugin_part_plays_its_insert() {
-    use crate::fx::{InsertKind, InsertSettings};
+    use yahaha_fx::fx::{InsertKind, InsertSettings};
     // `None` never calls `set_insert`: the rack as it was before inserts existed.
     let play = |ch: u8, kind: Option<InsertKind>| {
         let (mut rack, mut ctl) = rack(512, RATE);
