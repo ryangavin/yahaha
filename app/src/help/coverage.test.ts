@@ -163,7 +163,12 @@ const STATES: [string, Setup][] = [
   ['harmony drawer open', () => (ui.harmony = true)],
   ['harmony drawer, arpeggio on, Fixed velocity', (s) => ((ui.harmony = true), s.send({ type: 'setArpPattern', index: 2 }), s.send({ type: 'setArpVelocity', mode: 'fixed', velocity: 90 }), s.send({ type: 'toggleHarmonyArp' }))],
   ['harmony drawer, Echo type', (s) => ((ui.harmony = true), s.send({ type: 'setHarmonyType', index: 20 }))],
-  ['mixer drawer open, Style tab', (s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['mixer drawer, the Master editor open', () => {
+    ui.mixer = true
+    flushSync()
+    click('fx.master_edit')
+  }],
+  ['mixer drawer open, Style tab',(s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
   ['charts drawer, nothing imported', () => (ui.charts = true)],
   ['charts drawer, a playlist, chart mode playing', (s) => ((ui.charts = true), s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
   ['chart in the lead-sheet band', (s) => (s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],

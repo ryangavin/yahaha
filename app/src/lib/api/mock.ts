@@ -24,7 +24,7 @@ import { MockStyleRacks } from './mock-style-racks'
 import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, clampEq, defaultControlMap, FLAT_EQ, OFF_INSERT, type PartInsert, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  BREAK, CHORD_SETTLE_MAX_MS, clampEq, COMP_PRESETS, eqPresetBands, MASTER_EQ_FREQ_RANGE, defaultControlMap, FLAT_EQ, OFF_INSERT, type PartInsert, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PartEq, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
@@ -2066,6 +2066,49 @@ export class MockSession implements Session {
       case 'setRotaryFast':
         this.state.effects.rotaryFast = cmd.on
         break
+      // The Master Compressor and Master EQ, as the session plays them (not saved).
+      case 'setMasterCompressorOn':
+        this.state.effects.master.compressor.on = cmd.on
+        break
+      case 'setMasterCompressorPreset': {
+        const c = this.state.effects.master.compressor
+        const [compression, texture, output] = COMP_PRESETS.find((p) => p.preset === cmd.preset)!.params
+        Object.assign(c, { preset: cmd.preset, compression, texture, output })
+        c.edited = false
+        break
+      }
+      case 'setMasterCompressorParam': {
+        const c = this.state.effects.master.compressor
+        const v = Math.round(cmd.value)
+        if (cmd.param === 'output') c.output = Math.max(-12, Math.min(12, v))
+        else c[cmd.param] = Math.max(0, Math.min(100, v))
+        const own = COMP_PRESETS.find((p) => p.preset === c.preset)!.params
+        c.edited = c.compression !== own[0] || c.texture !== own[1] || c.output !== own[2]
+        break
+      }
+      case 'setMasterEqOn':
+        this.state.effects.master.eq.on = cmd.on
+        break
+      case 'setMasterEqPreset': {
+        const e = this.state.effects.master.eq
+        e.preset = cmd.preset
+        e.bands = eqPresetBands(cmd.preset)
+        e.edited = false
+        break
+      }
+      case 'setMasterEqBand': {
+        const e = this.state.effects.master.eq
+        const i = cmd.band
+        if (!Number.isInteger(i) || i < 0 || i > 7) {
+          this.message(`the Master EQ has no band ${i} (0-7)`, true)
+          break
+        }
+        const [lo, hi] = MASTER_EQ_FREQ_RANGE[i]
+        const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, Math.round(v)))
+        e.bands[i] = { gain: clamp(cmd.gain, -12, 12), freq: clamp(cmd.freq, lo, hi), q: clamp(cmd.q, 1, 120), shelf: cmd.shelf && (i === 0 || i === 7) }
+        e.edited = JSON.stringify(e.bands) !== JSON.stringify(eqPresetBands(e.preset))
+        break
+      }
       case 'setBandSend':
         this.state.effects.blocks.find((x) => x.block === cmd.block)!.bandSend = clampLevel(cmd.level)
         break
@@ -2162,6 +2205,11 @@ export function initialEffects(): EffectsState {
     inserts: [{ part: 3, partName: 'Chord 1', name: 'British Combo Classic', effect: 'distortion', on: true, amount: 64 }],
     insertsOn: true,
     rotaryFast: false,
+    // Both off, as a session with no saved settings starts.
+    master: {
+      compressor: { on: false, preset: 'natural', compression: 30, texture: 50, output: 1, edited: false },
+      eq: { on: false, preset: 'flat', bands: eqPresetBands('flat'), edited: false },
+    },
   }
 }
 

@@ -750,6 +750,8 @@ pub struct AudioCore {
     /// publication they came from), for the racks and the plugin rack.
     eq_seen: [u32; parts::COUNT],
     eq: [crate::fx::part_eq::EqCoeffs; parts::COUNT],
+    /// The Master Compressor and Master EQ, after the effect returns.
+    master_fx: crate::fx::master::MasterDsp,
 }
 
 impl AudioCore {
@@ -773,6 +775,8 @@ impl AudioCore {
         let (kits_link, kits) = kit::link();
         // The parts' EQ coefficients at this rate, computed here, off the audio thread.
         parts.set_sample_rate(sample_rate);
+        // The Master EQ's too.
+        control.fx.master.set_sample_rate(sample_rate.max(1) as f32);
         let core = AudioCore {
             rack,
             swap_rx,
@@ -817,6 +821,7 @@ impl AudioCore {
             sample_rate: sample_rate.max(1) as f32,
             eq_seen: [crate::fx::part_eq::EqCell::UNSEEN; parts::COUNT],
             eq: [crate::fx::part_eq::EqCoeffs::FLAT; parts::COUNT],
+            master_fx: crate::fx::master::MasterDsp::new(sample_rate.max(1) as f32),
         };
         (core, RackSwap { tx: swap_tx, old: old_rx, kits: kits_link }, Some(link))
     }
@@ -1187,6 +1192,9 @@ impl AudioCore {
         if !self.legacy {
             self.fx.process_add(sends, frames, left, right, &ctl.fx);
         }
+        // The Master Compressor and Master EQ on the whole mix, returns included (off: not
+        // run). Not on the metronome, as on the Genos: the click comes after.
+        self.master_fx.process(left, right, &ctl.fx.master);
         clock.lap(crate::perf::ST_FX);
         self.click.render_add(left, right, master_gain(master));
         let mute = ctl.muted.load(Relaxed);
@@ -2057,6 +2065,52 @@ mod rack_tests {
         // Half way: less than full, more than none.
         let pad_half = delay_tail(&font, 5, 127, |c| c.fx.pad_send[v].store(50, Relaxed));
         assert!(pad_half > dry * 1.2 && pad_half < pad_full * 0.6, "{pad_half} between {dry} and {pad_full}");
+    }
+
+    /// The Master Compressor and Master EQ on the master bus. Off (with or without other
+    /// settings behind them), the output is the one without them, sample for sample; the
+    /// compressor on brings a loud chord down, and neither touches the metronome click.
+    #[test]
+    fn the_master_effects_run_on_the_mix_and_off_change_nothing() {
+        use crate::fx::master::{CompPreset, EqPreset, MasterComp, MasterEq};
+        let render = |font: Option<&Arc<SoundFont>>, msgs: &[Msg], setup: &dyn Fn(&SynthControl)| -> Vec<f32> {
+            let rack = font.map(|f| Box::new(Rack::new(f, 48_000).unwrap()));
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            let (mut core, _swap, _link) = AudioCore::new(rack, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+            setup(&ctl);
+            for m in msgs {
+                tx.push(*m).unwrap();
+            }
+            let mut all = Vec::new();
+            let mut out = vec![0f32; 256];
+            for _ in 0..80 {
+                core.process(&mut out);
+                all.extend_from_slice(&out);
+            }
+            all
+        };
+        let off_behind = |ctl: &SynthControl| {
+            ctl.fx.master.set_compressor(&MasterComp::of(false, CompPreset::Loud));
+            ctl.fx.master.set_eq(&MasterEq { on: false, preset: EqPreset::Powerful, bands: EqPreset::Powerful.bands() });
+        };
+        let both_on = |ctl: &SynthControl| {
+            ctl.fx.master.set_compressor(&MasterComp { output: 0, ..MasterComp::of(true, CompPreset::Loud) });
+            ctl.fx.master.set_eq(&MasterEq { on: true, preset: EqPreset::Powerful, bands: EqPreset::Powerful.bands() });
+        };
+        // The click alone (no SoundFont needed): the master effects leave it as it is.
+        let click = [[CLICK, 1, 0]];
+        let plain = render(None, &click, &|_| {});
+        assert!(plain.iter().any(|x| *x != 0.0), "the click sounds");
+        assert_eq!(render(None, &click, &both_on), plain, "not on the click");
+        let Some(font) = font() else { return };
+        let chord: Vec<Msg> = [60u8, 64, 67, 72].iter().flat_map(|&k| [[0x90, k, 127], [0x91, k, 127]]).collect();
+        let dry = render(Some(&font), &chord, &|_| {});
+        assert_eq!(render(Some(&font), &chord, &off_behind), dry, "off: bit-identical");
+        let wet = render(Some(&font), &chord, &both_on);
+        let rms = |v: &[f32]| (v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32).sqrt();
+        let tail = dry.len() / 2;
+        assert!(rms(&wet[tail..]) < rms(&dry[tail..]) * 0.9, "compressed: {} vs {}", rms(&wet[tail..]), rms(&dry[tail..]));
     }
 
     /// #269: a Style part's insertion effect. A sustained note on channel 12 with a

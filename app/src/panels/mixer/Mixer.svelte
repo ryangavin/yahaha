@@ -38,6 +38,8 @@
     over the last second, and its worst buffer (pk); the Panel page's Style and M.Pad
     strips add up their tracks. A line above the strips gives every track together and
     the plugin instances loaded (#407). Read from the meters twice a second while open.
+  - Master (MasterFx.svelte): above the master fader, the Master Compressor and Master EQ,
+    each on/off with its type, and ▸ for their parameters and the EQ's eight bands.
   - No level meters yet.
 -->
 <script lang="ts">
@@ -53,6 +55,7 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
+  import MasterFx from './MasterFx.svelte'
   import { FADER_LAYERS, FLAT_EQ, OFF_INSERT, type FaderLayer, type InsertEffect, type PartEq } from '../../lib/api/types'
   const LAYER_NAMES: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
   import { partVoice, pluginBadge, pluginTip, styleVoice } from './voice'
@@ -371,7 +374,7 @@
 
       <div class="master knobs">
         <div class="ch engraved">Synth</div>
-        <div class="fx-space" aria-hidden="true"></div>
+        <MasterFx />
         <div class="fader">
           <Fader
             value={mixer.master ?? 0}

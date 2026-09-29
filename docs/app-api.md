@@ -446,6 +446,34 @@ scaled. A change glides in over about 30 ms.
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. |
 | `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). |
+| `setMasterCompressorOn` | `on` | The Master Compressor on or off (default off). Example: `{"type":"setMasterCompressorOn","on":true}`. |
+| `setMasterCompressorPreset` | `preset` `natural` \| `rich` \| `punchy` \| `electronic` \| `loud` | The Master Compressor's type; its Compression, Texture and Output come with it (see below). Example: `{"type":"setMasterCompressorPreset","preset":"punchy"}`. |
+| `setMasterCompressorParam` | `param` `compression` \| `texture` \| `output`, `value` | One Master Compressor parameter, clamped: `compression` 0–100 %, `texture` 0–100 %, `output` −12..12 dB. Example: `{"type":"setMasterCompressorParam","param":"output","value":-3}`. |
+| `setMasterEqOn` | `on` | The Master EQ on or off (default off). Example: `{"type":"setMasterEqOn","on":true}`. |
+| `setMasterEqPreset` | `preset` `flat` \| `mellow` \| `bright` \| `loudness` \| `powerful` | The Master EQ's type: every band comes with it. Example: `{"type":"setMasterEqPreset","preset":"loudness"}`. |
+| `setMasterEqBand` | `band` 0–7, `gain`, `freq`, `q`, `shelf` | One Master EQ band, clamped to its ranges (below). A band other than 0–7 is refused. Example: `{"type":"setMasterEqBand","band":7,"gain":3,"freq":10000,"q":7,"shelf":true}`. |
+
+**Master Compressor and Master EQ** (Genos RM p.130–131, p.136; OM p.106). They run on the
+whole mix, after the effect returns and before the output's safety clipper, compressor
+first; the metronome click doesn't go through them (as on the Genos). They are tone on the
+master, shown with their settings, and may boost (an EQ band, the compressor's Output). Off
+(the default), they aren't run: the output is bit-identical to the mix without them. They
+are a setup setting, saved in `<data>/master-effects.json` (never in a rack) and read at
+start; a missing or unreadable file, or a missing field, reads as its default (both off).
+
+- **Compressor.** `compression` 0–100 %: threshold −3 − 0.27 × `compression` dBFS, ratio
+  1 + 0.07 × `compression` (0 % compresses nothing, 100 % is −30 dBFS at 8:1), a 6 dB soft
+  knee, stereo-linked. `texture` 0–100 %: higher is lighter, attack 30 → 1 ms and release
+  500 → 60 ms. `output` −12..12 dB after it. A change glides; switched off, it glides back to
+  unity and then stops. Types (compression / texture / output): Natural 30 / 50 / +1, Rich
+  45 / 30 / +2, Punchy 70 / 80 / +4, Electronic 60 / 65 / +3, Loud 85 / 45 / +6.
+- **EQ.** Eight bands, each `{ gain, freq, q, shelf }`: `gain` −12..12 dB; `freq` Hz, band 0
+  32–2000, bands 1–6 100–10000, band 7 500–16000; `q` in tenths, 1–120 (0.1–12.0; higher is
+  narrower); `shelf` (bands 0 and 7 only) makes the band a low (high) shelf, with a fixed
+  slope rather than a Q. A band at 0 dB is out of the signal. Every type puts the bands at
+  80, 250, 500, 630, 800, 1000, 4000 and 8000 Hz, Q 0.7, bands 0 and 7 as shelves, with gains:
+  Flat all 0; Mellow −2 at 4 kHz and −4 at 8 kHz; Bright +2, +4 there; Loudness +4 at 80 Hz,
+  +1 at 250 Hz, +2 and +4 at the top; Powerful +4, +2, +1, +1, +1, +1, +2, +3.
 
 The effect parameters (`param`, its unit and range, and each type's own value):
 
@@ -1207,6 +1235,11 @@ plays as, null if nothing is near it), or null when the style sets none; and `fo
 Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
 `rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
 (`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
+`master`: the Master Compressor and Master EQ (see Effects), `{ compressor, eq }`.
+`compressor` is `{ on, preset, compression, texture, output, edited }`; `eq` is
+`{ on, preset, bands, edited }`, `bands` the eight `{ gain, freq, q, shelf }`, low to high.
+`preset` is the type the settings started from, and `edited` whether they now differ from
+it. Absent in an older state: both off.
 
 ### `liveRack`
 The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
@@ -1980,7 +2013,20 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "types": [{ "effect": "eighth", "name": "Delay 1/8" }, { "effect": "dottedEighth", "name": "Delay 1/8." }, { "effect": "quarter", "name": "Delay 1/4" }, { "effect": "pingPong", "name": "Ping-Pong" }]
       }
     ],
-    "inserts": [], "insertsOn": true, "rotaryFast": false
+    "inserts": [], "insertsOn": true, "rotaryFast": false,
+    "master": {
+      "compressor": { "on": true, "preset": "natural", "compression": 30, "texture": 50, "output": 1, "edited": false },
+      "eq": {
+        "on": false, "preset": "flat",
+        "bands": [
+          { "gain": 0, "freq": 80, "q": 7, "shelf": true }, { "gain": 0, "freq": 250, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 500, "q": 7, "shelf": false }, { "gain": 0, "freq": 630, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 800, "q": 7, "shelf": false }, { "gain": 0, "freq": 1000, "q": 7, "shelf": false },
+          { "gain": 0, "freq": 4000, "q": 7, "shelf": false }, { "gain": 0, "freq": 8000, "q": 7, "shelf": true }
+        ],
+        "edited": false
+      }
+    }
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "ots": null, "bandSends": [] },
   "liveRack": {
