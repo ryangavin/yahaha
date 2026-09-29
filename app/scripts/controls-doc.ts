@@ -22,6 +22,8 @@ const GROUPS: [string, string][] = [
   ['regist', 'Registration Memory'],
   ['playlist', 'Playlist'],
   ['part', 'Keyboard parts'],
+  ['view', 'Stage | Library'],
+  ['library', 'Library'],
   ['sounds', 'Sound Browser'],
   ['harmony', 'Keyboard Harmony / Arpeggio'],
   ['mixer', 'Mixer'],
