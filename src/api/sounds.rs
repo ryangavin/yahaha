@@ -75,10 +75,15 @@ pub struct SoundPluginInfo {
     pub format: String,
     /// The last load's error, so the browser can warn.
     pub last_error: Option<String>,
-    /// How many presets it has in the catalog (entries whose `parent` is it); None while
-    /// its factory presets were never read (`listPluginPresets` reads them).
+    /// How many presets it has in the catalog (entries whose `parent` is it), once its
+    /// factory presets were read; None until then (unknown: `listPluginPresets` reads them),
+    /// even when its `.aupreset` files are listed already.
     #[serde(default)]
     pub presets: Option<u32>,
+    /// Why listing its factory presets failed (an error, a timeout, no list): the browser
+    /// stops waiting and says so. It is not tried again until the next plugin scan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presets_error: Option<String>,
 }
 
 /// One sound in the catalog.
@@ -122,6 +127,9 @@ pub struct PluginPresetList {
     /// Its factory presets were read (else only its `.aupreset` files are here).
     pub listed: bool,
     pub presets: Vec<PluginPresetEntry>,
+    /// Listing its factory presets failed: why (`SoundPluginInfo::presets_error`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// The whole catalog: presets by file then bank and program, plugins by maker then name,
@@ -248,14 +256,15 @@ impl SoundPrefs {
             let id = format!("au:{}", p.id);
             let list = presets.iter().find(|l| l.plugin == p.id);
             let category = self.plugin_category(&id, &p.name, &p.manufacturer);
-            let info = |presets| Some(SoundPluginInfo { format: p.format.clone(), last_error: p.last_error.clone(), presets });
+            let info = |presets, presets_error| Some(SoundPluginInfo { format: p.format.clone(), last_error: p.last_error.clone(), presets, presets_error });
             entries.push(SoundEntry {
                 category,
                 source: SoundSource::Plugin,
                 detail: p.manufacturer.clone(),
                 favourite: self.favourites.contains(&id),
                 recent: recent(&id),
-                plugin: info(list.filter(|l| l.listed || !l.presets.is_empty()).map(|l| l.presets.len() as u32)),
+                // Its `.aupreset` files alone are not its count: unknown until listed.
+                plugin: info(list.filter(|l| l.listed).map(|l| l.presets.len() as u32), list.and_then(|l| l.error.clone())),
                 name: p.name.clone(),
                 parent: None,
                 id: id.clone(),
@@ -271,7 +280,7 @@ impl SoundPrefs {
                     },
                     favourite: self.favourites.contains(&pid),
                     recent: recent(&pid),
-                    plugin: info(None),
+                    plugin: info(None, None),
                     name: q.name.clone(),
                     parent: Some(id.clone()),
                     id: pid,

@@ -2641,6 +2641,23 @@ mod tests {
         assert_eq!(m.state.sound_library.patches.len(), n + 2);
     }
 
+    /// A plugin's preset count is unknown (None) until its factory presets are listed, even
+    /// with its .aupreset files in; a listing that fails ends with its reason and no count.
+    #[test]
+    fn plugin_preset_counts_are_honest_and_a_failed_listing_ends() {
+        let mut m = MockSession::new();
+        let info = |m: &MockSession, id: &str| m.sounds().entries.into_iter().find(|e| e.id == id).and_then(|e| e.plugin).unwrap();
+        let sampler = format!("au:{}", sounds::MOCK_PRESETS_ID);
+        assert_eq!(info(&m, &sampler).presets, None, "two .aupreset files are not its count");
+        m.send(SoundsCmd::ListPluginPresets { id: sampler.clone() });
+        assert_eq!(info(&m, &sampler).presets, Some(5));
+        let broken = "au:aumu Mock Demo";
+        m.send(SoundsCmd::ListPluginPresets { id: broken.into() });
+        let b = info(&m, broken);
+        assert_eq!((b.presets, b.presets_error.as_deref()), (None, Some("timed out after 20.0 s")));
+        assert!(m.state.sounds.listing_presets.is_empty());
+    }
+
     /// AU presets, as mock-sounds.ts: the fake sampler's .aupreset files list from the
     /// start, its factory presets once expanded; each part plays its own preset; Save as
     /// preset lists a new one in the category picked.
