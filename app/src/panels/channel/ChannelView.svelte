@@ -13,7 +13,11 @@
   - Inserts: two slots (`setStripInsertKind`, `On`, `Setting`), a knob per setting of the
     slot's kind. On a Style part, slot 1 is the style's insert.
   - Sends: the strip's level to each send effect there is (`setStripSend`).
-  - Play (keyboard parts): octave (`setPartOctave`) and Pitch Bend Range (`setBendRange`).
+  - Tone (keyboard parts): the voice's cutoff, resonance, EG and vibrato, 64 = the voice's
+    own (`setStripTone`).
+  - Play (keyboard parts): Mono (`setStripMono`), Portamento on and time
+    (`setStripPortamento`), octave (`setPartOctave`) and Pitch Bend Range (`setBendRange`).
+  Style parts have no Tone or Play: their voice settings come from the style.
   Everything comes from the state; the view only sends commands.
 -->
 <script lang="ts">
@@ -27,7 +31,7 @@
   import { dbText, GAIN_KNOB_MAX, gainKnob, HIGH_STEPS, hzText, knobGain, LOW_STEPS, stepOf, withEq } from '../mixer/eq'
   import { PART_COLORS } from '../mixer/parts'
   import { octaveLabel } from '../parts/parts'
-  import { INSERT_KINDS, INSERT_SETTING_TIPS, meterFrac, panText, STRIP_COUNT } from './channel'
+  import { INSERT_KINDS, INSERT_SETTING_TIPS, meterFrac, panText, STRIP_COUNT, TONE_KNOBS, toneText } from './channel'
 
   let { part, onpart, onclose }: { part: number; onpart: (p: number) => void; onclose: () => void } = $props()
 
@@ -214,8 +218,46 @@
       </section>
 
       {#if kb}
+        <section class="card tone" aria-label="Tone">
+          <h3>Tone</h3>
+          <div class="knobs">
+            {#each TONE_KNOBS as k (k.control)}
+              <FxKnob
+                value={strip.tone[k.control]}
+                tip={k.tip}
+                label="{name} {k.caption.toLowerCase()}"
+                caption={k.caption}
+                reset={64}
+                centre
+                format={toneText}
+                onchange={(v) => app.send({ type: 'setStripTone', strip: part, control: k.control, value: v })}
+              />
+            {/each}
+          </div>
+        </section>
+
         <section class="card play" aria-label="Play">
           <h3>Play</h3>
+          <div class="row">
+            <Toggle on={strip.mono} tip="mixer.channel.mono" onclick={() => app.send({ type: 'setStripMono', strip: part, on: !strip.mono })}>Mono</Toggle>
+          </div>
+          <div class="row">
+            <Toggle
+              on={strip.portamento.on}
+              tip="mixer.channel.portamento"
+              onclick={() => app.send({ type: 'setStripPortamento', strip: part, on: !strip.portamento.on, time: strip.portamento.time })}
+            >Portamento</Toggle>
+            <div class="knobs" class:off={!strip.portamento.on}>
+              <FxKnob
+                value={strip.portamento.time}
+                tip="mixer.channel.portamento_time"
+                label="{name} portamento time"
+                caption="Time"
+                reset={0}
+                onchange={(v) => app.send({ type: 'setStripPortamento', strip: part, on: strip.portamento.on, time: v })}
+              />
+            </div>
+          </div>
           <div class="stepper">
             <span class="engraved">Octave</span>
             <button type="button" class="mini mat-raised" aria-label="{name} octave down" aria-disabled={kb.octave <= -2} use:tip={'part.octave_down'} onclick={() => kb.octave > -2 && app.send({ type: 'setPartOctave', part, octave: kb.octave - 1 })}>−</button>
@@ -380,6 +422,15 @@
   .comp .knobs {
     display: grid;
     grid-template-columns: repeat(3, minmax(3.8rem, 1fr));
+  }
+  .tone .knobs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(3.8rem, 1fr));
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
   .knobs.off {
     opacity: 0.6;
