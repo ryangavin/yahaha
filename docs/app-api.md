@@ -1586,7 +1586,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "insert": { "effect": "rotary", "on": true, "amount": 90 },
       "strip": {
         "eq": { "lowGain": 3, "lowFreq": 80, "highGain": -2, "highFreq": 10000 },
-        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
+        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
         "inserts": [
           {
             "kind": "rotary", "name": "Rotary", "on": true,
@@ -1648,7 +1648,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "strip": {
         "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
-        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
+        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
         "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
         "sends": [40, 0, 0, 0, 0, 0],
         "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
@@ -1678,7 +1678,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "strip": {
         "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
-        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
+        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
         "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
         "sends": [40, 0, 0, 0, 0, 0],
         "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
@@ -1708,7 +1708,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "strip": {
         "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
-        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
+        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
         "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
         "sends": [40, 0, 0, 0, 0, 0],
         "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
@@ -1731,7 +1731,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
         "strip": {
           "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
-          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
+          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
           "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
           "sends": [40, 0, 0, 0, 0, 0],
           "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
@@ -1750,7 +1750,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
         "strip": {
           "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
-          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
+          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
           "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
           "sends": [40, 0, 0, 0, 0, 0],
           "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
@@ -1769,7 +1769,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
         "strip": {
           "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
-          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 3, "edited": false },
+          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
           "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
           "sends": [40, 0, 0, 0, 0, 0],
           "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},

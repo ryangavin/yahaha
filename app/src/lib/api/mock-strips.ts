@@ -172,11 +172,11 @@ interface StripSettings {
 
 /** Each compressor type's threshold, ratio, attack, release and make-up (`preset_params`). */
 const COMP_PARAMS: Record<CompPreset, [number, number, number, number, number]> = {
-  natural: [-18, 25, 10, 200, 3],
-  rich: [-20, 20, 30, 400, 3],
-  punchy: [-24, 60, 5, 120, 6],
-  electronic: [-22, 40, 3, 100, 5],
-  loud: [-30, 80, 2, 150, 9],
+  natural: [-18, 25, 10, 200, 0],
+  rich: [-20, 20, 30, 400, 0],
+  punchy: [-24, 60, 5, 120, 0],
+  electronic: [-22, 40, 3, 100, 0],
+  loud: [-30, 80, 2, 150, 0],
 }
 /** Each compressor parameter's range (part_comp.rs). */
 export const COMP_RANGES: Record<PartCompParam, [number, number]> = {

@@ -13,7 +13,7 @@
 
 use super::Control;
 use crate::api::{CmdError, RackControl};
-use crate::knobs::{fader_command, fader_routes};
+use crate::knobs::{fader_command_at, fader_routes};
 use crate::racks::{ControlMap, ControlTarget};
 
 impl Control {
@@ -39,7 +39,7 @@ impl Control {
         let Some(t) = self.rack_controls.faders.get(fader as usize) else {
             return self.fail(format!("no fader {} (1-{})", fader as usize + 1, self.rack_controls.faders.len()));
         };
-        match fader_command(t, v, self.harmony_arp.on) {
+        match fader_command_at(t, v, self.harmony_arp.on, &self.strip_now()) {
             Some(cmd) => self.apply(cmd),
             None => Ok(()),
         }
