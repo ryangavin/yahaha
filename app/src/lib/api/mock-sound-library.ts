@@ -3,6 +3,7 @@
 // its commands and `derive` after every change (the usage list, part voice names).
 
 import fixture from './mock-fixture.json'
+import { partSound } from './part-sound'
 import { CATEGORY_LABELS, FAMILY_NAMES, emptyMap, originOfPresetKey, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
 import type { AppState } from './types'
 
@@ -462,20 +463,22 @@ export class MockSoundLibrary {
       return q ? { id: `saved:${q.id}`, name: q.name } : null
     }
     sl.gmMap = gmMapRows(sl.patches, sl.map, style, FONTS)
+    const names = {
+      font: (f: FontPreset) => presetsOf(f.file).find((x) => x.bank === f.bank && x.program === f.program)?.name ?? null,
+      gm: (program: number) => GM[program],
+    }
     st.keyboardParts.forEach((p, i) => {
       p.patch = this.parts[i]
-      // Now playing (O3): the plugin's sound, else its own or the map's patch.
-      const sound = p.plugin
-        ? (this.pluginParts[i] ? tag(this.pluginParts[i]) : this.pluginSound[i])
-        : tag((p.playsBass ? null : this.parts[i]) ?? resolveProgram(sl.map, style, false, p.program).patch)
-      if (sound) p.sound = sound
+      // What actually sounds, named as the engine names it (`api::part_sound`).
+      const pluginSound = this.pluginParts[i] ? tag(this.pluginParts[i]) : this.pluginSound[i]
+      // Under Manual Bass, Left plays the mock style's Bass voice (Finger Bass).
+      const of = { plugin: p.plugin, pluginSound, own: p.playsBass ? null : this.parts[i], program: p.playsBass ? 33 : p.program }
+      const named = partSound(of, sl.patches, sl.gmMap, names)
+      if (named.sound) p.sound = named.sound
       else delete p.sound
-      if (sound && p.plugin && this.knob[i] !== this.savedKnob[i]) p.soundEdited = true
+      p.voiceName = named.voiceName
+      if (p.plugin && pluginSound && this.knob[i] !== this.savedKnob[i]) p.soundEdited = true
       else delete p.soundEdited
-      if (p.playsBass) return
-      const own = name(this.parts[i])
-      const mapped = name(resolveProgram(sl.map, style, false, p.program).patch)
-      p.voiceName = own ?? mapped ?? GM[p.program]
     })
   }
 }

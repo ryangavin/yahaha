@@ -84,10 +84,12 @@ appears in:
 
 ## Now playing and "edited"
 
-A keyboard part's state names the Sound it plays (`KeyboardPart.sound`,
-`Control::part_sound_tag`): its plugin's sound (the channel voice's `sound`), else its
-own patch, else the patch the map gives its GM voice. A plugin state no sound names (a
-bare plugin, a recalled state that matches no sound) has none.
+A keyboard part's state names the Sound that actually sounds (`KeyboardPart.sound` and
+`voiceName`, `api::part_sound`, whose web twin is `app/src/lib/api/part-sound.ts`): a
+plugin that is loading, playing or muted names the preset it was given, else its library
+sound (by the library's name now, so a rename or delete shows at once), else the bare
+plugin; a part with no plugin, or one whose plugin failed, names its SoundFont voice: its
+own SoundFont patch, else what the GM map (auto-fill included) resolves its program to.
 
 **Edited** (`KeyboardPart.sound_edited`, `ChannelPlugin::edited`) means the plugin's
 state no longer matches the sound it was loaded from:
@@ -215,8 +217,8 @@ wire is unchanged.
   plugin chip lists the plugin, its factory presets (asked for with `listPluginPresets`
   when the chip opens), its `.aupreset` files and the library sounds made with it. The
   filter searches the chip's rows.
-- **What plays:** ▶ marks the part's `sound` (else its plugin preset, else the map's row
-  for its program). The footer reads "<Part> plays <instrument> · <sound>", with an
+- **What plays:** ▶ marks the part's `sound`. When that row isn't in the list, no row is
+  active until you move or type a filter (which moves to its first match). The footer reads "<Part> plays <instrument> · <sound>", with an
   **edited** badge while `soundEdited`.
 - **One Save flow:** **Save** (`saveSound`) and **Save as…**, which asks for a name
   (`saveSoundAs`) and, on a plugin part, can also write an `.aupreset` with a category
