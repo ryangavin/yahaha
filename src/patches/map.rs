@@ -66,7 +66,7 @@ pub struct ProgramMap {
     /// Per GM family, its rule's level: the CC7 a Style part that resolves by the rule
     /// takes when the style sets none of its own (the mixer shows it). Sounds carry no mix
     /// (docs/racks.md); a version 2 library's sound volumes moved here (store.rs).
-    #[serde(default, skip_serializing_if = "no_volumes")]
+    #[serde(default, skip_serializing_if = "no_volumes", deserialize_with = "lenient_volumes")]
     pub family_volumes: [Option<u8>; 16],
     /// Program overrides, sorted by program, at most one per program.
     #[serde(default)]
@@ -77,6 +77,17 @@ pub struct ProgramMap {
     /// The drum rule's level: see `family_volumes`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drums_volume: Option<u8>,
+}
+
+/// `familyVolumes` read leniently: a list that isn't exactly 16 long (a hand edit) is
+/// padded with no level or cut to 16, so it never fails the whole library.
+fn lenient_volumes<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[Option<u8>; 16], D::Error> {
+    let list = Vec::<Option<u8>>::deserialize(d)?;
+    let mut out = [None; 16];
+    for (o, v) in out.iter_mut().zip(list) {
+        *o = v;
+    }
+    Ok(out)
 }
 
 fn no_volumes(v: &[Option<u8>; 16]) -> bool {

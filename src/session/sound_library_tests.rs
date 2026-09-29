@@ -754,3 +754,33 @@ fn font_ids_are_recycled_only_when_unused() {
     sl.rack_fonts = (0..MAX_FONTS).map(|i| if i == 4 { "new.sf2".to_string() } else { format!("f{i}.sf2") }).collect();
     assert_eq!(sl.font_id("other.sf2"), None);
 }
+
+/// A backup that can't be written blocks the save: the older file stays as it was.
+#[cfg(unix)]
+#[test]
+fn a_failed_backup_leaves_the_older_file_untouched() {
+    let data = folder("v2-backup-fail");
+    let file = data.join(patches::FILE_NAME);
+    std::fs::write(&file, V2_LIBRARY).unwrap();
+    // The backup's path is a link into a folder that doesn't exist: the copy fails.
+    std::os::unix::fs::symlink(data.join("missing/x.json"), data.join("sound-library.v2.json")).unwrap();
+    let s = gen_session(&data);
+    let _ = s.send(SoundLibraryCmd::SetPatchFavourite { id: "bass".into(), favourite: true });
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), V2_LIBRARY, "not saved over");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// A version 1 file and a bare patch list are both backed up as `sound-library.v1.json`.
+#[test]
+fn version_1_and_bare_files_back_up_as_v1() {
+    for (tag, text) in [("v1-obj", r#"{"version": 1, "patches": []}"#), ("v1-bare", "[]")] {
+        let data = folder(tag);
+        std::fs::write(data.join(patches::FILE_NAME), text).unwrap();
+        let s = gen_session(&data);
+        add(&s, "Bass", 0, 33);
+        assert_eq!(std::fs::read_to_string(data.join("sound-library.v1.json")).unwrap(), text, "{tag}");
+        drop(s);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+}

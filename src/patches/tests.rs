@@ -465,3 +465,18 @@ fn a_merge_keeps_rules_on_their_patches_when_ids_chain() {
     assert_eq!(prog_of(&mine, mine.map.drums.as_deref().unwrap()), 33);
     assert_eq!(prog_of(&mine, "bass"), 1, "my own patch is untouched");
 }
+
+#[test]
+fn a_family_volumes_list_of_the_wrong_length_still_loads() {
+    // Levels are kept only for families with a rule, so every family names patch "b".
+    let lib_with = |vols: &str| {
+        let patches = serde_json::to_string(&vec![sf("b", 33)]).unwrap();
+        let fams = serde_json::to_string(&vec!["b"; 16]).unwrap();
+        SoundLibrary::from_json(&format!(r#"{{"version": 3, "patches": {patches}, "map": {{"families": {fams}, "familyVolumes": {vols}}}}}"#)).unwrap()
+    };
+    let lib = lib_with("[10, null, 30]");
+    assert_eq!(&lib.map.family_volumes[..4], &[Some(10), None, Some(30), None]);
+    let long: Vec<u8> = (1..=20).collect();
+    let lib = lib_with(&format!("{long:?}"));
+    assert_eq!(lib.map.family_volumes[15], Some(16));
+}
