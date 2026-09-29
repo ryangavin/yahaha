@@ -179,6 +179,34 @@ fn previous_and_next_rack_step_through_the_bank() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// Shift + Track on the Launchkey is what the state says: with no rack in the bank on
+/// view it has no action and does nothing (no "has no racks" message); with racks, it
+/// steps through them.
+#[test]
+fn shift_track_does_nothing_on_an_empty_bank() {
+    use crate::session::Port;
+    let d = dir("shift-track");
+    let s = session(&d);
+    let shift_track = |s: &Session, cc: u8| {
+        s.midi_in(Port::Pads, &[0xB0, launchkey::SHIFT_CC, 127]);
+        s.midi_in(Port::Pads, &[0xB0, cc, 127]);
+        s.midi_in(Port::Pads, &[0xB0, cc, 0]);
+        s.midi_in(Port::Pads, &[0xB0, launchkey::SHIFT_CC, 0]);
+    };
+    let track = |s: &Session| s.state().surface.controls.iter().find(|c| c.id == "trackPrev").unwrap().shift_action.clone();
+    assert_eq!(track(&s), None);
+    let before = s.state().message.clone();
+    shift_track(&s, launchkey::TRACK_LEFT_CC);
+    assert_eq!(s.state().message, before, "an empty bank: nothing");
+    let one = rack_on(&s, "One", 11, 1);
+    rack_on(&s, "Two", 22, 4);
+    assert_eq!(track(&s), Some(QuickRackCmd::StepQuickRack { delta: -1, discard: false }.into()));
+    shift_track(&s, launchkey::TRACK_LEFT_CC);
+    assert_eq!(s.state().live_rack.id, Some(one));
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 #[test]
 fn a_hardware_press_with_unsaved_changes_keeps_a_recovered_rack() {
     let d = dir("hardware");

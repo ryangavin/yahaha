@@ -204,6 +204,10 @@ pub struct Shared {
     /// Unison is engaged, as the engine last had it (the engine loop stores it after each
     /// step): the input thread sends the engine each right-hand key (`Cmd::UnisonKey`).
     pub unison: AtomicBool,
+    /// The Quick Racks bank on view holds a rack (the control side stores it on each
+    /// publish): Shift + Track steps through it; with none, those buttons are dark and do
+    /// nothing, as the state describes them.
+    pub quick_racks: AtomicBool,
     /// The sound library's program map, as the synth and the port read it (#103).
     pub routes: Arc<crate::patches::Routes>,
 }
@@ -248,6 +252,7 @@ impl Shared {
             strikes: AtomicBool::new(false),
             strikes_right: AtomicBool::new(false),
             unison: AtomicBool::new(false),
+            quick_racks: AtomicBool::new(false),
             routes: Arc::new(crate::patches::Routes::new()),
         }
     }
@@ -1011,6 +1016,8 @@ impl Input {
                     self.ctl_signal = true;
                     self.touch(Touch::Button { cc, shift: self.shift });
                 }
+                // Shift + Track with no rack in the bank on view: dark, and nothing.
+                Some(Control::Act(Action::QuickRackStep(_))) if !self.shared.quick_racks.load(Relaxed) => {}
                 Some(Control::Act(a)) if v > 0 => {
                     self.touch(Touch::Button { cc, shift: self.shift });
                     self.act(a)
