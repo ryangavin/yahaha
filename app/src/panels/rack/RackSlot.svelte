@@ -211,7 +211,6 @@
   {#if openInsert !== null && strip.inserts[openInsert]}
     {@const slot = openInsert}
     {@const ins = strip.inserts[slot]}
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape closes the popover from any control in it) -->
     <div class="pop mat-raised" role="dialog" aria-label="{part.name} insert {slot + 1} settings" tabindex="-1" onkeydown={popKey}>
       <div class="pophead">
         <span class="k">Insert {slot + 1}</span>
