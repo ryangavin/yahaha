@@ -22,6 +22,8 @@ function setup() {
 
 const q = <T extends Element = HTMLButtonElement>(sel: string) => document.querySelector<T>(sel)!
 const tipped = <T extends Element = HTMLButtonElement>(key: string) => [...document.querySelectorAll<T>(`[data-tip="${key}"]`)]
+/** The stage's Quick Racks, under the knobs. */
+const STAGE = 'section[aria-label="Knobs and Quick Racks"]'
 const names = () => [...document.querySelectorAll('.qbar .bname .txt')].map((e) => e.textContent)
 
 async function click(el: Element) {
@@ -46,14 +48,11 @@ afterEach(() => {
 })
 
 describe('Quick Racks bar', () => {
-  it('replaces the Registration bar in the keyboard strip\'s panel, above the keys', () => {
+  it('replaces the Registration bar on the stage, under the knobs (panels/knobracks)', () => {
     render(App, { props: { session: new MockSession({ demo: true, manual: true }) } })
     flushSync()
-    const strip = q<HTMLElement>('section[aria-label="Keyboard"]')
-    const bar = strip.querySelector('section[aria-label="Quick Racks"]')!
-    expect(bar).toBeTruthy()
+    const bar = q<HTMLElement>(STAGE)
     expect(document.querySelector('section[aria-label="Registration"]')).toBeNull()
-    expect(bar.compareDocumentPosition(strip.querySelector('[data-tip="keystrip.keys"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // Bank ◀ ▶, eight buttons and Store; no Freeze, Sequence, Playlist or Panel.
     expect(bar.querySelectorAll('[data-tip^="quick."]').length).toBeGreaterThanOrEqual(11)
     expect(bar.textContent).not.toMatch(/Freeze|Sequence|Playlist|Panel/)
@@ -135,7 +134,7 @@ describe('Quick Racks bar', () => {
     expect(s.state.quickRacks.storeWaiting).toBe(0)
     // Asked once, in the Rack panel, which the bar opened.
     expect(ui.rack).toBe(true)
-    expect(document.querySelectorAll('.qbar [data-tip^="rack."]')).toHaveLength(0)
+    expect(document.querySelectorAll(`${STAGE} [data-tip^="rack."]`)).toHaveLength(0)
     const field = q<HTMLInputElement>('[data-tip="rack.sound_name"]')
     expect(field.value).toBe('Bright Grand')
     await fireEvent.input(field, { target: { value: 'My Grand' } })
@@ -167,7 +166,7 @@ describe('Quick Racks bar', () => {
     expect(s.state.liveRack.prompt).toEqual({ kind: 'unsavedChanges', then: { kind: 'load', id: strings, name: 'Strings' } })
     // The prompt is asked in one place: the Rack drawer, not the bar.
     expect(ui.rack).toBe(true)
-    expect(q('.qbar').textContent).not.toContain('Strings?')
+    expect(q(STAGE).textContent).not.toContain('Strings?')
     expect(document.querySelectorAll('[role="alert"]').length).toBeGreaterThan(0)
     expect(tipped('rack.keep_editing')).toHaveLength(1)
     await click(tipped('rack.keep_editing')[0])
