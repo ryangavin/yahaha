@@ -84,22 +84,26 @@
     min-width: 0;
   }
   /* The part's sound under its fader: click to change it. */
+  /* Two lines, so "Silk Strings" reads whole at any size; longer names end in …. */
   .sname {
-    height: 1.5em;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    height: 2.3em;
     min-width: 0;
-    padding: 0 0.2em;
+    padding: 0 0.1em;
     border: 0;
     border-radius: 3px;
     background: none;
     color: var(--muted);
     font-family: var(--font-display);
-    font-size: 0.72em;
+    font-size: 0.68em;
     font-weight: 600;
-    line-height: 1.5em;
+    line-height: 1.15;
     text-align: center;
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
     cursor: pointer;
   }
   button.sname:hover,

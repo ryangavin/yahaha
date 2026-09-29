@@ -1,11 +1,13 @@
 <!--
   One keyboard part of the rack (docs/racks.md "Screens", the wireframe's `slot`):
 
-  ┌ [RIGHT 1] [Silk Strings ▾] Sampler Deluxe  Mine  sound edited   [Edit] [Save sound] ┐
-  │ ⚠ String Deluxe isn't installed, so this part is silent. [Replace…]                  │
-  │ [On] Level ━━━━━○━ 100   Pan ━━○━━ C   Oct − 0 +                                    │
-  │ Rev ━━○━━ 50   Cho ━○━━ 10   Voice − +   (a plugin:) Reload  In proc                 │
-  └──────────────────────────────────────────────────────────────────────────────────────┘
+  ┌ [RIGHT 1] [Silk Strings                              ] MINE ┐
+  │ Sampler Deluxe  ● sound edited            [Edit] [Save sound] │
+  │ ⚠ String Deluxe isn't installed, so this part is silent. [Replace…] │
+  │ [On] Level ━━━━━━━━━━━━━━━━○━━ 100                            │
+  │ Pan ━━○━ C     Rev ━○━━ 50     Cho ○━━━ 10                     │
+  │ Oct − 0 +   Voice − +          (a plugin:) [Reload] [In proc] │
+  └───────────────────────────────────────────────────────────────┘
 
   Clicking anywhere in it makes it the part you edit (selectPart), as the Launchkey's EDIT
   pads do. Hovering or focusing it lights its fader on the mirror (lib/mirror). Every
@@ -81,16 +83,14 @@
     <button type="button" class="pt mat-raised" class:pressed={part.selected} aria-pressed={part.selected} use:tip={'rack.part'} onclick={select}>
       <span class="dot" aria-hidden="true"></span>{part.name}
     </button>
-    <span class="sn">
-      <button type="button" class="snbtn mat-screen" class:missing aria-label="{part.name} sound: {soundName(part)}" use:tip={'rack.sound'} onclick={openSounds}>
-        <span class="glow-text">{soundName(part)}</span>
-      </button>
-      <small class="inst">{part.playsBass ? 'Style Bass under Manual Bass' : instrument}</small>
-    </span>
+    <button type="button" class="snbtn mat-screen" class:missing aria-label="{part.name} sound: {soundName(part)}" use:tip={'rack.sound'} onclick={openSounds}>
+      <span class="glow-text">{soundName(part)}</span>
+    </button>
     <span class="badge b-{badge.toLowerCase()}">{badge}</span>
   </div>
 
   <div class="acts">
+    <small class="inst">{part.playsBass ? 'Style Bass under Manual Bass' : instrument}</small>
     {#if part.soundEdited}<span class="dotmark">● sound edited</span>{/if}
     {#if status}<span class="status">{status}</span>{/if}
     <span class="grow"></span>
@@ -113,19 +113,15 @@
     </div>
   {/if}
 
-  <div class="mix">
+  <div class="levelrow">
     <Toggle on={part.sounding} tip={onTip(index)} onclick={() => app.send({ type: 'togglePart', part: index })}>{part.playsBass ? 'Bass' : 'On'}</Toggle>
-    <span class="ctl wide"><span class="k">Level{#if part.waiting}<b class="pick" title="The Launchkey fader hasn't picked this level up yet">↕</b>{/if}</span>
+    <span class="ctl"><span class="k">Level{#if part.waiting}<b class="pick" title="The Launchkey fader hasn't picked this level up yet">↕</b>{/if}</span>
       <HSlider value={part.volume} tip={volumeTip(index)} label="{part.name} level" onchange={(v) => app.send({ type: 'setPartVolume', part: index, volume: v })} />
     </span>
+  </div>
+  <div class="mix">
     <span class="ctl"><span class="k">Pan</span>
       <HSlider value={part.pan} tip="mixer.part.pan" label="{part.name} pan" unity={64} format={panLabel} onchange={(v) => app.send({ type: 'setPartPan', part: index, pan: v })} />
-    </span>
-    <span class="oct">
-      <span class="k">Oct</span>
-      <button type="button" class="mini sq mat-raised" aria-label="{part.name} octave down" aria-disabled={part.octave <= -2} use:tip={'part.octave_down'} onclick={() => octave(-1)}>−</button>
-      <span class="num" aria-label="octave {octaveLabel(part.octave)}">{octaveLabel(part.octave)}</span>
-      <button type="button" class="mini sq mat-raised" aria-label="{part.name} octave up" aria-disabled={part.octave >= 2} use:tip={'part.octave_up'} onclick={() => octave(1)}>+</button>
     </span>
     <span class="ctl"><span class="k">Rev</span>
       <HSlider value={part.reverb} tip="mixer.part.reverb" label="{part.name} reverb" onchange={(v) => app.send({ type: 'setPartSend', part: index, send: 'reverb', value: v })} />
@@ -136,6 +132,11 @@
   </div>
 
   <div class="more">
+    <span class="k">Oct</span>
+    <button type="button" class="mini sq mat-raised" aria-label="{part.name} octave down" aria-disabled={part.octave <= -2} use:tip={'part.octave_down'} onclick={() => octave(-1)}>−</button>
+    <span class="num" aria-label="octave {octaveLabel(part.octave)}">{octaveLabel(part.octave)}</span>
+    <button type="button" class="mini sq mat-raised" aria-label="{part.name} octave up" aria-disabled={part.octave >= 2} use:tip={'part.octave_up'} onclick={() => octave(1)}>+</button>
+    <span class="sep"></span>
     <span class="k">Voice</span>
     <button type="button" class="mini sq mat-raised" aria-label="{part.name} previous voice" use:tip={'part.voice_down'} onclick={() => stepVoice(-1)}>−</button>
     <button type="button" class="mini sq mat-raised" aria-label="{part.name} next voice" use:tip={'part.voice_up'} onclick={() => stepVoice(1)}>+</button>
@@ -230,13 +231,9 @@
     background: var(--accent);
     box-shadow: 0 0 6px var(--accent);
   }
-  .sn {
-    display: flex;
-    flex-direction: column;
+  .snbtn {
     flex: 1;
     min-width: 0;
-  }
-  .snbtn {
     min-height: 1.9rem;
     padding: 0.1rem 0.45rem;
     border: 0;
@@ -258,8 +255,8 @@
     outline-offset: 1px;
   }
   .inst {
-    padding-left: 0.45rem;
-    font-size: 0.7rem;
+    min-width: 0;
+    font-size: 0.72rem;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
@@ -305,21 +302,42 @@
   .warn small {
     color: var(--muted);
   }
+  .levelrow {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .levelrow > :global(.toggle) {
+    min-height: 2rem;
+  }
   .mix {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
-    gap: 0.35rem 0.6rem;
-  }
-  .mix > :global(.toggle) {
-    min-height: 2rem;
+    gap: 0.35rem 0.5rem;
   }
   .ctl {
     display: grid;
-    grid-template-columns: 2.1rem minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     gap: 0.3rem;
     min-width: 0;
+  }
+  /* The drawer's sliders, compact: a narrower readout and gap leave room for the track. */
+  .ctl :global(.hslider) {
+    gap: 0.25rem;
+  }
+  .ctl :global(.track) {
+    height: 1.9rem;
+  }
+  .ctl :global(.readout) {
+    width: 2.2rem;
+    height: 1.4rem;
+    font-size: 0.8rem;
+  }
+  .sep {
+    width: 0.6rem;
   }
   .k {
     font-family: var(--font-display);
@@ -333,11 +351,6 @@
   .pick {
     margin-left: 0.2em;
     color: var(--accent);
-  }
-  .oct {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
   }
   .num {
     min-width: 1.6em;
