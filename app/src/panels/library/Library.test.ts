@@ -200,6 +200,40 @@ describe('Library › Sounds', () => {
   })
 })
 
+describe('Library › Save as…', () => {
+  it('a plugin part can also keep an .aupreset, asking before it replaces one; Esc cancels', async () => {
+    const s = await setup((m) => {
+      m.send({ type: 'stop' })
+      m.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+      m.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
+      m.advance(5000)
+      m.send({ type: 'savePartAsPluginPreset', part: 0, name: 'Taken', category: 'piano' })
+    })
+    ui.openLibrary('sounds', 0)
+    flushSync()
+    await tick()
+    await click(tipped('sounds.save')[0])
+    const name = tipped('sounds.save_as_name')[0] as HTMLInputElement
+    await fireEvent.input(name, { target: { value: 'Taken' } })
+    await click(tipped('sounds.save_preset')[0])
+    expect(tipped('sounds.preset_category')).toHaveLength(1)
+    const n = s.state.soundLibrary.patches.length
+    await click(tipped('sounds.save_as_confirm')[0])
+    expect(q('.foot [role="alert"]')!.textContent).toContain('Replace ‘Taken’?')
+    expect(s.state.soundLibrary.patches.length).toBe(n)
+    await click(tipped('sounds.preset_replace')[0])
+    expect(s.state.message?.error).not.toBe(true)
+    expect(s.state.soundLibrary.patches.length).toBe(n + 1)
+    expect(tipped('sounds.save_as_name')).toHaveLength(0)
+    // Esc closes the form without saving.
+    await click(tipped('sounds.save')[0])
+    await fireEvent.keyDown(tipped('sounds.save_as_name')[0], { key: 'Escape' })
+    flushSync()
+    expect(tipped('sounds.save_as_name')).toHaveLength(0)
+    expect(ui.view).toBe('library')
+  })
+})
+
 describe('Library › Instruments', () => {
   it('shows New plugins first; Browse filters Sounds to it and marks it seen', async () => {
     const s = await setup()

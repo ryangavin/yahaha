@@ -2752,6 +2752,9 @@ mod tests {
         let new = |m: &MockSession| m.state.plugins.list.iter().filter(|p| p.new).map(|p| p.id.clone()).collect::<Vec<_>>();
         assert_eq!(new(&m), [MOCK_FALLBACK_ID]);
         assert_eq!(m.state.plugins.missing.len(), 1);
+        assert_eq!(m.state.plugins.missing[0].racks, 1);
+        assert_eq!(m.state.plugins.needs_attention.len(), 1);
+        assert_eq!((m.state.plugins.needs_attention[0].id.as_str(), &m.state.plugins.needs_attention[0].parts[..]), ("strings-night", &[1u8][..]));
         m.send(PluginCmd::MarkPluginSeen { id: MOCK_FALLBACK_ID.into() });
         assert!(new(&m).is_empty());
         m.send(PluginCmd::MarkPluginSeen { id: "aumu nope nope".into() });
@@ -3599,7 +3602,8 @@ fn mock_plugins() -> PluginsState {
             e(sounds::MOCK_PRESETS_ID, "Sampler Deluxe", "Fake Instruments", "AUv2", None),
         ],
         // Installed before, gone now (docs/racks.md, "Plugins coming and going").
-        missing: vec![MissingPlugin { id: "aumu Str1 Fake".into(), name: "String Deluxe".into(), manufacturer: "Fake Instruments".into(), racks: 0, sounds: 0 }],
-        needs_attention: Vec::new(),
+        missing: vec![MissingPlugin { id: "aumu Str1 Fake".into(), name: "String Deluxe".into(), manufacturer: "Fake Instruments".into(), racks: 1, sounds: 0 }],
+        // The saved rack that plays it (Library › Racks, Needs attention).
+        needs_attention: vec![RackAttention { id: "strings-night".into(), name: "Strings Night".into(), parts: vec![1] }],
     }
 }

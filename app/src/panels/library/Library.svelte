@@ -22,7 +22,9 @@
   import PartsPanel from '../parts/PartsPanel.svelte'
   import { pluginStatusLine } from '../parts/parts'
   import RegistBar from '../registration/RegistBar.svelte'
-  import { nowPlaying } from '../sounds/model'
+  import { nowPlaying, presetFileName } from '../sounds/model'
+  import { CATEGORY_LABELS } from '../../lib/api/sound-library'
+  import type { PatchCategory } from '../../lib/api/types'
   import InstrumentsTab from './InstrumentsTab.svelte'
   import MapTab from './MapTab.svelte'
   import RacksTab from './RacksTab.svelte'
@@ -58,28 +60,45 @@
   }
 
   // Save as… a new sound from what the target part plays (Save keeps it over its own sound).
-  let saveName = $state<string | null>(null)
+  // A plugin part can also keep it as an .aupreset that Logic reads, asking before it
+  // replaces a user preset of that name (#307, #367).
+  let saveForm = $state<{ name: string; aupreset: boolean; category: PatchCategory; replace: boolean } | null>(null)
   let saveInput: HTMLInputElement | undefined = $state()
+  const canPreset = $derived(kp?.plugin?.status === 'playing')
+  const clash = $derived.by(() => {
+    if (!saveForm?.aupreset || !kp?.plugin) return false
+    const parent = `au:${kp.plugin.id}`
+    const n = presetFileName(saveForm.name).toLowerCase()
+    return app.sounds.entries.some((e) => e.parent === parent && e.id.startsWith(`${parent}#u:`) && e.name.toLowerCase() === n)
+  })
   function openSaveAs() {
-    saveName = kp?.sound?.name ?? kp?.voiceName ?? ''
+    const cur = kp?.sound ? sl.patches.find((p) => p.id === kp.sound!.id) : undefined
+    saveForm = { name: kp?.sound?.name ?? kp?.voiceName ?? '', aupreset: false, category: cur?.category ?? 'synthLead', replace: false }
     void tick().then(() => (saveInput?.focus(), saveInput?.select()))
   }
-  function saveAs() {
-    const name = saveName?.trim()
-    if (!name) return
+  function saveAs(overwrite = false) {
+    const name = saveForm?.name.trim()
+    if (!saveForm || !name) return
+    if (saveForm.aupreset && canPreset) {
+      if (clash && !overwrite) {
+        saveForm.replace = true
+        return
+      }
+      app.send({ type: 'savePartAsPluginPreset', part, name, category: saveForm.category, overwrite })
+    }
     app.send({ type: 'saveSoundAs', part, name })
-    saveName = null
+    saveForm = null
   }
   function saveKey(e: KeyboardEvent) {
     if (e.key !== 'Escape') return
     e.preventDefault()
     e.stopPropagation()
-    saveName = null
+    saveForm = null
   }
   // Another target part closes the form.
   $effect(() => {
     void part
-    saveName = null
+    saveForm = null
   })
 </script>
 
@@ -115,13 +134,27 @@
 
     <footer class="foot">
       {#if targets && kp}
-        {#if saveName !== null}
+        {#if saveForm}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Esc in the form closes it, not Library) -->
           <form class="saveform" aria-label="Save as a new sound" onsubmit={(ev) => (ev.preventDefault(), saveAs())} onkeydown={saveKey}>
             <span class="engraved">Save as</span>
-            <input bind:this={saveInput} bind:value={saveName} class="mat-well" type="text" placeholder="Sound name" aria-label="New sound's name" spellcheck="false" use:tip={'sounds.save_as_name'} />
-            <HwButton tip="sounds.save_as_confirm" onclick={saveAs}>Save</HwButton>
-            <HwButton tip="sounds.preset_cancel" onclick={() => (saveName = null)}>Cancel</HwButton>
+            <input bind:this={saveInput} value={saveForm.name} oninput={(ev) => saveForm && ((saveForm.name = ev.currentTarget.value), (saveForm.replace = false))} class="mat-well" type="text" placeholder="Sound name" aria-label="New sound's name" spellcheck="false" use:tip={'sounds.save_as_name'} />
+            {#if canPreset}
+              <label class="check"><input type="checkbox" checked={saveForm.aupreset} onchange={(ev) => saveForm && ((saveForm.aupreset = ev.currentTarget.checked), (saveForm.replace = false))} use:tip={'sounds.save_preset'} /> .aupreset</label>
+              {#if saveForm.aupreset}
+                <select aria-label="Category of the preset" value={saveForm.category} onchange={(ev) => saveForm && (saveForm.category = ev.currentTarget.value as PatchCategory)} use:tip={'sounds.preset_category'}>
+                  {#each Object.entries(CATEGORY_LABELS) as [id, label] (id)}<option value={id}>{label}</option>{/each}
+                </select>
+              {/if}
+            {/if}
+            {#if saveForm.replace && clash}
+              <span class="ask" role="alert">Replace ‘{presetFileName(saveForm.name)}’?</span>
+              <HwButton tip="sounds.preset_replace" onclick={() => saveAs(true)}>Replace</HwButton>
+              <HwButton tip="sounds.preset_replace_cancel" onclick={() => saveForm && ((saveForm.replace = false), saveInput?.focus())}>Cancel</HwButton>
+            {:else}
+              <HwButton tip="sounds.save_as_confirm" onclick={() => saveAs()}>Save</HwButton>
+              <HwButton tip="sounds.preset_cancel" onclick={() => (saveForm = null)}>Cancel</HwButton>
+            {/if}
           </form>
         {:else}
           <span class="now">{kp.name} plays <b>{nowPlaying(kp, ctx, plugins.list, app.state.io.soundFontFile)}</b>{#if kp.plugin?.missing}<span class="warn">&nbsp;· ⚠ plugin missing: silent</span>{:else if kp.plugin && kp.plugin.status !== 'playing'}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{/if}</span>
@@ -282,13 +315,32 @@
     gap: 0.5rem;
     min-width: 0;
   }
-  .saveform input {
+  .saveform input[type='text'] {
     flex: 1;
     min-width: 6rem;
     height: 2.2rem;
     padding: 0 0.6rem;
     border: 1px solid var(--well-edge);
     border-radius: 5px;
+    color: var(--screen-ink);
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+    font-size: var(--fs-small);
+  }
+  .ask {
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .saveform select {
+    min-height: 2.2rem;
+    padding: 0 0.45rem;
+    border: 1px solid var(--well-edge);
+    border-radius: 4px;
+    background: var(--screen-bg);
     color: var(--screen-ink);
   }
   .dock-body {
