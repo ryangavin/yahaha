@@ -388,6 +388,42 @@ describe('Library › Racks', () => {
     expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Ballad copy')
   })
 
+  it('a refused Duplicate doesn\'t select a rack added later', async () => {
+    const s = await twoRacks()
+    const send = s.send.bind(s)
+    s.send = (c) => send(c.type === 'duplicateRack' ? { ...c, id: 'nope' } : c)
+    await click(rackRow('Ballad'))
+    await click(tipped('library.rack_duplicate')[0])
+    await refresh(s)
+    expect(s.state.message).toMatchObject({ error: true })
+    s.send = send
+    s.send({ type: 'newRack' })
+    s.send({ type: 'saveRackAs', name: 'Later' })
+    await refresh(s)
+    expect(rackRow('Later')!.getAttribute('aria-selected')).toBe('false')
+    expect(rackRow('Ballad')!.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('the confirm closes when the rack it asks about gets loaded', async () => {
+    const s = await twoRacks()
+    await click(rackRow('Ballad'))
+    await click(tipped('library.rack_delete')[0])
+    expect(q('.confirm')).not.toBeNull()
+    s.send({ type: 'loadRack', id: idOf(s, 'Ballad') })
+    await refresh(s)
+    expect(q('.confirm')).toBeNull()
+    expect(details().textContent).toContain('load another rack to delete it')
+  })
+
+  it('clicking the live rack row goes back to the loaded rack\'s details', async () => {
+    await twoRacks()
+    await click(rackRow('Ballad'))
+    expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Ballad')
+    await click(tipped('library.rack_live')[0])
+    expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Evening')
+    expect(rackRow('Evening')!.getAttribute('aria-selected')).toBe('true')
+  })
+
   it('Delete… asks inline, naming the Quick Rack buttons it empties; Cancel keeps it, Delete deletes', async () => {
     const s = await twoRacks()
     const ballad = idOf(s, 'Ballad')

@@ -64,7 +64,12 @@
   let confirming = $state<string | null>(null)
   const asking = $derived(!!sel && confirming === sel.id)
 
-  function select(id: string) {
+  // A rack that became the loaded one can't be deleted: its confirm goes.
+  $effect(() => {
+    if (confirming && confirming === live.id) confirming = null
+  })
+
+  function select(id: string | null) {
     libraryNav.rack = id
     confirming = null
   }
@@ -120,8 +125,19 @@
   function duplicate() {
     if (!sel) return
     before = new Set(s.racks.map((r) => r.id))
+    const at = s.message?.seq ?? 0
     app.send({ type: 'duplicateRack', id: sel.id })
+    dupAt = at
   }
+  // A refused duplicate stops waiting for the copy.
+  let dupAt = -1
+  $effect(() => {
+    const m = s.message
+    if (m?.error && dupAt >= 0 && m.seq > dupAt) {
+      dupAt = -1
+      before = null
+    }
+  })
   $effect(() => {
     const racks = s.racks
     if (!before) return
@@ -172,7 +188,7 @@
       {#if !filtered && !query}
         <div class="rhead"><span>Loaded now</span><span>autosaved; comes back on boot</span></div>
         <div role="listbox" aria-label="Live rack">
-          <div class="row live" class:sel={!sel} role="option" tabindex="0" aria-selected={!sel} use:tip={'library.rack_live'}>
+          <div class="row live" class:sel={!sel} role="option" tabindex="0" aria-selected={!sel} use:tip={'library.rack_live'} onclick={() => select(null)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(null) } }}>
             <span class="mark" aria-hidden="true">▶</span>
             <span class="name">{live.name}{#if live.modified}<span class="mod" title="Modified"> ●</span>{/if}<span class="sub">{PARTS.map((_, i) => partSound(i)).join(' · ')}</span></span>
             <span class="badge" class:warn={missingParts.length > 0}>{missingParts.length ? '⚠ fix' : live.modified ? 'Modified' : 'Live'}</span>
