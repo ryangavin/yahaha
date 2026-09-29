@@ -15,6 +15,7 @@ pub mod looper;
 pub mod megavoice;
 pub mod midi;
 pub mod parts_data;
+pub mod perf;
 pub mod route;
 pub mod rt;
 pub mod style_types;

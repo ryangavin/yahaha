@@ -13,7 +13,7 @@ pub mod controllers;
 pub use yahaha_core::data_files;
 pub mod engine;
 pub use yahaha_core::fingering;
-pub mod fx;
+pub use yahaha_fx::fx;
 pub use yahaha_core::ireal;
 pub mod knobs;
 #[cfg(test)]
@@ -46,6 +46,9 @@ mod fingering_tests;
 mod megavoice_tests;
 #[cfg(test)]
 mod theory_corpus_tests;
+// Tests of fx that need a higher layer (sff, engine).
+#[cfg(test)]
+mod fx_tests;
 pub mod racks;
 pub use yahaha_core::route;
 pub use yahaha_core::rt;

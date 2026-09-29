@@ -419,14 +419,14 @@ impl ChannelInserts {
         let Some(slot) = self.slots.get_mut(channel) else { return };
         // The top view (#296) shows the Style parts' inserts.
         let band = channel.checked_sub(super::BAND_CHANNELS.start).filter(|&p| p < 8);
-        let perf = &crate::perf::PERF;
-        let t0 = band.is_some_and(|_| perf.on()).then(crate::rt::host_now);
+        let perf = &yahaha_core::perf::PERF;
+        let t0 = band.is_some_and(|_| perf.on()).then(yahaha_core::rt::host_now);
         slot.process(left, right, level, &self.settings[channel]);
         // Its time and output peak, atomics only.
         if let (Some(t0), Some(p)) = (t0, band) {
-            perf.insert[p].add(crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0)));
+            perf.insert[p].add(yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0)));
             let peak = left.iter().chain(right.iter()).fold(0f32, |m, x| m.max(x.abs()));
-            crate::perf::Perf::peak(&perf.insert_peak[p], peak);
+            yahaha_core::perf::Perf::peak(&perf.insert_peak[p], peak);
         }
     }
 }
