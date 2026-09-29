@@ -3,7 +3,7 @@
 //! with made-up plugins ("Sampler Deluxe" and friends), and Apple's DLSMusicDevice where a
 //! plugin must really play.
 
-use super::super::testing::{data_dir, session};
+use super::super::testing::{data_dir, session_in as session};
 use super::{Presence, FILE};
 use crate::api::*;
 use crate::patches::PatchSource;

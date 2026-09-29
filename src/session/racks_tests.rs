@@ -3,7 +3,7 @@
 use crate::api::*;
 use crate::patches::{PatchDefaults, PatchSource};
 use crate::racks::{self, ControlTarget, Rack, SoundRef};
-use crate::session::testing::session;
+use crate::session::testing::session_in as session;
 use crate::session::Session;
 
 fn data_dir(test: &str) -> std::path::PathBuf {
