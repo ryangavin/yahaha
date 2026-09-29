@@ -354,7 +354,7 @@ mod plugins {
     }
 
     fn plugin_state(s: &Session, id: &str) -> String {
-        match s.state().sound_library.patches.iter().find(|p| p.patch.id == id).unwrap().patch.source.clone() {
+        match s.inner.lock().sound.lib.patch(id).unwrap().source.clone() {
             PatchSource::Plugin { state, .. } => state,
             other => panic!("not a plugin sound: {other:?}"),
         }
