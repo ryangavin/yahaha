@@ -43,8 +43,8 @@ use super::kit::{Kit, KitKey, KitSource};
 use super::part_tone::PartTone;
 use super::voicing::{To, Voicing};
 use super::*;
-use crate::fx::BUSES;
-use crate::fx::part_eq::{EqCoeffs, EqDsp};
+use yahaha_fx::fx::BUSES;
+use yahaha_fx::fx::part_eq::{EqCoeffs, EqDsp};
 
 /// Voices per part on the main SoundFont: as many as the band's and your playing's shared
 /// synthesizers had each, so a part never has fewer than before.
@@ -688,7 +688,7 @@ impl Rack {
         sends: &mut [f32],
         peaks: &[AtomicU32; 16],
         fade: Option<(f32, f32)>,
-        mut inserts: Option<&mut crate::fx::ChannelInserts>,
+        mut inserts: Option<&mut yahaha_fx::fx::ChannelInserts>,
     ) {
         let n = left.len().min(self.tmp_l.len()).min(sends.len() / (2 * BUSES));
         let (left, right) = (&mut left[..n], &mut right[..n]);
@@ -730,11 +730,11 @@ impl Rack {
                     continue;
                 }
                 // Always timed: each part's cost is the Mixer's CPU readout (#340).
-                let t0 = crate::rt::host_now();
+                let t0 = yahaha_core::rt::host_now();
                 // The first lane renders straight into the stem; any other beside it.
                 let (l, r): (&mut [f32], &mut [f32]) = if first { (&mut *sl, &mut *sr) } else { (&mut *tl, &mut *tr) };
                 render_lane(lane, i, &mut part.voicing, &mut part.env, block, l, r);
-                let dt = crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
+                let dt = yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0));
                 ns += dt;
                 if profile && lane.slot != 0 && lane.slot != KIT_SLOT {
                     extra_ns += dt;
@@ -765,18 +765,18 @@ impl Rack {
             if first {
                 part.tone.filter.clear();
             } else if part.tone.filter.active() {
-                let t0 = crate::rt::host_now();
+                let t0 = yahaha_core::rt::host_now();
                 part.tone.filter.process(sl, sr);
-                ns += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
+                ns += yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0));
             }
             // The part's channel-strip EQ (#247) after it, still before the insert, meters
             // and sends. Flat, it is not run at all. Timed into the part's CPU (#340).
             if first {
                 part.eq.clear();
             } else if part.eq.active() {
-                let t0 = crate::rt::host_now();
+                let t0 = yahaha_core::rt::host_now();
                 part.eq.process(sl, sr);
-                ns += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
+                ns += yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0));
             }
             self.ch_ns[ch] = ns;
             self.track_ns[ch] = ns;
@@ -788,9 +788,9 @@ impl Rack {
                     sl.fill(0.0);
                     sr.fill(0.0);
                 }
-                let t0 = crate::rt::host_now();
+                let t0 = yahaha_core::rt::host_now();
                 ins.process(ch, sl, sr, part.level() * self.master);
-                self.track_ns[ch] += crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0));
+                self.track_ns[ch] += yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0));
             } else if first {
                 continue;
             }
@@ -1150,7 +1150,7 @@ mod tests {
     /// darkens it, on that part only.
     #[test]
     fn the_part_eq_plays_on_the_stem_and_flat_is_bit_identical() {
-        use crate::fx::part_eq::PartEq;
+        use yahaha_fx::fx::part_eq::PartEq;
         let run = |eq: Option<PartEq>| {
             let mut r = rack();
             if let Some(eq) = eq {

@@ -348,7 +348,7 @@ fn swap_bench(a: PluginInstance, b: PluginInstance, ch: u8, rate: f64) -> Result
         let period = Duration::from_secs_f64(BLOCK as f64 / rate);
         // The same thread policy as the real audio callback.
         let p = period.as_nanos() as u64;
-        crate::rt::make_realtime(p, p / 2, p);
+        yahaha_core::rt::make_realtime(p, p / 2, p);
         let mut next = Instant::now();
         while run2.load(Relaxed) {
             let t = Instant::now();

@@ -825,8 +825,8 @@ mod tests {
     #[cfg(feature = "slow-tests")]
     #[test]
     fn a_kit_plays_its_preset_with_the_setup_baked_in() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-        let files = crate::library::sound_font_files(&dir);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../soundfonts");
+        let files = yahaha_sff::library::sound_font_files(&dir);
         if files.is_empty() {
             eprintln!("no SoundFont; skipping");
             return;

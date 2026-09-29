@@ -364,8 +364,9 @@ impl EditorTarget {
     }
 
     /// Set a parameter, as a knob turned in the plugin's window does (tests).
-    #[cfg(test)]
-    pub(crate) fn set_parameter(&self, id: u32, scope: u32, element: u32, value: f32) -> Result<()> {
+    // pub for the facade's tests (crate split); not part of the API.
+    #[doc(hidden)]
+    pub fn set_parameter(&self, id: u32, scope: u32, element: u32, value: f32) -> Result<()> {
         sys::guard("setting a parameter", || self.unit.set_parameter(id, scope, element, value))
     }
 }

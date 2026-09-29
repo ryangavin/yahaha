@@ -206,7 +206,7 @@ pub fn encode(m: &[u8]) -> Option<Msg> {
         }
         [0xF0, 0x43, d, 0x4C, 0x08, part, PART_MODE, mode, 0xF7] if d & 0xF0 == 0x10 && part < 16 => Some([PART, part, mode]),
         [0xF0, 0x43, d, 0x4C, 0x00, 0x00, 0x7D, s, ..] if d & 0xF0 == 0x10 && (s as usize) < SETUPS => Some([SETUP_RESET, s, 0]),
-        [0xF0, ..] if crate::sff::is_reset(m) => Some([SYSTEM_RESET, 0, 0]),
+        [0xF0, ..] if yahaha_sff::sff::is_reset(m) => Some([SYSTEM_RESET, 0, 0]),
         _ => None,
     }
 }

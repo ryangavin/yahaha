@@ -384,7 +384,7 @@ fn plugin_patches_say_why_they_play_the_fallback() {
 #[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_styles_resolve_every_channel() {
-    let files = crate::library::corpus_styles();
+    let files = yahaha_sff::library::corpus_styles();
     if files.is_empty() {
         eprintln!("corpus missing; skipping");
         return;
@@ -405,8 +405,8 @@ fn corpus_styles_resolve_every_channel() {
     // Every tenth style, so each folder is represented and the test stays quick.
     let (mut styles, mut resolved, mut mapped) = (0, 0, 0);
     for f in files.iter().step_by(10) {
-        let Ok(style) = crate::sff::Style::load(f) else { continue };
-        let prep = crate::engine::Prepared::new(&style);
+        let Ok(style) = yahaha_sff::sff::Style::load(f) else { continue };
+        let prep = yahaha_engine::engine::Prepared::new(&style);
         let used = prep.program_changes();
         styles += 1;
         for d in 8..16u8 {

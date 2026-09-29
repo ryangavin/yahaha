@@ -108,7 +108,7 @@ rustysynth is an unmodified dependency from crates.io (`rustysynth = "1.3.6"`). 
 
 ## Layering
 
-No new upward imports between modules. The workspace is being split into layer crates under `crates/`, each depending only on the ones below it. The crates exist; their modules still live in the facade's `src/` and move in lane by lane:
+No new upward imports between modules. The workspace is split into layer crates under `crates/`, each depending only on the ones below it. The split is complete: each layer's modules live in its crate under `crates/*/src`, and the facade's `src/` holds only the modules that sit on top of all of them (session, api, live and the rest of its row below):
 
 | Crate | Modules | Depends on |
 |---|---|---|

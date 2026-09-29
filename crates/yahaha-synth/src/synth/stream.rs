@@ -140,7 +140,7 @@ struct Deadline {
 impl Deadline {
     fn new(sample_rate: u32, channels: u16) -> Deadline {
         let per_frame_ns = 1e9 / sample_rate.max(1) as f64;
-        let ticks = crate::rt::ns_to_host(1_000_000_000) as f64 / 1e9 * per_frame_ns;
+        let ticks = yahaha_core::rt::ns_to_host(1_000_000_000) as f64 / 1e9 * per_frame_ns;
         Deadline { ticks_per_frame: (ticks * 65536.0) as u64, channels: channels.max(1) as usize }
     }
 
@@ -179,7 +179,7 @@ fn play(device: &cpal::Device, channels: u16, sample_rate: u32, buffer: Option<u
     let late = health.clone();
     let deadline = Deadline::new(sample_rate, channels);
     let callback = move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
-        let t0 = crate::rt::host_now();
+        let t0 = yahaha_core::rt::host_now();
         match slot.take() {
             Some(mut core) => {
                 core.process(out);
@@ -187,14 +187,14 @@ fn play(device: &cpal::Device, channels: u16, sample_rate: u32, buffer: Option<u
             }
             None => out.fill(0.0),
         }
-        let dt = crate::rt::host_now().wrapping_sub(t0);
+        let dt = yahaha_core::rt::host_now().wrapping_sub(t0);
         if deadline.missed(out.len(), dt) {
             late.late.fetch_add(1, Relaxed);
         }
         // The performance view (`perf`): the whole callback against its deadline.
         let perf = &crate::perf::PERF;
         if perf.on() {
-            perf.callback.record(crate::rt::host_to_ns(dt));
+            perf.callback.record(yahaha_core::rt::host_to_ns(dt));
             perf.frames.store((out.len() / deadline.channels) as u32, Relaxed);
         }
     };
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn a_render_longer_than_its_buffer_is_late() {
         let d = Deadline::new(48_000, 4);
-        let ticks = |us: u64| crate::rt::ns_to_host(us * 1000);
+        let ticks = |us: u64| yahaha_core::rt::ns_to_host(us * 1000);
         assert!(!d.missed(64 * 4, ticks(1300)));
         assert!(d.missed(64 * 4, ticks(1370)));
         assert!(!d.missed(256 * 4, ticks(5000)));
@@ -247,7 +247,7 @@ mod tests {
         use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
         let (mut tx, rx) = rtrb::RingBuffer::<super::super::Msg>::new(64);
         let control = Arc::new(super::super::SynthControl::new(0));
-        let (core, _swap, _plugins) = AudioCore::new(None, vec![rx], Arc::new(crate::parts::Parts::new()), control, 48_000, 2);
+        let (core, _swap, _plugins) = AudioCore::new(None, vec![rx], Arc::new(yahaha_engine::parts::Parts::new()), control, 48_000, 2);
         let slot = CoreSlot::new(Box::new(core));
         let stop = Arc::new(AtomicBool::new(false));
         let (rendered, silent) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
@@ -299,11 +299,11 @@ mod tests {
     #[test]
     #[ignore = "needs an audio output device"]
     fn buffer_changes_on_the_device() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-        let sf2 = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)).expect("a SoundFont");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../soundfonts");
+        let sf2 = yahaha_sff::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)).expect("a SoundFont");
         let (mut tx, rx) = rtrb::RingBuffer::<super::super::Msg>::new(64);
         let routing = super::super::Routing { routes: Arc::new(crate::patches::Routes::new()), font_id: 0 };
-        let mut s = super::super::start(&sf2, vec![rx], None, Arc::new(crate::parts::Parts::new()), routing, None).unwrap();
+        let mut s = super::super::start(&sf2, vec![rx], None, Arc::new(yahaha_engine::parts::Parts::new()), routing, None).unwrap();
         tx.push([0xC0, 0, 0]).unwrap();
         s.control.master.store(1, std::sync::atomic::Ordering::Relaxed); // nearly silent
         for n in [128, 256, 64, 256] {

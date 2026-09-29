@@ -48,7 +48,7 @@ fn controller(addr: u8) -> Option<u8> {
 /// controller that sets the same parameter, or a mono message.
 #[inline]
 pub fn encode(m: &[u8]) -> Option<Msg> {
-    let (part, addr, v) = crate::sff::xg_part_param(m)?;
+    let (part, addr, v) = yahaha_sff::sff::xg_part_param(m)?;
     match addr {
         0x05 => Some([MONO, part, v]),
         0x0C => Some([VELOCITY_DEPTH, part, v & 0x7F]),
