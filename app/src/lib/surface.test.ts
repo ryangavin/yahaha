@@ -32,6 +32,21 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
     expect(labels(m).slice(8)).toEqual(['RHYTHM 1', 'RHYTHM 2', 'BASS', 'CHORD 1', 'CHORD 2', 'PAD', 'PHRASE 1', 'PHRASE 2', 'STYLE'])
   })
 
+  it('each fader layer lights the Panel part buttons and master button in its colour (src/launchkey.rs layer_colour)', () => {
+    const m = new MockSession({ manual: true, demo: true })
+    const b = (id: string) => m.state.surface.controls.find((x) => x.id === id)!
+    const want = { volume: [0, 0, 127], pan: [127, 127, 0], reverb: [0, 100, 127], chorus: [127, 0, 70], delay: [127, 127, 127] } as const
+    for (const [layer, rgb] of Object.entries(want)) {
+      m.send({ type: 'setFaderLayer', layer: layer as keyof typeof want })
+      expect([layer, b('masterButton').rgb, b('masterButton').level, b('faderButton1').rgb]).toEqual([layer, rgb, 'bright', rgb])
+      expect(b('faderButton5').rgb).toEqual([90, 0, 127])
+    }
+    m.send({ type: 'togglePart', part: 0 })
+    expect([b('faderButton1').level, b('faderButton1').rgb]).toEqual(['dim', [127, 127, 127]])
+    m.send({ type: 'toggleFaderPage' })
+    expect(b('masterButton').rgb).toEqual([0, 127, 0])
+  })
+
   it('Panel button 5 is the HARMONY/ARPEGGIO switch: dim purple off, bright on', () => {
     const m = new MockSession({ manual: true, demo: true })
     const b5 = () => m.state.surface.controls.find((x) => x.id === 'faderButton5')!
