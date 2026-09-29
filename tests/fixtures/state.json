@@ -2381,5 +2381,10 @@
     "snapshot": null,
     "ots": null,
     "bandSends": []
+  },
+  "liveRack": {
+    "name": "New rack",
+    "id": null,
+    "modified": false
   }
 }

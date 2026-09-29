@@ -142,6 +142,12 @@ pub struct Options {
     /// there at start. None: a live session uses `default_live_rack_path()`; an offline
     /// session keeps none.
     pub live_rack: Option<PathBuf>,
+    /// `split` was given on this launch (`--split`): it wins over the restored live rack's
+    /// split (which then shows modified). Not given: the live rack's split applies.
+    pub split_given: bool,
+    /// `transpose.keyboard` was given on this launch (`--transpose`): it wins over the
+    /// restored live rack's transpose, as `split_given` does for the split.
+    pub transpose_given: bool,
 }
 
 /// The usual data folder: `~/Documents/yahaha` (banks and playlists are the user's files,
@@ -170,6 +176,8 @@ impl Default for Options {
             chord_settle_ms: crate::engine::CHORD_SETTLE_DEFAULT_MS,
             data_dir: None,
             live_rack: None,
+            split_given: false,
+            transpose_given: false,
         }
     }
 }
@@ -814,7 +822,7 @@ impl Session {
         p.control.shared.parts.set_bass_program(synth::style_bass_program(p.control.info.voices[10]));
         p.control.sync_manual_bass();
         p.control.start_plugins();
-        p.control.restore_live_rack(opts.live_rack.clone().or_else(default_live_rack_path));
+        p.control.restore_live_rack(opts.live_rack.clone().or_else(default_live_rack_path), &opts);
 
         let inner = Arc::new(Inner::new(shared, p.control));
         let i2 = inner.clone();

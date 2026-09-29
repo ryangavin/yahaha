@@ -20,7 +20,8 @@
 //!   parts' plugins before racks), those plugins and today's parts become the live rack,
 //!   named "Restored"; the old file is left in place and never read again once the live
 //!   rack is saved. A `live-rack.json` that can't be read is moved aside (`.bak`) and the
-//!   session starts on its defaults; one a newer yahaha wrote is left alone, and this
+//!   session starts on its defaults (any read error but a missing file counts; one that
+//!   can't be moved either is left alone and not saved over); one a newer yahaha wrote is left alone, and this
 //!   session doesn't save over it.
 //!
 //! The file is `{ "format": "yahaha.liveRack", "version": 1, "modified", "rack" }`, `rack`
@@ -35,6 +36,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::time::Duration;
 
 /// The live rack's file name.
 pub const FILE: &str = "live-rack.json";
@@ -79,10 +81,27 @@ enum Read {
     Newer(String),
     /// It can't be read: moved to this path.
     Corrupt(String, PathBuf),
+    /// It can't be read, nor moved aside: left alone, and not saved over.
+    Stuck(String),
+}
+
+/// Keep an unreadable live rack for the user (it may be recoverable) rather than let the
+/// next save replace it: moved to `.json.bak`.
+fn move_aside(path: &Path, why: String) -> Read {
+    let bak = path.with_extension("json.bak");
+    match std::fs::rename(path, &bak) {
+        Ok(()) => Read::Corrupt(why, bak),
+        Err(e) => Read::Stuck(format!("{why}; and it could not be moved aside: {e}")),
+    }
 }
 
 fn read(path: &Path) -> Read {
-    let Ok(text) = std::fs::read_to_string(path) else { return Read::Missing };
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Read::Missing,
+        // Permissions, not UTF-8, an I/O error: not a missing file.
+        Err(e) => return move_aside(path, e.to_string()),
+    };
     let parsed = serde_json::from_str::<Value>(&text).map_err(anyhow::Error::from).and_then(|v| {
         let format = v.get("format").and_then(Value::as_str).unwrap_or_default();
         anyhow::ensure!(format == FORMAT, "not a live rack (format {format:?})");
@@ -95,12 +114,7 @@ fn read(path: &Path) -> Read {
     match parsed {
         Ok(Ok(f)) => Read::Loaded(f),
         Ok(Err(newer)) => Read::Newer(newer),
-        Err(e) => {
-            // Kept for the user (it may be recoverable) rather than saved over.
-            let bak = path.with_extension("json.bak");
-            let _ = std::fs::rename(path, &bak);
-            Read::Corrupt(format!("{e:#}"), bak)
-        }
+        Err(e) => move_aside(path, format!("{e:#}")),
     }
 }
 
@@ -114,14 +128,21 @@ fn write(path: &Path, f: &LiveRackFile) -> Result<()> {
 struct Writer {
     tx: mpsc::Sender<LiveRackFile>,
     errors: mpsc::Receiver<String>,
+    /// Closes when the thread ends.
+    done: mpsc::Receiver<()>,
     thread: std::thread::JoinHandle<()>,
 }
+
+/// How long stopping waits for the `live-rack` thread (as for the plugins' states).
+const STOP_DEADLINE: Duration = Duration::from_secs(2);
 
 impl Writer {
     fn spawn(path: PathBuf) -> std::io::Result<Writer> {
         let (tx, rx) = mpsc::channel::<LiveRackFile>();
         let (etx, errors) = mpsc::channel();
+        let (done_tx, done) = mpsc::channel::<()>();
         let thread = std::thread::Builder::new().name("live-rack".into()).spawn(move || {
+            let _done = done_tx;
             while let Ok(mut f) = rx.recv() {
                 while let Ok(newer) = rx.try_recv() {
                     f = newer;
@@ -131,13 +152,18 @@ impl Writer {
                 }
             }
         })?;
-        Ok(Writer { tx, errors, thread })
+        Ok(Writer { tx, errors, done, thread })
     }
 
-    /// Every save handed over is written, then the thread ends.
-    fn finish(self) {
+    /// Every save handed over is written, then the thread ends. False: it didn't end
+    /// within `deadline` (a stuck disk); it is left running, so quitting never hangs.
+    fn finish(self, deadline: Duration) -> bool {
         drop(self.tx);
+        if let Err(mpsc::RecvTimeoutError::Timeout) = self.done.recv_timeout(deadline) {
+            return false;
+        }
         let _ = self.thread.join();
+        true
     }
 }
 
@@ -163,20 +189,35 @@ pub(super) struct LiveRack {
 impl Control {
     /// The session's start: apply the live rack at `path` (see the module docs). None: no
     /// live rack file (offline sessions by default); it starts as a new rack.
-    pub(super) fn restore_live_rack(&mut self, path: Option<PathBuf>) {
+    /// A split or transpose given on this launch (`opts.split_given`, `transpose_given`)
+    /// wins over the live rack's, which then shows modified; flags not given never do.
+    pub(super) fn restore_live_rack(&mut self, path: Option<PathBuf>, opts: &super::Options) {
         self.live_rack.name = NEW_NAME.into();
         let Some(path) = path else { return };
         match read(&path) {
             Read::Loaded(f) => {
                 self.set_plugins_restoring(true);
-                let problems = self.apply_rack(&f.rack);
+                let mut problems = self.apply_rack(&f.rack);
                 self.set_plugins_restoring(false);
+                let mut overridden = false;
+                if opts.split_given && opts.split != f.rack.split.min(127) {
+                    match self.chord_cmd(crate::api::ChordCmd::SetSplit { note: opts.split }) {
+                        Ok(_) => overridden = true,
+                        Err(e) => problems.push(e.to_string()),
+                    }
+                }
+                if opts.transpose_given && opts.transpose.keyboard != f.rack.transpose {
+                    match self.set_transpose(crate::engine::Transpose::new(opts.transpose.keyboard, self.transpose.master)) {
+                        Ok(_) => overridden = true,
+                        Err(e) => problems.push(e.to_string()),
+                    }
+                }
                 for p in problems {
                     self.say(p, true);
                 }
                 self.live_rack.name = f.rack.name.clone();
                 self.live_rack.id = Some(f.rack.id.clone()).filter(|id| !id.is_empty());
-                self.live_rack.modified = f.modified;
+                self.live_rack.modified = f.modified || overridden;
             }
             Read::Missing => {
                 let old = path.with_file_name(OLD_FILE);
@@ -193,6 +234,10 @@ impl Control {
                 return;
             }
             Read::Corrupt(e, bak) => self.say(format!("the live rack could not be read ({e}); moved to {}", bak.display()), true),
+            Read::Stuck(e) => {
+                self.say(format!("the live rack could not be read ({e}); starting on a new rack, and not saving over it ({})", path.display()), true);
+                return;
+            }
         }
         self.live_rack.path = Some(path);
     }
@@ -284,8 +329,13 @@ impl Control {
     /// once the `live-rack` thread has written what it was given.
     pub(super) fn save_live_rack_on_stop(&mut self) {
         self.read_plugin_states_on_stop();
-        if let Some(w) = self.live_rack.writer.take() {
-            w.finish();
+        if let Some(w) = self.live_rack.writer.take()
+            && !w.finish(STOP_DEADLINE)
+        {
+            // Still writing: a second write now would race it for the same temp file.
+            eprintln!("yahaha: the live rack could not be saved: the last autosave is still writing");
+            self.live_rack.dirty_since = None;
+            return;
         }
         let Some(path) = self.live_rack.path.clone() else { return };
         let f = self.live_rack_file();

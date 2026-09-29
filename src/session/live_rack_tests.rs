@@ -29,6 +29,11 @@ fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
 /// An offline session on a tiny synthetic style (one Main A bar, written here, so these
 /// tests need no corpus), keeping its live rack in `d/app` when `live` is set.
 fn session_with(d: &Path, live: bool) -> Session {
+    session_opts(d, live, Options::default())
+}
+
+/// `session_with`, starting from `opts` (a launch's flags).
+fn session_opts(d: &Path, live: bool, opts: Options) -> Session {
     let mut trk = vec![0x00, 0xFF, 0x06, 4];
     trk.extend_from_slice(b"SFF2");
     trk.extend_from_slice(&[0x00, 0xFF, 0x06, 6]);
@@ -41,7 +46,7 @@ fn session_with(d: &Path, live: bool) -> Session {
     std::fs::create_dir_all(style.parent().unwrap()).unwrap();
     std::fs::write(&style, bytes).unwrap();
     let live_rack = live.then(|| live_path(d));
-    Session::offline(Options { paths: vec![style], live_rack, ..Options::default() }).unwrap()
+    Session::offline(Options { paths: vec![style], live_rack, ..opts }).unwrap()
 }
 
 fn session(d: &Path) -> Session {
@@ -261,5 +266,55 @@ fn every_kind_of_change_sets_modified() {
         assert!(live(&s).modified, "{what} sets modified");
         assert_eq!((live(&s).name.as_str(), live(&s).id.as_deref()), ("Ballad", Some("r1")), "{what}: still the same rack");
     }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The live rack's split and transpose come back unless `--split` / `--transpose` was
+/// given on this launch: a flag given wins (and the live rack shows modified); defaults
+/// never override the rack.
+#[test]
+fn split_and_transpose_flags_win_only_when_given() {
+    let d = dir("flags");
+    let a = session(&d);
+    a.send(ChordCmd::SetSplit { note: 60 }).unwrap();
+    a.send(ChordCmd::SetTranspose { keyboard: 3, master: 0 }).unwrap();
+    a.live_rack_clean("Ballad", None);
+    a.stop();
+    let chord = |s: &Session| (s.state().chord.split, s.state().chord.transpose_keyboard);
+
+    // Not given: the defaults (split 54, transpose 0) leave the rack's alone.
+    let b = session_opts(&d, true, Options { split: 54, ..Options::default() });
+    assert_eq!(chord(&b), (60, 3), "the rack's split and transpose");
+    assert!(!live(&b).modified);
+    b.stop();
+
+    let c = session_opts(&d, true, Options { split: 50, split_given: true, ..Options::default() });
+    assert_eq!(chord(&c), (50, 3), "--split wins; the rack's transpose stays");
+    assert!(live(&c).modified, "and the live rack shows modified");
+    c.stop(); // the live rack now has split 50
+
+    let t = crate::engine::Transpose::new(-2, 0);
+    let e = session_opts(&d, true, Options { transpose: t, transpose_given: true, ..Options::default() });
+    assert_eq!(chord(&e), (50, -2), "--transpose wins; the rack's split stays");
+    assert!(live(&e).modified);
+    drop(e);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A live rack that can't be read for a reason other than being missing (here, not UTF-8)
+/// is moved aside, not saved over.
+#[test]
+fn an_unreadable_live_rack_is_moved_aside_not_saved_over() {
+    let d = dir("unreadable");
+    let bytes = [0xFF, 0xFE, b'{', 0x80];
+    std::fs::write(live_path(&d), bytes).unwrap();
+    let a = session(&d);
+    let msg = a.state().message.clone().expect("it says so");
+    assert!(msg.error && msg.text.contains("live rack could not be read"), "{msg:?}");
+    let bak = live_path(&d).with_extension("json.bak");
+    assert_eq!(std::fs::read(&bak).unwrap(), bytes, "kept for the user");
+    a.stop();
+    assert_eq!(std::fs::read(&bak).unwrap(), bytes, "still there after the next save");
+    assert!(session(&d).state().message.is_none(), "the next start reads the new save");
     let _ = std::fs::remove_dir_all(&d);
 }

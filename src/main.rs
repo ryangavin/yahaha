@@ -324,6 +324,9 @@ fn play_cmd(args: &[String]) -> Result<()> {
     let mut sf_dir = PathBuf::from("soundfonts");
     let mut fingering = fingering::Fingering::FingeredOnBass;
     let mut transpose = engine::Transpose::default();
+    // Given on this launch: they win over the restored live rack's split and transpose.
+    let mut split_given = false;
+    let mut transpose_given = false;
     let mut inputs = Vec::new();
     let mut startup: Vec<yahaha::AppCmd> = Vec::new();
     let mut chord_settle_ms = engine::CHORD_SETTLE_DEFAULT_MS;
@@ -341,6 +344,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
                 i += 1;
                 split = yahaha::parse_note(args.get(i).map(|s| s.as_str()).unwrap_or(""))
                     .ok_or_else(|| anyhow::anyhow!("--split wants a note like F#2 or a MIDI number"))?;
+                split_given = true;
             }
             "--all-inputs" => all_inputs = true,
             "--top" => {}
@@ -384,6 +388,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("{flag} wants semitones from -12 to 12"))?;
                 if flag == "--transpose" {
                     transpose.keyboard = n;
+                    transpose_given = true;
                 } else {
                     transpose.master = n;
                 }
@@ -425,7 +430,7 @@ fn play_cmd(args: &[String]) -> Result<()> {
     if no_synth {
         sf2 = None;
     }
-    let opts = yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, sound_font_dir, palette_leds, audio_out, audio_buffer, fingering, upper, manual_bass, transpose, chord_settle_ms, data_dir, live_rack: None };
+    let opts = yahaha::Options { paths, split, all_inputs, inputs, no_pads, sf2, sound_font_dir, palette_leds, audio_out, audio_buffer, fingering, upper, manual_bass, transpose, chord_settle_ms, data_dir, live_rack: None, split_given, transpose_given };
     if top { ui::play_top(opts, startup) } else { ui::play(opts, startup) }
 }
 
