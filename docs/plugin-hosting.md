@@ -24,8 +24,8 @@ Status:
 ## Phase 1: the library
 
 ```sh
-cargo test --profile test-fast --features plugins plugin                        # unit tests (Apple's DLSMusicDevice)
-cargo test --profile test-fast --features plugins --test it plugin_rack_no_alloc   # the rack's audio path never allocates
+cargo test --profile test-quick --features plugins plugin                        # unit tests (Apple's DLSMusicDevice)
+cargo test --profile test-quick --features plugins --test it plugin_rack_no_alloc   # the rack's audio path never allocates
 cargo build --release --features plugins
 ./target/release/yahaha plugin-test --list                  # installed instruments (cached scan)
 ./target/release/yahaha plugin-test "Serum 2" --bench       # load, state, CPU, swap latency; no audio device
