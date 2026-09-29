@@ -268,7 +268,11 @@ mod tests {
                             silent.fetch_add(1, Relaxed);
                         }
                     }
-                    std::hint::spin_loop();
+                    // Between buffers, as a real callback is: the core sits in the slot
+                    // for a while. Rendering back to back left the control side only the
+                    // instant between `put` and the next `take`, which it could miss for
+                    // its whole second on a busy machine with an unoptimised build.
+                    std::thread::sleep(Duration::from_micros(200));
                 }
             })
         };

@@ -5,6 +5,8 @@
 # - macos-rust: the Rust tests with plugins.
 # - macos-app: the app shell's (app/src-tauri) tests, with plugins.
 # - web: the web app's `npm ci` and `npm run verify`, on Linux (it has nothing macOS-only).
+# - macos: passes when macos-rust, macos-app and web passed or were skipped. It keeps the
+#   `macos` check the branch rulesets require.
 #
 # The Rust tests use the test-quick profile: our crate unoptimised (it compiles in about a
 # third of the time), the dependencies optimised, debug assertions and overflow checks on.
@@ -109,7 +111,7 @@ jobs:
         with:
           shared-key: api-doc
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
 
       - name: JSON examples in docs/app-api.md parse into the Rust types
         run: cargo run --no-default-features --example api_doc_check -- docs/app-api.md
@@ -143,7 +145,7 @@ jobs:
         with:
           shared-key: linux
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
           workspaces: |
             . -> target
             app/src-tauri -> target
@@ -174,7 +176,7 @@ jobs:
         with:
           shared-key: macos-rust
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
 
       - name: cargo test --profile test-quick --features plugins
         run: cargo test --profile test-quick --features plugins
@@ -192,7 +194,7 @@ jobs:
         with:
           shared-key: macos-app
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
           workspaces: app/src-tauri -> target
 
       - name: cargo test (app/src-tauri)
@@ -219,3 +221,16 @@ jobs:
       - name: npm run verify (app)
         working-directory: app
         run: npm run verify
+
+  # The branch rulesets require the checks `linux`, `macos` and `api-doc`. The old macos job
+  # is now macos-rust, macos-app and web, running in parallel; this job keeps the `macos`
+  # check and passes when each of them passed or was skipped.
+  macos:
+    needs: [changes, macos-rust, macos-app, web]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: macos-rust, macos-app and web passed or were skipped
+        run: |
+          echo "changes: ${{ needs.changes.result }}, macos-rust: ${{ needs.macos-rust.result }}, macos-app: ${{ needs.macos-app.result }}, web: ${{ needs.web.result }}"
+          test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = false
