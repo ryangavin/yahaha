@@ -289,7 +289,8 @@ impl InsertSlot {
     /// amount (off: nothing).
     pub fn settings(&self, bpm: f32, fast: bool) -> super::InsertSettings {
         let kind = if self.on { self.kind.kind() } else { super::InsertKind::None };
-        super::InsertSettings { kind, amount: self.values[0].min(127) as u8, bpm, fast }
+        let rest = [self.values[1], self.values[2], self.values[3]];
+        super::InsertSettings { kind, amount: self.values[0].min(127) as u8, rest, bpm, fast }
     }
 }
 

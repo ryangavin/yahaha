@@ -143,6 +143,9 @@ impl InsertKind {
     }
 }
 
+/// `InsertSettings::rest`: this setting at the kind's default.
+pub const KIND_DEFAULT: u16 = u16::MAX;
+
 /// How long a kind change fades (s).
 const FADE_S: f32 = 0.02;
 /// The rotary's Doppler line (s): the longest swing of its taps.
@@ -200,9 +203,14 @@ pub struct Insert {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct InsertSettings {
     pub kind: InsertKind,
-    /// 0-127: the distortion's drive, the compressor's squeeze, the wah's sensitivity, the
-    /// tremolo's and rotary's depth.
+    /// Setting 1 (`kinds::InsertType::settings()[0]`), 0-127: the distortion's drive, the
+    /// compressor's squeeze, the wah's sensitivity, the tremolo's, rotary's and phaser's
+    /// depth.
     pub amount: u8,
+    /// Settings 2-4, in the kind's own units (`kinds::InsertType::settings()[1..]`);
+    /// [`KIND_DEFAULT`] (what a style's insert and an old single slot carry) plays the
+    /// kind's default, which sounds as the insert did before it had them.
+    pub rest: [u16; 3],
     /// The style tempo (BPM): the tremolo's rate.
     pub bpm: f32,
     /// The rotary at its fast speed (the Leslie switch): it speeds up and slows down
@@ -370,7 +378,16 @@ impl Insert {
 
 impl InsertSettings {
     /// No effect.
-    pub const NONE: InsertSettings = InsertSettings { kind: InsertKind::None, amount: 64, bpm: 120.0, fast: false };
+    pub const NONE: InsertSettings = InsertSettings { kind: InsertKind::None, amount: 64, rest: [KIND_DEFAULT; 3], bpm: 120.0, fast: false };
+
+    /// Setting `i` (0-3) in its unit, clamped to the kind's range: `amount` for 0, and
+    /// the kind's default for a setting at [`KIND_DEFAULT`] or one the kind hasn't.
+    pub fn value(&self, i: usize) -> u16 {
+        let specs = super::InsertType::from(self.kind).settings();
+        let Some(spec) = specs.get(i) else { return 0 };
+        let v = if i == 0 { self.amount as u16 } else { self.rest[i - 1] };
+        if v == KIND_DEFAULT { spec.default } else { spec.clamp(v) }
+    }
 
     /// Every channel's insert as the control side has it (read once per buffer): the Style
     /// parts' (channels 9-16) from the style (`FxControl::insert`), none on the others;
@@ -393,76 +410,6 @@ impl InsertSettings {
     }
 }
 
-/// Every MIDI channel's insert on the SoundFont side, each run on its part's stem by the
-/// synth's rack (audio thread; allocated in `new`): the Style parts' (channels 9-16) and
-/// the keyboard parts' (channels 1-4).
-///
-/// Each channel has two slots (`super::INSERT_SLOTS`, the mixer rework's strip: insert 1
-/// then insert 2), both allocated here. Slot 2 is taken (`set_second`) but not run yet:
-/// it passes the stem through until the chaining lands (the mixer rework's lane A).
-pub struct ChannelInserts {
-    slots: [Insert; 16],
-    settings: [InsertSettings; 16],
-    /// Slot 2 of each channel: allocated, not run yet.
-    #[allow(dead_code)]
-    second: [Insert; 16],
-    second_settings: [InsertSettings; 16],
-}
-
-impl ChannelInserts {
-    pub fn new(rate: f32) -> ChannelInserts {
-        ChannelInserts {
-            slots: std::array::from_fn(|_| Insert::new(rate)),
-            settings: [InsertSettings::NONE; 16],
-            second: std::array::from_fn(|_| Insert::new(rate)),
-            second_settings: [InsertSettings::NONE; 16],
-        }
-    }
-
-    /// Take the settings for this buffer (`InsertSettings::channels`).
-    pub fn set(&mut self, settings: &[InsertSettings; 16]) {
-        self.settings = *settings;
-    }
-
-    /// Take slot 2's settings for this buffer. Stub: slot 2 passes through for now.
-    pub fn set_second(&mut self, settings: &[InsertSettings; 16]) {
-        self.second_settings = *settings;
-    }
-
-    /// Slot 2's settings as last taken.
-    pub fn second(&self) -> &[InsertSettings; 16] {
-        &self.second_settings
-    }
-
-    /// The channels (bit = channel) whose stem runs through `process` before the mix.
-    pub fn mask(&self) -> u16 {
-        let mut m = 0;
-        for (ch, (slot, s)) in self.slots.iter().zip(&self.settings).enumerate() {
-            if slot.active(s.kind) {
-                m |= 1 << ch;
-            }
-        }
-        m
-    }
-
-    /// Run channel `channel`'s stem (`left`/`right`) through its effect in place. `level`
-    /// is the part's gain in the mix (volume x expression, squared, x the master volume).
-    pub fn process(&mut self, channel: usize, left: &mut [f32], right: &mut [f32], level: f32) {
-        let Some(slot) = self.slots.get_mut(channel) else { return };
-        // The top view (#296) shows the Style parts' inserts.
-        let band = channel.checked_sub(super::BAND_CHANNELS.start).filter(|&p| p < 8);
-        let perf = &yahaha_core::perf::PERF;
-        let t0 = band.is_some_and(|_| perf.on()).then(yahaha_core::rt::host_now);
-        slot.process(left, right, level, &self.settings[channel]);
-        // Its time and output peak, atomics only.
-        if let (Some(t0), Some(p)) = (t0, band) {
-            perf.insert[p].add(yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0)));
-            let peak = left.iter().chain(right.iter()).fold(0f32, |m, x| m.max(x.abs()));
-            yahaha_core::perf::Perf::peak(&perf.insert_peak[p], peak);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,7 +422,7 @@ mod tests {
 
     fn run(kind: InsertKind, amount: u8, input: &[f32], level: f32) -> Vec<f32> {
         let mut ins = Insert::new(RATE);
-        let s = InsertSettings { kind, amount, bpm: 120.0, fast: false };
+        let s = InsertSettings { kind, amount, ..InsertSettings::NONE };
         let (mut l, mut r) = (input.iter().map(|x| x * level).collect::<Vec<_>>(), input.iter().map(|x| x * level).collect::<Vec<_>>());
         for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
             ins.process(a, b, level, &s);
@@ -552,7 +499,7 @@ mod tests {
     #[test]
     fn the_rotary_spins() {
         let mut ins = Insert::new(RATE);
-        let s = InsertSettings { kind: InsertKind::Rotary, amount: 64, bpm: 120.0, fast: false };
+        let s = InsertSettings { kind: InsertKind::Rotary, amount: 64, ..InsertSettings::NONE };
         let x = sine(440.0, 0.5, 96_000);
         let (mut l, mut r) = (x.clone(), x.clone());
         for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
@@ -569,7 +516,7 @@ mod tests {
     fn the_rotary_goes_fast() {
         let crossings = |fast: bool| {
             let mut ins = Insert::new(RATE);
-            let s = InsertSettings { kind: InsertKind::Rotary, amount: 100, bpm: 120.0, fast };
+            let s = InsertSettings { kind: InsertKind::Rotary, amount: 100, fast, ..InsertSettings::NONE };
             let x = vec![0.5; 3 * RATE as usize];
             let (mut l, mut r) = (x.clone(), x.clone());
             for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
@@ -583,7 +530,7 @@ mod tests {
         assert!(slow <= 2 && fast >= 5, "slow {slow}, fast {fast} in 1 s");
         let mut ins = Insert::new(RATE);
         let (mut a, mut b) = (vec![0.5; 4800], vec![0.5; 4800]);
-        ins.process(&mut a, &mut b, 1.0, &InsertSettings { kind: InsertKind::Rotary, amount: 64, bpm: 120.0, fast: true });
+        ins.process(&mut a, &mut b, 1.0, &InsertSettings { kind: InsertKind::Rotary, amount: 64, fast: true, ..InsertSettings::NONE });
         assert!(ins.spin > 0.0 && ins.spin < 0.2, "it glides: {}", ins.spin);
     }
 
@@ -597,7 +544,7 @@ mod tests {
         let kinds = [InsertKind::None, InsertKind::Distortion, InsertKind::Tremolo, InsertKind::None, InsertKind::Compressor];
         for (i, (a, b)) in l.chunks_mut(64).zip(r.chunks_mut(64)).enumerate() {
             let kind = kinds[(i / 150) % kinds.len()];
-            ins.process(a, b, 1.0, &InsertSettings { kind, amount: 90, bpm: 120.0, fast: false });
+            ins.process(a, b, 1.0, &InsertSettings { kind, amount: 90, ..InsertSettings::NONE });
         }
         // Around each change (the fade, 20 ms) no step is steeper than the steepest the
         // effects make anyway.

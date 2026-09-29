@@ -59,12 +59,16 @@ pub mod master;
 mod params;
 pub mod part_comp;
 pub mod part_eq;
+pub mod phaser;
 mod reverb;
+pub mod strip;
 pub mod xg;
 
 pub use chorus::{Chorus, ChorusType};
 pub use delay::{Delay, DelayType, NOTES};
-pub use insert::{ChannelInserts, Insert, InsertEffect, InsertKind, InsertSettings, PartInsert};
+pub use insert::{Insert, InsertEffect, InsertKind, InsertSettings, KIND_DEFAULT, PartInsert};
+pub use phaser::Phaser;
+pub use strip::{ChannelInserts, StripControl};
 pub use kinds::{INSERT_SLOTS, INSERT_VALUES, InsertSlot, InsertType, KnobSpec, SEND_PARAMS, SENDS, SendKind, SendSlot, Unit};
 pub use part_comp::{PartComp, PartCompParam};
 pub use params::{PARAMS, Param, Spec};
@@ -170,6 +174,8 @@ pub struct FxControl {
     /// The Master Compressor and Master EQ ([`master`]), on the master bus after the
     /// returns.
     pub master: master::MasterControl,
+    /// Each channel's strip: its compressor and its two insert slots ([`strip`]).
+    pub strips: strip::StripControl,
 }
 
 impl FxControl {
@@ -191,6 +197,7 @@ impl FxControl {
             tempo: AtomicU32::new(12_000),
             legacy: AtomicBool::new(false),
             master: master::MasterControl::new(),
+            strips: strip::StripControl::new(),
         }
     }
 }
