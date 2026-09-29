@@ -568,10 +568,13 @@ fn a_plugin_part_plays_its_eq_velocity_curve_and_mono() {
 #[test]
 fn a_plugin_part_plays_its_insert() {
     use crate::fx::{InsertKind, InsertSettings};
-    let play = |ch: u8, kind: InsertKind| {
+    // `None` never calls `set_insert`: the rack as it was before inserts existed.
+    let play = |ch: u8, kind: Option<InsertKind>| {
         let (mut rack, mut ctl) = rack(512, RATE);
         ctl.assign(0, dls(512), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
-        rack.set_insert(ch, InsertSettings { kind, amount: 110, ..InsertSettings::NONE });
+        if let Some(kind) = kind {
+            rack.set_insert(ch, InsertSettings { kind, amount: 110, ..InsertSettings::NONE });
+        }
         let (mut l, mut r) = block(&mut rack, &[[0x90, 48, 100], [0x90, 55, 100]], 512);
         let mut ns = 0;
         for _ in 0..8 {
@@ -582,10 +585,12 @@ fn a_plugin_part_plays_its_insert() {
         }
         (l, r, ns)
     };
-    let plain = play(0, InsertKind::None);
-    assert_eq!(plain.2, 0, "not run");
-    assert_eq!(play(1, InsertKind::Distortion), plain, "another channel's insert");
-    let dist = play(0, InsertKind::Distortion);
+    let plain = play(0, None);
+    let off = play(0, Some(InsertKind::None));
+    assert_eq!(off.2, 0, "not run");
+    assert_eq!(off, plain, "an off insert is bit-identical to no insert");
+    assert_eq!(play(1, Some(InsertKind::Distortion)), plain, "another channel's insert");
+    let dist = play(0, Some(InsertKind::Distortion));
     assert!(dist.2 > 0, "timed");
     // The drive reshapes the part: far from the dry sound.
     let e = |x: &[f32]| x.iter().map(|v| v * v).sum::<f32>();

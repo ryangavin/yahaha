@@ -20,6 +20,7 @@
     onreset = null,
     own = false,
     max = 127,
+    min = 0,
   }: {
     value: number
     tip: TipKey
@@ -37,12 +38,15 @@
     own?: boolean
     /** The top of the range (0–`max`; 127 for a controller). */
     max?: number
+    /** The bottom of the range (0 unless given: an effect parameter's own unit). */
+    min?: number
   } = $props()
 
   const MAX = $derived(max)
+  const MIN = $derived(min)
   /** The knob turns through 270°, from 7:30 to 4:30. */
   const SWEEP = 270
-  const angle = (v: number) => -SWEEP / 2 + (Math.max(0, Math.min(MAX, v)) / MAX) * SWEEP
+  const angle = (v: number) => -SWEEP / 2 + ((Math.max(MIN, Math.min(MAX, v)) - MIN) / Math.max(1, MAX - MIN)) * SWEEP
   const R = 10
   const point = (deg: number) => {
     const a = ((deg - 90) * Math.PI) / 180
@@ -57,7 +61,7 @@
 
   let drag: { y: number; v: number } | null = null
   const set = (v: number) => {
-    const c = Math.max(0, Math.min(MAX, Math.round(v)))
+    const c = Math.max(MIN, Math.min(MAX, Math.round(v)))
     if (c !== value) onchange(c)
   }
   function down(e: PointerEvent) {
@@ -76,7 +80,7 @@
     const step: Record<string, number> = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 }
     let v: number | null = null
     if (e.key in step) v = value + step[e.key]
-    else if (e.key === 'Home') v = 0
+    else if (e.key === 'Home') v = MIN
     else if (e.key === 'End') v = MAX
     if (v === null) return
     e.preventDefault()
@@ -91,7 +95,7 @@
   role="slider"
   tabindex="0"
   aria-label={label}
-  aria-valuemin={0}
+  aria-valuemin={MIN}
   aria-valuemax={MAX}
   aria-valuenow={value}
   aria-valuetext={format(value)}
