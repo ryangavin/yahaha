@@ -12,6 +12,25 @@ pub use null::*;
 #[cfg(not(target_vendor = "apple"))]
 mod null;
 
+/// Where the engine (and the Multi Pad player) send their MIDI output.
+pub trait Sink {
+    fn send(&mut self, msg: &[u8]);
+
+    /// Retrigger Rule pitch shift: every note on `ch` now sounds `semis` above the key it
+    /// was sent with (the engine has already sent the pitch bend). MIDI sinks ignore it; the
+    /// sim listing uses it to show the pitch that sounds.
+    fn retune(&mut self, _ch: u8, _semis: i8) {}
+
+    /// A metronome click (`accent`: the bell on beat 1), for the built-in synth's click
+    /// voice only: it never goes out as MIDI. Sinks without a synth ignore it.
+    fn click(&mut self, _accent: bool) {}
+
+    /// The style just taken over plays with bank `bank` of the sound library's route table
+    /// (#103, `patches::route`): for the built-in synth and the port's program mapping
+    /// only, never MIDI. Sinks without them ignore it.
+    fn route_bank(&mut self, _bank: u8) {}
+}
+
 /// The CoreMIDI backend (macOS and iOS).
 #[cfg(target_vendor = "apple")]
 mod coremidi {

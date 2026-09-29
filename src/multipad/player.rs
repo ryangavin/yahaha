@@ -22,7 +22,7 @@
 //!   starts every armed pad.
 
 use super::file::{PadBank, PADS};
-use crate::engine::Sink;
+use crate::midi::Sink;
 use crate::sff::{ChannelRule, Ev, Ntr, Ntt, Rtr, Zone};
 use crate::theory::{transpose_group, Chord, NUM_TYPES};
 use std::ops::Range;
@@ -578,7 +578,7 @@ impl MultiPadPlayer {
                     if let Some(k) = out[i] {
                         // Master transpose moves the whole instrument (RM p.41), after Chord
                         // Match; the note's off goes to the key it sounds on.
-                        let k = crate::engine::shift_key(k, master);
+                        let k = crate::theory::shift_key(k, master);
                         self.note_on(pad, ch, keys[i], k, vels[i], sink);
                     }
                 }

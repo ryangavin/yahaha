@@ -6,12 +6,24 @@ description = "A software arranger keyboard that plays Yamaha Genos/PSR style fi
 license = "MIT"
 repository = "https://github.com/satoramoto/yahaha"
 
-# One workspace, one Cargo.lock and one target directory for the engine and the app shell
-# (app/src-tauri), so the app's tests reuse the engine's dependency builds instead of
-# building everything a second time. Cargo at the repo root builds only the engine
-# (default-members); in app/src-tauri it builds the app shell.
+# One workspace, one Cargo.lock and one target directory for the `yahaha` facade (this
+# package), the layer crates under crates/ and the app shell (app/src-tauri), so the app's
+# tests reuse the engine's dependency builds instead of building everything a second time.
+# The layer crates are the planned crate split, core -> sff, fx -> engine -> synth -> this
+# facade (AGENTS.md, Layering); modules move into them lane by lane. A plain `cargo build`
+# at the repo root builds only the facade (default-members); the member crates' own tests
+# need `--workspace --exclude yahaha-app` (AGENTS.md, Checks). In app/src-tauri cargo
+# builds the app shell.
 [workspace]
-members = [".", "app/src-tauri"]
+members = [
+    ".",
+    "app/src-tauri",
+    "crates/yahaha-core",
+    "crates/yahaha-sff",
+    "crates/yahaha-fx",
+    "crates/yahaha-engine",
+    "crates/yahaha-synth",
+]
 default-members = ["."]
 
 # The engine, the runtime and the app API are the `yahaha` library; the terminal front
@@ -35,7 +47,13 @@ test = true
 [features]
 default = ["tui"]
 # Tests gated with `#[cfg(feature = "slow-tests")]` are left out of the local core suite and run in CI.
-slow-tests = []
+slow-tests = [
+    "yahaha-core/slow-tests",
+    "yahaha-sff/slow-tests",
+    "yahaha-fx/slow-tests",
+    "yahaha-engine/slow-tests",
+    "yahaha-synth/slow-tests",
+]
 # The terminal UI (ratatui, crossterm). Only the binary needs it.
 tui = ["dep:ratatui", "dep:crossterm"]
 # Plugin hosting (#35): Audio Unit instruments (src/plugin/, `yahaha plugin-test`). Off by
@@ -49,9 +67,16 @@ plugins = [
     "dep:objc2-app-kit",
     "dep:objc2-core-audio-kit",
     "dep:block2",
+    "yahaha-synth/plugins",
 ]
 
 [dependencies]
+# The layer crates (AGENTS.md, Layering).
+yahaha-core = { path = "crates/yahaha-core" }
+yahaha-sff = { path = "crates/yahaha-sff" }
+yahaha-fx = { path = "crates/yahaha-fx" }
+yahaha-engine = { path = "crates/yahaha-engine" }
+yahaha-synth = { path = "crates/yahaha-synth" }
 anyhow = "1.0.104"
 cpal = "0.18.2"
 crossterm = { version = "0.29.0", optional = true }
@@ -125,6 +150,8 @@ optional = true
 default-features = false
 features = ["std", "AUGenericView", "objc2-app-kit", "objc2-audio-toolbox"]
 
+# Profiles live here, in the workspace root: cargo applies them to every member crate.
+#
 # Optional, for running tests with release semantics (no debug assertions, no overflow
 # checks), as the app ships: `cargo test --profile test-fast`. Our own crate builds
 # incrementally with light optimisation, and the dependencies (rustysynth included) at full
@@ -142,7 +169,8 @@ opt-level = 3
 codegen-units = 16
 
 # The test profile: the full suite and CI (`cargo test --profile test-quick`, see
-# AGENTS.md) and an agent's targeted tests (the bacon `test` job). Our crate unoptimised and
+# AGENTS.md) and an agent's targeted tests (the bacon `test` job). Our crates (the workspace
+# members; `package."*"` below matches only non-members) unoptimised and
 # incremental, so it compiles and relinks in the least time; the dependencies at full
 # optimisation so audio-rendering tests still run quickly. Debug semantics (debug
 # assertions, overflow checks).

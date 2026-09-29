@@ -5510,6 +5510,11 @@ dependencies = [
  "rustysynth",
  "serde",
  "serde_json",
+ "yahaha-core",
+ "yahaha-engine",
+ "yahaha-fx",
+ "yahaha-sff",
+ "yahaha-synth",
 ]
 
 [[package]]
@@ -5521,6 +5526,52 @@ dependencies = [
  "tauri",
  "tauri-build",
  "yahaha",
+]
+
+[[package]]
+name = "yahaha-core"
+version = "0.1.0"
+
+[[package]]
+name = "yahaha-engine"
+version = "0.1.0"
+dependencies = [
+ "yahaha-core",
+ "yahaha-fx",
+ "yahaha-sff",
+]
+
+[[package]]
+name = "yahaha-fx"
+version = "0.1.0"
+dependencies = [
+ "yahaha-core",
+]
+
+[[package]]
+name = "yahaha-sff"
+version = "0.1.0"
+dependencies = [
+ "yahaha-core",
+]
+
+[[package]]
+name = "yahaha-synth"
+version = "0.1.0"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-audio-toolbox",
+ "objc2-core-audio-kit",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "rustysynth",
+ "yahaha-core",
+ "yahaha-engine",
+ "yahaha-fx",
+ "yahaha-sff",
 ]
 
 [[package]]

@@ -4,6 +4,19 @@
 
 use crate::style_types::{ChannelRule, Ntr, Ntt, Zone};
 
+/// Shift a key by `d` semitones, folding by octaves to stay inside the MIDI range.
+#[inline]
+pub fn shift_key(key: u8, d: i8) -> u8 {
+    let mut k = key as i32 + d as i32;
+    while k > 127 {
+        k -= 12;
+    }
+    while k < 0 {
+        k += 12;
+    }
+    k as u8
+}
+
 pub const CANCEL: u8 = 0x22;
 /// The two-note Fingered shapes: 1+8 (root alone or in octaves) and 1+5 (root and fifth).
 pub const ONE_PLUS_EIGHT: u8 = 30;

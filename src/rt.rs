@@ -352,7 +352,7 @@ impl PacketSink {
     }
 }
 
-impl crate::engine::Sink for PacketSink {
+impl crate::midi::Sink for PacketSink {
     #[inline]
     fn send(&mut self, msg: &[u8]) {
         self.push(msg);

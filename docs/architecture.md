@@ -30,6 +30,13 @@ This document is about the inside.
 | `src/ireal/` | iReal Pro charts (pure); the chart player plays them: `engine/chart.rs`, `session/chart.rs`, `api/chart.rs` (docs/ireal.md). |
 | `src/looper.rs`, `src/click.rs` | The Chord Looper's sequence type; the metronome's click voice (mixed by the synth). |
 | `app/` | The desktop app: Svelte frontend (`app/src`), Tauri shell (`app/src-tauri`). |
+| `crates/` | The layer crates of the planned crate split (`yahaha-core`, `-sff`, `-fx`, `-engine`, `-synth`). Empty for now. |
+
+The modules above are moving, lane by lane, out of the one `yahaha` crate into layer
+crates under `crates/`: core → sff, fx → engine → synth → the `yahaha` facade (session,
+API, live threads, UI). A module moves only once nothing it imports sits above its crate,
+and the facade re-exports it, so `yahaha::theory::…` paths keep working. AGENTS.md
+("Layering") has the table of which module goes where.
 
 ## Threads
 

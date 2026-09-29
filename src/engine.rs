@@ -65,23 +65,8 @@ pub use timing::{IntroEndingTiming, MainTiming, StyleSettings, FILL_GRACE_MAX_MS
 use crate::sff::{ChannelRule, Ntr, Ntt, Rtr, SectionId, Style};
 use crate::theory::{is_drum_part, plays, transpose_group, Chord, CANCEL, GUITAR_NOISE};
 
-pub trait Sink {
-    fn send(&mut self, msg: &[u8]);
-
-    /// Retrigger Rule pitch shift: every note on `ch` now sounds `semis` above the key it
-    /// was sent with (the engine has already sent the pitch bend). MIDI sinks ignore it; the
-    /// sim listing uses it to show the pitch that sounds.
-    fn retune(&mut self, _ch: u8, _semis: i8) {}
-
-    /// A metronome click (`accent`: the bell on beat 1), for the built-in synth's click
-    /// voice only: it never goes out as MIDI. Sinks without a synth ignore it.
-    fn click(&mut self, _accent: bool) {}
-
-    /// The style just taken over plays with bank `bank` of the sound library's route table
-    /// (#103, `patches::route`): for the built-in synth and the port's program mapping
-    /// only, never MIDI. Sinks without them ignore it.
-    fn route_bank(&mut self, _bank: u8) {}
-}
+pub use crate::midi::Sink;
+pub use crate::theory::shift_key;
 
 /// The tempo range, BPM (Genos: 5-500, OM p.46, p.133).
 pub const MIN_BPM: f64 = 5.0;
@@ -311,19 +296,6 @@ impl Transpose {
     pub fn keys(self) -> i8 {
         self.keyboard + self.master
     }
-}
-
-/// Shift a key by `d` semitones, folding by octaves to stay inside the MIDI range.
-#[inline]
-pub fn shift_key(key: u8, d: i8) -> u8 {
-    let mut k = key as i32 + d as i32;
-    while k > 127 {
-        k -= 12;
-    }
-    while k < 0 {
-        k += 12;
-    }
-    k as u8
 }
 
 /// A chord moved by `d` semitones (root and on-bass note).
