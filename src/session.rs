@@ -602,6 +602,10 @@ impl Control {
     /// published and the control thread doesn't rebuild it.
     fn pump(&mut self, now: u64) -> bool {
         let before = self.watch.unwrap_or_else(|| self.watch_now());
+        // A plugin load or a bank rescan that finishes in this pump changes the state
+        // although nothing after the pump shows it: compare with before.
+        let was_busy = self.busy();
+        let was_scanning = self.multipad.scanning();
         let mut dirty = self.drain_snapshots();
         // Launchkey pad/button actions: the same commands as their keyboard shortcuts.
         while let Ok(a) = self.act_rx.pop() {
@@ -648,7 +652,7 @@ impl Control {
         dirty |= self.pump_live_rack(now);
         let after = self.watch_now();
         self.watch = Some(after);
-        dirty || after != before || self.changed || self.busy()
+        dirty || after != before || self.changed || was_busy || self.busy() || was_scanning != self.multipad.scanning()
     }
 
     /// The state: each feature builds its part, in `AppState`'s order.
@@ -1274,6 +1278,27 @@ mod publish_tests {
         assert!(ctl.pump(now), "a command");
         s.inner.publish(&mut ctl, now);
         assert!(!ctl.pump(now), "published: nothing left to rebuild");
+    }
+
+    #[test]
+    fn a_finished_bank_rescan_is_a_change() {
+        let s = session();
+        let mut ctl = s.inner.lock();
+        let now = now_of(&ctl);
+        ctl.pump(now);
+        s.inner.publish(&mut ctl, now);
+        ctl.rescan_pads();
+        assert!(ctl.multipad.scanning());
+        for _ in 0..500 {
+            let d = ctl.pump(now);
+            if !ctl.multipad.scanning() {
+                assert!(d, "the pump that merged the rescan reports it");
+                return;
+            }
+            s.inner.publish(&mut ctl, now);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the rescan didn't finish");
     }
 
     #[test]

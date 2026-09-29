@@ -45,6 +45,11 @@ struct Loaded {
 }
 
 impl Pads {
+    /// A bank rescan is running.
+    pub(super) fn scanning(&self) -> bool {
+        self.scan_rx.is_some()
+    }
+
     /// The bank files under `roots`, as the start of a session finds them.
     pub(super) fn scan(roots: &[PathBuf]) -> Pads {
         let mut p = Pads::default();
