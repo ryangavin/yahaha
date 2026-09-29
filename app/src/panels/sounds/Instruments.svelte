@@ -40,7 +40,8 @@
     browserNav.open.add(inst.id)
     // Factory presets need a plugin instance: listed once, then cached (the engine does
     // nothing for a plugin already listed, and its .aupreset files alone don't say so).
-    if (inst.kind === 'plugin' && !inst.plugin.lastError && !listing.has(inst.id)) app.send({ type: 'listPluginPresets', id: inst.id })
+    // A failed listing is not tried again (until the next scan): it says why instead.
+    if (inst.kind === 'plugin' && !inst.plugin.lastError && !inst.entry?.plugin?.presetsError && !listing.has(inst.id)) app.send({ type: 'listPluginPresets', id: inst.id })
   }
 
   const play = (id: string) => app.send({ type: 'assignSound', part, id })
@@ -141,7 +142,8 @@
   {@const rows = instrumentPresets(catalog, inst)}
   <ul class="presets" id="presets-{inst.id}" aria-label="{inst.name} presets">
     {#if rows.length === 0}
-      <li class="none">{inst.kind === 'plugin' && (listing.has(inst.id) || inst.entry?.plugin?.presets == null) && !inst.plugin.lastError ? 'Listing presets…' : 'No presets.'}</li>
+      {@const failed = inst.kind === 'plugin' ? inst.entry?.plugin?.presetsError : undefined}
+      <li class="none">{failed ? `Could not list its presets: ${failed}` : inst.kind === 'plugin' && (listing.has(inst.id) || inst.entry?.plugin?.presets == null) && !inst.plugin.lastError ? 'Listing presets…' : 'No presets.'}</li>
     {/if}
     {#each rows as i (catalog.entries[i].id)}
       {@const e = catalog.entries[i]}

@@ -202,6 +202,9 @@ struct Inner {
     preset_roots: Vec<PathBuf>,
     /// The next scan reads everything again (`rescan`): factory presets too.
     refresh: std::sync::atomic::AtomicBool,
+    /// Tests: called while a live scan runs.
+    #[cfg(test)]
+    live_scan_hook: Mutex<Option<Box<dyn Fn() + Send>>>,
 }
 
 /// The plugin host: scanning and loading. Cheap to clone (one `Arc`); share it between the
@@ -220,7 +223,16 @@ impl PluginHost {
     /// A host whose user presets are looked for under `roots` (tests; the default is
     /// `~/Library/Audio/Presets` and `/Library/Audio/Presets`).
     pub fn with_preset_roots(cache_path: Option<PathBuf>, roots: Vec<PathBuf>) -> PluginHost {
-        PluginHost { inner: Arc::new(Inner { cache_path, cache: Mutex::new(None), preset_roots: roots, refresh: Default::default() }) }
+        PluginHost {
+            inner: Arc::new(Inner {
+                cache_path,
+                cache: Mutex::new(None),
+                preset_roots: roots,
+                refresh: Default::default(),
+                #[cfg(test)]
+                live_scan_hook: Mutex::new(None),
+            }),
+        }
     }
 
     /// Whether user preset `name` of `id` exists where it would be saved (no scan: from
@@ -244,18 +256,33 @@ impl PluginHost {
     /// Served from the cache when nothing was installed, removed or updated since it was
     /// written; otherwise rescanned and the cache rewritten (keeping each plugin's last load
     /// record while its version is unchanged).
+    ///
+    /// The cache's lock is not held while the registrar is scanned and the preset folders
+    /// are walked (seconds with many plugins): the control thread's cheap lookups
+    /// (`cached`, `has_factory_presets`) never wait for a scan.
     pub fn scan(&self) -> Result<Vec<PluginInfo>> {
         let comps = sys::instruments();
         let fp = scan::fingerprint(&comps);
-        let mut cache = self.inner.cache.lock().unwrap();
-        if cache.is_none() {
-            *cache = self.inner.cache_path.as_deref().and_then(scan::read_cache);
+        {
+            let mut cache = self.inner.cache.lock().unwrap();
+            if cache.is_none() {
+                *cache = self.inner.cache_path.as_deref().and_then(scan::read_cache);
+            }
+            if let Some(c) = cache.as_ref().filter(|c| c.fingerprint == fp) {
+                return Ok(c.plugins.clone());
+            }
         }
-        if let Some(c) = cache.as_ref().filter(|c| c.fingerprint == fp) {
-            return Ok(c.plugins.clone());
+        #[cfg(test)]
+        if let Some(f) = self.inner.live_scan_hook.lock().unwrap().as_ref() {
+            f();
         }
         let mut plugins = scan::scan_live(&comps);
+        for p in &mut plugins {
+            p.user_presets = presets::user_presets(p, &self.inner.preset_roots);
+        }
         let refresh = self.inner.refresh.swap(false, std::sync::atomic::Ordering::Relaxed);
+        // What the cache has now (a load may have recorded something meanwhile) carries over.
+        let mut cache = self.inner.cache.lock().unwrap();
         if let Some(old) = cache.as_ref() {
             for p in &mut plugins {
                 let same = old.plugins.iter().find(|o| o.id == p.id && o.version == p.version);
@@ -265,9 +292,6 @@ impl PluginHost {
                 // The player's choice outlives an update.
                 p.in_process = old.plugins.iter().any(|o| o.id == p.id && o.in_process) && p.can_run_in_process();
             }
-        }
-        for p in &mut plugins {
-            p.user_presets = presets::user_presets(p, &self.inner.preset_roots);
         }
         let fresh = ScanCache { schema: scan::SCHEMA, fingerprint: fp, plugins: plugins.clone() };
         if let Some(path) = &self.inner.cache_path {
@@ -322,7 +346,7 @@ impl PluginHost {
     /// Set the player's "run in process" override for `id` and save it in the cache.
     /// Returns the plugin as now cached. Err for an AUv3 that only runs out of process.
     pub fn set_in_process(&self, id: &PluginId, on: bool) -> Result<PluginInfo> {
-        let info = self.info(id)?;
+        let info = self.known(id)?;
         if on && !info.can_run_in_process() {
             bail!("{} is an AUv3 that only runs out of process", info.full_name());
         }
@@ -337,18 +361,30 @@ impl PluginHost {
         Ok(out)
     }
 
-    /// Keep `list` as `info`'s factory presets (at its version) in the cache.
-    fn record_factory_presets(&self, info: &PluginInfo, list: Vec<FactoryPreset>) {
+    /// `id` as cached, without scanning when the cache has it (the control thread's lookups:
+    /// a stale cache would mean a live scan there); scanned only before the first scan.
+    fn known(&self, id: &PluginId) -> Result<PluginInfo> {
+        match self.cached(id) {
+            Some(info) => Ok(info),
+            None => self.info(id),
+        }
+    }
+
+    /// Keep `list` as `info`'s factory presets (at its version) in the cache. False when the
+    /// cache has no such plugin at that version (it was updated or removed since the load
+    /// looked it up): nothing is kept.
+    fn record_factory_presets(&self, info: &PluginInfo, list: Vec<FactoryPreset>) -> bool {
         let mut cache = self.inner.cache.lock().unwrap();
-        let Some(c) = cache.as_mut() else { return };
-        let Some(p) = c.plugins.iter_mut().find(|p| p.id == info.id && p.version == info.version) else { return };
+        let Some(c) = cache.as_mut() else { return false };
+        let Some(p) = c.plugins.iter_mut().find(|p| p.id == info.id && p.version == info.version) else { return false };
         if p.factory_presets.as_ref() == Some(&list) {
-            return;
+            return true;
         }
         p.factory_presets = Some(list);
         if let Some(path) = &self.inner.cache_path {
             let _ = scan::write_cache(path, c);
         }
+        true
     }
 
     /// `id` as the cache has it now, without scanning (None before the first scan, or if
@@ -366,19 +402,24 @@ impl PluginHost {
 
     /// List `id`'s presets: its factory presets are read from an instance loaded for the
     /// purpose (and cached) unless the cache has them. Blocking: run it on a thread of its
-    /// own. Returns the plugin as now cached.
+    /// own. Returns the plugin as now cached, with its factory presets (an empty list when
+    /// it has none); Err when they could not be read or kept.
     pub fn list_presets(&self, id: &PluginId, cfg: LoadConfig) -> Result<PluginInfo> {
         if !self.has_factory_presets(id) {
             // The load reads them (`load_blocking`); the instance goes to the dispose thread.
             drop(self.load(id, LoadConfig { state: None, factory_preset: None, ..cfg })?);
         }
-        self.info(id)
+        let info = self.info(id)?;
+        if info.factory_presets.is_none() {
+            bail!("its preset list was not kept: the plugin changed since the last scan (rescan the plugins)");
+        }
+        Ok(info)
     }
 
     /// Write the state as a user preset of `id` (`presets::write_user_preset`, in the first
     /// preset folder) and list it. Returns the preset written.
     pub fn save_user_preset(&self, id: &PluginId, name: &str, state: &[u8], overwrite: bool) -> Result<UserPreset> {
-        let info = self.info(id)?;
+        let info = self.known(id)?;
         let root = self.inner.preset_roots.first().ok_or_else(|| anyhow!("no preset folder"))?;
         let saved = presets::write_user_preset(root, &info, name, state, overwrite)?;
         let mut cache = self.inner.cache.lock().unwrap();
@@ -506,8 +547,8 @@ fn load_blocking(host: &PluginHost, comp: &Component, info: &PluginInfo, mode: L
 
     // The factory presets, once per version, for the browser (a property read).
     if !host.has_factory_presets(&info.id) {
-        let list = unit.factory_presets().into_iter().map(|(number, name)| FactoryPreset { number, name }).collect();
-        host.record_factory_presets(info, list);
+        // If the plugin changed meanwhile nothing is kept; `list_presets` says so.
+        let _ = host.record_factory_presets(info, presets::real_factory_presets(unit.factory_presets()));
     }
 
     let mut times = LoadTimes { instantiate, initialize, restore: Duration::ZERO };
@@ -527,4 +568,80 @@ fn load_blocking(host: &PluginHost, comp: &Component, info: &PluginInfo, mode: L
     }
     inst.prime();
     Ok(inst)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    /// The made-up "Sampler Deluxe": no real plugin is loaded.
+    fn fake() -> PluginInfo {
+        PluginInfo {
+            id: PluginId::parse("aumu Smp7 Fake").unwrap(),
+            name: "Sampler Deluxe".into(),
+            manufacturer: "Fake Instruments".into(),
+            version: 0x10000,
+            format: PluginFormat::Au2,
+            requires_async: false,
+            can_load_in_process: false,
+            sandbox_safe: true,
+            last_load: None,
+            in_process: false,
+            factory_presets: None,
+            user_presets: Vec::new(),
+        }
+    }
+
+    fn cache_file(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("yahaha-host-{tag}-{}.json", std::process::id()))
+    }
+
+    /// The control thread's lookups answer while a live scan runs: the scan does not hold
+    /// the cache's lock meanwhile.
+    #[test]
+    fn a_live_scan_never_holds_the_cache() {
+        let path = cache_file("scan-lock");
+        let host = super::super::mock_host(&path, Vec::new(), vec![fake()]);
+        host.scan().unwrap();
+        let (entered_tx, entered) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        *host.inner.live_scan_hook.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered_tx.send(());
+            let _ = release_rx.recv();
+        }));
+        let scanning = {
+            let host = host.clone();
+            std::thread::spawn(move || host.rescan().map(|l| l.len()))
+        };
+        entered.recv_timeout(Duration::from_secs(10)).expect("the rescan reaches its live scan");
+        let (tx, rx) = mpsc::channel();
+        let looker = {
+            let host = host.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send((host.cached(&fake().id).is_some(), host.has_factory_presets(&fake().id)));
+            })
+        };
+        let answered = rx.recv_timeout(Duration::from_secs(2));
+        release.send(()).unwrap();
+        scanning.join().unwrap().unwrap();
+        looker.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(answered, Ok((true, false)), "the lookup waited for the scan");
+    }
+
+    /// A preset list read at a version the cache no longer has is not kept, and says so.
+    #[test]
+    fn a_list_for_another_version_is_not_kept() {
+        let path = cache_file("version");
+        let host = super::super::mock_host(&path, Vec::new(), vec![fake()]);
+        host.scan().unwrap();
+        let list = vec![FactoryPreset { number: 0, name: "Init".into() }];
+        let newer = PluginInfo { version: 0x20000, ..fake() };
+        assert!(!host.record_factory_presets(&newer, list.clone()));
+        assert!(!host.has_factory_presets(&fake().id));
+        assert!(host.record_factory_presets(&fake(), list));
+        assert!(host.has_factory_presets(&fake().id));
+        let _ = std::fs::remove_file(&path);
+    }
 }
