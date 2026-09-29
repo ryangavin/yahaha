@@ -213,8 +213,10 @@ fn bass_rank(iv: u8) -> u8 {
 }
 
 /// Precomputed "Fingered" / "Fingered On Bass" recognizer: 4096 pitch-class masks × 12 lowest notes.
+/// The table is a pure function of the chord tables, so it is built once per process and
+/// shared: a session, and every test that makes a recognizer, reads the same one.
 pub struct Recognizer {
-    table: Box<[u16; 4096 * 12]>,
+    table: &'static [u16; 4096 * 12],
 }
 
 const NO_CHORD: u16 = 0xFFFF;
@@ -229,6 +231,11 @@ impl Default for Recognizer {
 
 impl Recognizer {
     pub fn new() -> Recognizer {
+        static TABLE: std::sync::OnceLock<Box<[u16; 4096 * 12]>> = std::sync::OnceLock::new();
+        Recognizer { table: TABLE.get_or_init(Self::build) }
+    }
+
+    fn build() -> Box<[u16; 4096 * 12]> {
         let mut table = Box::new([NO_CHORD; 4096 * 12]);
         for mask in 1u16..4096 {
             for low in 0u8..12 {
@@ -243,7 +250,7 @@ impl Recognizer {
                 }
             }
         }
-        Recognizer { table }
+        table
     }
 
     /// Best Data List reading of exactly this pitch-class set. Ambiguous sets resolve by:
@@ -849,8 +856,23 @@ fn position(key: u8) -> u8 {
 }
 
 /// The lowest fret in `lo..=hi` on string `s` whose pitch class is in `want`.
+/// A plain loop rather than an iterator chain: the same code once optimised, and several
+/// times faster in the unoptimised test build, where Guitar voicing dominates the tests.
 fn fret(s: usize, lo: u8, hi: u8, want: u16) -> Option<u8> {
-    (lo..=hi).map(|f| OPEN[s] + f).find(|n| want & 1 << (n % 12) != 0)
+    if lo > hi {
+        return None;
+    }
+    let mut f = lo;
+    loop {
+        let n = OPEN[s] + f;
+        if want & 1 << (n % 12) != 0 {
+            return Some(n);
+        }
+        if f == hi {
+            return None;
+        }
+        f += 1;
+    }
 }
 
 /// A six-string voicing of `chord` over `bass` (a pitch class) with the hand at fret
@@ -926,16 +948,29 @@ fn arpeggio_voices(out: &mut [Option<u8>; 6], low: usize, start: u8, tones: u16,
     let below = out[low].map_or(0, |n| 1u16 << (n % 12));
     let total: usize = len[..top].iter().product();
     let mut best = (0i32, [0u8; 4]);
+    // Plain loops, no iterator chains: this runs up to 625 times per note, and the
+    // unoptimised test build is several times slower through adapters.
     for i in 0..total {
         let mut pick = [0u8; 4];
         let mut rest = i;
-        for s in 0..top {
-            pick[s] = cand[s][rest % len[s]];
+        let (mut mask, mut sum) = (below, 0i32);
+        let mut s = 0;
+        while s < top {
+            let n = cand[s][rest % len[s]];
             rest /= len[s];
+            pick[s] = n;
+            mask |= 1 << (n % 12);
+            sum += n as i32;
+            s += 1;
         }
-        let mask = pick[..top].iter().fold(below, |m, n| m | 1 << (n % 12));
-        let rising = (0..top).all(|s| pick[s] >= if s + 1 < top { pick[s + 1] } else { floor });
-        let sum: i32 = pick[..top].iter().map(|&n| n as i32).sum();
+        let mut rising = true;
+        let mut s = 0;
+        while s < top {
+            if pick[s] < if s + 1 < top { pick[s + 1] } else { floor } {
+                rising = false;
+            }
+            s += 1;
+        }
         let score = rising as i32 * 10_000_000 + (mask & tones).count_ones() as i32 * 100_000
             + (mask & important).count_ones() as i32 * 1_000
             - sum;
@@ -996,6 +1031,15 @@ mod tests {
 
     fn names(keys: &[u8]) -> Vec<String> {
         keys.iter().map(|k| format!("{}{}", NOTE_NAMES[*k as usize % 12], *k as i32 / 12 - 2)).collect()
+    }
+
+    /// The table is built once per process: every recognizer reads the same one, and it is
+    /// the table a fresh build gives.
+    #[test]
+    fn recognizers_share_one_table() {
+        let (a, b) = (Recognizer::new(), Recognizer::default());
+        assert!(std::ptr::eq(a.table, b.table));
+        assert!(a.table[..] == Recognizer::build()[..]);
     }
 
     #[test]
@@ -1777,19 +1821,46 @@ mod tests {
         }
     }
 
+    /// Rules built by hand bypass the parser's clamp; the transposer must still cope with
+    /// any source type. One test per NTR and NTT, so they run in parallel.
+    fn out_of_range_src_types(ntr: Ntr, ntt: Ntt) {
+        let mut r = rule(ntr, ntt, 11, 0, 127);
+        // Anything >= 34 is not a CASM source chord (the display-only ids included).
+        for src_type in [CANCEL, M7B5, FLAT5, MM7B5, 38, 63, 64, 0xFF] {
+            r.src_type = src_type;
+            exercise(&r);
+        }
+    }
+
+    macro_rules! out_of_range_src_types {
+        ($($name:ident = $ntr:ident, $ntt:ident;)*) => {
+            $( #[test] fn $name() { out_of_range_src_types(Ntr::$ntr, Ntt::$ntt); } )*
+        };
+    }
+
+    out_of_range_src_types! {
+        out_of_range_src_root_trans_melody = RootTrans, Melody;
+        out_of_range_src_root_trans_chord = RootTrans, Chord;
+        out_of_range_src_root_trans_bass = RootTrans, Bass;
+        out_of_range_src_root_trans_dorian = RootTrans, Dorian;
+        out_of_range_src_root_trans_guitar_stroke = RootTrans, GuitarStroke;
+        out_of_range_src_root_trans_guitar_arpeggio = RootTrans, GuitarArpeggio;
+        out_of_range_src_root_fixed_melody = RootFixed, Melody;
+        out_of_range_src_root_fixed_chord = RootFixed, Chord;
+        out_of_range_src_root_fixed_bass = RootFixed, Bass;
+        out_of_range_src_root_fixed_dorian = RootFixed, Dorian;
+        out_of_range_src_root_fixed_guitar_stroke = RootFixed, GuitarStroke;
+        out_of_range_src_root_fixed_guitar_arpeggio = RootFixed, GuitarArpeggio;
+        out_of_range_src_guitar_melody = Guitar, Melody;
+        out_of_range_src_guitar_chord = Guitar, Chord;
+        out_of_range_src_guitar_bass = Guitar, Bass;
+        out_of_range_src_guitar_dorian = Guitar, Dorian;
+        out_of_range_src_guitar_stroke = Guitar, GuitarStroke;
+        out_of_range_src_guitar_arpeggio = Guitar, GuitarArpeggio;
+    }
+
     #[test]
     fn out_of_range_types_do_not_panic() {
-        // Rules built by hand bypass the parser's clamp; the transposer must still cope.
-        for ntr in [Ntr::RootTrans, Ntr::RootFixed, Ntr::Guitar] {
-            for ntt in [Ntt::Melody, Ntt::Chord, Ntt::Bass, Ntt::Dorian, Ntt::GuitarStroke, Ntt::GuitarArpeggio] {
-                let mut r = rule(ntr, ntt, 11, 0, 127);
-                // Anything >= 34 is not a CASM source chord (the display-only ids included).
-                for src_type in [CANCEL, M7B5, FLAT5, MM7B5, 38, 63, 64, 0xFF] {
-                    r.src_type = src_type;
-                    exercise(&r);
-                }
-            }
-        }
         let r = rule(Ntr::RootTrans, Ntt::Melody, 11, 0, 127);
         for ty in [CANCEL, 38, 63, 64, 0xFF] {
             let c = Chord { root: 15, ty, bass: Some(15) };
@@ -1876,12 +1947,15 @@ mod tests {
         // RM p.29: Source Root/Chord are not applied for Guitar.
         for ntt in [Ntt::GuitarAllPurpose, Ntt::GuitarStroke, Ntt::GuitarArpeggio] {
             let base = guitar(ntt);
+            // The base rule's output for every chord and key, worked out once.
+            let want: Vec<(Chord, [Option<u8>; 128])> =
+                every_target().map(|c| (c, std::array::from_fn(|k| transpose(k as u8, &base, c)))).collect();
             for (root, ty) in [(0u8, 14u8), (0, 10), (9, 2), (6, 2), (0, 6), (0, 0)] {
                 let mut r = base.clone();
                 (r.src_root, r.src_type) = (root, ty);
-                for c in every_target() {
+                for (c, want) in &want {
                     for k in 0..=127u8 {
-                        assert_eq!(transpose(k, &r, c), transpose(k, &base, c), "{ntt:?} src {root}/{ty} {} key {k}", c.name());
+                        assert_eq!(transpose(k, &r, *c), want[k as usize], "{ntt:?} src {root}/{ty} {} key {k}", c.name());
                     }
                 }
             }

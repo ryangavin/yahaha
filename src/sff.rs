@@ -1052,12 +1052,19 @@ mod tests {
         out
     }
 
-    /// Drive every key through every chord for each rule, the way the engine would.
-    fn exercise(style: &Style) {
+    /// Drive every key through every chord for each rule, the way the engine would. `plays`,
+    /// `transpose` and `transpose_group` are pure functions of the rule, chord and keys, so a
+    /// rule equal to one already in `seen` would repeat exactly the same calls and is not
+    /// driven again (most corrupted files parse back to rules the test has already seen).
+    fn exercise(style: &Style, seen: &mut Vec<ChannelRule>) {
         for seg in &style.casm {
             for r in &seg.rules {
                 assert!((r.src_type as usize) < NUM_TYPES, "src_type {} survived parsing", r.src_type);
                 assert!((8..16).contains(&r.dest_ch), "dest_ch {} survived parsing", r.dest_ch);
+                if seen.contains(r) {
+                    continue;
+                }
+                seen.push(r.clone());
                 // Every chord type that exists: CASM types, Cancel and the display-only ids.
                 for ty in 0..theory::TYPE_NAMES.len() as u8 {
                     let display_only = matches!(ty, theory::M7B5 | theory::FLAT5 | theory::MM7B5);
@@ -1099,12 +1106,13 @@ mod tests {
     fn malformed_ctab_transposes_without_panicking() {
         // Out-of-range source types with garbage zone bytes (NTR/NTT/RTR enums, High Key and
         // inverted note limits), as a whole style file through the real parser.
+        let seen = &mut Vec::new();
         for src_type in [34u8, 35, 36, 37, 38, 63, 64, 0x80, 0xFF] {
             for zone in [0x00u8, 0x07, 0x7F, 0x80, 0xFF] {
                 let s = parse(&style_bytes(b"Ctb2", &ctb2(src_type, zone))).unwrap();
-                exercise(&s);
+                exercise(&s, seen);
                 let s = parse(&style_bytes(b"Ctab", &ctb2(src_type, zone)[..27])).unwrap();
-                exercise(&s);
+                exercise(&s, seen);
             }
         }
     }
@@ -1251,9 +1259,10 @@ mod tests {
     fn truncated_and_corrupted_files_do_not_panic() {
         let good = style_bytes(b"Ctb2", &ctb2(0xFF, 0xFF));
         assert!(parse(&good).is_ok());
+        let seen = &mut Vec::new();
         for n in 0..good.len() {
             if let Ok(s) = parse(&good[..n]) {
-                exercise(&s);
+                exercise(&s, seen);
             }
         }
         // Deterministic byte flips over every position.
@@ -1266,7 +1275,7 @@ mod tests {
                 let mut b = good.clone();
                 b[i] = seed as u8;
                 if let Ok(s) = parse(&b) {
-                    exercise(&s);
+                    exercise(&s, seen);
                 }
             }
         }
