@@ -4,15 +4,21 @@
 // made-up third-party synth that always fails to load, to show the error path, and one
 // the system refuses to host out of process, so it falls back to loading in process.
 
-import type { AppState, KeyboardPart, PluginCmd, PluginEntry, PluginsState } from './types'
+import type { AppState, KeyboardPart, MissingPlugin, PluginCmd, PluginEntry, PluginsState } from './types'
+
+const USES = { new: false, racks: 0, sounds: 0 }
 
 export const MOCK_PLUGINS: PluginEntry[] = [
-  { id: 'aumu dls  appl', name: 'DLSMusicDevice', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
-  { id: 'aumu samp appl', name: 'AUSampler', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
-  { id: 'aumu Mock Demo', name: 'Broken Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv3', lastError: 'timed out after 20.0 s', inProcess: false, canRunInProcess: false },
-  { id: 'aumu Tiny Demo', name: 'Tiny Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
-  { id: 'aumu Smp7 Fake', name: 'Sampler Deluxe', manufacturer: 'Fake Instruments', version: '0.9.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true },
+  { id: 'aumu dls  appl', name: 'DLSMusicDevice', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true, ...USES },
+  { id: 'aumu samp appl', name: 'AUSampler', manufacturer: 'Apple', version: '1.0.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true, ...USES },
+  { id: 'aumu Mock Demo', name: 'Broken Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv3', lastError: 'timed out after 20.0 s', inProcess: false, canRunInProcess: false, ...USES },
+  // Found by the last scan for the first time: new until opened (markPluginSeen) or played.
+  { id: 'aumu Tiny Demo', name: 'Tiny Synth', manufacturer: 'Example Audio', version: '0.9.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true, ...USES, new: true },
+  { id: 'aumu Smp7 Fake', name: 'Sampler Deluxe', manufacturer: 'Fake Instruments', version: '0.9.0', format: 'AUv2', lastError: null, inProcess: false, canRunInProcess: true, ...USES },
 ]
+
+/** A plugin that was installed and isn't any more (docs/racks.md, "Plugins coming and going"). */
+export const MOCK_MISSING: MissingPlugin[] = [{ id: 'aumu Str1 Fake', name: 'String Deluxe', manufacturer: 'Fake Instruments', racks: 0, sounds: 0 }]
 
 /** The made-up sampler whose AU presets the mock lists (mock-sounds.ts). */
 export const MOCK_PRESETS_ID = 'aumu Smp7 Fake'
@@ -24,7 +30,13 @@ export const MOCK_FALLBACK_ID = 'aumu Tiny Demo'
 export const MOCK_HEAVY_ID = 'aumu samp appl'
 
 export function initialPlugins(): PluginsState {
-  return { available: true, scanning: false, list: MOCK_PLUGINS.map((p) => ({ ...p })) }
+  return {
+    available: true,
+    scanning: false,
+    list: MOCK_PLUGINS.map((p) => ({ ...p })),
+    missing: MOCK_MISSING.map((p) => ({ ...p })),
+    needsAttention: [],
+  }
 }
 
 /** How long a mock load and a rescan take. */
@@ -68,8 +80,15 @@ export class MockPlugins {
           editor: false,
           preset: cmd.type === 'setPartPluginPreset' ? (this.presetName?.(cmd.id, cmd.preset) ?? cmd.preset) : null,
           presetKey: cmd.type === 'setPartPluginPreset' ? cmd.preset : null,
+          missing: false,
         }
         this.loading[cmd.part & 3] = 0
+        break
+      }
+      case 'markPluginSeen': {
+        const e = st.plugins.list.find((p) => p.id === cmd.id)
+        if (!e) return this.say(`no instrument Audio Unit ${cmd.id} is installed`, true)
+        e.new = false
         break
       }
       case 'clearPartPlugin':
@@ -141,6 +160,8 @@ export class MockPlugins {
           }
           p.status = 'playing'
           p.editor = true
+          // Played: no longer new.
+          if (e) e.new = false
           p.cpu = p.id === MOCK_HEAVY_ID ? 0.31 : 0.012
           if (p.id === MOCK_HEAVY_ID) p.overruns = p.recentOverruns = 4
         }

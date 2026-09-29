@@ -484,6 +484,18 @@ impl MockSession {
     }
 
     fn sounds_cmd(&mut self, c: SoundsCmd) {
+        // Replace…: assignSound, then the part's mix as it was (a sound swap never touches it).
+        if let SoundsCmd::ReplacePartSound { part, id } = c {
+            if part > 3 {
+                return self.message(format!("no keyboard part {part} (0-3)"), true);
+            }
+            let k = &self.state.keyboard_parts[part as usize];
+            let mix = (k.volume, k.pan, k.reverb, k.chorus, k.variation, k.octave, k.on);
+            self.sounds_cmd(SoundsCmd::AssignSound { part, id });
+            let k = &mut self.state.keyboard_parts[part as usize];
+            (k.volume, k.pan, k.reverb, k.chorus, k.variation, k.octave, k.on) = mix;
+            return;
+        }
         // Add to my sounds: the entry's library patch, added once (a saved sound is in).
         if let SoundsCmd::AddToMySounds { id } = &c {
             if !id.starts_with("saved:") && !id.starts_with("sf:") && !id.starts_with("au:") {
@@ -564,6 +576,10 @@ impl MockSession {
                     Some((PluginStatus::Loading, _, plugin)) => self.message(format!("{name}'s {plugin} is still loading"), true),
                 }
             }
+            PluginCmd::MarkPluginSeen { id } => match self.state.plugins.list.iter_mut().find(|p| p.id == id) {
+                Some(e) => e.new = false,
+                None => self.message(format!("no instrument Audio Unit {id} is installed"), true),
+            },
             PluginCmd::SetPluginInProcess { id, in_process } => {
                 let Some(e) = self.state.plugins.list.iter_mut().find(|p| p.id == id) else {
                     return self.message(format!("no instrument Audio Unit {id} is installed"), true);
@@ -592,7 +608,7 @@ impl MockSession {
         // AUSampler plays the heavy plugin: a high CPU share and a few slow renders.
         let heavy = failed.is_none() && e.id == MOCK_HEAVY_ID;
         self.state.keyboard_parts[part & 3].plugin = Some(PartPlugin {
-            id: e.id,
+            id: e.id.clone(),
             name: e.name.clone(),
             manufacturer: e.manufacturer.clone(),
             status: if failed.is_some() { PluginStatus::Failed } else { PluginStatus::Playing },
@@ -606,7 +622,14 @@ impl MockSession {
             editor: failed.is_none(),
             preset: None,
             preset_key: None,
+            missing: false,
         });
+        // Played: no longer new.
+        if failed.is_none()
+            && let Some(p) = self.state.plugins.list.iter_mut().find(|p| p.id == e.id)
+        {
+            p.new = false;
+        }
         if let Some(err) = failed {
             self.message(format!("{} didn't load: {err}", e.name), true);
         } else if fallback {
@@ -2721,6 +2744,25 @@ mod tests {
         assert!(m.state.keyboard_parts[0].plugin.is_none(), "OTS");
     }
 
+    /// New and missing plugins (docs/racks.md): a new plugin stops being new once opened or
+    /// played; Replace… keeps the part's mix.
+    #[test]
+    fn new_plugins_and_replacing_a_sound() {
+        let mut m = MockSession::new();
+        let new = |m: &MockSession| m.state.plugins.list.iter().filter(|p| p.new).map(|p| p.id.clone()).collect::<Vec<_>>();
+        assert_eq!(new(&m), [MOCK_FALLBACK_ID]);
+        assert_eq!(m.state.plugins.missing.len(), 1);
+        m.send(PluginCmd::MarkPluginSeen { id: MOCK_FALLBACK_ID.into() });
+        assert!(new(&m).is_empty());
+        m.send(PluginCmd::MarkPluginSeen { id: "aumu nope nope".into() });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        m.send(PartsCmd::SetPartVolume { part: 1, volume: 33 });
+        m.send(PartsCmd::SetPartOctave { part: 1, octave: -1 });
+        m.send(SoundsCmd::ReplacePartSound { part: 1, id: "saved:stage-grand".into() });
+        let k = &m.state.keyboard_parts[1];
+        assert_eq!((k.patch.as_deref(), k.volume, k.octave), (Some("stage-grand"), 33, -1));
+    }
+
     /// The sound catalog (#117): every preset, plugin and saved sound; assigning routes
     /// by source, as the session does.
     #[test]
@@ -3541,6 +3583,9 @@ fn mock_plugins() -> PluginsState {
         last_error: last_error.map(Into::into),
         in_process: false,
         can_run_in_process: format == "AUv2",
+        new: false,
+        racks: 0,
+        sounds: 0,
     };
     PluginsState {
         available: true,
@@ -3549,8 +3594,12 @@ fn mock_plugins() -> PluginsState {
             e("aumu dls  appl", "DLSMusicDevice", "Apple", "AUv2", None),
             e("aumu samp appl", "AUSampler", "Apple", "AUv2", None),
             e("aumu Mock Demo", "Broken Synth", "Example Audio", "AUv3", Some("timed out after 20.0 s")),
-            e(MOCK_FALLBACK_ID, "Tiny Synth", "Example Audio", "AUv2", None),
+            // Found by the last scan for the first time: new until opened or played.
+            PluginEntry { new: true, ..e(MOCK_FALLBACK_ID, "Tiny Synth", "Example Audio", "AUv2", None) },
             e(sounds::MOCK_PRESETS_ID, "Sampler Deluxe", "Fake Instruments", "AUv2", None),
         ],
+        // Installed before, gone now (docs/racks.md, "Plugins coming and going").
+        missing: vec![MissingPlugin { id: "aumu Str1 Fake".into(), name: "String Deluxe".into(), manufacturer: "Fake Instruments".into(), racks: 0, sounds: 0 }],
+        needs_attention: Vec::new(),
     }
 }

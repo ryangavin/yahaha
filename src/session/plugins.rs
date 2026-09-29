@@ -199,6 +199,9 @@ mod imp {
         pub(crate) start_edited: bool,
         /// The fingerprint-only reads while its editor window is open ([`Probe`]).
         pub(crate) probe: Probe,
+        /// A keyboard part's plugin that isn't installed (the last scan did not find it):
+        /// the part is silent until the plugin is back ([`Control::mark_missing`]).
+        pub(crate) missing: bool,
     }
 
     /// While a part's plugin window is open, its state is read now and then on a
@@ -250,6 +253,7 @@ mod imp {
                 edited: false,
                 start_edited: false,
                 probe: Probe::default(),
+                missing: false,
             }
         }
 
@@ -464,6 +468,7 @@ mod imp {
                 edited,
                 start_edited: edited,
                 probe: Probe::default(),
+                missing: false,
             });
             Ok(())
         }
@@ -512,7 +517,7 @@ mod imp {
                 if had && let Some(link) = sy.plugins.as_mut() {
                     link.clear(ch, DEFAULT_FADE_FRAMES);
                 }
-                if sy.control.routes.source(ch) == Source::Plugin {
+                if matches!(sy.control.routes.source(ch), Source::Plugin | Source::Silent) {
                     sy.control.routes.set(ch, Source::SoundFont(0));
                 }
             }
@@ -520,10 +525,77 @@ mod imp {
 
         /// Keep `voice` on channel `ch` as failed with `error` (after a load that could not
         /// start): the choice survives, saved and retryable, as a failed start-up restore's
-        /// does. The channel plays its SoundFont meanwhile.
+        /// does. The channel plays its SoundFont meanwhile, or nothing if it is a keyboard
+        /// part's and the plugin isn't installed ([`Control::mark_missing`]).
         pub(crate) fn keep_failed_channel_plugin(&mut self, ch: u8, voice: PluginVoice, error: String) {
             self.plugins.channels[(ch & 15) as usize] = Some(ChannelPlugin::failed(voice, None, error));
             self.plugins.dirty = true;
+            self.mark_missing(ch & 15);
+        }
+
+        /// Whether plugin `id` is not installed: a scan is in and did not list it.
+        pub(crate) fn plugin_is_missing(&self, id: &str) -> bool {
+            self.presence.scanned && PluginId::parse(id).is_none_or(|pid| !self.plugins.list.iter().any(|p| p.id == pid))
+        }
+
+        /// Keyboard part channel `ch`'s failed plugin, if it isn't installed, is missing:
+        /// the part goes silent (not to its SoundFont voice), keeping its voice, its state
+        /// and its mix, until the plugin is back (docs/racks.md, "Plugins coming and
+        /// going"). A plugin that is installed but fails to load keeps the SoundFont.
+        pub(crate) fn mark_missing(&mut self, ch: u8) {
+            if parts::part_of_channel(ch).is_none() {
+                return;
+            }
+            let id = match self.plugins.channels[ch as usize].as_ref() {
+                Some(c) if c.status == PluginStatus::Failed => c.voice.id.clone(),
+                _ => return,
+            };
+            if !self.plugin_is_missing(&id) {
+                return;
+            }
+            let name = self.presence.known(&id).map_or_else(|| id.clone(), |k| k.name.clone());
+            if let Some(c) = self.plugins.channels[ch as usize].as_mut() {
+                c.missing = true;
+                c.error = Some(format!("{name} is not installed; the part is silent until it is back"));
+            }
+            if let Some(sy) = &self.synth {
+                sy.control.routes.set(ch, Source::Silent);
+            }
+        }
+
+        /// After a scan: keyboard parts whose plugin is gone go silent, and those whose
+        /// plugin is back load it again, with the voice and state they kept.
+        fn refresh_missing_parts(&mut self) {
+            for &ch in parts::CHANNEL.iter() {
+                let Some(c) = self.plugins.channels[ch as usize].as_ref().filter(|c| c.status == PluginStatus::Failed) else { continue };
+                if self.plugin_is_missing(&c.voice.id) {
+                    self.mark_missing(ch);
+                    continue;
+                }
+                if !c.missing {
+                    continue;
+                }
+                let voice = c.voice.clone();
+                let name = self.plugins.list.iter().find(|p| Some(p.id) == PluginId::parse(&voice.id)).map_or_else(|| voice.id.clone(), |p| p.name.clone());
+                let part = parts::part_of_channel(ch).map_or("", |p| parts::NAMES[p]);
+                // No in-process fallback, as for the start-up restore.
+                match self.assign_channel_plugin_with(ch, voice.clone(), false) {
+                    Ok(()) => self.say(format!("{name} is back: {part} plays it again"), false),
+                    Err(e) => {
+                        self.plugins.channels[ch as usize] = Some(ChannelPlugin::failed(voice, None, e));
+                        self.clear_silence(ch);
+                    }
+                }
+            }
+        }
+
+        /// A channel that was silent for a missing plugin plays its SoundFont again.
+        fn clear_silence(&self, ch: u8) {
+            if let Some(sy) = &self.synth
+                && sy.control.routes.source(ch) == Source::Silent
+            {
+                sy.control.routes.set(ch, Source::SoundFont(0));
+            }
         }
 
         /// The editor handle of channel `ch`'s playing plugin (for the app's main thread).
@@ -683,8 +755,13 @@ mod imp {
 
         pub(crate) fn channel_plugin_state(&self, ch: u8) -> Option<PartPlugin> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
-            // A plugin that isn't installed (a failed restore) has no info: its id names it.
-            let (name, manufacturer) = (c.name(), c.info.as_ref().map(|i| i.manufacturer.clone()).unwrap_or_default());
+            // A plugin that isn't installed (a failed restore) has no info: its name as it
+            // was last installed names it, else its id.
+            let known = self.presence.known(&c.voice.id).filter(|_| c.info.is_none());
+            let (name, manufacturer) = match known {
+                Some(k) => (k.name.clone(), k.manufacturer.clone()),
+                None => (c.name(), c.info.as_ref().map(|i| i.manufacturer.clone()).unwrap_or_default()),
+            };
             let overruns = c.stats.as_ref().map_or(0, |s| s.overruns.load(std::sync::atomic::Ordering::Relaxed));
             Some(PartPlugin {
                 id: c.voice.id.clone(),
@@ -701,6 +778,7 @@ mod imp {
                 editor: c.status == PluginStatus::Playing,
                 preset: c.voice.preset.as_ref().map(|p| p.name.clone()),
                 preset_key: c.voice.preset.as_ref().map(|p| p.key.clone()),
+                missing: c.missing,
             })
         }
 
@@ -742,8 +820,14 @@ mod imp {
                         last_error: p.last_load.as_ref().and_then(|l| l.error.clone()),
                         in_process: p.in_process,
                         can_run_in_process: p.can_run_in_process(),
+                        // `plugins_app_state` adds these for the app.
+                        new: false,
+                        racks: 0,
+                        sounds: 0,
                     })
                     .collect(),
+                missing: Vec::new(),
+                needs_attention: Vec::new(),
             }
         }
 
@@ -1035,10 +1119,14 @@ mod imp {
             if let Some(rx) = &self.plugins.scan_rx {
                 match rx.try_recv() {
                     Ok(Ok(list)) => {
+                        let installed: Vec<(String, String, String)> = list.iter().map(|p| (p.id.to_string(), p.name.clone(), p.manufacturer.clone())).collect();
                         self.plugins.list = list;
                         self.plugins.scan_rx = None;
                         // A new scan: a failed preset listing may be tried again.
                         self.plugins.listing_failed.clear();
+                        // New and missing plugins; parts whose plugin went or came back.
+                        self.note_plugin_scan(&installed);
+                        self.refresh_missing_parts();
                     }
                     Ok(Err(e)) => {
                         self.plugins.scan_rx = None;
@@ -1176,6 +1264,8 @@ mod imp {
                             }
                             // Its load read the factory presets, if they were not known.
                             self.refresh_listed_presets(&id);
+                            // Played: no longer new.
+                            self.mark_plugin_seen(&id);
                         }
                         Err(inst) => {
                             dispose_later(inst);
@@ -1228,12 +1318,14 @@ mod imp {
                         link.clear(ch, DEFAULT_FADE_FRAMES);
                     }
                     if let Some(sy) = &self.synth
-                        && sy.control.routes.source(ch) == Source::Plugin
+                        && matches!(sy.control.routes.source(ch), Source::Plugin | Source::Silent)
                     {
                         sy.control.routes.set(ch, Source::SoundFont(0));
                     }
                     self.say(format!("{name} didn't load: {msg}"), true);
                     self.plugins.channels[ch as usize] = Some(ChannelPlugin::failed(failed.voice, failed.info, msg));
+                    // Not installed (the scan is in): silent, not the SoundFont.
+                    self.mark_missing(ch);
                 }
             }
             self.plugins.dirty |= parts::part_of_channel(ch).is_some();
@@ -1286,6 +1378,7 @@ mod imp {
                     // Kept (not forgotten) so a reinstalled plugin can be picked again with
                     // its saved state.
                     self.plugins.channels[ch as usize] = Some(ChannelPlugin::failed(v, None, e));
+                    self.mark_missing(ch);
                 }
             }
         }
@@ -1351,6 +1444,9 @@ impl Control {
     pub(crate) fn warm_plugins(&mut self, _want: Vec<PluginVoice>) {}
     pub(crate) fn plugins_list(&self) -> PluginsState {
         PluginsState::default()
+    }
+    pub(crate) fn plugin_is_missing(&self, _id: &str) -> bool {
+        false
     }
     pub(crate) fn start_plugin_scan(&mut self, _rescan: bool) {}
     pub(crate) fn set_plugin_in_process(&mut self, _id: &str, _on: bool) -> Result<(), String> {
@@ -1450,6 +1546,12 @@ impl Control {
                 if let Err(e) = self.reload_part_plugin(part) {
                     return self.fail(e);
                 }
+            }
+            PluginCmd::MarkPluginSeen { id } => {
+                if !self.plugins_state().list.iter().any(|p| p.id == id) {
+                    return self.fail(format!("no instrument Audio Unit {id} is installed"));
+                }
+                self.mark_plugin_seen(&id);
             }
         }
         Ok(())

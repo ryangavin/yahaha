@@ -30,6 +30,12 @@ pub enum SoundsCmd {
     /// adding the preset to the library once), a plugin (`setPartPlugin`), a saved sound
     /// (`setPartPatch`). It goes to the top of the Recents.
     AssignSound { part: u8, id: String },
+    /// Replace keyboard part `part`'s sound with catalog entry `id` and keep the part's
+    /// mix: its level, pan, sends, octave, voice settings, bend range and on/off stay as
+    /// they are, whatever the new sound's defaults (docs/racks.md: swapping a sound never
+    /// touches the mix). Otherwise as `assignSound`. Library › Replace… sends it for a
+    /// part whose plugin is missing.
+    ReplacePartSound { part: u8, id: String },
     /// A plugin's, a plugin preset's (or a saved sound's) category. A SoundFont preset's
     /// comes from its GM family.
     SetSoundCategory { id: String, category: PatchCategory },

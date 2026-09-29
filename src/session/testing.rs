@@ -156,6 +156,20 @@ pub(crate) fn session() -> Session {
     Session::offline(options()).unwrap()
 }
 
+/// A fresh data folder for test `test` (emptied first).
+pub(crate) fn data_dir(test: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("yahaha-{test}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    d
+}
+
+/// An offline session on the synthetic style with its data folder at `data`: for tests
+/// that save or load records (racks, plugin presence).
+pub(crate) fn session_in(data: &Path) -> Session {
+    Session::offline(Options { paths: vec![write_style(data)], data_dir: Some(data.to_path_buf()), ..Options::default() })
+        .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

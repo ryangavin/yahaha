@@ -109,6 +109,8 @@ export class MockSounds {
     }
     // The session mock adds the patch itself (`patchFor`), as a map rule's.
     if (c.type === 'addToMySounds') return {}
+    // The session mock does it too (assignSound, keeping the part's mix).
+    if (c.type === 'replacePartSound') return {}
     if (c.type === 'listPluginPresets') {
       const au = parsePluginId(c.id)
       if (!au || au.key !== null) return { error: `${c.id} is not a plugin` }
