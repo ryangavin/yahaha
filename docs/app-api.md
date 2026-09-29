@@ -175,6 +175,9 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
 | `setPartSend` | `part`, `send`: `reverb` \| `chorus` \| `variation`, `value` 0–127 | The part's reverb (CC91), chorus (CC93) or variation (CC94: the tempo delay) send depth to the effect bus (#204). |
 | `setPartEq` | `part`, `eq`: `{ lowGain, lowFreq, highGain, highFreq }` | The part's channel-strip EQ (#247): a low shelf and a high shelf, as the Genos Mixer's Part EQ. Gains in dB, −12..12; `lowFreq` 32–2000 Hz, `highFreq` 500–16000 Hz; out-of-range values are clamped. yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), before its level, pan, meters and sends. It is a tone control, not a level: a band at 0 dB is out of the signal, so a flat EQ leaves the part bit-identical. Saved with the rack (a rack without it plays flat). An OTS recall sets it from the OTS's XG part EQ (see `eq` under Keyboard parts). Example: `{"type":"setPartEq","part":0,"eq":{"lowGain":3,"lowFreq":80,"highGain":-2,"highFreq":10000}}`. |
+| `setKeyboardInsertEffect` | `part`, `effect`: `distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary` | The effect in the part's insert slot (Genos Mixer > Effect: Insertion Effect Type). yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), after its EQ and before its level, pan, meters and sends; the effect sees the part at full volume. It does not turn the slot on. Saved with the rack. Example: `{"type":"setKeyboardInsertEffect","part":0,"effect":"rotary"}`. |
+| `setKeyboardInsertOn` | `part`, `on` | The part's insert slot on or off. Off, the part plays bit-identical to no insert at all. `setInsertsOn` (the style's inserts) doesn't touch it. |
+| `setKeyboardInsertAmount` | `part`, `amount` 0–127 | The insert's amount: the distortion's drive, the compressor's squeeze, the wah's sensitivity, the tremolo's and rotary's depth. Out-of-range values are clamped. |
 | `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
@@ -758,6 +761,7 @@ Indices are 0-based unless a field says otherwise.
 | `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. They go out again after a Panic, a Reset All Controllers from the keyboard, or a new synth. |
 | `variation` | 0–127 | Variation send depth (CC94): the effect bus's tempo delay. 0 until something sets it. |
 | `eq` | PartEq | Its channel-strip EQ (`setPartEq`): `lowGain`, `highGain` (dB, −12..12) and `lowFreq`, `highFreq` (Hz). Flat (0 dB, 80 Hz, 0 dB, 10000 Hz) until something sets it. An OTS recall sets it from the OTS's XG part EQ (bass/treble gain and frequency, XG multi part 72H, 73H, 76H, 77H: 40H = 0 dB, 1 dB a step, frequencies from the XG EQ frequency table), the bands it leaves out flat; a part the OTS gives a voice but no EQ goes flat; any other part keeps its EQ. A voice change keeps it. |
+| `insert` | PartInsert | Its insert slot (`setKeyboardInsertEffect`, `setKeyboardInsertOn`, `setKeyboardInsertAmount`): `effect` (`distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary`), `on`, `amount` 0–127. Off (a distortion, amount 64) until something sets it. An OTS recall sets it from the OTS's XG Insertion Effect type for the part (block n is part n: Right 1, Right 2, Right 3, Left), mapped as the Style parts' are (`effects.inserts`): on with the effect that plays it and its amount, or off when nothing here plays that type (THRU, an EQ, a delay...); a part the OTS gives a voice but no insertion type turns it off; any other part keeps its slot. A voice change and a plugin swap keep it. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 | `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened), `missing` (the plugin isn't installed: the last scan did not find it. The status is `failed`, the part is silent rather than on its SoundFont voice, and its mix, sound and saved state are kept; once the plugin is back and the plugins are scanned again, it loads as it was. A plugin that is installed but fails to load is not missing). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
@@ -1461,6 +1465,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "chorus": 0,
       "variation": 0,
       "eq": { "lowGain": 3, "lowFreq": 80, "highGain": -2, "highFreq": 10000 },
+      "insert": { "effect": "rotary", "on": true, "amount": 90 },
       "plugin": {
         "id": "aumu dls  appl",
         "name": "DLSMusicDevice",
@@ -1496,6 +1501,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "chorus": 0,
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     },
     {
@@ -1516,6 +1522,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "chorus": 0,
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     },
     {
@@ -1536,6 +1543,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "chorus": 0,
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+      "insert": { "effect": "distortion", "on": false, "amount": 64 },
       "patch": null
     }
   ],

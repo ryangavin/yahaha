@@ -103,6 +103,7 @@ impl Control {
             tone: ToneReg::capture(kp, p),
             bend_range: self.shared.controllers.bend_range(p),
             eq: kp.eq(p),
+            insert: kp.insert(p),
             other: Default::default(),
         }
     }
@@ -204,6 +205,8 @@ impl Control {
         // The rack's EQ, not the XG part EQ in its voice settings (#247): a rack saved
         // before the part EQ plays flat, as it did.
         kp.set_eq(p, part.eq);
+        // Its insert slot: a rack saved before it plays with none, as it did.
+        kp.set_insert(p, part.insert);
         self.shared.controllers.set_bend_range(p, part.bend_range);
         // Left plays the bass under Manual Bass: its switch stays as it is.
         let locked_left = p == parts::LEFT && self.shared.manual_bass();

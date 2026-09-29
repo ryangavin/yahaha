@@ -89,6 +89,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartSend","part":1,"send":"chorus","value":10}"#,
     r#"{"type":"setPartSend","part":2,"send":"variation","value":30}"#,
     r#"{"type":"setPartEq","part":0,"eq":{"lowGain":3,"lowFreq":80,"highGain":-2,"highFreq":10000}}"#,
+    r#"{"type":"setKeyboardInsertEffect","part":0,"effect":"rotary"}"#,
+    r#"{"type":"setKeyboardInsertOn","part":0,"on":true}"#,
+    r#"{"type":"setKeyboardInsertAmount","part":0,"amount":90}"#,
     r#"{"type":"setPartSolo","part":1}"#,
     // Mixer, Launchkey pages, synth
     r#"{"type":"setFaderPage","page":"style"}"#,

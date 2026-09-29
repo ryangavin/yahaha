@@ -26,6 +26,7 @@ pub use settings::{HarmonyArpReg, ToneReg};
 
 use crate::data_files::{file_name, file_stem, list_files, write_atomic};
 pub use crate::fx::part_eq::PartEq;
+pub use crate::fx::PartInsert;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -105,6 +106,10 @@ pub struct RackPart {
     /// flat one is left out of the file.
     #[serde(default, skip_serializing_if = "PartEq::is_default")]
     pub eq: PartEq,
+    /// The insert slot. Missing (a rack saved before it, or off at its defaults): off,
+    /// and such a slot is left out of the file.
+    #[serde(default, skip_serializing_if = "PartInsert::is_default")]
+    pub insert: PartInsert,
     /// Fields a newer build wrote: kept, and written back as they were.
     #[serde(flatten)]
     pub other: Map<String, Value>,

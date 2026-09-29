@@ -69,7 +69,7 @@ fn live_rack_view(s: &AppState) -> serde_json::Value {
         .iter()
         .map(|p| {
             let plugin = p.plugin.as_ref().map(|x| x.id.clone());
-            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.patch, plugin, p.sound, p.sound_edited])
+            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.insert, p.patch, plugin, p.sound, p.sound_edited])
         })
         .collect();
     serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp, s.live_rack.controls])
@@ -261,6 +261,7 @@ impl MockSession {
             chorus: yahaha::parts::FX_DEFAULT[i][yahaha::parts::CHORUS],
             variation: yahaha::parts::FX_DEFAULT[i][yahaha::parts::VARIATION],
             eq: PartEq::FLAT,
+            insert: PartInsert::OFF,
             fader: None,
             plugin: None,
             patch: None,
@@ -1152,6 +1153,13 @@ impl MockSession {
                 None if o.program.is_some() => p.eq = PartEq::FLAT,
                 None => {}
             }
+            // The insert slot, as `apply_ots` sets it: the OTS's insertion type turns it on
+            // with its effect; a part it gives a voice but no type turns it off.
+            match mock_ots_insert(n, i) {
+                Some(slot) => p.insert = slot,
+                None if o.program.is_some() => p.insert.on = false,
+                None => {}
+            }
             p.on = o.on;
             p.octave = o.octave;
             if p.volume != o.volume {
@@ -1995,6 +2003,21 @@ impl MockSession {
                     p.eq = eq.clamped();
                 }
             }
+            AppCmd::Parts(PartsCmd::SetKeyboardInsertEffect { part, effect }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.insert.effect = effect;
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetKeyboardInsertOn { part, on }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.insert.on = on;
+                }
+            }
+            AppCmd::Parts(PartsCmd::SetKeyboardInsertAmount { part, amount }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.insert.amount = amount.min(127);
+                }
+            }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
             AppCmd::Mixer(MixerCmd::SetFaderLayer { layer }) => self.state.mixer.fader_layer = layer,
             AppCmd::Mixer(MixerCmd::StepFaderLayer { delta }) => self.state.mixer.fader_layer = self.state.mixer.fader_layer.step(delta.signum()),
@@ -2559,6 +2582,12 @@ fn mock_ots_eq(n: usize, p: usize) -> Option<PartEq> {
     (n == 0 && p == 0).then_some(PartEq { low_gain: 3, high_gain: 2, ..PartEq::FLAT })
 }
 
+/// The insert slot the mock's OTS `n` sets on part `p`, from its XG insertion type: only
+/// OTS 1's Right 1 has one (a rotary speaker); the TS mock has the same (`mockOtsInsert`).
+fn mock_ots_insert(n: usize, p: usize) -> Option<PartInsert> {
+    (n == 0 && p == 0).then_some(PartInsert { effect: InsertEffect::Rotary, on: true, amount: 64 })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2577,6 +2606,27 @@ mod tests {
         assert_eq!(m.state.keyboard_parts[0].eq, mock_ots_eq(0, 0).unwrap());
         for i in 1..4 {
             assert_eq!(m.state.keyboard_parts[i].eq, if voiced(i) { PartEq::FLAT } else { mine }, "part {i}");
+        }
+    }
+
+    /// The insert slot's commands, and an OTS recall setting it as the engine does: its
+    /// insertion type (OTS 1's Right 1 in the mock), off for a part it gives a voice but
+    /// no type.
+    #[test]
+    fn insert_slot_commands_and_ots_recall() {
+        let mut m = MockSession::new();
+        for p in 0..4u8 {
+            m.send(PartsCmd::SetKeyboardInsertEffect { part: p, effect: InsertEffect::Tremolo });
+            m.send(PartsCmd::SetKeyboardInsertOn { part: p, on: true });
+            m.send(PartsCmd::SetKeyboardInsertAmount { part: p, amount: 200 });
+        }
+        let mine = PartInsert { effect: InsertEffect::Tremolo, on: true, amount: 127 };
+        assert_eq!(m.state.keyboard_parts[3].insert, mine);
+        m.send(OtsCmd::RecallOts { index: 0 });
+        let voiced = |i: usize| m.state.ots.settings[0].parts[i].program.is_some();
+        assert_eq!(m.state.keyboard_parts[0].insert, mock_ots_insert(0, 0).unwrap());
+        for i in 1..4 {
+            assert_eq!(m.state.keyboard_parts[i].insert, if voiced(i) { PartInsert { on: false, ..mine } } else { mine }, "part {i}");
         }
     }
 

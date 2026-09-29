@@ -20,6 +20,7 @@
 use super::{Takeover, HW_UNKNOWN};
 use crate::parts_data::*;
 use crate::fx::part_eq::{EqCell, PartEq};
+use crate::fx::{InsertEffect, PartInsert};
 use crate::tone::{TONE, TONE_CC, TONE_NEUTRAL};
 use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, AtomicU32, Ordering::{Acquire, Relaxed, Release}};
 
@@ -98,6 +99,9 @@ pub struct Parts {
     /// (`fx::part_eq`), at `sample_rate` (Hz; the synth sets it).
     eq: [EqCell; COUNT],
     sample_rate: AtomicU32,
+    /// Each part's insert slot (`fx::PartInsert::to_bits`): the audio thread reads it once
+    /// a buffer.
+    insert: [AtomicU32; COUNT],
 }
 
 /// XG multi part parameters per part: block 08 (0-127), then block 0A (128-255).
@@ -151,7 +155,29 @@ impl Parts {
             tone_dirty: AtomicU8::new(0),
             eq: [const { EqCell::new() }; COUNT],
             sample_rate: AtomicU32::new(48_000),
+            insert: [const { AtomicU32::new(PartInsert::OFF.to_bits()) }; COUNT],
         }
+    }
+
+    /// A part's insert slot, as last set.
+    pub fn insert(&self, part: usize) -> PartInsert {
+        PartInsert::from_bits(self.insert[part % COUNT].load(Relaxed))
+    }
+
+    /// Set a part's insert slot (its amount at most 127). RT-safe: the engine thread sets
+    /// it on an OTS Link recall.
+    pub fn set_insert(&self, part: usize, slot: PartInsert) {
+        self.insert[part % COUNT].store(slot.to_bits(), Relaxed);
+    }
+
+    /// Change a part's insert slot in place (one field, from the app), never losing a
+    /// change made at the same time elsewhere.
+    pub fn edit_insert(&self, part: usize, f: impl Fn(&mut PartInsert)) {
+        let _ = self.insert[part % COUNT].fetch_update(Relaxed, Relaxed, |v| {
+            let mut slot = PartInsert::from_bits(v);
+            f(&mut slot);
+            Some(slot.to_bits())
+        });
     }
 
     /// A part's channel-strip EQ (#247), as last set.
@@ -572,6 +598,10 @@ impl Parts {
     /// The part EQ (#247): the OTS's XG part EQ (`PartEq::from_xg`, its other bands at the
     /// XG defaults); a part the OTS gives a voice but no EQ gets a flat one (the voice's
     /// own EQ, which yahaha has no data for); any other part keeps its EQ.
+    /// The insert slot: the OTS's XG insertion type for the part (`OtsPart::insert`) turns
+    /// it on with the effect that plays it (`fx::xg::insert_kind`, as for the Style parts'),
+    /// or off when none does (THRU, an EQ, a delay...); a part the OTS gives a voice but no
+    /// insertion type turns it off; any other part keeps its slot.
     ///
     /// `sends`: whether the OTS's reverb, chorus and delay sends apply. An explicit recall
     /// (an OTS button, the app) applies them; OTS Link firing on its own (a style start, a
@@ -589,6 +619,12 @@ impl Parts {
             match PartEq::from_xg(part.xg.iter()) {
                 Some(eq) => self.set_eq(p, eq),
                 None if voiced.is_some() => self.set_eq(p, PartEq::FLAT),
+                None => {}
+            }
+            match part.insert.map(|(msb, lsb)| crate::fx::xg::insert_kind(msb, lsb)) {
+                Some(Some((kind, amount))) => self.set_insert(p, PartInsert { effect: InsertEffect::from(kind), on: true, amount }),
+                Some(None) => self.edit_insert(p, |s| s.on = false),
+                None if voiced.is_some() => self.edit_insert(p, |s| s.on = false),
                 None => {}
             }
             self.on[p].store(part.on, Relaxed);
@@ -796,6 +832,32 @@ mod tests {
         let mut seen = crate::fx::part_eq::EqCell::UNSEEN;
         let c = parts.eq_cell(RIGHT1).read(&mut seen).unwrap();
         assert_eq!(c, crate::fx::part_eq::EqCoeffs::new(parts.eq(RIGHT1), 44_100.0));
+    }
+
+    /// An OTS's XG insertion type sets the part's insert slot (mapped as a Style part's);
+    /// a type nothing here plays turns it off; a part it gives a voice but no type turns
+    /// it off; a part it gives neither keeps its slot.
+    #[test]
+    fn ots_insertion_type_sets_the_insert_slot() {
+        let parts = Parts::new();
+        let mine = PartInsert { effect: InsertEffect::Tremolo, on: true, amount: 30 };
+        for p in 0..COUNT {
+            parts.set_insert(p, mine);
+        }
+        let mut ots = crate::sff::Ots::default();
+        // British Combo (a distortion), an EQ, a voice with no type, nothing.
+        ots.parts[RIGHT1].insert = Some((96, 16));
+        ots.parts[RIGHT2].insert = Some((76, 0));
+        ots.parts[RIGHT3].voice = Some((0, 0, 7));
+        parts.apply_ots(&ots, 1, true);
+        let (kind, amount) = crate::fx::xg::insert_kind(96, 16).unwrap();
+        assert_eq!(parts.insert(RIGHT1), PartInsert { effect: InsertEffect::from(kind), on: true, amount });
+        assert_eq!(parts.insert(RIGHT2), PartInsert { on: false, ..mine }, "an EQ plays dry");
+        assert_eq!(parts.insert(RIGHT3), PartInsert { on: false, ..mine }, "a voice with no type");
+        assert_eq!(parts.insert(LEFT), mine, "nothing for the part");
+        // The slot's fields change one at a time, the others kept.
+        parts.edit_insert(LEFT, |s| s.amount = 200);
+        assert_eq!(parts.insert(LEFT), PartInsert { amount: 127, ..mine });
     }
 
     /// The player's sends stick: an OTS recall with sends applies them; one without

@@ -1117,6 +1117,27 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+  'mixer.part.insert_effect': {
+    title: 'Insert effect',
+    body: 'The effect in this part\'s insert slot: Distortion (an amp simulator), Compressor, Auto Wah, Tremolo (at the style tempo) or Rotary (a rotary speaker; the Rotary fast switch sets its speed). It plays on the part\'s own sound, SoundFont voice or plugin, before its fader and sends; picking one doesn\'t turn the slot on. A One Touch Setting with an insertion effect sets it, and a rack saves it.',
+    genos: 'Mixer › Effect › Insertion Effect › Type',
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.part.insert_on': {
+    title: 'Insert on',
+    body: 'This part\'s insert slot on or off. Off, the part sounds exactly as with no insert at all. The style\'s Inserts switch doesn\'t touch it.',
+    genos: 'Mixer › Effect › Insertion Effect › On/Off',
+    keys: [],
+    launchkey: null,
+  },
+  'mixer.part.insert_amount': {
+    title: 'Insert amount',
+    body: 'How hard this part\'s insert works, 0–127: the distortion\'s drive, the compressor\'s squeeze, the wah\'s sensitivity, or the tremolo\'s and rotary\'s depth. The effect sees the part at full volume, so the fader doesn\'t change how hard it drives. Drag up or down; double-click for 64.',
+    genos: 'Mixer › Effect › Insertion Effect › Depth',
+    keys: [],
+    launchkey: null,
+  },
   'fx.reverb_type': {
     title: 'Reverb type',
     body: 'The shared reverb every part sends to (CC 91): Hall (large, long), Room (small, short), Stage (in between, brighter) or Plate (dense and bright).',
@@ -1252,7 +1273,7 @@ const catalog = {
   },
   'fx.inserts': {
     title: 'Style inserts',
-    body: 'The style\'s own insertion effects: an effect the style puts on one of its parts, such as an amp simulator on the guitar or a compressor on the bass (listed below: the part, the style\'s effect, and what plays it here, or dry where yahaha has nothing near it). Lit, they play in the built-in synth, before the part\'s sends; off, every Style part plays dry.',
+    body: 'The style\'s own insertion effects: an effect the style puts on one of its parts, such as an amp simulator on the guitar or a compressor on the bass (listed below: the part, the style\'s effect, and what plays it here, or dry where yahaha has nothing near it). Lit, they play on the part\'s sound, in the built-in synth or a plugin playing the part, before its sends; off, every Style part plays dry. The keyboard parts\' own insert slots (on their mixer strips) are not affected.',
     genos: 'Mixer › Effect › Insertion (Style parts)',
     keys: [],
     launchkey: null,

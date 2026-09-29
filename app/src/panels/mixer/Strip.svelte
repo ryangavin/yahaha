@@ -3,13 +3,14 @@
   that is the channel's CC 7 (with the soft-takeover mark and the ghost of where the
   Launchkey fader physically sits), On and Solo, and the voice. A keyboard part's strip
   also has Pan, Reverb and Chorus knobs (CC 10, 91, 93) above the fader, and under them its
-  channel-strip EQ (#247: low and high shelf gain and frequency); `fxRow` keeps
+  channel-strip EQ (#247: low and high shelf gain and frequency), and under that its insert
+  slot (effect, on, amount); `fxRow` keeps
   that row's space on a strip without them, so the faders line up. Everything comes from the
   engine's state; the strip only sends commands.
 -->
 <script lang="ts">
   import type { TipKey } from '../../help/tooltips'
-  import { FLAT_EQ, type Pad, type PartEq } from '../../lib/api/types'
+  import { FLAT_EQ, INSERT_EFFECTS, type InsertEffect, type Pad, type PartEq, type PartInsert } from '../../lib/api/types'
   import { dbText, GAIN_KNOB_MAX, gainKnob, HIGH_STEPS, hzText, knobGain, LOW_STEPS, stepOf, withEq } from './eq'
   import { clock } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
@@ -37,6 +38,7 @@
     fx = null,
     fxRow = false,
     eq = null,
+    insert = null,
     cpu = null,
   }: {
     name: string
@@ -80,6 +82,14 @@
     /** A keyboard part's channel-strip EQ (#247): its low and high shelves, and what
      *  turning a knob sends. Drawn under the send knobs. */
     eq?: { value: PartEq; onchange: (eq: PartEq) => void } | null
+    /** A keyboard part's insert slot: its effect, on/off and amount, and what changing each
+     *  sends. Drawn under the EQ. */
+    insert?: {
+      value: PartInsert
+      oneffect: (effect: InsertEffect) => void
+      onon: (on: boolean) => void
+      onamount: (amount: number) => void
+    } | null
     /** #340: the track's CPU (null: no reading, or an unused strip). */
     cpu?: TrackCpu | null
   } = $props()
@@ -110,6 +120,32 @@
           <FxKnob value={stepOf(LOW_STEPS, e.lowFreq)} max={LOW_STEPS.length - 1} tip="mixer.part.eq_low_freq" label="{name} EQ low frequency" caption="L Hz" reset={stepOf(LOW_STEPS, FLAT_EQ.lowFreq)} format={(v) => hzText(LOW_STEPS[v])} onchange={(v) => setEq({ lowFreq: LOW_STEPS[v] })} />
           <FxKnob value={gainKnob(e.highGain)} max={GAIN_KNOB_MAX} centre tip="mixer.part.eq_high_gain" label="{name} EQ high" caption="High" reset={gainKnob(0)} format={(v) => dbText(knobGain(v))} onchange={(v) => setEq({ highGain: knobGain(v) })} />
           <FxKnob value={stepOf(HIGH_STEPS, e.highFreq)} max={HIGH_STEPS.length - 1} tip="mixer.part.eq_high_freq" label="{name} EQ high frequency" caption="H Hz" reset={stepOf(HIGH_STEPS, FLAT_EQ.highFreq)} format={(v) => hzText(HIGH_STEPS[v])} onchange={(v) => setEq({ highFreq: HIGH_STEPS[v] })} />
+        </div>
+      {/if}
+      {#if insert}
+        {@const s = insert.value}
+        <div class="ins" class:off={!s.on} role="group" aria-label="{name} insert">
+          <div class="ins-left">
+            <select
+              class="ins-kind"
+              aria-label="{name} insert effect"
+              value={s.effect}
+              use:tip={'mixer.part.insert_effect'}
+              onchange={(e) => insert.oneffect(e.currentTarget.value as InsertEffect)}
+            >
+              {#each INSERT_EFFECTS as o (o.effect)}<option value={o.effect}>{o.name}</option>{/each}
+            </select>
+            <button
+              type="button"
+              class="ins-on mat-raised"
+              class:on={s.on}
+              aria-pressed={s.on}
+              aria-label="{name} insert on"
+              use:tip={'mixer.part.insert_on'}
+              onclick={() => insert.onon(!s.on)}>Ins</button
+            >
+          </div>
+          <FxKnob value={s.amount} tip="mixer.part.insert_amount" label="{name} insert amount" caption="Amt" reset={64} onchange={insert.onamount} />
         </div>
       {/if}
     </div>
@@ -247,6 +283,46 @@
   }
   .fx.three {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  /* The insert slot: the effect and its switch, beside the amount knob. */
+  .ins {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.2rem;
+    width: 100%;
+    padding-top: 0.2rem;
+    border-top: 1px solid var(--seam);
+  }
+  .ins.off .ins-kind,
+  .ins.off :global(.knob) {
+    opacity: 0.6;
+  }
+  .ins-left {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+  .ins-kind {
+    min-width: 0;
+    width: 100%;
+    min-height: 1.5rem;
+    font: inherit;
+    font-size: 0.7rem;
+  }
+  .ins-on {
+    height: 1.5rem;
+    padding: 0 0.35em;
+    border-radius: 5px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .ins-on.on {
+    color: var(--accent-ink);
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
   }
   .unused {
     opacity: 0.55;
