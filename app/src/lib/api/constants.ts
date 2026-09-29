@@ -8,6 +8,7 @@ import { emptyQuickRacks } from './quick-racks'
 import { emptyMap, type SoundLibraryState } from './sound-library'
 import {
   defaultControlMap,
+  defaultStrip,
   eqPresetBands,
   FLAT_EQ,
   KEYBOARD_PART_NAMES,
@@ -110,14 +111,14 @@ export function emptyState(): AppState {
     keyboardParts: KEYBOARD_PART_NAMES.map((name, i) => ({
       name, channel: [1, 3, 4, 2][i], on: false, sounding: false, selected: i === 0,
       volume: 100, waiting: false, program: 0, voiceName: '', playsBass: false, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0,
-      eq: { ...FLAT_EQ }, insert: { ...OFF_INSERT }, fader: null, patch: null,
+      eq: { ...FLAT_EQ }, insert: { ...OFF_INSERT }, strip: defaultStrip(), fader: null, patch: null,
     })),
     keyboard: { held: [], leftSplit: 54, chordTones: [], chordBass: null, detection: [0, 54] },
     mixer: {
       faderPage: 'panel', faderLayer: 'volume', sendWaiting: 0, styleSendWaiting: 0,
       styleParts: STYLE_PART_NAMES.map((name, i) => ({
         name, channel: 9 + i, on: false, mutedByManualBass: false, volume: 100, waiting: false, fader: null,
-        reverb: 0, chorus: 0, variation: 0, sendsSet: [], voice: { bankMsb: 0, bankLsb: 0, program: 0, kit: false, label: '' },
+        reverb: 0, chorus: 0, variation: 0, sendsSet: [], strip: defaultStrip(), voice: { bankMsb: 0, bankLsb: 0, program: 0, kit: false, label: '' },
       })),
       master: 100, masterWaiting: false, styleVolume: 100, styleVolumeWaiting: false, multiPadVolume: 100, multiPadVolumeWaiting: false,
       styleSolo: null, partSolo: null,
@@ -166,7 +167,7 @@ export function emptyState(): AppState {
     dynamics: { control: true, level: 127, touch: false, accent: false, accentThreshold: 110, accentMode: 'hits', accentSource: 'left' },
     knobs: { page: 'style', pageName: '', pageNumber: 1, pageCount: 1, knobs: [] },
     effects: {
-      blocks: [], inserts: [], insertsOn: true, rotaryFast: false,
+      blocks: [], inserts: [], insertsOn: true, rotaryFast: false, sends: [],
       master: {
         compressor: { on: false, preset: 'natural', compression: 30, texture: 50, output: 1, edited: false },
         eq: { on: false, preset: 'flat', bands: eqPresetBands('flat'), edited: false },

@@ -101,6 +101,8 @@ impl Control {
                     patch: self.part_patch_id(p),
                     sound: named.sound,
                     sound_edited,
+                    // Filled in by `Strips::fill` (session/strips.rs).
+                    strip: Default::default(),
                 }
             })
             .collect()

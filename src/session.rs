@@ -59,6 +59,7 @@ mod plugins;
 mod preview;
 mod quick_racks;
 mod style_racks;
+mod strips;
 mod racks;
 mod rack_cmds;
 mod rack_controls;
@@ -295,6 +296,9 @@ struct Control {
     offline: Option<Offline>,
     /// A command was applied since the last publish: the next one rebuilds the state.
     changed: bool,
+    /// The channel strips and send effects (session/strips.rs). A cell: building the state
+    /// brings it up to date with what older state has.
+    strips: std::cell::RefCell<crate::api::Strips>,
     /// When the state was last rebuilt (the control thread's safety net).
     built_ns: u64,
     /// What the last pump saw of the control side (`Watch`) and of the Panel: a change in
@@ -510,6 +514,7 @@ impl Control {
                 r
             }
             AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
+            AppCmd::Strips(c) => self.strips_cmd(c),
         }
     }
 
@@ -737,6 +742,7 @@ impl Control {
         };
         st.racks = self.rack_entries(&st.plugins);
         st.quick_racks = self.quick_racks_state();
+        self.strips.borrow_mut().fill(&mut st);
         st.home = self.home_state(&st);
         st
     }
@@ -922,6 +928,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         palette_leds: opts.palette_leds,
         offline: None,
         changed: false,
+        strips: Default::default(),
         built_ns: 0,
         watch: None,
         last_panel: None,

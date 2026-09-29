@@ -163,6 +163,7 @@ impl Control {
             bend_range: crate::controllers::DEFAULT_BEND_RANGE,
             eq: Default::default(),
             insert: Default::default(),
+            strip: Default::default(),
             other: Default::default(),
         };
         Rack {

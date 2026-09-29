@@ -167,6 +167,11 @@ pub fn rack_function(t: &ControlTarget) -> KnobFn {
         ControlTarget::HarmonyVolume => KnobFn::HarmonyVolume,
         ControlTarget::MetronomeVolume => KnobFn::MetronomeVolume,
         ControlTarget::Tempo => KnobFn::Tempo,
+        ControlTarget::PartSend { part, send: 0 } => KnobFn::PartReverb(part & 3),
+        ControlTarget::PartSend { part, send: 1 } => KnobFn::PartChorus(part & 3),
+        ControlTarget::PartSend { part, send: 2 } | ControlTarget::PartDelay { part } => KnobFn::PartDelay(part & 3),
+        // The mixer rework's session lane fills these.
+        ControlTarget::PartSend { .. } | ControlTarget::PartInsertOn { .. } | ControlTarget::PartInsertSetting { .. } | ControlTarget::RotaryFast => KnobFn::None,
         ControlTarget::None | ControlTarget::Unknown(_) => KnobFn::None,
     }
 }
@@ -192,6 +197,15 @@ pub fn fader_command(t: &ControlTarget, v: u8, harmony_arp: bool) -> Option<AppC
         ControlTarget::SplitPoint => ChordCmd::SetSplit { note: split_at(v) }.into(),
         ControlTarget::HarmonyVolume => HarmonyArpCmd::SetHarmonyVolume { volume: v }.into(),
         ControlTarget::MetronomeVolume => MetronomeCmd::SetMetronomeVolume { volume: v }.into(),
+        ControlTarget::PartSend { part, send: 0 } => PartsCmd::SetPartSend { part, send: PartSend::Reverb, value: v }.into(),
+        ControlTarget::PartSend { part, send: 1 } => PartsCmd::SetPartSend { part, send: PartSend::Chorus, value: v }.into(),
+        ControlTarget::PartSend { part, send: 2 } | ControlTarget::PartDelay { part } => {
+            PartsCmd::SetPartSend { part, send: PartSend::Variation, value: v }.into()
+        }
+        // The mixer rework's session lane fills these.
+        ControlTarget::PartSend { .. } | ControlTarget::PartInsertOn { .. } | ControlTarget::PartInsertSetting { .. } | ControlTarget::RotaryFast => {
+            return None;
+        }
         ControlTarget::Tempo | ControlTarget::None | ControlTarget::Unknown(_) => return None,
     })
 }

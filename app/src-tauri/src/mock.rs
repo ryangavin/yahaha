@@ -209,6 +209,9 @@ pub struct MockSession {
     knobs: yahaha::knobs::Knobs,
     /// The user's racks (mock_racks.rs).
     racks: racks::MockRacks,
+    /// Channel strips and send effects (the mixer rework): the engine's own model, as the
+    /// session keeps it (`StripCmd`).
+    strips: Strips,
 }
 
 impl Default for MockSession {
@@ -267,6 +270,7 @@ impl MockSession {
             patch: None,
             sound: None,
             sound_edited: false,
+            strip: StripState::default(),
         };
         let s0 = &f.styles[0];
         let state = AppState {
@@ -337,6 +341,7 @@ impl MockSession {
                         chorus: MOCK_STYLE_SENDS[i][1],
                         variation: MOCK_STYLE_SENDS[i][2],
                         sends_set: Vec::new(),
+                        strip: StripState::default(),
                     })
                     .collect(),
                 master: Some(100),
@@ -459,6 +464,7 @@ impl MockSession {
             sounds: sounds::MockSounds::default(),
             knobs: Default::default(),
             racks: Default::default(),
+            strips: Strips::default(),
         };
         m.set_style(0);
         m.state.ots.applied = 2;
@@ -1370,6 +1376,8 @@ impl MockSession {
         st.pads.pads = pads_for(st, st.pads.page);
         self.quick.fill(st, &self.racks.entries());
         self.style_racks.fill(st, &self.racks.entries());
+        // Every part's strip and the send effects (`Strips::fill`, as the session).
+        self.strips.fill(st);
         self.anchor_clocks();
         self.state.surface = self.surface();
     }
@@ -2308,6 +2316,16 @@ impl MockSession {
                 self.state.dynamics = c.apply(now).into();
             }
             AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
+            // Channel strips and sends, as the session's `strips_cmd`: what an older
+            // command covers goes through it, and everything is kept in `strips`.
+            AppCmd::Strips(c) => {
+                for old in c.legacy() {
+                    self.cmd(old);
+                }
+                if let Err(e) = self.strips.apply(&c) {
+                    self.message(e, true);
+                }
+            }
             AppCmd::MultiPad(c) => {
                 let running = self.state.transport.running;
                 if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
@@ -2672,6 +2690,30 @@ mod tests {
         for i in 1..4 {
             assert_eq!(m.state.keyboard_parts[i].insert, if voiced(i) { PartInsert { on: false, ..mine } } else { mine }, "part {i}");
         }
+    }
+
+    /// The strip commands, as the session's: kept in the strips and shown in the state,
+    /// what an older command covers through it.
+    #[test]
+    fn strip_commands_show_in_the_state() {
+        let mut m = MockSession::new();
+        m.send(StripCmd::SetStripInsertKind { strip: 4, slot: 1, kind: InsertType::Phaser });
+        m.send(StripCmd::AddSend { kind: SendKind::Plate });
+        m.send(StripCmd::SetStripSend { strip: 0, send: 0, level: 99 });
+        m.send(StripCmd::SetStripSend { strip: 0, send: 3, level: 88 });
+        let st = m.state_now();
+        assert_eq!(st.mixer.style_parts[0].strip.inserts[1].kind, InsertType::Phaser);
+        assert_eq!(st.effects.sends.len(), 4);
+        assert_eq!(st.effects.sends[3].kind, SendKind::Plate);
+        assert_eq!(st.keyboard_parts[0].reverb, 99, "send 1 is the part's reverb");
+        assert_eq!(st.keyboard_parts[0].strip.sends[0], 99);
+        assert_eq!(st.keyboard_parts[0].strip.sends[3], 88);
+        // An older command shows in the strip too.
+        m.send(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 70 });
+        assert_eq!(m.state.keyboard_parts[1].strip.sends[1], 70);
+        // A refused one says why.
+        m.send(StripCmd::RemoveSend { send: 1 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error), "{:?}", m.state.message);
     }
 
     fn bar_ms(m: &MockSession) -> f64 {

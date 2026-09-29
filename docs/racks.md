@@ -32,6 +32,11 @@ Rack {
   harmony_arp: HarmonyArpReg,      // the same fields Registrations store today
   transpose: i8,
   controls: ControlMap,            // faders 1–4, knobs 1–8 on the Rack knob page
+  sends: RackSends,                // "sends"; absent or empty = none, empty not written
+}
+RackSends {
+  added: [SendSlot],               // send effects 4–6, at most 3 (extras dropped on load)
+  override: [SendSlot?; 3],        // send effects 1–3 as the rack sets them; null = the style's
 }
 RackPart {
   on, sound: SoundRef,             // what plays
@@ -39,9 +44,37 @@ RackPart {
   tone: ToneReg, bend_range,       // as PartReg stores today
   eq: PartEq,                      // channel-strip EQ (#247); absent = flat, flat not written
   insert: PartInsert,              // insert slot { effect, on, amount }; absent = off, off at defaults not written
+  strip: StripReg,                 // "strip"; absent = only what the fields above say
 }
+StripReg {
+  comp: PartComp?,                 // the strip compressor; absent = none (off)
+  inserts: [InsertSlot; 2],        // { kind, on, values[4] }; kind by name ("rotary", "phaser", ...)
+  sends: [u8; 6],                  // send levels to send effects 1–6
+}
+SendSlot = { kind, params[6], returnLevel }            // kind by name ("hall", "pingPong", "phaser", ...)
 SoundRef = Library(id) | Font { file, bank, program }  // GM voices are font presets
 ```
+
+The file stays version 1: every strip and send field is optional, and a build that
+knows them reads an older rack as before.
+
+- **The older fields are the source of truth** for what they cover: a part's `reverb`,
+  `chorus` and `variation` are its strip's sends 1–3, and its `insert` is insert 1 (its
+  kind, on/off and amount as the first value). On load, and before every write, the
+  strip is made to match them; insert 1's other values are kept while its kind is the
+  same, and go to the new kind's defaults when it isn't. Two racks compare equal when
+  their files would say the same.
+- `strip` is written only when it says more than those fields: a compressor, an insert
+  2, a send 4–6 above zero, or insert 1 values of its own. So a rack saved before the
+  strip is written back byte for byte.
+- An insert or send kind this build doesn't know (a newer build's) is kept by name and
+  written back unchanged. It plays dry (an insert) or silent (a send).
+- The controller map's targets are `{ "kind": ... }` objects: `partLevel`, `partPan`,
+  `partReverb`, `partChorus` and `partDelay` (`part` 0–3), `partSend` (`part`, `send`
+  0–5; 0–2 are the reverb, chorus and delay sends), `partInsertOn` (`part`, `slot` 0–1),
+  `partInsertSetting` (`part`, `slot`, `setting` 0–3), `rotaryFast`, `harmonyArp`,
+  `splitPoint`, `harmonyVolume`, `metronomeVolume`, `tempo` (knobs only) and `none`. A
+  target this build doesn't know is kept verbatim and does nothing.
 
 - A rack names each sound by reference. Saving a sound you own updates every rack that
   uses it, because they point at it.

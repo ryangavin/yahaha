@@ -39,6 +39,11 @@
 //! `synth::Rack::render`). Each keyboard part has an insert slot of its own
 //! ([`PartInsert`]); a part played by a plugin gets its insert in the plugin rack.
 //!
+//! The mixer rework's channel strip ([`kinds`], [`part_comp`]): every strip runs EQ,
+//! compressor, insert 1, insert 2, then its sends to up to [`SENDS`] send effects. The
+//! types are here; the compressor, the second insert, the phaser and sends 4-6 are stubs
+//! until their DSP lands: nothing on the audio thread plays them yet.
+//!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/it/synth_no_alloc.rs`). A block with no input whose
 //! output has died away is skipped, so an idle bus costs next to nothing.
@@ -48,9 +53,11 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, Ordering::Re
 mod chorus;
 mod delay;
 pub mod insert;
+pub mod kinds;
 mod line;
 pub mod master;
 mod params;
+pub mod part_comp;
 pub mod part_eq;
 mod reverb;
 pub mod xg;
@@ -58,6 +65,8 @@ pub mod xg;
 pub use chorus::{Chorus, ChorusType};
 pub use delay::{Delay, DelayType, NOTES};
 pub use insert::{ChannelInserts, Insert, InsertEffect, InsertKind, InsertSettings, PartInsert};
+pub use kinds::{INSERT_SLOTS, INSERT_VALUES, InsertSlot, InsertType, KnobSpec, SEND_PARAMS, SENDS, SendKind, SendSlot, Unit};
+pub use part_comp::{PartComp, PartCompParam};
 pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 

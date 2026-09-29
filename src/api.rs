@@ -42,6 +42,7 @@ mod settings;
 mod style_change;
 mod sound_library;
 mod sounds;
+mod strips;
 mod style_settings;
 mod surface;
 mod system;
@@ -73,6 +74,7 @@ pub use settings::*;
 pub use style_change::*;
 pub use sound_library::*;
 pub use sounds::*;
+pub use strips::*;
 pub use style_settings::*;
 pub use surface::*;
 pub use system::*;
@@ -187,6 +189,9 @@ app_cmd! {
     Rack(RackCmd),
     /// Quick Racks: the one-press rack buttons (banks A-H of eight), Store, bank -/+.
     QuickRacks(QuickRackCmd),
+    /// Channel strips (EQ, compressor, two inserts, six sends) and the send effects (the
+    /// mixer rework).
+    Strips(StripCmd),
 }
 
 impl From<Button> for AppCmd {

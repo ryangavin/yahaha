@@ -35,6 +35,8 @@ pub enum InsertEffect {
     AutoWah,
     Tremolo,
     Rotary,
+    /// A phaser (the mixer rework). Its DSP is still to come: it plays dry for now.
+    Phaser,
 }
 
 impl InsertEffect {
@@ -45,6 +47,7 @@ impl InsertEffect {
             InsertEffect::AutoWah => InsertKind::AutoWah,
             InsertEffect::Tremolo => InsertKind::Tremolo,
             InsertEffect::Rotary => InsertKind::Rotary,
+            InsertEffect::Phaser => InsertKind::Phaser,
         }
     }
 }
@@ -57,6 +60,7 @@ impl From<InsertKind> for InsertEffect {
             InsertKind::AutoWah => InsertEffect::AutoWah,
             InsertKind::Tremolo => InsertEffect::Tremolo,
             InsertKind::Rotary => InsertEffect::Rotary,
+            InsertKind::Phaser => InsertEffect::Phaser,
         }
     }
 }
@@ -114,10 +118,13 @@ pub enum InsertKind {
     AutoWah = 3,
     Tremolo = 4,
     Rotary = 5,
+    /// Plays dry until its DSP lands (the mixer rework's lane A).
+    Phaser = 6,
 }
 
 impl InsertKind {
-    pub const ALL: [InsertKind; 6] = [InsertKind::None, InsertKind::Distortion, InsertKind::Compressor, InsertKind::AutoWah, InsertKind::Tremolo, InsertKind::Rotary];
+    pub const ALL: [InsertKind; 7] =
+        [InsertKind::None, InsertKind::Distortion, InsertKind::Compressor, InsertKind::AutoWah, InsertKind::Tremolo, InsertKind::Rotary, InsertKind::Phaser];
 
     pub fn from_u8(v: u8) -> InsertKind {
         InsertKind::ALL.get(v as usize).copied().unwrap_or_default()
@@ -131,6 +138,7 @@ impl InsertKind {
             InsertKind::AutoWah => "Auto Wah",
             InsertKind::Tremolo => "Tremolo",
             InsertKind::Rotary => "Rotary",
+            InsertKind::Phaser => "Phaser",
         }
     }
 }
@@ -350,7 +358,8 @@ impl Insert {
                     }
                     self.pos = (self.pos + 1) % line_len;
                 }
-                InsertKind::None => {}
+                // The phaser's DSP is lane A's (the mixer rework): dry until then.
+                InsertKind::None | InsertKind::Phaser => {}
             }
             let m = self.mix;
             left[k] = dl + (y[0] * g - dl) * m;
@@ -387,19 +396,42 @@ impl InsertSettings {
 /// Every MIDI channel's insert on the SoundFont side, each run on its part's stem by the
 /// synth's rack (audio thread; allocated in `new`): the Style parts' (channels 9-16) and
 /// the keyboard parts' (channels 1-4).
+///
+/// Each channel has two slots (`super::INSERT_SLOTS`, the mixer rework's strip: insert 1
+/// then insert 2), both allocated here. Slot 2 is taken (`set_second`) but not run yet:
+/// it passes the stem through until the chaining lands (the mixer rework's lane A).
 pub struct ChannelInserts {
     slots: [Insert; 16],
     settings: [InsertSettings; 16],
+    /// Slot 2 of each channel: allocated, not run yet.
+    #[allow(dead_code)]
+    second: [Insert; 16],
+    second_settings: [InsertSettings; 16],
 }
 
 impl ChannelInserts {
     pub fn new(rate: f32) -> ChannelInserts {
-        ChannelInserts { slots: std::array::from_fn(|_| Insert::new(rate)), settings: [InsertSettings::NONE; 16] }
+        ChannelInserts {
+            slots: std::array::from_fn(|_| Insert::new(rate)),
+            settings: [InsertSettings::NONE; 16],
+            second: std::array::from_fn(|_| Insert::new(rate)),
+            second_settings: [InsertSettings::NONE; 16],
+        }
     }
 
     /// Take the settings for this buffer (`InsertSettings::channels`).
     pub fn set(&mut self, settings: &[InsertSettings; 16]) {
         self.settings = *settings;
+    }
+
+    /// Take slot 2's settings for this buffer. Stub: slot 2 passes through for now.
+    pub fn set_second(&mut self, settings: &[InsertSettings; 16]) {
+        self.second_settings = *settings;
+    }
+
+    /// Slot 2's settings as last taken.
+    pub fn second(&self) -> &[InsertSettings; 16] {
+        &self.second_settings
     }
 
     /// The channels (bit = channel) whose stem runs through `process` before the mix.

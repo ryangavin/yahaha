@@ -283,6 +283,21 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setMasterEqOn': return 'fx.master_eq'
     case 'setMasterEqPreset': return 'fx.master_eq_type'
     case 'setMasterEqBand': return 'fx.master_eq_gain'
+    // Channel strips and send effects (the mixer rework).
+    case 'setStripEq': return 'mixer.strip.eq_low_gain'
+    case 'setStripCompressorOn': return 'mixer.strip.comp'
+    case 'setStripCompressorPreset': return 'mixer.strip.comp_type'
+    case 'setStripCompressorParam': return `mixer.strip.comp_${cmd.param}`
+    case 'setStripInsertKind': return 'mixer.strip.insert_kind'
+    case 'setStripInsertOn': return 'mixer.strip.insert_on'
+    case 'setStripInsertSetting': return (['mixer.strip.insert_setting_1', 'mixer.strip.insert_setting_2', 'mixer.strip.insert_setting_3', 'mixer.strip.insert_setting_4'] as const)[Math.min(cmd.setting, 3)]
+    case 'setStripSend': return 'mixer.strip.send'
+    case 'addSend': return 'fx.send_add'
+    case 'removeSend': return 'fx.send_remove'
+    case 'setSendKind': return 'fx.send_kind'
+    case 'setSendParam': return 'fx.send_param'
+    case 'setSendReturn': return 'fx.send_return'
+    case 'setRackSendOverride': return 'fx.send_rack_override'
     // Racks (docs/racks.md): the Rack panel's controls; the rest open the Rack until the
     // Library Racks tab adds its own.
     case 'saveRack': return 'rack.save'
