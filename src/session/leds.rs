@@ -114,11 +114,8 @@ mod tests {
     /// where an `update` with nothing changed sends nothing.
     #[test]
     fn reconnect_sends_every_led_again() {
-        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            return;
-        }
-        let e = crate::engine::Engine::new(Box::new(crate::engine::Prepared::new(&crate::sff::Style::load(&p).unwrap())));
+        let style = crate::sff::parse(&crate::session::testing::style_bytes()).unwrap();
+        let e = crate::engine::Engine::new(Box::new(crate::engine::Prepared::new(&style)));
         let s = e.snapshot(0);
         let has = [true; 17];
         let pnl = Panel::default();
