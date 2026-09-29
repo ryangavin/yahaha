@@ -66,7 +66,7 @@ It's git-ignored. In a worktree, symlink it: `ln -s "<main checkout>/corpus" cor
 
 No allocation, locks or panics on the engine, MIDI or audio threads.
 
-Mixer: support everything a style does, but map it onto yahaha's own concepts rather than adding a gain stage per feature. A part's level is its fader (its CC7) plus master. The Style volume, the Multi Pad volume and the Fade scale the CC7 that's sent, not the audio. A part's EQ is tone on its strip; it may boost as well as cut. Nothing changes a part's loudness without showing on its strip.
+Mixer: support everything a style does, but map it onto yahaha's own concepts rather than adding a gain stage per feature. A part's level is its fader (its CC7) plus master. The Style volume, the Multi Pad volume and the Fade scale the CC7 that's sent, not the audio. A part's EQ is tone on its strip; it may boost as well as cut. Nothing changes a part's loudness without showing on its strip. Where a style feature has no mapping yet and adding one is small, extend our concept rather than drop or fake the feature (for example, a filter type our EQ lacks: add the filter type). A large gap goes in a follow-up issue, named in the PR body.
 
 ## Controls
 
