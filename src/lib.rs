@@ -9,9 +9,12 @@ pub use yahaha_core::arp;
 pub mod bench;
 pub mod capture;
 pub use yahaha_core::click;
-pub mod controllers;
+pub use yahaha_engine::controllers;
 pub use yahaha_core::data_files;
-pub mod engine;
+pub use yahaha_engine::engine;
+// Tests of engine modules that need a higher layer (synth).
+#[cfg(test)]
+mod engine_tests;
 pub use yahaha_core::fingering;
 pub use yahaha_fx::fx;
 pub use yahaha_core::ireal;
@@ -19,7 +22,7 @@ pub mod knobs;
 #[cfg(test)]
 mod golden;
 pub use yahaha_core::harmony;
-pub mod launchkey;
+pub use yahaha_engine::launchkey;
 pub use yahaha_sff::library;
 // Tests of sff/library that read the facade's own source.
 #[cfg(test)]
@@ -28,9 +31,9 @@ pub mod live;
 pub use yahaha_core::looper;
 pub use yahaha_core::megavoice;
 pub use yahaha_core::midi;
-pub mod multipad;
+pub use yahaha_engine::multipad;
 pub mod oracle;
-pub mod parts;
+pub use yahaha_engine::parts;
 pub use yahaha_core::parts_data;
 pub mod patches;
 pub mod perf;
@@ -57,7 +60,7 @@ pub use yahaha_core::route;
 pub use yahaha_core::rt;
 pub mod session;
 pub use yahaha_sff::sff;
-pub mod sim;
+pub use yahaha_engine::sim;
 pub use yahaha_core::style_types;
 pub mod synth;
 pub use yahaha_core::theory;

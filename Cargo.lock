@@ -5070,6 +5070,9 @@ dependencies = [
 name = "yahaha-engine"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
  "yahaha-core",
  "yahaha-fx",
  "yahaha-sff",
