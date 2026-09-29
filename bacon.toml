@@ -25,7 +25,7 @@ need_stdout = false
 
 # An agent's targeted tests: `bacon test -- <filter>` (the filter goes after `--`). Built with
 # the `test-quick` profile (Cargo.toml): our crate unoptimised, so a rebuild is quick. The
-# full suite and CI stay on `test-fast`.
+# full suite and CI use the same profile.
 [jobs.test]
 command = ["cargo", "test", "--profile", "test-quick", "--features", "plugins", "--color", "always"]
 need_stdout = true

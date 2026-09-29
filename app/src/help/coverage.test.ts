@@ -185,6 +185,21 @@ const STATES: [string, Setup][] = [
     s.send({ type: 'pressQuickRack', slot: 0 }),
     ui.openLibrary('racks')
   )],
+  ['Library › Racks, a rack that isn\'t loaded selected: Load, Duplicate, Delete…', (s) => {
+    storeRack(s, 0, 'Ballad')
+    s.send({ type: 'saveRackAs', name: 'Evening' })
+    ui.openLibrary('racks')
+    libraryNav.rack = s.state.racks.find((r) => r.name === 'Ballad')!.id
+  }],
+  ['Library › Racks, delete asked for a rack on a Quick Rack button', (s) => {
+    storeRack(s, 0, 'Ballad')
+    s.send({ type: 'saveRackAs', name: 'Evening' })
+    ui.openLibrary('racks')
+    libraryNav.rack = s.state.racks.find((r) => r.name === 'Ballad')!.id
+    s.advance(16)
+    flushSync()
+    click('library.rack_delete')
+  }],
   ['chord looper drawer open', () => (ui.looper = true)],
   ['chord looper drawer, recording armed, Memory latched', (s) => ((ui.looper = true), s.send({ type: 'looperRec' }))],
   ['multi pad drawer, no bank', () => (ui.multipad = true)],

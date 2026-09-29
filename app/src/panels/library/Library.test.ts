@@ -8,7 +8,8 @@ import App from '../../App.svelte'
 import { MockSession } from '../../lib/api/mock'
 import type { SoundCatalog } from '../../lib/api/types'
 import { app, ui } from '../../lib/store.svelte'
-import { NO_FILTER, badgeOf, libraryCategories, librarySounds } from './model'
+import { emptyQuickRacks } from '../../lib/api/quick-racks'
+import { NO_FILTER, badgeOf, libraryCategories, librarySounds, quickButtonsOf, searchRacks } from './model'
 import { libraryNav } from './nav.svelte'
 
 async function setup(before?: (s: MockSession) => void) {
@@ -285,15 +286,188 @@ describe('Library › Instruments', () => {
 })
 
 describe('Library › Racks', () => {
-  it('lists the live rack, read-only, with its parts; rack actions say they are coming', async () => {
+  /** Ballad on Quick Rack A1 and A3, then Evening saved and loaded: Ballad isn't loaded. */
+  async function twoRacks() {
+    const s = await setup((m) => {
+      m.send({ type: 'toggleQuickRackStore' })
+      m.send({ type: 'pressQuickRack', slot: 0 })
+      m.send({ type: 'saveRackAs', name: 'Ballad' })
+      m.send({ type: 'toggleQuickRackStore' })
+      m.send({ type: 'pressQuickRack', slot: 2 })
+      m.send({ type: 'saveRackAs', name: 'Evening' })
+    })
+    ui.openLibrary('racks', 0)
+    await refresh(s)
+    return s
+  }
+  const rackRows = () => tipped('library.rack_row')
+  const rackRow = (name: string) => rackRows().find((r) => r.querySelector('.name')!.firstChild!.textContent === name)
+  const idOf = (s: MockSession, name: string) => s.state.racks.find((r) => r.name === name)!.id
+  const details = () => q('[aria-label="Rack details"]')!
+
+  it('lists the live rack with its parts; a never-saved rack\'s details say how to make it yours', async () => {
     const s = await setup()
     ui.openLibrary('racks', 0)
     flushSync()
     const live = tipped('library.rack_live')[0]
     expect(live.textContent).toContain(s.state.liveRack.name)
     expect(live.textContent).toContain(s.state.keyboardParts[0].voiceName)
-    expect(tipped('library.rack_coming').every((b) => (b as HTMLButtonElement).disabled)).toBe(true)
+    expect(tipped('library.rack_name')).toHaveLength(0)
+    expect(details().textContent).toContain('Never saved')
     expect(q('.foot .now')!.textContent).toContain(`Loaded: ${s.state.liveRack.name}`)
+  })
+
+  it('a click selects a rack and shows its details without loading it; double-click or Load loads it', async () => {
+    const s = await twoRacks()
+    // With nothing clicked, the details are the loaded rack's, with its split.
+    expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Evening')
+    expect(details().textContent).toContain('Split')
+    await click(rackRow('Ballad'))
+    expect(s.state.liveRack.name).toBe('Evening')
+    expect(rackRow('Ballad')!.getAttribute('aria-selected')).toBe('true')
+    expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Ballad')
+    expect(details().textContent).toContain('A1, A3')
+    expect(details().textContent).toContain('show once it\'s loaded')
+    await click(tipped('library.rack_load')[0])
+    await refresh(s)
+    expect(s.state.liveRack.name).toBe('Ballad')
+    expect(tipped('library.rack_load')).toHaveLength(0)
+    await fireEvent.dblClick(rackRow('Evening')!)
+    await refresh(s)
+    expect(s.state.liveRack.name).toBe('Evening')
+  })
+
+  it('the search narrows the racks by name or sound; Esc clears it', async () => {
+    await twoRacks()
+    const search = tipped('library.racks_search')[0] as HTMLInputElement
+    await fireEvent.input(search, { target: { value: 'ball' } })
+    flushSync()
+    expect(rackRows().map((r) => r.querySelector('.name')!.firstChild!.textContent)).toEqual(['Ballad'])
+    expect(tipped('library.rack_live')).toHaveLength(0)
+    await fireEvent.input(search, { target: { value: 'zzz' } })
+    flushSync()
+    expect(rackRows()).toHaveLength(0)
+    expect(q('.racks')!.textContent).toContain('No racks match')
+    await fireEvent.keyDown(search, { key: 'Escape' })
+    flushSync()
+    expect(rackRows()).toHaveLength(2)
+    expect(ui.view).toBe('library')
+  })
+
+  it('renames a rack from its name field; a taken name is refused and the field shows the old name', async () => {
+    const s = await twoRacks()
+    await click(rackRow('Ballad'))
+    const name = () => tipped('library.rack_name')[0] as HTMLInputElement
+    await fireEvent.input(name(), { target: { value: 'Slow Ballad' } })
+    await fireEvent.change(name())
+    await refresh(s)
+    expect(s.state.racks.map((r) => r.name)).toEqual(['Evening', 'Slow Ballad'])
+    expect(name().value).toBe('Slow Ballad')
+    expect(rackRow('Slow Ballad')!.getAttribute('aria-selected')).toBe('true')
+    await fireEvent.input(name(), { target: { value: 'Evening' } })
+    await fireEvent.change(name())
+    await refresh(s)
+    expect(s.state.message).toMatchObject({ error: true })
+    expect(s.state.racks.map((r) => r.name)).toEqual(['Evening', 'Slow Ballad'])
+    expect(name().value).toBe('Slow Ballad')
+    // Esc puts the name back without renaming or leaving Library.
+    await fireEvent.input(name(), { target: { value: 'Nope' } })
+    await fireEvent.keyDown(name(), { key: 'Escape' })
+    flushSync()
+    expect(name().value).toBe('Slow Ballad')
+    expect(ui.view).toBe('library')
+  })
+
+  it('Duplicate copies the rack and selects the copy', async () => {
+    const s = await twoRacks()
+    await click(rackRow('Ballad'))
+    await click(tipped('library.rack_duplicate')[0])
+    await refresh(s)
+    expect(s.state.racks.map((r) => r.name)).toEqual(['Ballad', 'Ballad copy', 'Evening'])
+    expect(rackRow('Ballad copy')!.getAttribute('aria-selected')).toBe('true')
+    expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Ballad copy')
+  })
+
+  it('a refused Duplicate doesn\'t select a rack added later', async () => {
+    const s = await twoRacks()
+    const send = s.send.bind(s)
+    s.send = (c) => send(c.type === 'duplicateRack' ? { ...c, id: 'nope' } : c)
+    await click(rackRow('Ballad'))
+    await click(tipped('library.rack_duplicate')[0])
+    await refresh(s)
+    expect(s.state.message).toMatchObject({ error: true })
+    s.send = send
+    s.send({ type: 'newRack' })
+    s.send({ type: 'saveRackAs', name: 'Later' })
+    await refresh(s)
+    expect(rackRow('Later')!.getAttribute('aria-selected')).toBe('false')
+    expect(rackRow('Ballad')!.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('the confirm closes when the rack it asks about gets loaded', async () => {
+    const s = await twoRacks()
+    await click(rackRow('Ballad'))
+    await click(tipped('library.rack_delete')[0])
+    expect(q('.confirm')).not.toBeNull()
+    s.send({ type: 'loadRack', id: idOf(s, 'Ballad') })
+    await refresh(s)
+    expect(q('.confirm')).toBeNull()
+    expect(details().textContent).toContain('load another rack to delete it')
+  })
+
+  it('clicking the live rack row goes back to the loaded rack\'s details', async () => {
+    await twoRacks()
+    await click(rackRow('Ballad'))
+    expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Ballad')
+    await click(tipped('library.rack_live')[0])
+    expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Evening')
+    expect(rackRow('Evening')!.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('Delete… asks inline, naming the Quick Rack buttons it empties; Cancel keeps it, Delete deletes', async () => {
+    const s = await twoRacks()
+    const ballad = idOf(s, 'Ballad')
+    await click(rackRow('Ballad'))
+    await click(tipped('library.rack_delete')[0])
+    const confirm = q('.confirm')!
+    expect(confirm.textContent).toContain('Delete Ballad?')
+    expect(confirm.textContent).toContain('Quick Racks A1, A3 will be emptied')
+    await click(tipped('library.rack_delete_cancel')[0])
+    expect(q('.confirm')).toBeNull()
+    expect(s.state.racks).toHaveLength(2)
+    await click(tipped('library.rack_delete')[0])
+    await click(tipped('library.rack_delete_confirm')[0])
+    await refresh(s)
+    expect(s.state.racks.map((r) => r.name)).toEqual(['Evening'])
+    expect(s.state.quickRacks.buttons.some((b) => b.rack === ballad)).toBe(false)
+    // The details go back to the loaded rack's.
+    expect((tipped('library.rack_name')[0] as HTMLInputElement).value).toBe('Evening')
+  })
+
+  it('the loaded rack can\'t be deleted: Delete… is disabled and says why', async () => {
+    const s = await twoRacks()
+    await click(rackRow('Evening'))
+    const del = tipped('library.rack_delete')[0]
+    expect(del.getAttribute('aria-disabled')).toBe('true')
+    expect(details().textContent).toContain('load another rack to delete it')
+    await click(del)
+    expect(q('.confirm')).toBeNull()
+    expect(s.state.racks).toHaveLength(2)
+  })
+
+  it('+ New rack starts one; with unsaved changes the docked Rack panel asks first', async () => {
+    const s = await twoRacks()
+    s.send({ type: 'setPartVoice', part: 0, program: 12 })
+    await refresh(s)
+    expect(s.state.liveRack.modified).toBe(true)
+    await click(tipped('library.rack_new')[0])
+    await refresh(s)
+    expect(s.state.liveRack.name).toBe('Evening')
+    expect(s.state.liveRack.prompt).toMatchObject({ kind: 'unsavedChanges', then: { kind: 'new' } })
+    expect(tipped('rack.discard_switch')).toHaveLength(1)
+    await click(tipped('rack.discard_switch')[0])
+    await refresh(s)
+    expect(s.state.liveRack).toMatchObject({ name: 'New rack', id: null, modified: false })
   })
 })
 
@@ -320,6 +494,24 @@ describe('Library model', () => {
     expect(names(c, librarySounds(c, NO_FILTER, ctx))).toEqual(['Grand', 'Arp', 'Synth', 'Pad'])
     expect(names(c, librarySounds(c, { ...NO_FILTER, instrument: 'sf:A.sf2' }, ctx))).toEqual(['Grand', 'Bright'])
     expect(names(c, librarySounds(c, { ...NO_FILTER, instrument: 'au:synth' }, ctx))).toEqual(['Pad', 'Synth', 'Arp'])
+  })
+
+  it('racks: search by name or the sounds of parts that are on; Quick Rack labels of the bank on view', () => {
+    const racks = [
+      { id: 'a', name: 'Ballad', parts: ['Grand', 'Strings', 'Brass', 'Bass'], on: [true, true, false, false], needsAttention: false },
+      { id: 'b', name: 'Organ Night', parts: ['Organ', 'Brass', 'Pad', 'Bass'], on: [true, true, false, false], needsAttention: false },
+    ]
+    expect(searchRacks(racks, '').map((r) => r.id)).toEqual(['a', 'b'])
+    expect(searchRacks(racks, 'brass').map((r) => r.id)).toEqual(['b'])
+    expect(searchRacks(racks, 'ball strings').map((r) => r.id)).toEqual(['a'])
+    expect(searchRacks(racks, 'pad')).toEqual([])
+    const q = emptyQuickRacks()
+    q.bank = 1
+    q.buttons[0].rack = 'a'
+    q.buttons[5].rack = 'a'
+    q.buttons[2].rack = 'b'
+    expect(quickButtonsOf(q, 'a')).toEqual(['B1', 'B6'])
+    expect(quickButtonsOf(q, 'c')).toEqual([])
   })
 
   it('badges, chips, star, category and search', () => {

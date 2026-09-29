@@ -14,6 +14,10 @@ class LibraryNav implements SoundFilter {
   query = $state('')
   /** Racks: only the racks that need attention (a part's plugin is missing). */
   attention = $state(false)
+  /** Racks: the search over the racks' names and sounds. */
+  rackQuery = $state('')
+  /** Racks: the rack whose details show (null: the loaded one's). */
+  rack = $state<string | null>(null)
   /** Style map: the GM map, or Add from SoundFont. */
   mapPage = $state<'gm' | 'add'>('gm')
 
@@ -24,6 +28,8 @@ class LibraryNav implements SoundFilter {
     this.category = null
     this.query = ''
     this.attention = false
+    this.rackQuery = ''
+    this.rack = null
     this.mapPage = 'gm'
   }
 }

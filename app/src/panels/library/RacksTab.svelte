@@ -1,17 +1,34 @@
 <!--
-  Library › Racks (docs/racks.md; the wireframe's `browserRacks`): the racks there are
-  today, read-only. The live rack (`AppState.liveRack`: what's under your hands, autosaved)
-  and the saved racks the engine reports as needing attention (a part's plugin is
-  missing: `plugins.needsAttention`), with the "Needs attention" filter.
+  Library › Racks (docs/racks.md; the wireframe's `browserRacks` and `rackDetails`): the
+  live rack (`AppState.liveRack`: what's under your hands, autosaved), your racks, and the
+  saved racks the engine reports as needing attention (a part's plugin is missing:
+  `plugins.needsAttention`), with a search and the "Needs attention" filter.
 
-  My racks: click one to load it (through the unsaved-changes guard, asked in the docked
-  Rack panel); its label is the Quick Rack button that holds it in the bank on view.
+  ┌ [Search racks…] [⚠ Needs attention (1)]                          [+ New rack] ┐
+  │ LOADED NOW  ▶ Ballad ●                                               Modified │
+  │ MY RACKS      Ballad        Stage Grand + Silk Strings                   A1 │
+  │               Evening       …                                               │
+  ├ Rack details ─────────────────────────────────────────────────────────────────┤
+  │ Name [Ballad        ]   Quick Racks A1   Split F#2   Harmony/Arp Off           │
+  │ [Load] [Duplicate] [Delete…]   → Delete Ballad? Quick Rack A1 will be empty.   │
+  └───────────────────────────────────────────────────────────────────────────────┘
+
+  A click on one of your racks selects it and shows its details; a double-click, or Load in
+  the details, loads it (through the unsaved-changes guard, asked in the docked Rack panel).
+  The details rename it (`renameRack`), duplicate it (`duplicateRack`) and delete it
+  (`deleteRack`, after an inline confirm; refused for the loaded rack). + New rack sends
+  `newRack`, with the same guard. With nothing selected, the details are the loaded rack's.
+
+  Split, Harmony/Arp and the transpose are only in the state for the live rack, so they show
+  for the loaded rack; Quick Racks state carries only the bank on view, so the labels (A1)
+  are that bank's.
 -->
 <script lang="ts">
   import { noteName } from '../../lib/api/mock'
-  import { quickLabel } from '../../lib/api/quick-racks'
+  import { bankLetter } from '../../lib/api/quick-racks'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
+  import { quickButtonsOf, searchRacks } from './model'
   import { libraryNav } from './nav.svelte'
 
   const s = $derived(app.state)
@@ -20,6 +37,7 @@
   const attention = $derived(s.plugins.needsAttention)
   // The filter, while there is anything to filter to.
   const filtered = $derived(libraryNav.attention && attention.length > 0)
+  const query = $derived(libraryNav.rackQuery.trim())
   const PARTS = ['Right 1', 'Right 2', 'Right 3', 'Left']
   const partSound = (i: number) => {
     const p = parts[i]
@@ -27,30 +45,150 @@
     return `${p.plugin?.missing ? '⚠ ' : ''}${p.sound?.name ?? p.voiceName}`
   }
   const missingParts = $derived(parts.flatMap((p, i) => (p.plugin?.missing ? [PARTS[i]] : [])))
-  // The Quick Rack buttons of the bank on view holding rack `id` ("A1 A3"); Quick Racks
-  // state only carries the bank on view.
-  const quickOn = (id: string) =>
-    s.quickRacks.buttons.flatMap((b, i) => (b.rack === id ? [quickLabel(s.quickRacks.bank, i)] : [])).join(' ')
-  const COMING =['+ New rack', 'Save rack', 'Save as…', 'Revert']
+  const shown = $derived(searchRacks(s.racks, libraryNav.rackQuery))
+  const shownAttention = $derived(query ? attention.filter((r) => r.name.toLowerCase().includes(query.toLowerCase())) : attention)
+
+  // The rack whose details show: the one clicked, else the loaded one (if it is saved).
+  const selId = $derived(libraryNav.rack ?? live.id)
+  const sel = $derived(s.racks.find((r) => r.id === selId) ?? null)
+  const loaded = $derived(!!sel && sel.id === live.id)
+  const buttons = $derived(sel ? quickButtonsOf(s.quickRacks, sel.id) : [])
+  const bank = $derived(bankLetter(s.quickRacks.bank))
+
+  // A rack that was deleted elsewhere (a Quick Rack, the engine) lets its selection go.
+  $effect(() => {
+    if (libraryNav.rack && !s.racks.some((r) => r.id === libraryNav.rack)) libraryNav.rack = null
+  })
+
+  // Delete…: the inline confirm, for the rack it was asked about.
+  let confirming = $state<string | null>(null)
+  const asking = $derived(!!sel && confirming === sel.id)
+
+  // A rack that became the loaded one can't be deleted: its confirm goes.
+  $effect(() => {
+    if (confirming && confirming === live.id) confirming = null
+  })
+
+  function select(id: string | null) {
+    libraryNav.rack = id
+    confirming = null
+  }
+  const load = (id: string) => app.send({ type: 'loadRack', id })
+
+  // The name as typed, until the state has the new name (or refused it: a name another
+  // rack has); null shows the state's.
+  let draft = $state<string | null>(null)
+  let sentAt = -1
+  function rename() {
+    const name = draft?.trim()
+    if (!sel || !name || name === sel.name) {
+      draft = null
+      return
+    }
+    sentAt = s.message?.seq ?? 0
+    app.send({ type: 'renameRack', id: sel.id, name })
+  }
+  $effect(() => {
+    void sel?.id
+    void sel?.name
+    draft = null
+  })
+  $effect(() => {
+    const m = s.message
+    if (m?.error && m.seq > sentAt && sentAt >= 0) {
+      sentAt = -1
+      draft = null
+    }
+  })
+  function nameKey(e: KeyboardEvent) {
+    const el = e.currentTarget as HTMLInputElement
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      el.blur()
+    } else if (e.key === 'Escape') {
+      // Esc puts the name back; it doesn't leave Library.
+      e.preventDefault()
+      e.stopPropagation()
+      draft = null
+      el.blur()
+    }
+  }
+  function askDelete() {
+    if (sel && !loaded) confirming = sel.id
+  }
+  function loadSelected() {
+    if (sel) load(sel.id)
+  }
+
+  // Duplicate selects the copy: the id that wasn't there before.
+  let before: Set<string> | null = null
+  function duplicate() {
+    if (!sel) return
+    before = new Set(s.racks.map((r) => r.id))
+    const at = s.message?.seq ?? 0
+    app.send({ type: 'duplicateRack', id: sel.id })
+    dupAt = at
+  }
+  // A refused duplicate stops waiting for the copy.
+  let dupAt = -1
+  $effect(() => {
+    const m = s.message
+    if (m?.error && dupAt >= 0 && m.seq > dupAt) {
+      dupAt = -1
+      before = null
+    }
+  })
+  $effect(() => {
+    const racks = s.racks
+    if (!before) return
+    const copy = racks.find((r) => !before!.has(r.id))
+    if (copy) {
+      before = null
+      select(copy.id)
+    }
+  })
+
+  function remove() {
+    if (!sel || loaded) return
+    app.send({ type: 'deleteRack', id: sel.id })
+    confirming = null
+    libraryNav.rack = null
+  }
+  function searchKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && libraryNav.rackQuery) {
+      e.preventDefault()
+      e.stopPropagation()
+      libraryNav.rackQuery = ''
+    }
+  }
 </script>
 
 <div class="racks">
   <div class="filters">
+    <input
+      bind:value={libraryNav.rackQuery}
+      class="mat-well search"
+      type="search"
+      placeholder="Search racks…"
+      spellcheck="false"
+      autocomplete="off"
+      aria-label="Search racks"
+      use:tip={'library.racks_search'}
+      onkeydown={searchKey}
+    />
     {#if attention.length}
       <button type="button" class="chip" class:on={libraryNav.attention} aria-pressed={libraryNav.attention} use:tip={'library.racks_attention'} onclick={() => (libraryNav.attention = !libraryNav.attention)}>⚠ Needs attention ({attention.length})</button>
     {/if}
     <span class="grow"></span>
-    {#each COMING as label (label)}
-      <button type="button" class="act" disabled use:tip={'library.rack_coming'}>{label}</button>
-    {/each}
+    <button type="button" class="act mat-raised" use:tip={'library.rack_new'} onclick={() => app.send({ type: 'newRack' })}>+ New rack</button>
   </div>
 
   <div class="screen mat-screen">
     <div class="scroller">
-      {#if !filtered}
+      {#if !filtered && !query}
         <div class="rhead"><span>Loaded now</span><span>autosaved; comes back on boot</span></div>
         <div role="listbox" aria-label="Live rack">
-          <div class="row sel" role="option" tabindex="0" aria-selected="true" use:tip={'library.rack_live'}>
+          <div class="row live" class:sel={!sel} role="option" tabindex="0" aria-selected={!sel} use:tip={'library.rack_live'} onclick={() => select(null)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(null) } }}>
             <span class="mark" aria-hidden="true">▶</span>
             <span class="name">{live.name}{#if live.modified}<span class="mod" title="Modified"> ●</span>{/if}<span class="sub">{PARTS.map((_, i) => partSound(i)).join(' · ')}</span></span>
             <span class="badge" class:warn={missingParts.length > 0}>{missingParts.length ? '⚠ fix' : live.modified ? 'Modified' : 'Live'}</span>
@@ -58,10 +196,10 @@
         </div>
       {/if}
 
-      <div class="rhead"><span>{filtered ? 'Needs attention' : 'My racks'}</span><span>{attention.length ? 'a part plays a plugin that is missing' : ''}</span></div>
-      {#if attention.length}
+      <div class="rhead"><span>{filtered ? 'Needs attention' : 'My racks'}</span><span>{attention.length ? 'a part plays a plugin that is missing' : 'click for details · double-click loads'}</span></div>
+      {#if shownAttention.length}
         <div role="listbox" aria-label="Racks that need attention">
-          {#each attention as r (r.id)}
+          {#each shownAttention as r (r.id)}
             <div class="row" role="option" tabindex="-1" aria-selected="false" use:tip={'library.rack_attention'}>
               <span class="mark" aria-hidden="true"></span>
               <span class="name">{r.name}<span class="sub">⚠ {r.parts.map((i) => PARTS[i]).join(', ')} {r.parts.length === 1 ? 'needs' : 'need'} a new sound</span></span>
@@ -71,17 +209,28 @@
         </div>
       {/if}
       {#if !filtered}
-        {#if s.racks.length}
+        {#if shown.length}
           <div role="listbox" aria-label="My racks">
-            {#each s.racks as r (r.id)}
-              {@const on = quickOn(r.id)}
-              <button type="button" class="row load" role="option" aria-selected={r.id === live.id} class:sel={r.id === live.id} use:tip={'quick.rack'} onclick={() => app.send({ type: 'loadRack', id: r.id })}>
+            {#each shown as r (r.id)}
+              {@const on = quickButtonsOf(s.quickRacks, r.id).join(' ')}
+              <button
+                type="button"
+                class="row pick"
+                role="option"
+                aria-selected={r.id === sel?.id}
+                class:sel={r.id === sel?.id}
+                use:tip={'library.rack_row'}
+                onclick={() => select(r.id)}
+                ondblclick={() => load(r.id)}
+              >
                 <span class="mark" aria-hidden="true">{r.id === live.id ? '▶' : ''}</span>
                 <span class="name">{r.name}{#if r.id === live.id && live.modified}<span class="mod" title="Modified"> ●</span>{/if}<span class="sub">{r.parts.filter((_, i) => r.on[i]).join(' + ')}</span></span>
                 <span class="badge" class:warn={r.needsAttention}>{r.needsAttention ? '⚠ fix' : on}</span>
               </button>
             {/each}
           </div>
+        {:else if query}
+          <p class="coming">No racks match “{query}”.</p>
         {:else}
           <p class="coming">No racks yet. Press Store, then a Quick Rack button, to save the live rack ({live.name}) and put it there.</p>
         {/if}
@@ -89,15 +238,46 @@
     </div>
   </div>
 
-  <div class="details">
+  <div class="details" aria-label="Rack details" role="group">
     <h3 class="engraved">Rack details</h3>
-    <div class="line">
-      <span><span class="k">Name</span> {live.name}</span>
-      <span><span class="k">Split</span> {noteName(s.chord.split)}</span>
-      <span><span class="k">Harmony/Arp</span> {s.harmonyArp.on ? s.harmonyArp.typeName : 'Off'}</span>
-      <span><span class="k">Transpose</span> {s.chord.transposeKeyboard > 0 ? '+' : ''}{s.chord.transposeKeyboard}</span>
-      <span><span class="k">State</span> {live.modified ? 'modified since loaded' : 'as loaded'}</span>
-    </div>
+    {#if sel}
+      <div class="line">
+        <label class="namefield"><span class="k">Name</span>
+          <input class="mat-well" type="text" value={draft ?? sel.name} spellcheck="false" autocomplete="off" aria-label="Rack name" use:tip={'library.rack_name'} oninput={(e) => (draft = e.currentTarget.value)} onchange={rename} onkeydown={nameKey} />
+        </label>
+        <span><span class="k">Quick Racks</span> {buttons.length ? buttons.join(', ') : `not in bank ${bank}`}</span>
+        {#if loaded}
+          <span><span class="k">Split</span> {noteName(s.chord.split)}</span>
+          <span><span class="k">Harmony/Arp</span> {s.harmonyArp.on ? s.harmonyArp.typeName : 'Off'}</span>
+        {:else}
+          <span class="muted"><span class="k">Split, Harmony/Arp</span> show once it's loaded</span>
+        {/if}
+      </div>
+      <div class="line"><span><span class="k">Parts</span> {sel.parts.map((p, i) => `${PARTS[i]}: ${sel.on[i] ? p : '—'}`).join(' · ')}</span></div>
+      {#if asking}
+        <div class="confirm" role="alert">
+          <span>Delete <b>{sel.name}</b>? {buttons.length ? `Quick Rack${buttons.length === 1 ? '' : 's'} ${buttons.join(', ')} will be emptied, and any other button holding it.` : 'Any Quick Rack button holding it will be emptied.'}</span>
+          <button type="button" class="act mat-raised danger" use:tip={'library.rack_delete_confirm'} onclick={remove}>Delete</button>
+          <button type="button" class="act mat-raised" use:tip={'library.rack_delete_cancel'} onclick={() => (confirming = null)}>Cancel</button>
+        </div>
+      {:else}
+        <div class="acts">
+          {#if !loaded}<button type="button" class="act mat-raised primary" use:tip={'library.rack_load'} onclick={loadSelected}>Load</button>{/if}
+          <button type="button" class="act mat-raised" use:tip={'library.rack_duplicate'} onclick={duplicate}>Duplicate</button>
+          <button type="button" class="act mat-raised" aria-disabled={loaded} use:tip={'library.rack_delete'} onclick={askDelete}>Delete…</button>
+          {#if loaded}<small class="muted">It's loaded: load another rack to delete it.</small>{/if}
+        </div>
+      {/if}
+    {:else}
+      <div class="line">
+        <span><span class="k">Name</span> {live.name}</span>
+        <span><span class="k">Split</span> {noteName(s.chord.split)}</span>
+        <span><span class="k">Harmony/Arp</span> {s.harmonyArp.on ? s.harmonyArp.typeName : 'Off'}</span>
+        <span><span class="k">Transpose</span> {s.chord.transposeKeyboard > 0 ? '+' : ''}{s.chord.transposeKeyboard}</span>
+        <span><span class="k">State</span> {live.modified ? 'modified since loaded' : 'as loaded'}</span>
+      </div>
+      <p class="muted">Never saved: Save rack in the Rack panel makes it one of your racks, to rename, duplicate or put on a Quick Rack button.</p>
+    {/if}
     {#if missingParts.length}<p class="warn">⚠ {missingParts.join(', ')} {missingParts.length === 1 ? 'is' : 'are'} silent: {missingParts.length === 1 ? 'its' : 'their'} plugin is missing. Pick a new sound in Sounds; the part keeps its mix.</p>{/if}
   </div>
 </div>
@@ -116,6 +296,16 @@
     align-items: center;
     gap: 0.4rem;
   }
+  .search {
+    flex: 0 1 18rem;
+    min-width: 8rem;
+    height: 2.2rem;
+    padding: 0 0.8rem;
+    border: 1px solid var(--well-edge);
+    border-radius: 6px;
+    color: var(--screen-ink);
+    font-size: 1rem;
+  }
   .grow {
     flex: 1;
   }
@@ -133,16 +323,24 @@
     border-color: var(--danger);
     background: color-mix(in srgb, var(--danger) 20%, transparent);
   }
-  button.act {
+  .act {
     min-height: 2rem;
-    border: 1px dashed var(--line-strong);
-    border-radius: 4px;
-    background: none;
-    padding: 0 0.65rem;
-    color: var(--muted);
+    padding: 0 0.75rem;
+    border-radius: 5px;
+    color: var(--ink);
     font-family: var(--font-display);
     font-weight: 600;
-    cursor: not-allowed;
+    white-space: nowrap;
+  }
+  .act.primary {
+    color: var(--accent);
+  }
+  .act.danger {
+    color: var(--danger);
+  }
+  .act[aria-disabled='true'] {
+    opacity: 0.4;
+    cursor: default;
   }
   .screen {
     --accent: #f3b843;
@@ -178,7 +376,7 @@
     border-top: 1px solid rgb(255 255 255 / 0.05);
     outline: none;
   }
-  button.row.load {
+  button.row.pick {
     width: 100%;
     border: none;
     border-top: 1px solid rgb(255 255 255 / 0.05);
@@ -194,6 +392,9 @@
   .row.sel {
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .row.live:not(.sel) {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
   }
   .row:focus-visible {
     box-shadow: inset 0 0 0 1px var(--accent);
@@ -241,7 +442,7 @@
   .details {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: 0.45rem;
     padding-top: 0.5rem;
     border-top: 1px solid var(--line);
   }
@@ -256,10 +457,46 @@
   .line {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 0.4rem 1.2rem;
     font-size: var(--fs-small);
   }
+  .namefield {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .namefield input {
+    width: 14rem;
+    max-width: 40vw;
+    height: 2rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--well-edge);
+    border-radius: 5px;
+    color: var(--screen-ink);
+    font: inherit;
+    font-weight: 600;
+  }
+  .acts,
+  .confirm {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .confirm {
+    padding: 0.4rem 0.55rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    font-size: var(--fs-small);
+  }
+  .confirm span {
+    flex: 1 1 16rem;
+  }
   .k {
+    color: var(--muted);
+  }
+  .muted {
     color: var(--muted);
   }
 </style>
