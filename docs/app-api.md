@@ -368,7 +368,7 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 | Command | Fields | Does |
 |---|---|---|
 | `setPartPlugin` | `part` 0–3, `id`, `state`? | Plays the part on an instrument plugin: `id` from `plugins.list` (for example `"aumu dls  appl"`), `state` a saved preset (base64) or null for the plugin's default. It loads in the background (`keyboardParts[i].plugin.status` `loading`, with the `stage`). The part keeps its SoundFont voice until the plugin is ready, then switches without a click. If the load fails, a plugin that was playing keeps the part; otherwise the part plays its SoundFont voice (`failed`, with the `error`), and picking the plugin again with a null `state` retries it with the state it kept (a restore that timed out, or a plugin reinstalled since, comes back as saved; go back to the SoundFont voice first to start it fresh). A state over 64 MB is refused. Fails at once for an unknown id or with no synth. |
-| `setPartPluginPreset` | `part` 0–3, `id`, `preset` | Plays the part on one of plugin `id`'s AU presets: `preset` is its key (`f:<number>` for a factory preset, set with `kAudioUnitProperty_PresentPreset`; `u:<path>` for an `.aupreset` the scan listed, restored as the plugin's ClassInfo state). The part gets an instance of its own, so one plugin can play a different preset on every part. Loads as `setPartPlugin` does; `keyboardParts[i].plugin.preset` / `presetKey` name it. The part's saved voice keeps it (plugin-parts.json, with the state read once it plays); Registration and Snapshots store the plugin's state as for any plugin, with its sound's id and name. Once it plays, the part plays the preset itself (docs/racks.md "Saving"): `keyboardParts[i].sound` and the part's saved voice name it by its catalog id (`{ "id": "au:<component id>#<key>", "name" }`). Picking a preset adds no library record; `saveSound` makes one. `assignSound` with a preset id sends it. |
+| `setPartPluginPreset` | `part` 0–3, `id`, `preset` | Plays the part on one of plugin `id`'s AU presets: `preset` is its key (`f:<number>` for a factory preset, set with `kAudioUnitProperty_PresentPreset`; `u:<path>` for an `.aupreset` the scan listed, restored as the plugin's ClassInfo state). The part gets an instance of its own, so one plugin can play a different preset on every part. Loads as `setPartPlugin` does; `keyboardParts[i].plugin.preset` / `presetKey` name it. The live rack keeps it (`liveRack`, with the state read once it plays); Registration and Snapshots store the plugin's state as for any plugin, with its sound's id and name. Once it plays, the part plays the preset itself (docs/racks.md "Saving"): `keyboardParts[i].sound` and the part's saved voice name it by its catalog id (`{ "id": "au:<component id>#<key>", "name" }`). Picking a preset adds no library record; `saveSound` makes one. `assignSound` with a preset id sends it. |
 | `clearPartPlugin` | `part` 0–3 | Back to the part's SoundFont voice (a 5 ms fade). |
 | `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). After it (and after the start-up scan), plugins found for the first time are `new`, plugins seen before that are gone are in `plugins.missing`, keyboard parts whose plugin is gone go silent, and parts whose plugin is back play it again with the state they kept (docs/racks.md, "Plugins coming and going"). |
@@ -1211,6 +1211,26 @@ Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `
 `rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
 (`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
 
+### `liveRack`
+The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
+plugin states included. `{ name, id, modified }`.
+- `name`: the saved rack's it came from; `Restored` on the first start after racks came in
+  (made from the old `plugin-parts.json` and the parts); `New rack` when it came from none.
+- `id`: the saved rack it came from, or null.
+- `modified`: something it holds changed since it was loaded or saved: a keyboard part's
+  sound, level, pan, sends, octave, voice settings, bend range or switch, the split, the
+  keyboard transpose, Harmony/Arp, the controller map, or a plugin edit (`soundEdited`).
+  It shows at once (a Launchkey fader within the control thread's next 10 ms). Loading or
+  saving a rack clears it (the rack commands, docs/racks.md).
+
+A live session autosaves the live rack to `~/Library/Application Support/yahaha/live-rack.json`
+(atomically, off the control and audio threads: a second after the last change, or at most
+ten seconds after the first unsaved one, and on stop with the plugins' states read afresh)
+and applies it at the next start, so the parts sound and mix as before quitting, saved or
+not. A file that can't be read is moved aside (`live-rack.json.bak`) and the session starts
+on its defaults; one a newer yahaha wrote is left alone and not saved over. An offline
+session keeps no live rack unless `Options::live_rack` names a file.
+
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
 that fails to load. `seq` increases with every new message, so the same text arriving
@@ -1958,6 +1978,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "inserts": [], "insertsOn": true, "rotaryFast": false
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "snapshot": null, "ots": null, "bandSends": [] },
+  "liveRack": { "name": "Restored", "id": null, "modified": true },
   "message": null
 }
 ```

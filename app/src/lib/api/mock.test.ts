@@ -14,6 +14,22 @@ describe('mock session', () => {
     expect(m.state.transport.section).toBe('Main A')
   })
 
+  it('the live rack: a new rack, modified by a mix, split or Harmony/Arp change but not by the band', () => {
+    for (const cmd of [
+      { type: 'setPartVolume', part: 0, volume: 12 },
+      { type: 'setSplit', note: 48 },
+      { type: 'setHarmonyArpOn', on: true },
+    ] as const) {
+      const m = new MockSession({ manual: true })
+      expect(m.state.liveRack).toEqual({ name: 'New rack', id: null, modified: false })
+      m.send({ type: 'startStop' })
+      m.advance(bar(m) * 2)
+      expect(m.state.liveRack.modified).toBe(false)
+      m.send(cmd)
+      expect(m.state.liveRack.modified).toBe(true)
+    }
+  })
+
   it('a queued Main takes over at the next bar', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'startStop' })

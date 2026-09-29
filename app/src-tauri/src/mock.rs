@@ -55,6 +55,21 @@ struct Fixture {
     styles: Vec<FixtureStyle>,
 }
 
+/// What the live rack holds, as the state shows it (docs/racks.md): the keyboard parts'
+/// sounds and mix, the split, the keyboard transpose and Harmony/Arp. As mock.ts's
+/// `liveRackView`.
+fn live_rack_view(s: &AppState) -> serde_json::Value {
+    let parts: Vec<_> = s
+        .keyboard_parts
+        .iter()
+        .map(|p| {
+            let plugin = p.plugin.as_ref().map(|x| x.id.clone());
+            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, plugin, p.sound, p.sound_edited])
+        })
+        .collect();
+    serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp])
+}
+
 const INTROS: [&str; 3] = ["Intro A", "Intro B", "Intro C"];
 const MAINS: [&str; 4] = ["Main A", "Main B", "Main C", "Main D"];
 const FILLS: [&str; 4] = ["Fill In AA", "Fill In BB", "Fill In CC", "Fill In DD"];
@@ -398,6 +413,7 @@ impl MockSession {
                 ..EffectsState::initial()
             },
             home: HomeState::default(),
+            live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false },
         };
         let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
@@ -767,6 +783,11 @@ impl MockSession {
 
     fn bump(&mut self, before: &AppState) -> bool {
         self.derive();
+        // The live rack: any change to what it holds sets modified (the session's
+        // `pump_live_rack`).
+        if live_rack_view(&self.state) != live_rack_view(before) {
+            self.state.live_rack.modified = true;
+        }
         // The clock as read when the state last changed: time passing alone changes nothing.
         let clock = &mut self.state.surface.clock;
         *clock = clock.at(before.surface.clock.at_ms);
@@ -2488,6 +2509,32 @@ mod tests {
         assert!(!m.state.keyboard_parts[0].sound_edited);
         m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("Mine 2".into()) });
         assert_eq!(m.state.keyboard_parts[0].sound.as_ref().map(|t| t.name.as_str()), Some("Mine 2"));
+    }
+
+    /// The live rack (docs/racks.md): a new rack, modified by a mix, split or Harmony/Arp
+    /// change, or a plugin edit; not by the band playing.
+    #[test]
+    fn the_live_rack_is_modified_by_a_change_to_what_it_holds() {
+        let changes: [&dyn Fn(&mut MockSession); 4] = [
+            &|m| drop(m.send(PartsCmd::SetPartVolume { part: 0, volume: 12 })),
+            &|m| drop(m.send(ChordCmd::SetSplit { note: 48 })),
+            &|m| drop(m.send(HarmonyArpCmd::SetHarmonyArpOn { on: true })),
+            &|m| drop(m.plugin_window(0, 5)),
+        ];
+        for (i, change) in changes.iter().enumerate() {
+            let mut m = MockSession::new();
+            if i == 3 {
+                m.send(SoundsCmd::ListPluginPresets { id: format!("au:{}", sounds::MOCK_PRESETS_ID) });
+                m.send(PluginCmd::SetPartPluginPreset { part: 0, id: sounds::MOCK_PRESETS_ID.into(), preset: "f:1".into() });
+                m.state.live_rack.modified = false;
+            }
+            assert_eq!(m.state.live_rack, LiveRackState { name: "New rack".into(), id: None, modified: false });
+            m.send(TransportCmd::StartStop);
+            m.advance(bar_ms(&m) * 2.0);
+            assert!(!m.state.live_rack.modified, "change {i}: not by the band");
+            change(&mut m);
+            assert!(m.state.live_rack.modified, "change {i} sets modified");
+        }
     }
 
     /// Every part names what actually sounds, as the engine does (`api::part_sound`): a

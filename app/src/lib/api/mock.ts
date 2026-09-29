@@ -285,6 +285,7 @@ export function initialState(): AppState {
     knobs: { page: 'style', pageName: 'Style', pageNumber: 1, pageCount: 6, knobs: [] },
     effects: initialEffects(),
     home: { mains: [], progress: { running: false, bar: 1, beat: 1, bars: null, beatsPerBar: 4, fraction: 0 }, snapshot: null, ots: null, bandSends: [] },
+    liveRack: { name: 'New rack', id: null, modified: false },
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
@@ -376,6 +377,8 @@ export class MockSession implements Session {
   readonly kind = 'mock' as const
   state: AppState
   private subs = new Set<(s: AppState) => void>()
+  /** What the live rack held at the last publish (`liveRackView`); null before the first. */
+  private rackSeen: string | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private last = 0
   /** Fractional beats since the band started. */
@@ -596,6 +599,10 @@ export class MockSession implements Session {
     this.sound.derive(this.state)
     this.catalogMock.derive(this.state)
     this.state.knobs = this.knobs.state(this.state)
+    // The live rack: any change to what it holds sets modified (the session's pump_live_rack).
+    const rack = liveRackView(this.state)
+    if (this.rackSeen !== null && rack !== this.rackSeen) this.state.liveRack.modified = true
+    this.rackSeen = rack
     const snap = this.snapshot()
     for (const f of this.subs) f(snap)
   }
@@ -2049,6 +2056,13 @@ const MOCK_STYLE_SENDS: [number, number, number][] = [[30, 0, 0], [30, 0, 0], [2
  * the band's reverb as written (100), no band chorus or delay (#236); the same for the Multi
  * Pads (#267).
  */
+/** What the live rack holds, as the state shows it (docs/racks.md): the keyboard parts'
+ *  sounds and mix, the split, the keyboard transpose and Harmony/Arp. */
+export function liveRackView(st: AppState): string {
+  const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false])
+  return JSON.stringify([parts, st.chord.split, st.chord.transposeKeyboard, st.harmonyArp])
+}
+
 export function initialEffects(): EffectsState {
   const block = (block: FxBlock, name: string, effect: FxType, types: [FxType, string][], bandSend: number): EffectBlockState => ({
     block, name, effect, effectName: types.find(([t]) => t === effect)![1],

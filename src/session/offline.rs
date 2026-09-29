@@ -48,6 +48,7 @@ impl Session {
         }
         p.control.shared.parts.set_bass_program(synth::style_bass_program(p.control.info.voices[10]));
         p.control.sync_manual_bass();
+        p.control.restore_live_rack(opts.live_rack.clone(), &opts);
         let inner = Arc::new(Inner::new(shared, p.control));
         let s = Session { inner, live: Mutex::new(None) };
         s.settle();

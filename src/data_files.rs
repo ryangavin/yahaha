@@ -32,13 +32,17 @@ pub fn file_stem(path: &Path, ext: &str) -> String {
     n.strip_suffix(ext).map(str::to_string).unwrap_or(n)
 }
 
-/// Write via a temporary file and a rename, so a crash never leaves half a file.
+/// Write via a temporary file (flushed to disk) and a rename, so a crash or power loss
+/// never leaves half a file. It blocks on the disk: never call it from a real-time thread.
 pub fn write_atomic(path: &Path, text: &str) -> Result<()> {
+    use std::io::Write;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
+    let mut file = std::fs::File::create(&tmp).with_context(|| format!("writing {}", tmp.display()))?;
+    file.write_all(text.as_bytes()).and_then(|()| file.sync_all()).with_context(|| format!("writing {}", tmp.display()))?;
+    drop(file);
     std::fs::rename(&tmp, path).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }

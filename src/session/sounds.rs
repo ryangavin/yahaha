@@ -204,7 +204,7 @@ impl Control {
         if part > 3 {
             return self.fail(format!("no keyboard part {part} (0-3)"));
         }
-        let mix = self.capture_rack_part(part as usize);
+        let mix = self.capture_rack_part(part as usize, false);
         self.assign_sound(part, id)?;
         if let Err(e) = self.apply_rack_mix(part as usize, &mix) {
             return self.fail(e);
