@@ -276,9 +276,12 @@ impl Control {
         ireal::suggest_style(&s.style, &s.groove, beats, (s.tempo > 0).then_some(s.tempo), cands)
     }
 
-    /// Replaced plans come back from the engine to be freed here.
-    pub(super) fn pump_chart(&mut self) {
+    /// Replaced plans come back from the engine to be freed here. Whether the state
+    /// changed: never, as freeing a plan changes nothing the state shows (the chart's bar
+    /// and override come with the engine's snapshot).
+    pub(super) fn pump_chart(&mut self) -> bool {
         while self.charts.old_rx.pop().is_ok() {}
+        false
     }
 
     pub(super) fn chart_state(&self) -> ChartState {
