@@ -679,6 +679,12 @@ impl MockSession {
         self.advance(ms)
     }
 
+    /// The mock's clock (ms), what `state_now` reads `surface.clock` at: the shell's
+    /// `state` command serializes the state with it without cloning the state.
+    pub fn now_ms(&self) -> f64 {
+        self.now
+    }
+
     /// The state with its clock read now (`surface.clock.atMs`), as the engine's
     /// `Session::state_now`.
     pub fn state_now(&self) -> AppState {
