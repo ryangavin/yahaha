@@ -4,7 +4,7 @@
 
 import fixture from './mock-fixture.json'
 import { partSound } from './part-sound'
-import { CATEGORY_LABELS, FAMILY_NAMES, commandSource, emptyMap, originOfPresetKey, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type PatchSource, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
+import { CATEGORY_LABELS, FAMILY_NAMES, commandSource, emptyMap, equalOrigin, originOfPresetKey, type FontPreset, type GmMapRow, type GmResolution, type SoundTag, type PatchCategory, type PatchFields, type PatchInfo, type PatchSource, type Preset, type ProgramMap, type RuleKind, type SoundLibraryCmd, type SoundLibraryState } from './sound-library'
 import type { AppState } from './types'
 
 const GM: string[] = fixture.gm
@@ -306,10 +306,12 @@ export class MockSoundLibrary {
       case 'updatePatch': {
         const i = at(c.id)
         if (i < 0) return `no patch ${c.id} in the sound library`
-        // A plugin source without state, on the same plugin, keeps the stored state.
+        // A plugin source without state, on the same plugin and origin, keeps the stored
+        // state (the engine's `keep_plugin_state`); another origin starts with none.
         const was = sl.patches[i].source
         let source = c.patch.source
-        if (source.kind === 'plugin' && !source.state && was.kind === 'plugin' && was.componentId === source.componentId) source = { ...source, state: this.stateOf(c.id) }
+        if (source.kind === 'plugin' && !source.state && was.kind === 'plugin' && was.componentId === source.componentId && equalOrigin(was.origin, source.origin))
+          source = { ...source, state: this.stateOf(c.id) }
         this.keep(c.id, source.kind === 'plugin' ? source.state : undefined)
         sl.patches[i] = info(c.id, { ...c.patch, source, name: c.patch.name.trim() || sl.patches[i].name })
         break

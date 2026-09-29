@@ -507,4 +507,26 @@ mod tests {
         assert!(export(&mut m, &mut st, "keys-au", false).unwrap().contains("already exists"));
         assert_eq!(export(&mut m, &mut st, "keys-au", true), None);
     }
+
+    /// `updatePatch` as the engine (#436): a plugin source with no state keeps the stored
+    /// one for the same plugin and origin; another origin or plugin starts with none.
+    #[test]
+    fn an_update_without_state_keeps_the_stored_plugin_state() {
+        let (mut m, mut st) = (MockSound::default(), AppState::default());
+        let source = |state: &str, origin: PluginOrigin| PatchSource::Plugin { component_id: "aumu Smp7 Fake".into(), state: state.into(), origin };
+        let factory = |number| PluginOrigin::Factory { number };
+        let i = m.at("keys-au").unwrap();
+        m.patches[i].source = source("c2FtcGxlcg==", factory(1));
+        let update = |m: &mut MockSound, st: &mut AppState, s: PatchSource| {
+            let patch = PatchFields { name: "Renamed".into(), category: Category::EPiano, tags: vec![], favourite: false, source: s };
+            assert_eq!(m.cmd(st, SoundLibraryCmd::UpdatePatch { id: "keys-au".into(), patch }), None);
+        };
+        update(&mut m, &mut st, source("", factory(1)));
+        assert_eq!((m.patches[i].name.as_str(), &m.patches[i].source), ("Renamed", &source("c2FtcGxlcg==", factory(1))), "the stored blob is unchanged");
+        update(&mut m, &mut st, source("", factory(2)));
+        assert_eq!(m.patches[i].source, source("", factory(2)), "another factory preset starts with none");
+        m.patches[i].source = source("c2FtcGxlcg==", PluginOrigin::User);
+        update(&mut m, &mut st, PatchSource::plugin("aumu dls  appl", ""));
+        assert_eq!(m.patches[i].source, PatchSource::plugin("aumu dls  appl", ""), "another plugin starts with none");
+    }
 }

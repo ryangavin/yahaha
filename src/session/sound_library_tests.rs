@@ -796,3 +796,29 @@ fn version_1_and_bare_files_back_up_as_v1() {
         let _ = std::fs::remove_dir_all(&data);
     }
 }
+
+/// `updatePatch` with a plugin source and no state (as a client sends back the state's
+/// source, which shows only `hasState`) keeps the stored state for the same plugin and
+/// origin (#436); another factory preset of the plugin starts with none.
+#[test]
+fn an_update_without_state_keeps_the_stored_plugin_state() {
+    let data = folder("keep-state");
+    let s = gen_session(&data);
+    let source = |state: &str, number| PatchSource::Plugin { component_id: "aumu Smp7 Fake".into(), state: state.into(), origin: PluginOrigin::Factory { number } };
+    let plugin_fields = |name: &str, state: &str, number| PatchFields { name: name.into(), category: patches::Category::EPiano, tags: vec![], favourite: false, source: source(state, number) };
+    s.send(SoundLibraryCmd::CreatePatch { patch: plugin_fields("Keys", "c2FtcGxlcg==", 1) }).unwrap();
+    let id = s.state().sound_library.last_added.clone().unwrap();
+    let stored = |s: &Session| s.inner.lock().sound.lib.patches.iter().find(|p| p.id == id).unwrap().source.clone();
+    s.send(SoundLibraryCmd::UpdatePatch { id: id.clone(), patch: plugin_fields("Renamed", "", 1) }).unwrap();
+    assert_eq!(stored(&s), source("c2FtcGxlcg==", 1), "the stored blob is unchanged");
+    let st = s.state();
+    let p = st.sound_library.patches.iter().find(|p| p.patch.id == id).unwrap();
+    assert_eq!(p.patch.name, "Renamed");
+    assert!(matches!(p.patch.source, PatchSourceView::Plugin { has_state: true, .. }));
+    assert!(std::fs::read_to_string(data.join(patches::FILE_NAME)).unwrap().contains("c2FtcGxlcg=="), "and so is the file");
+    // Another factory preset of the same plugin: the old preset's state doesn't carry over.
+    s.send(SoundLibraryCmd::UpdatePatch { id: id.clone(), patch: plugin_fields("Renamed", "", 2) }).unwrap();
+    assert_eq!(stored(&s), source("", 2));
+    drop(s);
+    let _ = std::fs::remove_dir_all(&data);
+}
