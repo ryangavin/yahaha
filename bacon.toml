@@ -23,9 +23,20 @@ need_stdout = false
 command = ["cargo", "clippy", "--all-targets", "--features", "plugins", "--color", "always"]
 need_stdout = false
 
+# The core suite (AGENTS.md, Checks) on every change: the library's tests without the slow
+# ones, under the `test-quick` profile. On Linux use `core-portable`.
+[jobs.core]
+command = ["cargo", "test", "--profile", "test-quick", "--features", "plugins", "--lib", "--color", "always"]
+need_stdout = true
+
+[jobs.core-portable]
+command = ["cargo", "test", "--profile", "test-quick", "--lib", "--color", "always"]
+need_stdout = true
+
 # An agent's targeted tests: `bacon test -- <filter>` (the filter goes after `--`). Built with
 # the `test-quick` profile (Cargo.toml): our crate unoptimised, so a rebuild is quick. The
-# full suite and CI use the same profile.
+# core suite and CI use the same profile. Add `--lib` before the filter for library tests
+# only (it skips building and linking the integration test crates).
 [jobs.test]
 command = ["cargo", "test", "--profile", "test-quick", "--features", "plugins", "--color", "always"]
 need_stdout = true
