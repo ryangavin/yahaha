@@ -92,7 +92,7 @@
     class:failed={plugin?.status === 'failed' || plugin?.status === 'muted'}
     aria-label="{part.name} sound: {part.voiceName}"
     use:tip={'part.voice'}
-    onclick={() => (ui.soundBrowser = index)}
+    onclick={() => ui.openLibrary('sounds', index)}
   >
     <span class="glow-text vname">{part.voiceName}</span>
     <span class="sub">
