@@ -1063,7 +1063,8 @@ fn ots_looks(s: &Snapshot, p: &Panel) -> [(u8, Look); 16] {
 const QUICK_LABELS: [&str; 8] = ["QUICK 1", "QUICK 2", "QUICK 3", "QUICK 4", "QUICK 5", "QUICK 6", "QUICK 7", "QUICK 8"];
 const QUICK_KEYS: [&str; 8] = ["⇧Q", "⇧W", "⇧E", "⇧R", "⇧T", "⇧Y", "⇧U", "⇧I"];
 
-fn quick_looks(q: &QuickPanel) -> [(u8, Look); 16] {
+/// Page 4's pads (the app's dev mock builds its page 4 from this too).
+pub fn quick_looks(q: &QuickPanel) -> [(u8, Look); 16] {
     let pl = |label, key, available, on| page_look(Page::QuickRacks, label, key, available, on);
     let button = |i: u8| -> Look {
         let (label, key) = (QUICK_LABELS[i as usize], QUICK_KEYS[i as usize]);

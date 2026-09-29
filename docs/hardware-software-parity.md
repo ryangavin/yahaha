@@ -34,7 +34,7 @@ Audited 2026-09-26 against `develop` at e54b512.
 | OTS/Parts | Fade | `toggleFade` | StylePage |
 | OTS/Parts | Voice −/+ | `stepVoice` | mirror only |
 | OTS/Parts | Part on/off, part select | `togglePart` / `selectPart` | parts/PartStrip.svelte; mixer/Mixer.svelte |
-| Registration | Snapshots 1–8, Snapshot Bank −/+ (BANK -/+), File −/+, Memory, Freeze, Sequence −/+ | `pressSnapshot` / `stepSnapshotBank` / `stepRegistBank` / `toggleRegistMemory` / `toggleFreeze` / `stepRegistSequence` | registration/RegistBar.svelte, Registration.svelte |
+| Quick Racks | Quick Racks 1–8, Bank −/+, Store, Rack −/+ (the bank-file and Freeze pads are dark) | `pressQuickRack` / `stepQuickRackBank` / `toggleQuickRackStore` / `stepQuickRack` | the Quick Racks bar (in the keyboard strip) and the Quick Racks drawer |
 | Multi Pads | Pads 1–4, STOP, arm, stop one | `triggerMultiPad` / `stopAllMultiPads` / `armMultiPad` / `stopMultiPad` | multipad/MultiPad.svelte |
 
 ## Buttons
@@ -50,7 +50,7 @@ Audited 2026-09-26 against `develop` at e54b512.
 | Tempo −/+ (and both: reset) | `tempoDown` / `tempoUp` / `resetTempo` | TransportBar |
 | Shift+tempo: Retrigger length | `stepRetriggerRate` | StylePage (`setRetriggerRate`) |
 | Track ◀/▶ style | `stepStyle` | browser/Browser.svelte |
-| Shift+Track ◀/▶ Playlist | `stepPlaylist` | RegistBar, Registration |
+| Shift+Track ◀/▶ previous/next Quick Rack | `stepQuickRack` | the Quick Racks bar |
 | Knob Assign ▲/▼ | `stepKnobPage` | **MISSING** |
 
 ## Faders
@@ -98,8 +98,7 @@ function with its "Try" button (`triggerFunction`).
 | Section Reset | `sectionReset` | mirror only |
 | OTS Link, OTS 1–4, OTS next/prev | `toggleOtsLink` / `recallOts` | Parts |
 | Unison (pedal function `unison`; no Launchkey pad) | `toggleUnison` / `setUnisonHeld` / `setUnisonType` | settings/StylePage.svelte (`transport.unison`, `settings.unison_type` tips) |
-| Regist Bank ±, Snapshot Bank ± (pedal functions `snapshotBankNext`/`snapshotBankPrev`), Regist 1–10, Memory, Freeze, Sequence | as the pads | RegistBar (◀ letter ▶ readout, `regist.snap_bank*` tips), Registration, PedalsPage |
-| Regist next/prev | `stepRegist` | **MISSING** (RegistBar sends `stepRegistSequence`) |
+| Quick Racks Bank ± (`snapshotBankNext`/`snapshotBankPrev`), Quick Rack 1–10 (`regist1`–`regist10`), Store (`registMemory`), Next/Previous Quick Rack (`registNext`/`registPrev`) | as the pads | the Quick Racks bar, PedalsPage. Registration Bank ±, Freeze and Sequence are no longer available. |
 | Transpose ±, part on/off, Fingered On Bass, Harmony/Arp, Chord Looper, Left Hold | as above | TransposePage, PartStrip, ChordPage, Harmony, Looper, Parts |
 | Arp Hold (pedal) | `toggleArpPedalHold` | **MISSING** (Harmony's "Arp Hold" is the panel switch `toggleArpHold`) |
 
@@ -109,8 +108,7 @@ MISSING, where it belongs:
 
 1. `setTempo`: an editable BPM readout in header/TransportBar.svelte.
 2. `setKnobPage`, `stepKnobPage`, `turnKnob`: the eight encoders and the Knob Assign ▲/▼ buttons in launchkey/Launchkey.svelte. Every knob function already has its own control.
-3. `stepRegist`: Regist −/+ in registration/RegistBar.svelte.
-4. `toggleArpPedalHold`: beside Arp Hold in harmony/Harmony.svelte.
+3. `toggleArpPedalHold`: beside Arp Hold in harmony/Harmony.svelte.
 
 Mirror only, which needs a dedicated control:
 

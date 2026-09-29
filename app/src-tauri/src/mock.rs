@@ -9,6 +9,8 @@ use std::time::Instant;
 
 #[path = "mock_multipad.rs"]
 mod multipad;
+#[path = "mock_quick.rs"]
+mod quick;
 #[path = "mock_racks.rs"]
 mod racks;
 #[path = "mock_sound.rs"]
@@ -23,7 +25,6 @@ use yahaha::fingering::Fingering;
 use yahaha::launchkey::{self as lk, Action, Anim, Control, Level, Page};
 use yahaha::parts::{self, FaderPage};
 
-use crate::mock_regist::{Effect, MockRegist};
 use crate::mock_looper::{self, MockLooper};
 
 const FIXTURE: &str = include_str!("../../src/lib/api/mock-fixture.json");
@@ -187,8 +188,8 @@ pub struct MockSession {
     fade_left: f64,
     /// A Hold pedal holds Unison on (`setUnisonHeld`).
     unison_held: bool,
-    /// Registration Memory and the Playlist (in memory).
-    regist: MockRegist,
+    /// Quick Racks (mock_quick.rs).
+    quick: quick::MockQuick,
     /// The Chord Looper, as the engine runs it (mock_looper.rs).
     looper: MockLooper,
     /// Multi Pads (mock_multipad.rs).
@@ -419,8 +420,8 @@ impl MockSession {
             home: HomeState::default(),
             live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false, prompt: None },
             racks: Vec::new(),
+            quick_racks: QuickRacksState::default(),
         };
-        let songs: Vec<(String, String)> = library.entries.iter().filter(|e| e.status == "ok").map(|e| (e.path.clone(), e.name.clone())).collect();
         let mut m = MockSession {
             state,
             gm,
@@ -445,7 +446,7 @@ impl MockSession {
             settings: StyleSettings::default(),
             fade_left: 0.0,
             unison_held: false,
-            regist: MockRegist::new(&songs),
+            quick: Default::default(),
             looper: MockLooper::default(),
             pads: multipad::MockPads::default(),
             controllers: Controllers::new(),
@@ -1282,9 +1283,9 @@ impl MockSession {
         let t = &mut st.transport;
         t.landing = (t.running && (fill_like(&t.queued) || fill_like(&t.section))).then(|| MAINS[t.main as usize % 4].into());
         st.transport.lamps = pads_for(st, Page::Sections);
-        self.regist.fill(st);
         st.home = crate::mock_home::home(st);
-        st.pads.pads = if st.pads.page == Page::Registration { self.regist.pads() } else { pads_for(st, st.pads.page) };
+        st.pads.pads = pads_for(st, st.pads.page);
+        self.quick.fill(st, &self.racks.entries());
         self.anchor_clocks();
         self.state.surface = self.surface();
     }
@@ -1313,7 +1314,6 @@ impl MockSession {
         let st = &self.state;
         let page = st.pads.page;
         let styles = self.library.entries.len() > 1;
-        let songs = self.regist.has_songs();
         let fader_page = st.mixer.fader_page;
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
@@ -1335,7 +1335,6 @@ impl MockSession {
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 Control::Act(Action::Style(_)) if !styles => None,
-                Control::Act(Action::Playlist(_)) if !songs => None,
                 Control::Act(a) => Some(a.into()),
             }
         };
@@ -1364,8 +1363,8 @@ impl MockSession {
         for (id, cc, label, shift_label) in [
             ("padBankUp", lk::PAD_UP_CC, "PAGE ▲", "LEFT"),
             ("padBankDown", lk::PAD_DOWN_CC, "PAGE ▼", "OTS LINK"),
-            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", "◀ SONG"),
-            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", "SONG ▶"),
+            ("trackPrev", lk::TRACK_LEFT_CC, "◀ STYLE", "◀ RACK"),
+            ("trackNext", lk::TRACK_RIGHT_CC, "STYLE ▶", "RACK ▶"),
             ("play", lk::PLAY_CC, "PLAY", "RESET"),
             ("stop", lk::STOP_CC, "STOP", "FADE"),
             ("scene", lk::SCENE_CC, "TEMPO +", "RTG SHORT"),
@@ -2081,7 +2080,10 @@ impl MockSession {
                 None => self.message(format!("Style part {part} has no insertion effect"), true),
             },
             AppCmd::Fx(FxCmd::SetRotaryFast { on }) => self.state.effects.rotary_fast = on,
-            AppCmd::Rack(c) => self.rack_cmd(c),
+            AppCmd::Rack(c) => {
+                self.rack_cmd(c.clone());
+                self.quick_after_rack_cmd(&c);
+            }
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
             AppCmd::Fx(FxCmd::SetPadSend { block, level }) => self.state.effects.blocks[block.index()].pad_send = level.min(127),
@@ -2124,14 +2126,9 @@ impl MockSession {
                 };
                 self.state.dynamics = c.apply(now).into();
             }
-            AppCmd::Registration(c) => {
-                let fx = self.regist.registration_cmd(c, &self.state);
-                self.run_regist(fx);
-            }
-            AppCmd::Playlist(c) => {
-                let fx = self.regist.playlist_cmd(c, &self.state);
-                self.run_regist(fx);
-            }
+            AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
+            // Off the wire (Quick Racks replaced them): the app can't send these.
+            AppCmd::Registration(_) | AppCmd::Playlist(_) => self.message("Registrations are gone: Quick Racks replace them", true),
             AppCmd::MultiPad(c) => {
                 let running = self.state.transport.running;
                 if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
@@ -2193,26 +2190,6 @@ impl MockSession {
                 Ok(self.state.sound_library.last_added.clone())
             }
         }
-    }
-
-    /// A recall's style load and Main press (OTS Link held off: the registration's voices
-    /// win), then the rest of it.
-    fn run_regist(&mut self, fx: Vec<Effect>) {
-        let tempo = self.state.transport.tempo;
-        for e in fx {
-            match e {
-                Effect::LoadStyle(path) => self.cmd(AppCmd::Library(LibraryCmd::LoadStylePath { path })),
-                Effect::Main(index) => {
-                    let link = self.state.ots.link;
-                    self.state.ots.link = false;
-                    self.cmd(AppCmd::Transport(TransportCmd::Main { index }));
-                    self.state.ots.link = link;
-                }
-                Effect::Message(text, error) => self.message(text, error),
-                Effect::Cmd(c) => self.cmd(c),
-            }
-        }
-        self.regist.apply_pending(&mut self.state, tempo);
     }
 
     fn set_upper(&mut self, on: bool) {
@@ -2381,8 +2358,8 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             }
             v
         }
-        // Page 4 comes from the Registration mock (`MockRegist::pads`).
-        Page::Registration | Page::MultiPads => vec![],
+        // Page 4 comes from the Quick Racks mock (`MockQuick::fill`).
+        Page::QuickRacks | Page::MultiPads => vec![],
     }
 }
 
@@ -3032,24 +3009,24 @@ mod tests {
         assert!(m.state.controllers.sustain);
         m.send(SystemCmd::Panic);
         assert!(!m.state.controllers.sustain);
-        // Registration Bank +: the REGIST BANK [+] button loads the next demo bank.
-        let before = m.state.registration.bank.path.clone();
+        // Registration Bank + is gone (no bank files): it says so.
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistBankNext });
-        assert!(m.state.registration.bank.path.is_some());
-        assert_ne!(m.state.registration.bank.path, before);
-        // Snapshot Bank +/−: the BANK -/+ pads' command (`StepSnapshotBank`).
-        let view = m.state.registration.snapshot_bank;
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("not in yahaha")));
+        // Snapshot Bank +/− step the Quick Racks bank, as the BANK -/+ pads.
         m.send(ControllersCmd::TriggerFunction { function: Function::SnapshotBankNext });
-        assert_eq!(m.state.registration.snapshot_bank, view + 1);
+        assert_eq!(m.state.quick_racks.bank, 1);
         m.send(ControllersCmd::TriggerFunction { function: Function::SnapshotBankPrev });
-        assert_eq!(m.state.registration.snapshot_bank, view);
-        // Regist + (#200): the demo bank's first stored button, then the next one.
-        m.send(RegistrationCmd::SetRegistSequenceOn { on: false });
+        assert_eq!(m.state.quick_racks.bank, 0);
+        // Regist 1 and Regist + load Quick Racks.
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        m.send(QuickRackCmd::ToggleQuickRackStore);
+        m.send(QuickRackCmd::PressQuickRack { slot: 2, discard: false });
+        m.send(RackCmd::NewRack { discard: true });
         m.send(ControllersCmd::TriggerFunction { function: Function::RegistNext });
-        let first = m.state.registration.selected;
-        assert!(first.is_some());
-        m.send(ControllersCmd::TriggerFunction { function: Function::Regist1 });
-        assert_eq!(m.state.registration.selected, Some(0));
+        assert_eq!(m.state.live_rack.name, "Ballad");
+        m.send(RackCmd::NewRack { discard: true });
+        m.send(ControllersCmd::TriggerFunction { function: Function::Regist3 });
+        assert!(m.state.quick_racks.buttons[2].loaded);
     }
 
     #[test]
@@ -3246,65 +3223,37 @@ mod tests {
         assert_eq!((c3.running, c3.bar, c3.beat, c3.phase), (false, 1, 1, 0.0));
     }
 
+    /// Quick Racks as the session does them: Store (after a save when unsaved), press
+    /// through the guard, bank −/+, page 4, Shift + Track.
     #[test]
-    fn registration_recalls_lights_page_4_and_the_playlist_steps() {
+    fn quick_racks_store_press_and_light_page_4() {
         let mut m = MockSession::new();
-        assert_eq!(m.state.registration.bank.name, "Friday Gig");
-        assert_eq!(m.state.registration.buttons.len(), 16, "Friday Gig has Banks A and B");
-        m.send(RegistrationCmd::RecallRegist { index: 3 });
-        assert_eq!(m.state.registration.selected, Some(3));
-        assert_eq!(m.state.transport.tempo, 132.0);
-        assert_eq!(m.state.keyboard_parts[0].program, 26);
-        m.send(PadsCmd::SetPadPage { page: Page::Registration });
-        assert_eq!(m.state.pads.pads.len(), 16);
-        assert_eq!((m.state.pads.pads[3].rgb, m.state.pads.pads[0].rgb), ([127, 0, 0], [0, 40, 127]));
-        assert_eq!(m.state.pads.pads[7].level, Level::Off);
-        assert_eq!((m.state.pads.pads[0].label.as_str(), m.state.pads.pads[12].label.as_str()), ("SNAP 1", "STORE"));
-        // Bank +, Store, then snapshot 2: B2.
-        m.send(RegistrationCmd::StepSnapshotBank { delta: 1 });
-        assert_eq!(m.state.registration.snapshot_bank, 1);
-        assert_eq!(m.state.pads.pads[0].level, Level::Bright, "B1 (a ten-button bank's 9) is stored");
-        m.send(RegistrationCmd::ToggleRegistMemory);
+        m.send(QuickRackCmd::ToggleQuickRackStore);
+        m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: false });
+        assert_eq!(m.state.quick_racks.store_waiting, Some(1), "an unsaved rack waits for its save");
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        let q = &m.state.quick_racks;
+        assert_eq!((q.store, q.store_waiting, q.buttons[1].name.as_str(), q.buttons[1].loaded), (false, None, "Ballad", true));
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: false });
+        assert!(matches!(m.state.live_rack.prompt, Some(RackPrompt::UnsavedChanges { .. })), "the guard");
+        m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: true });
+        assert!(!m.state.live_rack.modified);
+        m.send(PadsCmd::SetPadPage { page: Page::QuickRacks });
+        let pads = &m.state.pads.pads;
+        assert_eq!(pads.len(), 16);
+        assert_eq!((pads[1].rgb, pads[0].level), ([127, 0, 0], Level::Off));
+        assert_eq!((pads[0].label.as_str(), pads[12].label.as_str(), pads[10].label.as_str()), ("QUICK 1", "STORE", ""));
+        assert_eq!(pads[1].action, Some(AppCmd::QuickRacks(QuickRackCmd::PressQuickRack { slot: 1, discard: false })));
+        m.send(QuickRackCmd::StepQuickRackBank { delta: 1 });
+        assert_eq!((m.state.quick_racks.bank, m.state.quick_racks.buttons[1].rack.clone()), (1, None));
+        m.send(QuickRackCmd::ToggleQuickRackStore);
         assert!(m.state.pads.pads.iter().take(8).all(|p| p.anim == Anim::Flash));
-        m.send(RegistrationCmd::PressSnapshot { slot: 1 });
-        assert!(m.state.registration.buttons[9].stored);
-        assert_eq!(m.state.registration.selected, Some(9));
-        // Shift + Track steps the playlist: its first record recalls Friday Gig [1].
         let tl = m.state.surface.controls.iter().find(|c| c.id == "trackNext").unwrap().clone();
-        assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("SONG ▶", Some(AppCmd::Playlist(PlaylistCmd::StepPlaylist { delta: 1 }))));
-        m.send(PlaylistCmd::StepPlaylist { delta: 1 });
-        assert_eq!((m.state.playlist.current, m.state.registration.selected), (Some(0), Some(0)));
-        assert_eq!(m.state.transport.tempo, 72.0);
-    }
-
-    /// As the session's `harmonyArp` registrable: Memorize stores Keyboard Harmony/Arpeggio,
-    /// a recall puts it back (not the pedal's Arpeggio Hold), Freeze leaves it.
-    #[test]
-    fn registration_stores_harmony_arpeggio() {
-        let mut m = MockSession::new();
-        m.send(HarmonyArpCmd::SetArpPattern { index: 4 });
-        m.send(HarmonyArpCmd::SetHarmonyArpOn { on: true });
-        m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 60 });
-        let want = m.state.harmony_arp.clone();
-        m.send(RegistrationCmd::MemorizeRegist { index: 5 });
-        let scramble = |m: &mut MockSession| {
-            m.send(HarmonyArpCmd::SetHarmonyType { index: 1 });
-            m.send(HarmonyArpCmd::SetHarmonyArpOn { on: false });
-            m.send(HarmonyArpCmd::SetHarmonyVolume { volume: 100 });
-        };
-        scramble(&mut m);
-        m.send(HarmonyArpCmd::SetArpPedalHold { on: true });
-        m.send(RegistrationCmd::RecallRegist { index: 5 });
-        let mut got = m.state.harmony_arp.clone();
-        assert!(got.arp.pedal_hold, "the pedal's, not recalled");
-        got.arp.pedal_hold = false;
-        assert_eq!(got, want);
-        scramble(&mut m);
-        let scrambled = m.state.harmony_arp.clone();
-        m.send(RegistrationCmd::SetFreezeGroup { group: yahaha::registration::Group::HarmonyArp, on: true });
-        m.send(RegistrationCmd::SetFreeze { on: true });
-        m.send(RegistrationCmd::RecallRegist { index: 5 });
-        assert_eq!(m.state.harmony_arp, scrambled, "frozen");
+        assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("RACK ▶", Some(AppCmd::QuickRacks(QuickRackCmd::StepQuickRack { delta: 1, discard: false }))));
+        m.send(QuickRackCmd::StepQuickRackBank { delta: -1 });
+        m.send(QuickRackCmd::ClearQuickRack { bank: 0, slot: 1 });
+        assert_eq!(m.state.quick_racks.buttons[1].rack, None);
     }
 
     /// Knob Assign pages (#197): a turn runs its function's command, as the session's.
@@ -3347,44 +3296,6 @@ mod tests {
         let d = &m.state.dynamics;
         assert_eq!((d.level, d.accent, d.accent_threshold, d.touch, d.control), (127, true, 1, true, true));
         assert_eq!((d.accent_mode, d.accent_source), (yahaha::engine::AccentMode::Fill, yahaha::engine::AccentSource::Both));
-    }
-
-    /// As the session's Parameter Lock: a locked group keeps the player's setting through
-    /// a recall; the other groups are recalled.
-    #[test]
-    fn param_lock_keeps_locked_groups_through_a_recall() {
-        let mut m = MockSession::new();
-        m.send(ChordCmd::SetSplit { note: 60 });
-        m.send(ChordCmd::SetFingering { fingering: yahaha::fingering::Fingering::Fingered });
-        m.send(RegistrationCmd::MemorizeRegist { index: 4 });
-        m.send(ChordCmd::SetSplit { note: 50 });
-        m.send(ChordCmd::SetFingering { fingering: yahaha::fingering::Fingering::SingleFinger });
-        m.send(ParamLockCmd::SetParamLock { item: LockItem::SplitPoint, on: true });
-        assert!(m.state.param_locks.split_point && !m.state.param_locks.fingering_type);
-        m.send(RegistrationCmd::RecallRegist { index: 4 });
-        assert_eq!(m.state.chord.split, 50, "locked");
-        assert_eq!(m.state.chord.fingering, yahaha::fingering::Fingering::Fingered, "not locked");
-    }
-
-    /// Save As names files as the session does ("A:B" is "A_B") and, like the Mac's file
-    /// system, ignores case: your own bank in another case is renamed, not refused.
-    #[test]
-    fn save_as_uses_the_session_file_names() {
-        let mut m = MockSession::new();
-        let save = |m: &mut MockSession, name: &str, overwrite: bool| m.send(RegistrationCmd::SaveRegistBank { name: Some(name.into()), overwrite });
-        m.send(RegistrationCmd::NewRegistBank);
-        save(&mut m, "A_B", false);
-        m.send(RegistrationCmd::NewRegistBank);
-        save(&mut m, "A:B", false);
-        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("already exists")));
-        assert_eq!(m.state.registration.bank.path, None);
-        m.send(RegistrationCmd::NewRegistBank);
-        save(&mut m, "Mine", false);
-        save(&mut m, "MINE", false);
-        let r = &m.state.registration;
-        assert!(r.bank.path.as_deref().is_some_and(|p| p.ends_with("/MINE.regist.json")));
-        assert_eq!(r.banks.iter().filter(|b| b.name.eq_ignore_ascii_case("mine")).count(), 1);
-        assert!(r.bank.position.is_some());
     }
 
     #[test]
