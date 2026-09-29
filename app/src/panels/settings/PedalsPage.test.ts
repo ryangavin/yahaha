@@ -93,26 +93,35 @@ describe('Pedals page', () => {
     expect(app.state.controllers.sustain).toBe(false)
   })
 
-  it('Registration Bank +/− are selectable (REGIST BANK +/−)', () => {
+  it('Registration bank files, Freeze and Sequence are not available (Quick Racks replaced them)', () => {
     setup()
-    const opt = byTip<HTMLSelectElement>('pedal.function')[0].querySelector<HTMLOptionElement>('option[value="registBankNext"]')!
-    expect(opt.disabled).toBe(false)
-    expect(functionCmd('registBankPrev', { fingering: 'fingered' })).toEqual({ type: 'stepRegistBank', delta: -1 })
+    const select = byTip<HTMLSelectElement>('pedal.function')[0]
+    for (const id of ['registBankNext', 'registBankPrev', 'registFreeze', 'registSequence']) {
+      const opt = select.querySelector<HTMLOptionElement>(`option[value="${id}"]`)!
+      expect(opt.disabled, id).toBe(true)
+      expect(opt.textContent, id).toContain('(not available)')
+    }
   })
 
-  it('Snapshot Bank +/− are selectable (the Launchkey BANK -/+ pads)', () => {
+  it('the Registration functions run Quick Racks (the Launchkey page 4 pads)', () => {
     setup()
     const opt = byTip<HTMLSelectElement>('pedal.function')[0].querySelector<HTMLOptionElement>('option[value="snapshotBankNext"]')!
     expect(opt.disabled).toBe(false)
-    expect(functionCmd('snapshotBankNext', { fingering: 'fingered' })).toEqual({ type: 'stepSnapshotBank', delta: 1 })
-    expect(functionCmd('snapshotBankPrev', { fingering: 'fingered' })).toEqual({ type: 'stepSnapshotBank', delta: -1 })
+    const run = (id: Parameters<typeof functionCmd>[0]) => functionCmd(id, { fingering: 'fingered' })
+    expect(run('snapshotBankNext')).toEqual({ type: 'stepQuickRackBank', delta: 1 })
+    expect(run('snapshotBankPrev')).toEqual({ type: 'stepQuickRackBank', delta: -1 })
+    expect(run('regist3')).toEqual({ type: 'pressQuickRack', slot: 2 })
+    expect(run('regist10')).toEqual({ type: 'pressQuickRack', slot: 9 })
+    expect(run('registNext')).toEqual({ type: 'stepQuickRack', delta: 1 })
+    expect(run('registPrev')).toEqual({ type: 'stepQuickRack', delta: -1 })
+    expect(run('registMemory')).toEqual({ type: 'toggleQuickRackStore' })
   })
 })
 
 describe('assignable functions', () => {
   it('every trigger the engine runs as a command maps to one here (the mock)', () => {
     const control = ['otsNext', 'otsPrev', 'none']
-    for (const f of FUNCTIONS.filter((f) => f.kind === 'trigger' && !control.includes(f.id))) {
+    for (const f of FUNCTIONS.filter((f) => f.available && f.kind === 'trigger' && !control.includes(f.id))) {
       expect(functionCmd(f.id, { fingering: 'fingered' }), f.id).not.toBeNull()
     }
   })
