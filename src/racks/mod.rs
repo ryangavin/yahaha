@@ -25,6 +25,7 @@ mod tests;
 pub use settings::{HarmonyArpReg, ToneReg};
 
 use crate::data_files::{file_name, file_stem, list_files, write_atomic};
+pub use crate::fx::part_eq::PartEq;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -100,6 +101,10 @@ pub struct RackPart {
     pub tone: ToneReg,
     /// Pitch Bend Range in semitones.
     pub bend_range: u8,
+    /// The channel-strip EQ (#247). Missing (a rack saved before it, or flat): flat, and a
+    /// flat one is left out of the file.
+    #[serde(default, skip_serializing_if = "PartEq::is_default")]
+    pub eq: PartEq,
     /// Fields a newer build wrote: kept, and written back as they were.
     #[serde(flatten)]
     pub other: Map<String, Value>,

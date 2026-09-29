@@ -15,6 +15,10 @@
     where that fader physically sits (from the provisional `state.surface`).
   - Panel strips have Pan, Reverb, Chorus and Delay knobs (the part's CC 10, 91, 93, 94:
     `setPartPan`, `setPartSend`, #198/#204); double-click one to put it back to its default.
+    Under them, the part's channel-strip EQ (#247, `setPartEq`): Low and High shelf gain
+    (−12..+12 dB; 0 dB takes the band out of the signal) and each band's frequency, in the
+    XG EQ frequency steps. yahaha plays it on the part's audio, SoundFont or plugin; it is
+    tone, not level. An OTS's XG part EQ sets it; a rack saves it.
     Style strips have Reverb, Chorus and Delay (#268, `setStylePartSend`): they show the
     style's own sends until turned, then the part's own (marked •), which the engine sends in
     place of the style's through section and style changes. Double-click hands that part's
@@ -59,7 +63,7 @@
   import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
   import FxKnob from './FxKnob.svelte'
-  import { FADER_LAYERS, type FaderLayer } from '../../lib/api/types'
+  import { FADER_LAYERS, FLAT_EQ, type FaderLayer, type PartEq } from '../../lib/api/types'
   const LAYER_NAMES: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
   import { partVoice, pluginBadge, pluginTip, styleVoice } from './voice'
   import { CPU_POLL_MS, CPU_WARN, cpuOf, pct } from './cpu'
@@ -193,6 +197,7 @@
       onpan: (v: number) => app.send({ type: 'setPartPan', part: i, pan: v }),
       onsend: (send: PartSend, v: number) => app.send({ type: 'setPartSend', part: i, send, value: v }),
     },
+    eq: { value: p.eq ?? FLAT_EQ, onchange: (eq: PartEq) => app.send({ type: 'setPartEq', part: i, eq }) },
     lit: p.sounding,
     on: {
       led: ledAt(i),
@@ -491,7 +496,8 @@
       style’s own levels. <span class="wait">↕</span> waits for the Launchkey fader; the dashed cap is where it sits.
     </p>
 
-    <div class="strips" id="mixer-strips" role="tabpanel" aria-labelledby="mixer-tab-{page}">
+    <!-- The Panel strips' knob row holds the EQ under the sends (#247): taller, on every strip and the master, so the faders line up. -->
+    <div class="strips" id="mixer-strips" role="tabpanel" aria-labelledby="mixer-tab-{page}" style:--fx-h={page === 'panel' ? '6.9rem' : null}>
       {#if page === 'panel'}
         {#each parts as p, i (i)}
           <Strip {...panelStrip(p, i)} />

@@ -524,6 +524,44 @@ fn a_plugin_assigned_later_gets_the_parts_bend_range() {
     assert!(replayed.abs_diff(sent_after) <= 2, "replayed on assign: {replayed} vs {sent_after}");
 }
 
+/// #247: the part's XG settings reach a plugin part in yahaha's terms. Its EQ plays on the
+/// plugin's output (flat: bit-identical), its velocity curve and mono on the notes it gets.
+#[test]
+fn a_plugin_part_plays_its_eq_velocity_curve_and_mono() {
+    use crate::fx::part_eq::{EqCoeffs, PartEq};
+    // Channel 0, a chord at velocity 100, `blocks` blocks of 512 frames after it.
+    let play = |setup: &dyn Fn(&mut PluginRack), notes: &[[u8; 3]]| {
+        let (mut rack, mut ctl) = rack(512, RATE);
+        ctl.assign(0, dls(512), Swap { fade_frames: 0, trim: 1.0 }).ok().unwrap();
+        setup(&mut rack);
+        let (mut l, mut r) = block(&mut rack, notes, 512);
+        for _ in 0..8 {
+            let (a, b) = block(&mut rack, &[], 512);
+            l.extend(a);
+            r.extend(b);
+        }
+        (l, r)
+    };
+    let chord = [[0x90, 48, 100], [0x90, 52, 100], [0x90, 55, 100]];
+    let plain = play(&|_| {}, &chord);
+    assert!(energy(&plain.0, &plain.1) > 1e-3);
+    // A flat EQ is not run: the plugin's output as it was.
+    let flat = play(&|r| r.set_eq(0, &EqCoeffs::new(PartEq::FLAT, RATE as f32)), &chord);
+    assert_eq!(flat, plain, "flat EQ");
+    // A bass cut takes energy out of a low chord.
+    let cut = play(&|r| r.set_eq(0, &EqCoeffs::new(PartEq { low_gain: -12, low_freq: 1_000, ..PartEq::FLAT }, RATE as f32)), &chord);
+    assert!(energy(&cut.0, &cut.1) < energy(&plain.0, &plain.1) * 0.5, "bass cut: {} vs {}", energy(&cut.0, &cut.1), energy(&plain.0, &plain.1));
+    // Velocity sense depth 16: the notes arrive softer.
+    let soft = play(&|r| r.set_velocity_sense(0, false, 16), &chord);
+    assert!(energy(&soft.0, &soft.1) < energy(&plain.0, &plain.1) * 0.5, "softer: {} vs {}", energy(&soft.0, &soft.1), energy(&plain.0, &plain.1));
+    // Mono: each note of the chord ends the one before, so the plugin plays exactly what it
+    // plays for those notes and note-offs sent to it in poly, not the chord.
+    let mono = play(&|r| r.set_mono(0, true), &chord);
+    let one_by_one = play(&|_| {}, &[[0x90, 48, 100], [0x80, 48, 0], [0x90, 52, 100], [0x80, 52, 0], [0x90, 55, 100]]);
+    assert_eq!(mono, one_by_one, "mono");
+    assert!(energy(&mono.0, &mono.1) < energy(&plain.0, &plain.1) * 0.7, "not the chord");
+}
+
 /// Only a typed "the system won't host this out of process" status allows an in-process
 /// retry: never a timeout, a crash of the hosting process, a later stage, or an error that
 /// merely mentions the code (#105 review B3).

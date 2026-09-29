@@ -88,6 +88,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartSend","part":0,"send":"reverb","value":64}"#,
     r#"{"type":"setPartSend","part":1,"send":"chorus","value":10}"#,
     r#"{"type":"setPartSend","part":2,"send":"variation","value":30}"#,
+    r#"{"type":"setPartEq","part":0,"eq":{"lowGain":3,"lowFreq":80,"highGain":-2,"highFreq":10000}}"#,
     r#"{"type":"setPartSolo","part":1}"#,
     // Mixer, Launchkey pages, synth
     r#"{"type":"setFaderPage","page":"style"}"#,

@@ -2,13 +2,15 @@
   One mixer channel strip, like a Genos Mixer channel: the MIDI out channel, a big fader
   that is the channel's CC 7 (with the soft-takeover mark and the ghost of where the
   Launchkey fader physically sits), On and Solo, and the voice. A keyboard part's strip
-  also has Pan, Reverb and Chorus knobs (CC 10, 91, 93) above the fader; `fxRow` keeps
+  also has Pan, Reverb and Chorus knobs (CC 10, 91, 93) above the fader, and under them its
+  channel-strip EQ (#247: low and high shelf gain and frequency); `fxRow` keeps
   that row's space on a strip without them, so the faders line up. Everything comes from the
   engine's state; the strip only sends commands.
 -->
 <script lang="ts">
   import type { TipKey } from '../../help/tooltips'
-  import type { Pad } from '../../lib/api/types'
+  import { FLAT_EQ, type Pad, type PartEq } from '../../lib/api/types'
+  import { dbText, GAIN_KNOB_MAX, gainKnob, HIGH_STEPS, hzText, knobGain, LOW_STEPS, stepOf, withEq } from './eq'
   import { clock } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
@@ -34,6 +36,7 @@
     solo = null,
     fx = null,
     fxRow = false,
+    eq = null,
     cpu = null,
   }: {
     name: string
@@ -74,11 +77,15 @@
     } | null
     /** Keep the knob row's space when there are no knobs. */
     fxRow?: boolean
+    /** A keyboard part's channel-strip EQ (#247): its low and high shelves, and what
+     *  turning a knob sends. Drawn under the send knobs. */
+    eq?: { value: PartEq; onchange: (eq: PartEq) => void } | null
     /** #340: the track's CPU (null: no reading, or an unused strip). */
     cpu?: TrackCpu | null
   } = $props()
 
   const panText = (v: number) => (v === 64 ? 'C' : v < 64 ? `L${64 - v}` : `R${v - 64}`)
+  const setEq = (change: Partial<PartEq>) => eq?.onchange(withEq(eq.value, change))
 </script>
 
 <div class="strip" class:unused class:knobs={fx !== null || fxRow}>
@@ -87,16 +94,27 @@
   </div>
 
   {#if fx}
-    <div class="fx" class:three={fx.pan === null}>
-      {#if fx.pan !== null}
-        <FxKnob value={fx.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={fx.onpan} />
+    <div class="fxcell">
+      <div class="fx" class:three={fx.pan === null}>
+        {#if fx.pan !== null}
+          <FxKnob value={fx.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={fx.onpan} />
+        {/if}
+        <FxKnob value={fx.reverb} tip={fx.style ? 'mixer.style.reverb' : 'mixer.part.reverb'} label="{name} reverb" caption="Rev" reset={fx.reverbDefault} onchange={(v) => fx.onsend('reverb', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('reverb')} />
+        <FxKnob value={fx.chorus} tip={fx.style ? 'mixer.style.chorus' : 'mixer.part.chorus'} label="{name} chorus" caption="Cho" reset={fx.style ? 10 : 0} onchange={(v) => fx.onsend('chorus', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('chorus')} />
+        <FxKnob value={fx.variation} tip={fx.style ? 'mixer.style.variation' : 'mixer.part.variation'} label="{name} delay" caption="Dly" reset={0} onchange={(v) => fx.onsend('variation', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('variation')} />
+      </div>
+      {#if eq}
+        {@const e = eq.value}
+        <div class="eq" role="group" aria-label="{name} EQ">
+          <FxKnob value={gainKnob(e.lowGain)} max={GAIN_KNOB_MAX} centre tip="mixer.part.eq_low_gain" label="{name} EQ low" caption="Low" reset={gainKnob(0)} format={(v) => dbText(knobGain(v))} onchange={(v) => setEq({ lowGain: knobGain(v) })} />
+          <FxKnob value={stepOf(LOW_STEPS, e.lowFreq)} max={LOW_STEPS.length - 1} tip="mixer.part.eq_low_freq" label="{name} EQ low frequency" caption="L Hz" reset={stepOf(LOW_STEPS, FLAT_EQ.lowFreq)} format={(v) => hzText(LOW_STEPS[v])} onchange={(v) => setEq({ lowFreq: LOW_STEPS[v] })} />
+          <FxKnob value={gainKnob(e.highGain)} max={GAIN_KNOB_MAX} centre tip="mixer.part.eq_high_gain" label="{name} EQ high" caption="High" reset={gainKnob(0)} format={(v) => dbText(knobGain(v))} onchange={(v) => setEq({ highGain: knobGain(v) })} />
+          <FxKnob value={stepOf(HIGH_STEPS, e.highFreq)} max={HIGH_STEPS.length - 1} tip="mixer.part.eq_high_freq" label="{name} EQ high frequency" caption="H Hz" reset={stepOf(HIGH_STEPS, FLAT_EQ.highFreq)} format={(v) => hzText(HIGH_STEPS[v])} onchange={(v) => setEq({ highFreq: HIGH_STEPS[v] })} />
+        </div>
       {/if}
-      <FxKnob value={fx.reverb} tip={fx.style ? 'mixer.style.reverb' : 'mixer.part.reverb'} label="{name} reverb" caption="Rev" reset={fx.reverbDefault} onchange={(v) => fx.onsend('reverb', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('reverb')} />
-      <FxKnob value={fx.chorus} tip={fx.style ? 'mixer.style.chorus' : 'mixer.part.chorus'} label="{name} chorus" caption="Cho" reset={fx.style ? 10 : 0} onchange={(v) => fx.onsend('chorus', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('chorus')} />
-      <FxKnob value={fx.variation} tip={fx.style ? 'mixer.style.variation' : 'mixer.part.variation'} label="{name} delay" caption="Dly" reset={0} onchange={(v) => fx.onsend('variation', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('variation')} />
     </div>
   {:else if fxRow}
-    <div class="fx" aria-hidden="true"></div>
+    <div class="fxcell" aria-hidden="true"></div>
   {/if}
 
   <div class="fader">
@@ -207,13 +225,25 @@
     background: var(--ink);
     opacity: 0.6;
   }
-  .fx {
+  /* The knob row: the sends, and on a keyboard part the EQ under them (#247). */
+  .fxcell {
+    display: grid;
+    align-content: start;
+    gap: 0.25rem;
+    width: 100%;
+    height: var(--fx-h, 3.4rem);
+  }
+  .fx,
+  .eq {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.1rem;
     width: 100%;
-    height: var(--fx-h, 3.4rem);
     align-items: start;
+  }
+  .eq {
+    padding-top: 0.2rem;
+    border-top: 1px solid var(--seam);
   }
   .fx.three {
     grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -30,6 +30,33 @@ fn contents(r: &Rack) -> Rack {
     Rack { id: String::new(), ..r.clone() }
 }
 
+/// #247: `setPartEq` sets a part's channel-strip EQ (clamped), the state shows it, a rack
+/// captures and applies it, and a rack without one (an OTS's XG EQ in its voice settings
+/// included) plays flat.
+#[test]
+fn a_rack_carries_the_part_eq() {
+    let (d1, d2) = (data_dir("eq-from"), data_dir("eq-to"));
+    let a = session(&d1);
+    let b = session(&d2);
+    let eq = PartEq { low_gain: -5, low_freq: 160, high_gain: 30, high_freq: 6_300 };
+    a.send(PartsCmd::SetPartEq { part: 2, eq }).unwrap();
+    let want = PartEq { high_gain: 12, ..eq };
+    assert_eq!(a.state().keyboard_parts[2].eq, want, "clamped");
+    assert_eq!(a.state().keyboard_parts[0].eq, PartEq::FLAT);
+    let rack = a.capture_rack("Tone");
+    assert_eq!(rack.parts[2].eq, want);
+    assert!(b.apply_rack(&rack).is_empty());
+    assert_eq!(b.state().keyboard_parts[2].eq, want, "applied");
+    // A rack with no EQ: flat, even with an XG part EQ in its voice settings.
+    let mut old = rack.clone();
+    old.parts[2].eq = PartEq::FLAT;
+    old.parts[2].tone.xg = vec![[0x08, 0x72, 0x4C]];
+    assert!(b.apply_rack(&old).is_empty());
+    assert_eq!(b.state().keyboard_parts[2].eq, PartEq::FLAT);
+    let _ = std::fs::remove_dir_all(&d1);
+    let _ = std::fs::remove_dir_all(&d2);
+}
+
 #[test]
 fn capture_write_read_apply_round_trips() {
     let (d1, d2) = (data_dir("rt-from"), data_dir("rt-to"));

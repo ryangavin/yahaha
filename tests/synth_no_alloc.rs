@@ -1,5 +1,5 @@
 //! The audio callback (`synth::AudioCore::process`) must not allocate or free: SoundFont
-//! notes and controllers, a style's XG drum setup (#239), a part's sound controllers, portamento and mono (#246), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
+//! notes and controllers, a style's XG drum setup (#239), a part's sound controllers, portamento and mono (#246), the keyboard parts' channel-strip EQ and a plugin part's mono and velocity curve (#247), the effect bus (sends, band send scales, types, parameters, returns, legacy effects), the
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
@@ -11,6 +11,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use yahaha::fx::part_eq::PartEq;
 use yahaha::parts::Parts;
 use yahaha::synth::{self, AudioCore, Rack, SynthControl};
 
@@ -229,6 +230,18 @@ fn the_audio_callback_does_not_allocate() {
     assert_eq!(run(&mut core, &mut feed, &[[0xB2, 64, 127], [0x92, 62, 90], [0x92, 65, 90], [0x92, 67, 90]]), none, "mono notes");
     assert_eq!(run(&mut core, &mut feed, &[[0x82, 67, 0], [0x82, 60, 0], [0x82, 65, 0], [0xB2, 64, 0]]), none, "mono: back to the keys held");
     assert_eq!(run(&mut core, &mut feed, &[[0xB3, 126, 1], [0x93, 60, 90], [0x93, 64, 90], [0xB3, 127, 0], xg_mono(1), [0x82, 62, 0]]), none, "mono/poly");
+    // The keyboard parts' channel-strip EQ (#247): set on the control side (coefficients
+    // computed there), taken in by the callback, played on notes sounding, changed, flat.
+    assert_eq!(run(&mut core, &mut feed, &[[0x90, 60, 100], [0x91, 48, 100]]), none, "notes for the EQ");
+    for (low, high) in [(6i8, -4i8), (-12, 12), (3, 0), (0, 0)] {
+        parts.set_eq(0, PartEq { low_gain: low, low_freq: 200, high_gain: high, high_freq: 4_000 });
+        parts.set_eq(1, PartEq { low_gain: high, ..PartEq::FLAT });
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "part EQ");
+        }
+    }
+    parts.set_eq(0, PartEq { low_gain: 5, ..PartEq::FLAT });
+    assert_eq!(run(&mut core, &mut feed, &[[0x80, 60, 0], [0x81, 48, 0]]), none, "part EQ, notes off");
     ctl.master.store(90, Ordering::Relaxed);
     parts.set_program(0, 5);
     assert_eq!(run(&mut core, &mut feed, &[[0xB0, 1, 30], [0xE0, 0, 80]]), none, "master, program, controllers");
@@ -280,6 +293,16 @@ fn the_audio_callback_does_not_allocate() {
         for _ in 0..10 {
             assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 90], [0x80, 64, 0]]), none, "plugin playing");
         }
+        // The part's XG settings in front of the plugin (#247): mono, a velocity curve, and
+        // its EQ on the plugin's output.
+        let xg = |nn: u8, v: u8| synth::sysex_msg(&[0xF0, 0x43, 0x10, 0x4C, 0x08, 0x00, nn, v, 0xF7]).unwrap();
+        parts.set_eq(0, PartEq { low_gain: -6, high_gain: 8, ..PartEq::FLAT });
+        assert_eq!(run(&mut core, &mut feed, &[xg(0x05, 0), xg(0x0C, 90), xg(0x0D, 50), [0x90, 60, 100], [0x90, 64, 100]]), none, "plugin: mono, velocity, EQ");
+        for _ in 0..4 {
+            assert_eq!(run(&mut core, &mut feed, &[[0x80, 64, 0], [0xB0, 64, 0], [0x90, 67, 80], [0xB0, 64, 127]]), none, "plugin: mono notes");
+        }
+        assert_eq!(run(&mut core, &mut feed, &[xg(0x05, 1), [0x80, 60, 0], [0x80, 67, 0], [0xB0, 64, 0]]), none, "plugin: poly again");
+        parts.set_eq(0, PartEq::FLAT);
         link.assign(0, b, Swap::default()).ok().unwrap();
         for _ in 0..6 {
             assert_eq!(run(&mut core, &mut feed, &[[0xB0, 7, 90]]), none, "crossfade to a second instance");

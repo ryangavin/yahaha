@@ -69,7 +69,7 @@ fn live_rack_view(s: &AppState) -> serde_json::Value {
         .iter()
         .map(|p| {
             let plugin = p.plugin.as_ref().map(|x| x.id.clone());
-            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, plugin, p.sound, p.sound_edited])
+            serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.patch, plugin, p.sound, p.sound_edited])
         })
         .collect();
     serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp, s.live_rack.controls])
@@ -260,6 +260,7 @@ impl MockSession {
             reverb: yahaha::parts::FX_DEFAULT[i][yahaha::parts::REVERB],
             chorus: yahaha::parts::FX_DEFAULT[i][yahaha::parts::CHORUS],
             variation: yahaha::parts::FX_DEFAULT[i][yahaha::parts::VARIATION],
+            eq: PartEq::FLAT,
             fader: None,
             plugin: None,
             patch: None,
@@ -1144,6 +1145,13 @@ impl MockSession {
                 }
                 self.sound.part_voice(i);
             }
+            // The part EQ, as `PartState::apply_ots` sets it (#247): the OTS's XG part EQ;
+            // a part it gives a voice but no EQ goes flat; others keep theirs.
+            match mock_ots_eq(n, i) {
+                Some(eq) => p.eq = eq,
+                None if o.program.is_some() => p.eq = PartEq::FLAT,
+                None => {}
+            }
             p.on = o.on;
             p.octave = o.octave;
             if p.volume != o.volume {
@@ -1982,6 +1990,11 @@ impl MockSession {
                     }
                 }
             }
+            AppCmd::Parts(PartsCmd::SetPartEq { part, eq }) => {
+                if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
+                    p.eq = eq.clamped();
+                }
+            }
             AppCmd::Mixer(MixerCmd::SetFaderPage { page }) => self.set_fader_page(page),
             AppCmd::Mixer(MixerCmd::SetFaderLayer { layer }) => self.state.mixer.fader_layer = layer,
             AppCmd::Mixer(MixerCmd::StepFaderLayer { delta }) => self.state.mixer.fader_layer = self.state.mixer.fader_layer.step(delta.signum()),
@@ -2521,9 +2534,32 @@ fn harmony_arp_cmd(h: &mut HarmonyArpState, c: HarmonyArpCmd) -> Result<(), Stri
     Ok(())
 }
 
+/// The XG part EQ the mock's OTS `n` sets on part `p` (#247), as an SFF's OTS carries it:
+/// only OTS 1's Right 1 has one; the TS mock has the same (`mockOtsEq`).
+fn mock_ots_eq(n: usize, p: usize) -> Option<PartEq> {
+    (n == 0 && p == 0).then_some(PartEq { low_gain: 3, high_gain: 2, ..PartEq::FLAT })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #247: an OTS recall sets the part EQ as the engine does: its XG part EQ (OTS 1's
+    /// Right 1 in the mock), flat for a part it gives a voice but no EQ.
+    #[test]
+    fn ots_recall_sets_the_part_eq() {
+        let mut m = MockSession::new();
+        let mine = PartEq { low_gain: -4, ..PartEq::FLAT };
+        for p in 0..4u8 {
+            m.send(PartsCmd::SetPartEq { part: p, eq: mine });
+        }
+        m.send(OtsCmd::RecallOts { index: 0 });
+        let voiced = |i: usize| m.state.ots.settings[0].parts[i].program.is_some();
+        assert_eq!(m.state.keyboard_parts[0].eq, mock_ots_eq(0, 0).unwrap());
+        for i in 1..4 {
+            assert_eq!(m.state.keyboard_parts[i].eq, if voiced(i) { PartEq::FLAT } else { mine }, "part {i}");
+        }
+    }
 
     fn bar_ms(m: &MockSession) -> f64 {
         60000.0 / m.state.transport.tempo * m.state.transport.beats_per_bar as f64

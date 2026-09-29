@@ -46,6 +46,7 @@ mod delay;
 pub mod insert;
 mod line;
 mod params;
+pub mod part_eq;
 mod reverb;
 pub mod xg;
 

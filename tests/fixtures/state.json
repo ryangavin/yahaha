@@ -356,6 +356,12 @@
       "reverb": 40,
       "chorus": 0,
       "variation": 0,
+      "eq": {
+        "lowGain": 0,
+        "lowFreq": 80,
+        "highGain": 0,
+        "highFreq": 10000
+      },
       "patch": null
     },
     {
@@ -375,6 +381,12 @@
       "reverb": 40,
       "chorus": 0,
       "variation": 0,
+      "eq": {
+        "lowGain": 0,
+        "lowFreq": 80,
+        "highGain": 0,
+        "highFreq": 10000
+      },
       "patch": null
     },
     {
@@ -394,6 +406,12 @@
       "reverb": 40,
       "chorus": 0,
       "variation": 0,
+      "eq": {
+        "lowGain": 0,
+        "lowFreq": 80,
+        "highGain": 0,
+        "highFreq": 10000
+      },
       "patch": null
     },
     {
@@ -413,6 +431,12 @@
       "reverb": 40,
       "chorus": 0,
       "variation": 0,
+      "eq": {
+        "lowGain": 0,
+        "lowFreq": 80,
+        "highGain": 0,
+        "highFreq": 10000
+      },
       "patch": null
     }
   ],

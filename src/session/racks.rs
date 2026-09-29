@@ -102,6 +102,7 @@ impl Control {
             octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
             tone: ToneReg::capture(kp, p),
             bend_range: self.shared.controllers.bend_range(p),
+            eq: kp.eq(p),
             other: Default::default(),
         }
     }
@@ -200,6 +201,9 @@ impl Control {
         kp.set_fx(p, [part.pan, part.reverb, part.chorus, part.variation].map(Some));
         kp.voice_changed(p);
         kp.set_tone(p, part.tone.controllers(), part.tone.xg.iter().map(|x| (x[0], x[1], x[2])));
+        // The rack's EQ, not the XG part EQ in its voice settings (#247): a rack saved
+        // before the part EQ plays flat, as it did.
+        kp.set_eq(p, part.eq);
         self.shared.controllers.set_bend_range(p, part.bend_range);
         // Left plays the bass under Manual Bass: its switch stays as it is.
         let locked_left = p == parts::LEFT && self.shared.manual_bass();
