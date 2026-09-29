@@ -98,7 +98,7 @@
             {#each groups as g (g.category)}
               <optgroup label={g.name}>
                 {#each g.functions as f (f.id)}
-                  <option value={f.id} disabled={!f.available}>{f.name}{f.available ? '' : ' (later)'}</option>
+                  <option value={f.id} disabled={!f.available}>{f.name}{f.available ? '' : ' (not available)'}</option>
                 {/each}
               </optgroup>
             {/each}

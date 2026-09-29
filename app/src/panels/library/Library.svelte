@@ -9,7 +9,7 @@
   │ the tab (SoundsTab, InstrumentsTab, RacksTab, MapTab)                        ││ docked   │
   │ Right 1 plays Sampler Deluxe · Silk Strings  edited  Save  Save as…  [Back]  ││ panel    │
   └──────────────────────────────────────────────────────────────────────────────┘└──────────┘
-  [ Quick Racks strip: today's Registration bar ]
+  [ Quick Racks bar ]
 
   The target part ("Loads into") is where Sounds and Instruments load: it follows where
   Library was opened from (the selected part, or the part whose sound name was clicked).
@@ -21,7 +21,7 @@
   import HwButton from '../../lib/ui/HwButton.svelte'
   import PartsPanel from '../parts/PartsPanel.svelte'
   import { pluginStatusLine } from '../parts/parts'
-  import RegistBar from '../registration/RegistBar.svelte'
+  import QuickBar from '../quickracks/QuickBar.svelte'
   import { nowPlaying, presetFileName } from '../sounds/model'
   import { CATEGORY_LABELS } from '../../lib/api/sound-library'
   import type { PatchCategory } from '../../lib/api/types'
@@ -185,8 +185,8 @@
     </div>
   </aside>
 
-  <!-- The Quick Racks strip's slot (docs/racks.md, item 6): today's Registration bar. -->
-  <div class="strip mat-chassis"><RegistBar /></div>
+  <!-- The Quick Racks bar (docs/racks.md, item 6), as on the stage. -->
+  <div class="strip mat-chassis"><QuickBar /></div>
 </div>
 
 <style>

@@ -109,20 +109,14 @@ fn key_action(code: KeyCode) -> Option<Action> {
         KeyCode::Char('J') => Some(Action::ToggleHarmonyArp),
         // Load the selected part's plugin again after it stopped or failed to load.
         KeyCode::Char('s') => Some(Action::ReloadPlugin),
-        // Snapshots: Shift + Q-I = Snapshots 1-8 of the bank on view, O/P snapshot bank -/+,
-        // F5 Store, F6 Freeze, F7/F8 Regist -/+, F11/F12 bank file -/+.
-        KeyCode::Char(c) if "QWERTYUI".contains(c) => Some(Action::Regist("QWERTYUI".find(c).unwrap() as u8)),
-        KeyCode::Char('O') => Some(Action::SnapshotBank(-1)),
-        KeyCode::Char('P') => Some(Action::SnapshotBank(1)),
-        KeyCode::F(5) => Some(Action::RegistMemory),
-        KeyCode::F(6) => Some(Action::RegistFreeze),
-        KeyCode::F(7) => Some(Action::RegistSeq(-1)),
-        KeyCode::F(8) => Some(Action::RegistSeq(1)),
-        KeyCode::F(11) => Some(Action::RegistBank(-1)),
-        KeyCode::F(12) => Some(Action::RegistBank(1)),
-        // The Playlist's previous/next record (Shift + Track on the Launchkey).
-        KeyCode::Char('<') => Some(Action::Playlist(-1)),
-        KeyCode::Char('>') => Some(Action::Playlist(1)),
+        // Quick Racks: Shift + Q-I = Quick Racks 1-8 of the bank on view, O/P bank -/+,
+        // F5 Store, F7/F8 previous/next rack in the bank.
+        KeyCode::Char(c) if "QWERTYUI".contains(c) => Some(Action::QuickRack("QWERTYUI".find(c).unwrap() as u8)),
+        KeyCode::Char('O') => Some(Action::QuickRackBank(-1)),
+        KeyCode::Char('P') => Some(Action::QuickRackBank(1)),
+        KeyCode::F(5) => Some(Action::QuickRackStore),
+        KeyCode::F(7) => Some(Action::QuickRackStep(-1)),
+        KeyCode::F(8) => Some(Action::QuickRackStep(1)),
         _ => None,
     }
 }
@@ -388,8 +382,12 @@ pub fn play(opts: Options, startup: Vec<AppCmd>) -> Result<()> {
             }
             KeyCode::Enter => browser = Some(Browser::open(st.style.id)),
             code => {
-                // Errors show in the message line (the session sets it).
-                if let Some(c) = key_cmd(code) {
+                // Errors show in the message line (the session sets it). A key that is a
+                // Launchkey action runs as the hardware does: the terminal has no dialog
+                // either (a Quick Rack keeps unsaved changes as a Recovered rack).
+                if let Some(a) = key_action(code).filter(|a| key_cmd(code) == Some(AppCmd::from(*a))) {
+                    let _ = session.hardware(a);
+                } else if let Some(c) = key_cmd(code) {
                     let _ = session.send(c);
                 }
             }
@@ -634,37 +632,25 @@ fn draw(f: &mut ratatui::Frame, st: &AppState, message: &str, beats: f64) {
                 v
             }),
             Line::from({
-                // Snapshots: the bank file, the snapshot bank on view and its eight lamps ([n]
-                // stored, >n< selected), Store, Freeze, the sequence and the playlist.
-                let r = &st.registration;
-                let bank = yahaha::registration::bank_letter(r.snapshot_bank as usize);
-                let mut v = vec![Span::raw(format!(" snap {}{} {bank} ", r.bank.name, if r.bank.dirty { "*" } else { "" }))];
-                let first = r.snapshot_bank as usize * yahaha::registration::SLOTS;
-                for b in r.buttons.iter().skip(first).take(yahaha::registration::SLOTS) {
-                    let n = b.index as usize - first + 1;
-                    let (text, style) = if r.selected == Some(b.index) && b.stored {
+                // Quick Racks: the rack playing, the bank on view and its eight lamps ([n] a
+                // rack, >n< the loaded one), Store.
+                let q = &st.quick_racks;
+                let bank = yahaha::racks::quick::bank_letter(q.bank as usize);
+                let lr = &st.live_rack;
+                let mut v = vec![Span::raw(format!(" rack {}{}  quick {bank} ", lr.name, if lr.modified { "*" } else { "" }))];
+                for (i, b) in q.buttons.iter().enumerate() {
+                    let n = i + 1;
+                    let (text, style) = if b.loaded {
                         (format!(">{n}<"), St::default().fg(Color::Black).bg(Color::Red))
-                    } else if b.stored {
+                    } else if b.rack.is_some() {
                         (format!("[{n}]"), St::default().fg(Color::Blue))
                     } else {
                         (format!(" {n} "), dim)
                     };
-                    v.push(Span::styled(text, if r.memory { style.add_modifier(Modifier::SLOW_BLINK) } else { style }));
+                    v.push(Span::styled(text, if q.store { style.add_modifier(Modifier::SLOW_BLINK) } else { style }));
                 }
-                v.push(Span::styled(" ⇧Q-I bank ⇧O ⇧P", dim));
-                v.push(flag(r.memory, "STORE [F5]"));
-                v.push(flag(r.freeze, "FREEZE [F6]"));
-                let seq = &r.sequence;
-                if seq.on && !seq.steps.is_empty() {
-                    let pos = seq.position.map_or("-".to_string(), |p| (p + 1).to_string());
-                    v.push(Span::raw(format!(" seq {pos}/{} [F7 F8]", seq.steps.len())));
-                }
-                v.push(Span::styled(" file [F11 F12]", dim));
-                let pl = &st.playlist;
-                if !pl.records.is_empty() {
-                    let cur = pl.current.and_then(|c| pl.records.iter().position(|row| row.index == c)).map_or("-".into(), |p| (p + 1).to_string());
-                    v.push(Span::raw(format!("  playlist {} {cur}/{} [< >]", pl.name, pl.records.len())));
-                }
+                v.push(Span::styled(" ⇧Q-I bank ⇧O ⇧P rack F7 F8", dim));
+                v.push(flag(q.store, "STORE [F5]"));
                 v
             }),
             Line::from(match &st.io.synth {
@@ -949,7 +935,7 @@ mod tests {
             .filter_map(key_action)
             .collect();
         let pads = [96u8, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 117, 118, 119];
-        for page in [Page::ChordSetup, Page::OtsParts, Page::Registration] {
+        for page in [Page::ChordSetup, Page::OtsParts, Page::QuickRacks] {
             for a in pads.iter().filter_map(|&n| launchkey::pad_action(page, n)) {
                 if !matches!(a, Action::Fingering(_)) {
                     assert!(keys.contains(&a), "{page:?}: {a:?} has no key");
@@ -962,8 +948,10 @@ mod tests {
                 assert!(keys.contains(&a), "{a:?}");
             }
         }
-        assert_eq!(key_action(KeyCode::Char('I')), Some(Action::Regist(7)));
-        assert_eq!(key_action(KeyCode::Char('P')), Some(Action::SnapshotBank(1)));
+        assert_eq!(key_action(KeyCode::Char('I')), Some(Action::QuickRack(7)));
+        assert_eq!(key_action(KeyCode::Char('P')), Some(Action::QuickRackBank(1)));
+        assert_eq!(key_action(KeyCode::F(8)), Some(Action::QuickRackStep(1)));
+        assert_eq!(key_action(KeyCode::F(6)), None, "Freeze went with Registrations");
         assert_eq!(key_action(KeyCode::Char('s')), Some(Action::ReloadPlugin));
         assert_eq!(key_action(KeyCode::Right), Some(Action::Style(1)));
         assert_eq!(key_action(KeyCode::Char('f')), Some(Action::NextFingering));
@@ -995,8 +983,8 @@ mod tests {
         assert_eq!(key_cmd(KeyCode::Char('}')), Some(AppCmd::StyleSettings(StyleSettingsCmd::StepRetriggerRate { delta: 1 })));
         assert_eq!(key_cmd(KeyCode::Char('r')), Some(AppCmd::Looper(LooperCmd::LooperRec)));
         assert_eq!(key_cmd(KeyCode::Char('^')), Some(AppCmd::Looper(LooperCmd::LooperOnOff)));
-        // Shift+R belongs to Registration (#99): the looper leaves it alone.
-        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::Registration(yahaha::api::RegistrationCmd::PressSnapshot { slot: 3 })));
+        // Shift+R belongs to Quick Racks (#99): the looper leaves it alone.
+        assert_eq!(key_cmd(KeyCode::Char('R')), Some(AppCmd::QuickRacks(yahaha::api::QuickRackCmd::PressQuickRack { slot: 3, discard: false })));
         assert_eq!(key_cmd(KeyCode::Char('.')), Some(AppCmd::Metronome(MetronomeCmd::ToggleMetronome)));
         assert_eq!(key_cmd(KeyCode::Char('J')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)));
         assert_eq!(key_cmd(KeyCode::Char('L')), Some(AppCmd::HarmonyArp(HarmonyArpCmd::StepHarmonyArpType { delta: 1 })));

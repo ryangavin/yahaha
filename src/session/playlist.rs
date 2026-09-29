@@ -269,10 +269,6 @@ impl Control {
         Ok(())
     }
 
-    pub(super) fn playlist_is_empty(&self) -> bool {
-        self.playlist.list.records.is_empty()
-    }
-
     pub(super) fn playlist_state(&self) -> PlaylistState {
         let c = &self.playlist;
         PlaylistState {

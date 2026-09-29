@@ -2,6 +2,7 @@
 // keys and lamp rules), producing the `Pad`s the engine puts in `AppState`. Only the mock
 // uses this; with the real engine the pads come in the state.
 
+import { QUICK_BANKS, QUICK_LOADED, QUICK_STORED } from './quick-racks'
 import type { AppCmd, AppState, Anim, Level, Pad, PadPage, Rgb } from './types'
 import { BREAK, ENDINGS, FILLS, FINGERINGS, INTROS, MAINS } from './types'
 
@@ -15,10 +16,7 @@ const C_TAP: Rgb = [100, 100, 100]
 const C_STOPSYNC: Rgb = [0, 110, 110]
 const C_RUN: Rgb = [0, 127, 0]
 const C_IDLE: Rgb = [127, 0, 0]
-export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, chordSetup: [0, 100, 127], otsParts: [127, 0, 70], registration: [127, 60, 0], multiPads: [127, 127, 0] }
-/** Registration lamps: red = selected, blue = stored (OM p.97). */
-const C_REGIST_SELECTED: Rgb = [127, 0, 0]
-const C_REGIST_STORED: Rgb = [0, 40, 127]
+export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, chordSetup: [0, 100, 127], otsParts: [127, 0, 70], quickRacks: [127, 60, 0], multiPads: [127, 127, 0] }
 
 type Look = { rgb: Rgb; level: Level; anim: Anim }
 const look = (rgb: Rgb, level: Level, anim: Anim = 'solid'): Look => ({ rgb, level, anim })
@@ -101,38 +99,38 @@ function otsPads(s: AppState): Pad[] {
   ]
 }
 
-const REGIST_KEYS = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I']
+const QUICK_KEYS = ['⇧Q', '⇧W', '⇧E', '⇧R', '⇧T', '⇧Y', '⇧U', '⇧I']
 
-function registPads(s: AppState): Pad[] {
-  const r = s.registration
+/** Page 4 (src/launchkey.rs `quick_looks`): Quick Racks 1–8 of the bank on view on the top
+ * row; Bank −/+, Store and Rack −/+ on the bottom row, the bank-file and Freeze pads dark. */
+function quickPads(s: AppState): Pad[] {
+  const q = s.quickRacks
   const p = (note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean) =>
-    pagePad('registration', note, label, key, action, available, on)
-  // The snapshot bank on view: Snapshots 1–8 on the top row (src/launchkey.rs regist_looks).
-  const first = r.snapshotBank * 8
+    pagePad('quickRacks', note, label, key, action, available, on)
   const button = (i: number): Pad => {
-    const stored = r.buttons[first + i]?.stored ?? false
-    const l = r.memory
-      ? look(C_REGIST_SELECTED, 'bright', 'flash')
-      : stored && r.selected === first + i
-        ? look(C_REGIST_SELECTED, 'bright')
-        : look(C_REGIST_STORED, stored ? 'bright' : 'off')
-    return pad(96 + i, `SNAP ${i + 1}`, REGIST_KEYS[i], { type: 'pressSnapshot', slot: i }, l)
+    const b = q.buttons[i]
+    const stored = !!b?.rack
+    const l = q.store
+      ? look(QUICK_LOADED, 'bright', 'flash')
+      : stored && b.loaded
+        ? look(QUICK_LOADED, 'bright')
+        : look(QUICK_STORED, stored ? 'bright' : 'off')
+    return pad(96 + i, `QUICK ${i + 1}`, QUICK_KEYS[i], { type: 'pressQuickRack', slot: i }, l)
   }
-  const seq = r.sequence.on && r.sequence.steps.length > 0
-  const banks = r.banks.length > 0
-  const moreBanks = r.snapshotBank < Math.min(r.snapshotBanks, 7)
+  const any = q.buttons.some((b) => !!b.rack)
+  const dark = (note: number) => p(note, '', '', null, false, false)
   return [
     ...Array.from({ length: 8 }, (_, i) => button(i)),
-    p(112, 'BANK -', 'O', { type: 'stepSnapshotBank', delta: -1 }, r.snapshotBank > 0, false),
-    p(113, 'BANK +', 'P', { type: 'stepSnapshotBank', delta: 1 }, moreBanks, false),
-    p(114, 'FILE -', 'F11', { type: 'stepRegistBank', delta: -1 }, banks, false),
-    p(115, 'FILE +', 'F12', { type: 'stepRegistBank', delta: 1 }, banks, false),
-    r.memory
-      ? pad(116, 'STORE', 'F5', { type: 'toggleRegistMemory' }, look(C_REGIST_SELECTED, 'bright', 'flash'))
-      : p(116, 'STORE', 'F5', { type: 'toggleRegistMemory' }, true, false),
-    p(117, 'FREEZE', 'F6', { type: 'toggleFreeze' }, true, r.freeze),
-    p(118, 'REGIST -', 'F7', { type: 'stepRegistSequence', delta: -1 }, seq, false),
-    p(119, 'REGIST +', 'F8', { type: 'stepRegistSequence', delta: 1 }, seq, false),
+    p(112, 'BANK -', '⇧O', { type: 'stepQuickRackBank', delta: -1 }, q.bank > 0, false),
+    p(113, 'BANK +', '⇧P', { type: 'stepQuickRackBank', delta: 1 }, q.bank < QUICK_BANKS - 1, false),
+    dark(114),
+    dark(115),
+    q.store
+      ? pad(116, 'STORE', 'F5', { type: 'toggleQuickRackStore' }, look(QUICK_LOADED, 'bright', 'flash'))
+      : p(116, 'STORE', 'F5', { type: 'toggleQuickRackStore' }, true, false),
+    dark(117),
+    p(118, 'RACK -', 'F7', { type: 'stepQuickRack', delta: -1 }, any, false),
+    p(119, 'RACK +', 'F8', { type: 'stepQuickRack', delta: 1 }, any, false),
   ]
 }
 
@@ -175,7 +173,7 @@ function multiPadPads(s: AppState): Pad[] {
 /** The 16 pads of a page, top row then bottom row. */
 export function padsFor(s: AppState, page: PadPage): Pad[] {
   if (page === 'multiPads') return multiPadPads(s)
-  if (page === 'registration') return registPads(s)
+  if (page === 'quickRacks') return quickPads(s)
   if (page === 'chordSetup') return chordPads(s)
   if (page === 'otsParts') return otsPads(s)
   return sectionPads(s)

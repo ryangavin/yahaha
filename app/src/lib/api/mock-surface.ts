@@ -76,8 +76,7 @@ export interface MockHardware {
 export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): SurfaceState {
   const page = PAD_PAGES.findIndex((p) => p.id === s.pads.page)
   const styles = lib.entries.filter((e) => e.status !== 'error').length > 1
-  // Shift + Track: the Playlist's previous/next record, when it has any.
-  const songs = s.playlist.records.length > 0
+  const racks = s.quickRacks.buttons.some((b) => !!b.rack)
   const style = s.mixer.faderPage === 'style'
   const pageColour = PAGE_COLOUR[page]
 
@@ -103,9 +102,10 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
     control('padBankUp', 106, 'PAGE ▲', toPage(-1), page > 0 ? pageColour : OFF, { label: 'LEFT', action: { type: 'togglePart', part: 3 } }),
     control('padBankDown', 107, 'PAGE ▼', toPage(1), page < PAD_PAGES.length - 1 ? pageColour : OFF, { label: 'OTS LINK', action: { type: 'toggleOtsLink' } }),
     control('trackPrev', 103, '◀ STYLE', styles ? { type: 'stepStyle', delta: -1 } : null, styles ? WHITE : OFF,
-      { label: '◀ SONG', action: songs ? { type: 'stepPlaylist', delta: -1 } : null }),
+      // Shift + Track: the previous/next Quick Rack in the bank on view, when it holds any.
+      { label: '◀ RACK', action: racks ? { type: 'stepQuickRack', delta: -1 } : null }),
     control('trackNext', 102, 'STYLE ▶', styles ? { type: 'stepStyle', delta: 1 } : null, styles ? WHITE : OFF,
-      { label: 'SONG ▶', action: songs ? { type: 'stepPlaylist', delta: 1 } : null }),
+      { label: 'RACK ▶', action: racks ? { type: 'stepQuickRack', delta: 1 } : null }),
     control('play', 115, 'PLAY', { type: 'startStop' }, null, { label: 'RESET', action: { type: 'sectionReset' } }),
     control('stop', 116, 'STOP', { type: 'stop' }, null, { label: 'FADE', action: { type: 'toggleFade' } }),
     control('scene', 104, 'TEMPO +', { type: 'tempoUp' }, null, { label: 'RTG SHORT', action: { type: 'stepRetriggerRate', delta: 1 } }),

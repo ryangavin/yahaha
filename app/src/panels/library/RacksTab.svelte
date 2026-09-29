@@ -4,11 +4,12 @@
   and the saved racks the engine reports as needing attention (a part's plugin is
   missing: `plugins.needsAttention`), with the "Needs attention" filter.
 
-  Loading, saving and listing every saved rack come with the rack commands (docs/racks.md,
-  "Order of work" item 5); until then their buttons say so rather than pretend.
+  My racks: click one to load it (through the unsaved-changes guard, asked in the Quick
+  Racks bar); its label is the Quick Rack button that holds it in the bank on view.
 -->
 <script lang="ts">
   import { noteName } from '../../lib/api/mock'
+  import { quickLabel } from '../../lib/api/quick-racks'
   import { app } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import { libraryNav } from './nav.svelte'
@@ -26,7 +27,11 @@
     return `${p.plugin?.missing ? '⚠ ' : ''}${p.sound?.name ?? p.voiceName}`
   }
   const missingParts = $derived(parts.flatMap((p, i) => (p.plugin?.missing ? [PARTS[i]] : [])))
-  const COMING = ['+ New rack', 'Save rack', 'Save as…', 'Revert']
+  // The Quick Rack buttons of the bank on view holding rack `id` ("A1 A3"); Quick Racks
+  // state only carries the bank on view.
+  const quickOn = (id: string) =>
+    s.quickRacks.buttons.flatMap((b, i) => (b.rack === id ? [quickLabel(s.quickRacks.bank, i)] : [])).join(' ')
+  const COMING =['+ New rack', 'Save rack', 'Save as…', 'Revert']
 </script>
 
 <div class="racks">
@@ -66,7 +71,20 @@
         </div>
       {/if}
       {#if !filtered}
-        <p class="coming">Your saved racks list here once racks can be saved and loaded (coming next). Until then the live rack keeps everything: it autosaves, and comes back when yahaha starts.</p>
+        {#if s.racks.length}
+          <div role="listbox" aria-label="My racks">
+            {#each s.racks as r (r.id)}
+              {@const on = quickOn(r.id)}
+              <button type="button" class="row load" role="option" aria-selected={r.id === live.id} class:sel={r.id === live.id} use:tip={'quick.rack'} onclick={() => app.send({ type: 'loadRack', id: r.id })}>
+                <span class="mark" aria-hidden="true">{r.id === live.id ? '▶' : ''}</span>
+                <span class="name">{r.name}{#if r.id === live.id && live.modified}<span class="mod" title="Modified"> ●</span>{/if}<span class="sub">{r.parts.filter((_, i) => r.on[i]).join(' + ')}</span></span>
+                <span class="badge" class:warn={r.needsAttention}>{r.needsAttention ? '⚠ fix' : on}</span>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <p class="coming">No racks yet. Press Store, then a Quick Rack button, to save the live rack ({live.name}) and put it there.</p>
+        {/if}
       {/if}
     </div>
   </div>
@@ -159,6 +177,19 @@
     padding: 0.4rem 0.7rem;
     border-top: 1px solid rgb(255 255 255 / 0.05);
     outline: none;
+  }
+  button.row.load {
+    width: 100%;
+    border: none;
+    border-top: 1px solid rgb(255 255 255 / 0.05);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .badge:empty {
+    display: none;
   }
   .row.sel {
     background: color-mix(in srgb, var(--accent) 16%, transparent);

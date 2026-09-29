@@ -41,9 +41,10 @@ export class MockRacks {
       .map((r) => ({ id: r.id, name: r.name, parts: [...r.names], on: r.parts.map((p) => p.on), needsAttention: false }))
   }
 
-  cmd(cmd: RackCmd, ctx: RackCtx) {
+  /** Runs a rack command; true when it went through (false: refused, or a prompt asks). */
+  cmd(cmd: RackCmd, ctx: RackCtx): boolean {
     const live = ctx.state.liveRack
-    const fail = (text: string) => ctx.message(text, true)
+    const fail = (text: string) => (ctx.message(text, true), false)
     const find = (id: string) => this.racks.find((r) => r.id === id)
     const taken = (name: string) => this.racks.some((r) => r.name === name)
     switch (cmd.type) {
@@ -54,10 +55,10 @@ export class MockRacks {
         if (live.modified && !cmd.discard) {
           const then: RackSwitch = rack ? { kind: 'load', id: rack.id, name: rack.name } : { kind: 'new' }
           live.prompt = { kind: 'unsavedChanges', then }
-          return
+          return false
         }
         this.enter(rack ?? null, ctx)
-        return
+        return true
       }
       case 'saveRack':
       case 'saveRackAs': {
@@ -88,7 +89,7 @@ export class MockRacks {
         })
         if (ask.length) {
           live.prompt = { kind: 'soundNames', parts: ask, saveAs: cmd.type === 'saveRackAs' ? name : null }
-          return
+          return false
         }
         for (const c of saves) ctx.command(c)
         const rack = this.capture(ctx.state, id, name)
@@ -96,13 +97,13 @@ export class MockRacks {
         Object.assign(live, { name, id, modified: false, prompt: null })
         ctx.clean()
         ctx.message(`Saved ${name}`)
-        return
+        return true
       }
       case 'revertRack': {
         const own = live.id ? find(live.id) : undefined
         if (!own) return fail(`${live.name} has no saved rack to go back to`)
         this.enter(own, ctx)
-        return
+        return true
       }
       case 'renameRack': {
         const r = find(cmd.id)
@@ -112,7 +113,7 @@ export class MockRacks {
         if (name !== r.name && taken(name)) return fail(`there is a rack called ${name} already`)
         r.name = name
         if (live.id === r.id) live.name = name
-        return
+        return true
       }
       case 'duplicateRack': {
         const r = find(cmd.id)
@@ -120,17 +121,17 @@ export class MockRacks {
         const copy = { ...structuredClone(r), id: this.newId(), name: this.unique(`${r.name} copy`) }
         this.racks.push(copy)
         ctx.message(`Duplicated as ${copy.name}`)
-        return
+        return true
       }
       case 'deleteRack': {
         if (!find(cmd.id)) return fail(`no rack ${cmd.id}`)
         if (live.id === cmd.id) return fail(`${live.name} is loaded: load another rack before deleting it`)
         this.racks = this.racks.filter((r) => r.id !== cmd.id)
-        return
+        return true
       }
       case 'dismissRackPrompt':
         live.prompt = null
-        return
+        return true
     }
   }
 

@@ -37,6 +37,7 @@ mod plugins;
 mod parts;
 mod playlist;
 mod preview;
+mod quick_racks;
 mod racks;
 mod registration;
 mod settings;
@@ -69,6 +70,7 @@ pub use plugins::*;
 pub use parts::*;
 pub use playlist::*;
 pub use preview::*;
+pub use quick_racks::*;
 pub use racks::*;
 pub use registration::*;
 pub use settings::*;
@@ -94,7 +96,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 /// deserializer. On the wire a command is its group's JSON (`{"type":"main",...}`): the
 /// group level is Rust-only.
 macro_rules! app_cmd {
-    ($($(#[$doc:meta])* $group:ident($ty:ty),)*) => {
+    (
+        $($(#[$doc:meta])* $group:ident($ty:ty),)*
+        @retired { $($(#[$rdoc:meta])* $rgroup:ident($rty:ty),)* }
+    ) => {
         /// Every user action, by feature. Indices are 0-based. Keyboard parts: 0 = Right 1,
         /// 1 = Right 2, 2 = Right 3, 3 = Left. Style parts: 0-7 = Rhythm 1, Rhythm 2, Bass,
         /// Chord 1, Chord 2, Pad, Phrase 1, Phrase 2 (MIDI channels 9-16).
@@ -105,11 +110,17 @@ macro_rules! app_cmd {
         #[serde(untagged)]
         pub enum AppCmd {
             $($(#[$doc])* $group($ty),)*
+            $($(#[$rdoc])* #[serde(skip)] $rgroup($rty),)*
         }
 
         $(impl From<$ty> for AppCmd {
             fn from(c: $ty) -> AppCmd {
                 AppCmd::$group(c)
+            }
+        })*
+        $(impl From<$rty> for AppCmd {
+            fn from(c: $rty) -> AppCmd {
+                AppCmd::$rgroup(c)
             }
         })*
 
@@ -159,10 +170,6 @@ app_cmd! {
     Chart(ChartCmd),
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
     StyleSettings(StyleSettingsCmd),
-    /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
-    Registration(RegistrationCmd),
-    /// The Playlist.
-    Playlist(PlaylistCmd),
     /// Chord Looper: record, loop, memories.
     Looper(LooperCmd),
     /// Metronome on/off, volume, bell.
@@ -189,6 +196,18 @@ app_cmd! {
     Fx(FxCmd),
     /// Racks: new, load, save, save as, revert, rename, duplicate, delete.
     Rack(RackCmd),
+    /// Quick Racks: the one-press rack buttons (banks A-H of eight), Store, bank -/+.
+    QuickRacks(QuickRackCmd),
+    // Quick Racks replaced these (docs/racks.md, "Migration"). They are off the wire: the
+    // app, the Launchkey, the pedals and the terminal UI no longer send them, and a JSON
+    // command of theirs is refused. Their code goes with the rest of the Registration code
+    // (racks item 13).
+    @retired {
+        /// Registration Memory: buttons, banks, Memorize, Freeze, Registration Sequence.
+        Registration(RegistrationCmd),
+        /// The Playlist.
+        Playlist(PlaylistCmd),
+    }
 }
 
 impl From<Button> for AppCmd {
@@ -260,13 +279,10 @@ impl From<Action> for AppCmd {
             Action::ToggleFaderPage => MixerCmd::ToggleFaderPage.into(),
             Action::Style(d) => LibraryCmd::StepStyle { delta: d }.into(),
             Action::RetriggerRate(d) => StyleSettingsCmd::StepRetriggerRate { delta: d }.into(),
-            Action::Regist(i) => RegistrationCmd::PressSnapshot { slot: i }.into(),
-            Action::SnapshotBank(d) => RegistrationCmd::StepSnapshotBank { delta: d }.into(),
-            Action::RegistMemory => RegistrationCmd::ToggleRegistMemory.into(),
-            Action::RegistFreeze => RegistrationCmd::ToggleFreeze.into(),
-            Action::RegistBank(d) => RegistrationCmd::StepRegistBank { delta: d }.into(),
-            Action::RegistSeq(d) => RegistrationCmd::StepRegistSequence { delta: d }.into(),
-            Action::Playlist(d) => PlaylistCmd::StepPlaylist { delta: d }.into(),
+            Action::QuickRack(i) => QuickRackCmd::PressQuickRack { slot: i, discard: false }.into(),
+            Action::QuickRackBank(d) => QuickRackCmd::StepQuickRackBank { delta: d }.into(),
+            Action::QuickRackStore => QuickRackCmd::ToggleQuickRackStore.into(),
+            Action::QuickRackStep(d) => QuickRackCmd::StepQuickRack { delta: d, discard: false }.into(),
             Action::Assign(f) => ControllersCmd::TriggerFunction { function: f }.into(),
             Action::AssignSet(f, on) => function_set(f, on).unwrap_or(ControllersCmd::TriggerFunction { function: f }.into()),
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
@@ -363,9 +379,12 @@ pub struct AppState {
     pub chart: ChartState,
     /// Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length.
     pub style_settings: StyleSettingsState,
-    /// Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence.
+    /// Registration Memory, retired with its commands (Quick Racks replaced it): off the
+    /// wire, kept for the code that goes in racks item 13.
+    #[serde(skip)]
     pub registration: RegistrationState,
-    /// The Playlist.
+    /// The Playlist, retired with Registration Memory: off the wire.
+    #[serde(skip)]
     pub playlist: PlaylistState,
     /// Multi Pads: the bank, the four pads, Synchro Stop, the bank files.
     pub multi_pad: MultiPadState,
@@ -411,6 +430,9 @@ pub struct AppState {
     /// The user's racks (`<data>/Racks`), by name.
     #[serde(default)]
     pub racks: Vec<RackEntry>,
+    /// Quick Racks: the bank on view, its eight buttons, Store.
+    #[serde(default)]
+    pub quick_racks: QuickRacksState,
 }
 
 // ---------------------------------------------------------------------------

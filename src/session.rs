@@ -57,6 +57,7 @@ mod plugin_presence;
 mod plugins;
 mod playlist;
 mod preview;
+mod quick_racks;
 mod racks;
 mod rack_cmds;
 mod registration;
@@ -362,6 +363,11 @@ struct Control {
     sounds: sounds::Sounds,
     /// New and missing plugins, and what uses each (session/plugin_presence.rs).
     presence: plugin_presence::Presence,
+    /// Quick Racks: the buttons, the bank on view, Store (session/quick_racks.rs).
+    quick: quick_racks::QuickCtl,
+    /// The command being applied came from the Launchkey or a pedal, which have no dialog
+    /// (a rack switch keeps unsaved changes as a Recovered rack instead of asking).
+    hardware: bool,
 }
 
 /// What several parts of the state read, read once per `build_state` so they all agree.
@@ -428,7 +434,12 @@ impl Control {
             AppCmd::Dynamics(c) => self.dynamics_cmd(c),
             AppCmd::Knobs(c) => self.knobs_cmd(c),
             AppCmd::Fx(c) => self.fx_cmd(c),
-            AppCmd::Rack(c) => self.rack_cmd(c),
+            AppCmd::Rack(c) => {
+                let r = self.rack_cmd(c.clone());
+                self.quick_after_rack_cmd(&c, r.is_ok());
+                r
+            }
+            AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
         }
     }
 
@@ -448,7 +459,7 @@ impl Control {
             looper: self.looper_lamp(),
             parts_on: parts.sounding_mask(),
             selected: parts.selected() as u8,
-            regist: self.regist_panel(),
+            quick: self.quick_panel(),
         }
     }
 
@@ -472,7 +483,7 @@ impl Control {
         self.drain_snapshots();
         // Launchkey pad/button actions: the same commands as their keyboard shortcuts.
         while let Ok(a) = self.act_rx.pop() {
-            let _ = self.apply(a.into());
+            let _ = self.apply_hardware(a);
         }
         self.pump_ots_link();
         self.pump_pedal_releases();
@@ -557,8 +568,10 @@ impl Control {
             home: Default::default(),
             live_rack: self.live_rack_state(),
             racks: Vec::new(),
+            quick_racks: Default::default(),
         };
         st.racks = self.rack_entries(&st.plugins);
+        st.quick_racks = self.quick_racks_state();
         st.home = self.home_state(&st);
         st
     }
@@ -759,11 +772,16 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         rack_controls: Default::default(),
         live_rack: Default::default(),
         presence: plugin_presence::Presence::open(opts.data_dir.as_deref()),
+        quick: quick_racks::QuickCtl::open(opts.data_dir.as_deref()),
+        hardware: false,
     };
     let mut control = control;
     control.list_sound_fonts();
     if let Some(e) = control.sound.load_error().map(str::to_string) {
         control.say(format!("Sound library not loaded (it will not be saved over): {e}"), true);
+    }
+    if let Some(e) = control.quick.load_error().map(str::to_string) {
+        control.say(format!("Quick Racks not loaded (they will not be saved over): {e}"), true);
     }
     Ok((shared, Assembled { control, engine: EngineLoopParts { engine, io: ch.io }, input }))
 }

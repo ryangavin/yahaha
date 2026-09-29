@@ -30,7 +30,6 @@
 
 pub mod mock;
 mod mock_home;
-mod mock_regist;
 mod mock_looper;
 
 #[cfg(not(target_os = "ios"))]

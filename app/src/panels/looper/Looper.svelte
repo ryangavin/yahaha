@@ -18,7 +18,7 @@
 -->
 <script lang="ts">
   import type { LoopChord, LooperMode } from '../../lib/api/types'
-  import { sameFile } from '../../lib/api/registration'
+  import { sameFile } from '../../lib/format'
   import { app, clock, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'

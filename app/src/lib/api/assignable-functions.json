@@ -226,16 +226,16 @@
   {
     "id": "registBankNext",
     "name": "Registration Bank +",
-    "category": "registration",
+    "category": "quickRacks",
     "kind": "trigger",
-    "available": true
+    "available": false
   },
   {
     "id": "registBankPrev",
     "name": "Registration Bank −",
-    "category": "registration",
+    "category": "quickRacks",
     "kind": "trigger",
-    "available": true
+    "available": false
   },
   {
     "id": "tempoUp",
@@ -344,108 +344,108 @@
   },
   {
     "id": "registNext",
-    "name": "Regist +",
-    "category": "registration",
+    "name": "Next Quick Rack",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "registPrev",
-    "name": "Regist −",
-    "category": "registration",
+    "name": "Previous Quick Rack",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist1",
-    "name": "Snapshot 1",
-    "category": "registration",
+    "name": "Quick Rack 1",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist2",
-    "name": "Snapshot 2",
-    "category": "registration",
+    "name": "Quick Rack 2",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist3",
-    "name": "Snapshot 3",
-    "category": "registration",
+    "name": "Quick Rack 3",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist4",
-    "name": "Snapshot 4",
-    "category": "registration",
+    "name": "Quick Rack 4",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist5",
-    "name": "Snapshot 5",
-    "category": "registration",
+    "name": "Quick Rack 5",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist6",
-    "name": "Snapshot 6",
-    "category": "registration",
+    "name": "Quick Rack 6",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist7",
-    "name": "Snapshot 7",
-    "category": "registration",
+    "name": "Quick Rack 7",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist8",
-    "name": "Snapshot 8",
-    "category": "registration",
+    "name": "Quick Rack 8",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist9",
-    "name": "Snapshot 1 of the next bank",
-    "category": "registration",
+    "name": "Quick Rack 1 of the next bank",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "regist10",
-    "name": "Snapshot 2 of the next bank",
-    "category": "registration",
+    "name": "Quick Rack 2 of the next bank",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "registMemory",
-    "name": "Snapshot Store",
-    "category": "registration",
+    "name": "Quick Racks Store",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "registFreeze",
     "name": "Registration Freeze On/Off",
-    "category": "registration",
+    "category": "quickRacks",
     "kind": "trigger",
-    "available": true
+    "available": false
   },
   {
     "id": "registSequence",
     "name": "Registration Sequence On/Off",
-    "category": "registration",
+    "category": "quickRacks",
     "kind": "trigger",
-    "available": true
+    "available": false
   },
   {
     "id": "chordLooperOnOff",
@@ -477,15 +477,15 @@
   },
   {
     "id": "snapshotBankNext",
-    "name": "Snapshot Bank +",
-    "category": "registration",
+    "name": "Quick Racks Bank +",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },
   {
     "id": "snapshotBankPrev",
-    "name": "Snapshot Bank −",
-    "category": "registration",
+    "name": "Quick Racks Bank −",
+    "category": "quickRacks",
     "kind": "trigger",
     "available": true
   },

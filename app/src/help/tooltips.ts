@@ -30,7 +30,7 @@ export interface Tip {
 const P1 = 'Pad page 1 (Sections)'
 const P2 = 'Pad page 2 (Chord/Setup)'
 const P3 = 'Pad page 3 (OTS/Parts)'
-const P4 = 'Pad page 4 (Snapshots)'
+const P4 = 'Pad page 4 (Quick Racks)'
 const P5 = 'Pad page 5 (Multi Pads)'
 const pad = (page: string, row: 'top' | 'bottom', n: number) => `${page}, ${row} row, pad ${n}`
 
@@ -51,6 +51,10 @@ const MP_STOP = {
   body: 'Stops only this pad, now. The other pads keep playing.',
   genos: '[STOP] + pad',
   keys: [],
+}
+// The Quick Rack buttons 1–8 (the bar's, the drawer's and pad page 4's).
+const QUICK_BUTTON = {
+  body: 'Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead.',
 }
 
 const catalog = {
@@ -1975,20 +1979,6 @@ const catalog = {
     keys: [],
     launchkey: 'Knob 8 on most knob pages',
   },
-  'regist.prev': {
-    title: 'Previous Snapshot',
-    body: 'Recalls the Snapshot before the one selected: the Sequence order when Registration Sequence is on, else the previous stored button.',
-    genos: 'Registration − (foot pedal)',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.next': {
-    title: 'Next Snapshot',
-    body: 'Recalls the Snapshot after the one selected: the Sequence order when Registration Sequence is on, else the next stored button.',
-    genos: 'Registration + (foot pedal)',
-    keys: [],
-    launchkey: null,
-  },
   'harmony.arp_pedal_hold': {
     title: 'Arpeggio Hold pedal',
     body: 'The Arpeggio Hold pedal switch, from the app. On: the arpeggio plays on after you let go, as with the pedal held down.',
@@ -2053,249 +2043,132 @@ const catalog = {
     launchkey: null,
   },
 
-  // ── Registration Memory ─────────────────────────────────────────────────
-  'regist.1': {
-    title: 'Snapshot 1',
-    body: 'Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead.',
-    genos: 'REGISTRATION MEMORY [1]',
-    keys: ['Q'],
-    launchkey: pad(P4, 'top', 1),
-  },
-  'regist.2': {
-    title: 'Snapshot 2',
-    body: 'Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead.',
-    genos: 'REGISTRATION MEMORY [2]',
-    keys: ['W'],
-    launchkey: pad(P4, 'top', 2),
-  },
-  'regist.3': {
-    title: 'Snapshot 3',
-    body: 'Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead.',
-    genos: 'REGISTRATION MEMORY [3]',
-    keys: ['E'],
-    launchkey: pad(P4, 'top', 3),
-  },
-  'regist.4': {
-    title: 'Snapshot 4',
-    body: 'Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead.',
-    genos: 'REGISTRATION MEMORY [4]',
-    keys: ['R'],
-    launchkey: pad(P4, 'top', 4),
-  },
-  'regist.5': {
-    title: 'Snapshot 5',
-    body: 'Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead.',
-    genos: 'REGISTRATION MEMORY [5]',
-    keys: ['T'],
-    launchkey: pad(P4, 'top', 5),
-  },
-  'regist.6': {
-    title: 'Snapshot 6',
-    body: 'Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead.',
-    genos: 'REGISTRATION MEMORY [6]',
-    keys: ['Y'],
-    launchkey: pad(P4, 'top', 6),
-  },
-  'regist.7': {
-    title: 'Snapshot 7',
-    body: 'Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead.',
-    genos: 'REGISTRATION MEMORY [7]',
-    keys: ['U'],
-    launchkey: pad(P4, 'top', 7),
-  },
-  'regist.8': {
-    title: 'Snapshot 8',
-    body: 'Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead.',
-    genos: 'REGISTRATION MEMORY [8]',
-    keys: ['I'],
-    launchkey: pad(P4, 'top', 8),
-  },
-  'regist.memory': {
+  // ── Quick Racks ─────────────────────────────────────────────────────────
+  // The one-press rack buttons (docs/racks.md), where the Genos has Registration Memory.
+  'quick.1': { ...QUICK_BUTTON, title: 'Quick Rack 1', genos: 'REGISTRATION MEMORY [1]', keys: ['Q'], launchkey: pad(P4, 'top', 1) },
+  'quick.2': { ...QUICK_BUTTON, title: 'Quick Rack 2', genos: 'REGISTRATION MEMORY [2]', keys: ['W'], launchkey: pad(P4, 'top', 2) },
+  'quick.3': { ...QUICK_BUTTON, title: 'Quick Rack 3', genos: 'REGISTRATION MEMORY [3]', keys: ['E'], launchkey: pad(P4, 'top', 3) },
+  'quick.4': { ...QUICK_BUTTON, title: 'Quick Rack 4', genos: 'REGISTRATION MEMORY [4]', keys: ['R'], launchkey: pad(P4, 'top', 4) },
+  'quick.5': { ...QUICK_BUTTON, title: 'Quick Rack 5', genos: 'REGISTRATION MEMORY [5]', keys: ['T'], launchkey: pad(P4, 'top', 5) },
+  'quick.6': { ...QUICK_BUTTON, title: 'Quick Rack 6', genos: 'REGISTRATION MEMORY [6]', keys: ['Y'], launchkey: pad(P4, 'top', 6) },
+  'quick.7': { ...QUICK_BUTTON, title: 'Quick Rack 7', genos: 'REGISTRATION MEMORY [7]', keys: ['U'], launchkey: pad(P4, 'top', 7) },
+  'quick.8': { ...QUICK_BUTTON, title: 'Quick Rack 8', genos: 'REGISTRATION MEMORY [8]', keys: ['I'], launchkey: pad(P4, 'top', 8) },
+  'quick.store': {
     title: 'Store',
-    body: 'Arms Store: the next snapshot you press stores the whole panel (the ticked Store groups) in it, replacing what it held. The snapshots flash while it waits. Press Store again to cancel.',
+    body: 'Arms Store: the next Quick Rack button you press gets the live rack, replacing what it held. The buttons flash while it waits; a rack with unsaved changes, or one never saved, is saved first. Press Store again to cancel.',
     genos: 'MEMORY',
     keys: ['F5'],
     launchkey: pad(P4, 'bottom', 5),
   },
-  'regist.freeze': {
-    title: 'Freeze',
-    body: 'While on, recalling a registration leaves the ticked Freeze groups as they are: freeze Style to change voices without changing the band, or Tempo to keep your tempo.',
-    genos: 'FREEZE',
-    keys: ['F6'],
-    launchkey: pad(P4, 'bottom', 6),
-  },
-  'regist.seq_prev': {
-    title: 'Regist −',
-    body: 'Steps back through the bank\'s Registration Sequence and recalls that button. Works only while the sequence is on.',
-    genos: 'Registration Sequence − (Regist − pedal)',
+  'quick.prev': {
+    title: 'Previous rack',
+    body: 'Loads the rack on the stored button before the lit one in the bank on view (with none lit, the last). It stops at the first; with unsaved changes it asks first.',
+    genos: 'Registration − (foot pedal)',
     keys: ['F7'],
-    launchkey: pad(P4, 'bottom', 7),
+    launchkey: `${pad(P4, 'bottom', 7)}; Shift + < Track button`,
   },
-  'regist.seq_next': {
-    title: 'Regist +',
-    body: 'Steps forward through the bank\'s Registration Sequence and recalls that button, like a pedal on stage. At the end it stops, starts again, or moves to the next bank, as the sequence says.',
-    genos: 'Registration Sequence + (Regist + pedal)',
+  'quick.next': {
+    title: 'Next rack',
+    body: 'Loads the rack on the stored button after the lit one in the bank on view (with none lit, the first). It stops at the last; with unsaved changes it asks first.',
+    genos: 'Registration + (foot pedal)',
     keys: ['F8'],
-    launchkey: pad(P4, 'bottom', 8),
+    launchkey: `${pad(P4, 'bottom', 8)}; Shift + Track > button`,
   },
-  'regist.bank_prev': {
-    title: 'File −',
-    body: 'Loads the previous bank file in the Registration folder, on its Bank A. Its snapshots light up but nothing is recalled until you press one.',
-    genos: 'REGIST BANK −',
-    keys: ['F11'],
-    launchkey: pad(P4, 'bottom', 3),
-  },
-  'regist.bank_next': {
-    title: 'File +',
-    body: 'Loads the next bank file in the Registration folder, on its Bank A. Its snapshots light up but nothing is recalled until you press one.',
-    genos: 'REGIST BANK +',
-    keys: ['F12'],
-    launchkey: pad(P4, 'bottom', 4),
-  },
-  'regist.bank': {
-    title: 'Bank file',
-    body: 'The bank file in use: its snapshots, eight per bank (A, B, …), and its Registration Sequence. Pick another file from the Registration folder; a star means it has changes that aren\'t saved yet.',
-    genos: 'Registration Bank Selection',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.snap_bank_prev': {
+  'quick.bank_prev': {
     title: 'Bank −',
-    body: 'Shows the previous eight snapshots (Bank B to A, say) on these buttons and the pads. Nothing is recalled until you press one.',
+    body: 'Shows the previous bank of eight Quick Racks (B to A, say) on these buttons and pad page 4. Nothing loads until you press one.',
     genos: null,
     keys: ['O'],
     launchkey: pad(P4, 'bottom', 1),
   },
-  'regist.snap_bank_next': {
+  'quick.bank_next': {
     title: 'Bank +',
-    body: 'Shows the next eight snapshots (Bank A to B, say) on these buttons and the pads, up to one empty bank past the last one in use, to store into. Nothing is recalled until you press one.',
+    body: 'Shows the next bank of eight Quick Racks (A to B, say, up to H) on these buttons and pad page 4. Nothing loads until you press one.',
     genos: null,
     keys: ['P'],
     launchkey: pad(P4, 'bottom', 2),
   },
-  'regist.snap_bank': {
-    title: 'Snapshot bank',
-    body: 'The bank of eight snapshots on view (A, B, …). Recalling a snapshot from another bank, with the sequence or Regist +/−, brings its bank on view.',
+  'quick.bank': {
+    title: 'Quick Racks bank',
+    body: 'The bank of eight Quick Racks on view, A to H. Bank − and Bank + step through them; in the Quick Racks drawer, click a letter to view that bank.',
     genos: null,
     keys: [],
     launchkey: null,
   },
-  'regist.open': {
-    title: 'Registration and Playlist',
-    body: 'Opens the Registration panel: what each button holds, renaming and clearing, the Memory and Freeze groups, the Registration Sequence and the Playlist.',
-    genos: 'Regist Bank Info / Edit, Regist Sequence, Regist Freeze, PLAYLIST',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.tab': {
-    title: 'Registration panel page',
-    body: 'Switches between the bank file\'s snapshots, the Store and Freeze groups, the Registration Sequence and the Playlist.',
-    genos: null,
-    keys: [],
-    launchkey: null,
-  },
-  'regist.new_bank': {
-    title: 'New bank',
-    body: 'Starts a new, empty bank. Give it a name and save it to keep it; unsaved changes to the bank in use are dropped.',
-    genos: 'Regist Bank: New',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.save_bank': {
-    title: 'Save bank',
-    body: 'Saves the bank to its file in the Registration folder, or under the name you typed as a new file. If another bank already has that name, nothing is saved: pick another name, or use Overwrite. Once a bank has a file, memorizing, renaming and sequence edits save themselves.',
-    genos: 'Regist Bank: Save',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.overwrite_bank': {
-    title: 'Overwrite bank',
-    body: 'Another bank already has the name you typed. Overwrite replaces that bank\'s file with this bank; what it held is lost.',
-    genos: 'Regist Bank: Save (overwrite)',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.bank_name': {
-    title: 'Bank name',
-    body: 'The name to save the bank under. Saving with a new name makes a new file and leaves the old one as it was. A name another bank already has is refused, unless you choose Overwrite.',
-    genos: null,
-    keys: [],
-    launchkey: null,
-  },
-  'regist.info': {
-    title: 'Button contents',
-    body: 'What this button holds: its style, tempo and the voices of Right 1–3 and Left. Click it to recall it.',
-    genos: 'Regist Bank Info',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.memorize_here': {
-    title: 'Store here',
-    body: 'Stores the panel as it is now in this snapshot (the ticked Store groups), replacing what it held.',
-    genos: 'MEMORY + [1]–[10]',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.rename': {
-    title: 'Rename',
-    body: 'Renames this button. The name shows in the Registration bar and in playlists.',
-    genos: 'Regist Bank Edit: Rename',
-    keys: [],
-    launchkey: null,
-  },
-  'regist.clear': {
+  'quick.clear': {
     title: 'Clear',
-    body: 'Empties this button. Its lamp goes dark.',
+    body: 'Empties this Quick Rack button. The rack itself stays in your racks.',
     genos: 'Regist Bank Edit: Delete',
     keys: [],
     launchkey: null,
   },
-  'regist.memorize_group': {
-    title: 'Store group',
-    body: 'Ticked groups are what Store keeps in a snapshot; a recall only changes what the snapshot stored. Untick Tempo, say, for snapshots that should keep whatever tempo you are playing.',
-    genos: 'Registration Memory window (items to register)',
+  'quick.rack': {
+    title: 'Rack',
+    body: 'One of your racks: click to load it, as a Quick Rack button does (with unsaved changes it asks first, in the Quick Racks bar). Its label, such as A1, is the Quick Rack button in the bank on view that holds it.',
+    genos: null,
     keys: [],
     launchkey: null,
   },
-  'regist.freeze_group': {
-    title: 'Freeze group',
-    body: 'Ticked groups stay as they are when you recall a registration, while Freeze is on. Style also covers the section, the Style mixer, the split, the fingering and the Left part, as on the Genos.',
-    genos: 'Regist Freeze display',
+  'quick.save_first': {
+    title: 'Save first',
+    body: 'Saves the live rack with its changes, then makes the switch you asked for.',
+    genos: null,
     keys: [],
     launchkey: null,
   },
-  'regist.sequence_on': {
-    title: 'Registration Sequence',
-    body: 'Turns the Registration Sequence on, so Regist + and Regist − step through the bank\'s sequence. As on the Genos this is a panel setting, not part of the bank: it stays as it is when you change banks, and yahaha remembers it between sessions.',
-    genos: 'Registration Sequence On/Off',
+  'quick.discard': {
+    title: 'Discard and switch',
+    body: 'Drops the live rack\'s unsaved changes and makes the switch.',
+    genos: null,
     keys: [],
     launchkey: null,
   },
-  'regist.sequence_steps': {
-    title: 'Add step',
-    body: 'Adds this button to the end of the sequence. A button can come more than once.',
-    genos: 'Registration Sequence: Insert',
+  'quick.keep_editing': {
+    title: 'Keep editing',
+    body: 'Cancels the switch: the live rack stays as it is, changes and all.',
+    genos: null,
     keys: [],
     launchkey: null,
   },
-  'regist.sequence_step': {
-    title: 'Sequence step',
-    body: 'A step of the sequence: the button it recalls. Click to take it out of the sequence; the ringed step is the one last recalled.',
-    genos: 'Registration Sequence: Delete',
+  'quick.save_name': {
+    title: 'Rack name',
+    body: 'The name to save the live rack under, as a new rack of yours. It then goes on the waiting Quick Rack button.',
+    genos: null,
     keys: [],
     launchkey: null,
   },
-  'regist.sequence_clear': {
-    title: 'Clear sequence',
-    body: 'Removes every step from the sequence.',
-    genos: 'Registration Sequence: Clear',
+  'quick.save': {
+    title: 'Save rack',
+    body: 'Saves the live rack (a new one under the name typed, when it has never been saved), then stores it on the waiting Quick Rack button.',
+    genos: null,
     keys: [],
     launchkey: null,
   },
-  'regist.sequence_end': {
-    title: 'At the end',
-    body: 'What Regist + does after the last step: Stop does nothing more, Top starts again at the first step, Next bank moves on to the next bank file and its first step.',
-    genos: 'Registration Sequence end (Stop / Top / Next)',
+  'quick.cancel_store': {
+    title: 'Cancel',
+    body: 'Nothing is saved or stored: Store disarms and the button keeps what it held.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'quick.sound_name': {
+    title: 'New sound name',
+    body: 'This part plays an edited preset, which becomes a new sound of yours when the rack is saved: give it a name.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'quick.sound_names_save': {
+    title: 'Save with these names',
+    body: 'Saves the rack, each edited preset becoming a new sound of yours under the name typed.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'quick.sound_names_cancel': {
+    title: 'Cancel',
+    body: 'Nothing is saved: the live rack keeps its changes.',
+    genos: null,
     keys: [],
     launchkey: null,
   },
@@ -2307,127 +2180,13 @@ const catalog = {
     app_keys: ['PgDn', 'PgUp'],
     launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
   },
-  'padpage.registration': {
-    title: 'Pad page 4: Registration',
-    body: 'Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange.',
+  'padpage.quick_racks': {
+    title: 'Pad page 4: Quick Racks',
+    body: 'Quick Racks 1–8 of the bank on view on the top row (red loaded, blue stored, dark empty; all flashing while Store is armed); Bank −/+, Store and Rack −/+ on the bottom row. The other pads are orange.',
     genos: null,
     keys: ['tab', 'shift+tab'],
     app_keys: ['PgDn', 'PgUp'],
     launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
-  },
-
-  // ── Playlist ────────────────────────────────────────────────────────────
-  'playlist.prev': {
-    title: 'Previous song',
-    body: 'Loads the playlist record before the one in use: its bank and button, or its style.',
-    genos: 'Playlist (previous record)',
-    keys: ['<'],
-    launchkey: 'Shift + < Track button',
-  },
-  'playlist.next': {
-    title: 'Next song',
-    body: 'Loads the next playlist record: its bank and button, or its style. Step through a set list this way without looking at the screen.',
-    genos: 'Playlist (next record)',
-    keys: ['>'],
-    launchkey: 'Shift + Track > button',
-  },
-  'playlist.record': {
-    title: 'Playlist record',
-    body: 'A song in the set list. Click it to load its bank (and recall its button) or its style; the lit one is the song in use. A struck-out name means its file is gone.',
-    genos: 'Playlist Record (Load)',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.file': {
-    title: 'Playlist',
-    body: 'The set list in use. Pick another playlist file from the Playlists folder; a star means it has unsaved changes.',
-    genos: 'Playlist File Selection',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.new': {
-    title: 'New playlist',
-    body: 'Starts a new, empty set list. Unsaved changes to the one in use are dropped.',
-    genos: 'Playlist: New',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.save': {
-    title: 'Save playlist',
-    body: 'Saves the set list in the order shown (a sorted list is saved sorted, and goes back to Normal), to its file or under the name you typed. A name another playlist already has is refused: pick another, or use Overwrite.',
-    genos: 'Playlist: Save',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.overwrite': {
-    title: 'Overwrite playlist',
-    body: 'Another playlist already has the name you typed. Overwrite replaces that playlist\'s file with this set list.',
-    genos: 'Playlist: Save (overwrite)',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.name': {
-    title: 'Playlist name',
-    body: 'The name to save the set list under. A new name makes a new file; another playlist\'s name needs Overwrite.',
-    genos: null,
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.add_bank': {
-    title: 'Add this bank',
-    body: 'Adds the bank in use to the end of the set list, recalling the button that is lit. The bank must be saved first.',
-    genos: 'Add Record: Select from Registration Bank',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.add_style': {
-    title: 'Add this style',
-    body: 'Adds the loaded style to the end of the set list, for a song that needs only the style.',
-    genos: null,
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.append': {
-    title: 'Append playlist',
-    body: 'Adds every record of another playlist file to the end of this one.',
-    genos: 'Add Record: Append Playlist',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.edit': {
-    title: 'Button to recall',
-    body: 'Which button of the bank this record recalls after loading it, or none to only load the bank.',
-    genos: 'Record Edit: Load Regist Memory',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.up': {
-    title: 'Move up',
-    body: 'Moves the record one place up the set list. Off while the list is sorted.',
-    genos: 'Playlist: Up',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.down': {
-    title: 'Move down',
-    body: 'Moves the record one place down the set list. Off while the list is sorted.',
-    genos: 'Playlist: Down',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.delete': {
-    title: 'Delete record',
-    body: 'Takes the record out of the set list; its bank or style file is not touched. Off while the list is sorted.',
-    genos: 'Playlist: Delete',
-    keys: [],
-    launchkey: null,
-  },
-  'playlist.sort': {
-    title: 'Sort',
-    body: 'Shows the set list in its own order, A to Z or Z to A. Saving while sorted saves that order.',
-    genos: 'Playlist: Sort (A to Z)',
-    keys: [],
-    launchkey: null,
   },
 
   // ── Pedals and wheels (Settings › Pedals) ───────────────────────────────
@@ -2440,7 +2199,7 @@ const catalog = {
   },
   'pedal.function': {
     title: 'Pedal function',
-    body: 'What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, the Registration bank, tempo, transpose or a part on/off.',
+    body: 'What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, a Quick Rack, tempo, transpose or a part on/off.',
     genos: 'Assignable › Foot Pedal',
     keys: [],
     launchkey: 'The pedal plugged into the sustain jack',
@@ -2688,9 +2447,9 @@ const catalog = {
     app_keys: ['alt+s'],
     launchkey: null,
   },
-  'nav.regist': {
-    title: 'Registrations',
-    body: 'Opens the Registration panel: bank, groups, sequence and playlist. Press again to close.',
+  'nav.quick': {
+    title: 'Quick Racks',
+    body: 'Opens Library on its Racks tab: your racks to load, each with the Quick Rack button that holds it in the bank on view. Press again to go back to Stage.',
     genos: 'REGISTRATION MEMORY',
     keys: [],
     app_keys: ['alt+r'],

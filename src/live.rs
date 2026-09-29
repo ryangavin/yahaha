@@ -2679,9 +2679,9 @@ mod tests {
 
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        assert_eq!(page(), Page::Registration);
+        assert_eq!(page(), Page::QuickRacks);
         input.pad_msg(&[0x90, 113, 100]);
-        assert_eq!(acts.pop(), Ok(Action::SnapshotBank(1)));
+        assert_eq!(acts.pop(), Ok(Action::QuickRackBank(1)));
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
         assert_eq!(page(), Page::MultiPads);

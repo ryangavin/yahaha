@@ -1,5 +1,10 @@
 # Registration Memory, Freeze, Registration Sequence, Playlist
 
+> **Replaced.** Quick Racks replace Registration Memory, and the Playlist and Registration
+> Sequence went with it ([racks.md](racks.md), "Migration"). The app, the Launchkey, the
+> pedals and the terminal no longer reach anything below; the code goes in racks item 13.
+> This page stays as the record of how it worked.
+
 Issues #36 and #38. The Genos behaviour is in [genos-features.md](genos-features.md) §9
 (OM p.96–103, RM p.113–119, the Data List parameter chart); the commands and state are in
 [app-api.md](app-api.md) ("Registration Memory", "Playlist").

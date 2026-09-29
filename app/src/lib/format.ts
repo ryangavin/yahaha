@@ -12,3 +12,15 @@ export function formatTempo(bpm: number | null | undefined): string {
   if (bpm == null || !Number.isFinite(bpm)) return ''
   return String(Math.round(bpm))
 }
+
+/** The file name (less its extension) a bank called `name` is saved under, as the backend
+ * makes it: `/`, `\`, `:` and NUL become `_`, leading dots go, and an empty name is
+ * Untitled. */
+export function fileStem(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = name.trim().replace(/[/\\:\u0000]/g, '_').replace(/^\.+/, '')
+  return clean || 'Untitled'
+}
+
+/** Names `a` and `b` save to the same file: the Mac's file system (APFS) ignores case. */
+export const sameFile = (a: string, b: string) => fileStem(a).toLowerCase() === fileStem(b).toLowerCase()

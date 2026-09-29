@@ -15,7 +15,6 @@ pub(super) use sections::REGISTRABLES;
 
 use super::Control;
 use crate::api::{ParamLockState, BankFile, BankState, CmdError, RegistButton, RegistVoice, RegistrationCmd, RegistrationState, SequenceState};
-use crate::launchkey::RegistPanel;
 use crate::registration::{self as reg, Bank, Group, Groups, Memory, SeqMove, BANK_EXT, MAX_BANKS, MAX_SLOTS, SLOTS};
 use std::path::{Path, PathBuf};
 
@@ -597,22 +596,6 @@ impl Control {
 
     pub(super) fn reg_selected(&self) -> Option<u8> {
         self.reg.selected
-    }
-
-    /// Page 4 of the Launchkey: the snapshot bank on view.
-    pub(super) fn regist_panel(&self) -> RegistPanel {
-        let r = &self.reg;
-        let first = r.view as usize * SLOTS;
-        RegistPanel {
-            stored: (r.bank.stored_mask() >> first & 0xff) as u8,
-            selected: r.selected.map(usize::from).filter(|s| (first..first + SLOTS).contains(s)).map_or(0, |s| (s - first) as u8 + 1),
-            bank: r.view,
-            more_banks: r.view < r.last_view(),
-            memory: r.memory,
-            freeze: r.freeze,
-            sequence: r.seq_on && !r.bank.sequence.steps.is_empty(),
-            banks: !r.banks.is_empty(),
-        }
     }
 
     pub(super) fn registration_state(&self) -> RegistrationState {

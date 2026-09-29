@@ -14,7 +14,7 @@
   class and one custom property when it's pressed, so 60 Hz updates stay cheap.
 
   The shell can put a row above all this, in the same panel (`children`): App.svelte puts
-  the Registration bar there, above the keys, as the Genos has its Registration buttons.
+  the Quick Racks bar there, above the keys, where the Genos has its Registration buttons.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte'
@@ -81,12 +81,12 @@
 
   const SIZES: KeyRange[] = [49, 61, 88]
 
-  /** A row above the keys, across the whole strip (App.svelte puts the Registration bar here). */
+  /** A row above the keys, across the whole strip (App.svelte puts the Quick Racks bar here). */
   let { children }: { children?: Snippet } = $props()
 </script>
 
 <section class="strip mat-chassis" class:has-top={!!children} aria-label="Keyboard">
-  <!-- Above the keys, in the same panel: what the shell puts here (the Registration bar). -->
+  <!-- Above the keys, in the same panel: what the shell puts here (the Quick Racks bar). -->
   {#if children}<div class="top">{@render children()}</div>{/if}
 
   <div class="cheek">

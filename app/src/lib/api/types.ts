@@ -6,7 +6,6 @@
 // change this file and `app/src-tauri/src/api.rs` to match; components only see these
 // types and the `Session` interface.
 
-import type { PlaylistCmd, PlaylistState, RegistrationCmd, RegistrationState } from './registration'
 import type { SoundLibraryCmd, SoundLibraryState, SoundTag } from './sound-library'
 import type { SoundsCmd, SoundsState } from './sounds'
 export type * from './sound-library'
@@ -17,7 +16,7 @@ export type Fingering =
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
 /** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'registration' | 'multiPads'
+export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'quickRacks' | 'multiPads'
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -169,9 +168,6 @@ export type AppCmd =
   | ChartCmd
   // Style settings (`styleSettings`)
   | StyleSettingsCmd
-  // Registration Memory and the Playlist (lib/api/registration.ts)
-  | RegistrationCmd
-  | PlaylistCmd
   // Chord Looper (docs/chord-looper.md)
   | { type: 'looperRec' }
   | { type: 'looperOnOff' }
@@ -208,6 +204,27 @@ export type AppCmd =
   | FxCmd
   // Racks (docs/racks.md): see RackEntry and LiveRackState below.
   | RackCmd
+  // Quick Racks (docs/racks.md): see QuickRacksState below.
+  | QuickRackCmd
+
+/** The Quick Racks commands (docs/app-api.md › Quick Racks). `slot` is a button of the bank
+ * on view, 0-7. */
+export type QuickRackCmd =
+  /** Press a button. With Store armed, store the live rack on it (a rack with unsaved
+   * changes, or one never saved, waits for the save: `quickRacks.storeWaiting`). Otherwise
+   * load its rack as `loadRack` does, with the same guard and `discard`. Slots 8 and 9 run
+   * on into the next bank's 1 and 2 (the Regist 9-10 pedal functions). */
+  | { type: 'pressQuickRack'; slot: number; discard?: boolean }
+  /** Bank −/+: view the previous/next bank (A-H; it stops at either end). */
+  | { type: 'stepQuickRackBank'; delta: number }
+  /** Store: arm (or disarm) it for the next button press. Disarming lets a waiting button go. */
+  | { type: 'toggleQuickRackStore' }
+  /** Empty button `slot` of bank `bank` (0 = A). */
+  | { type: 'clearQuickRack'; bank: number; slot: number }
+  /** Previous/next rack in the bank on view: the stored button before/after the lit one
+   * (from none: + the first, − the last; it stops at either end), loaded as
+   * `pressQuickRack` loads. */
+  | { type: 'stepQuickRack'; delta: number; discard?: boolean }
 
 /** The rack commands (docs/app-api.md › Racks). A rack is named by its stable `id`. */
 export type RackCmd =
@@ -1175,10 +1192,6 @@ export interface AppState {
   chart: ChartState
   /** Section Change Timing, Synchro Stop Window, fade times, Section Reset, Retrigger length. */
   styleSettings: StyleSettingsState
-  /** Registration Memory: the bank, its ten buttons, Freeze, the Registration Sequence. */
-  registration: RegistrationState
-  /** The Playlist. */
-  playlist: PlaylistState
   /** The Chord Looper. */
   looper: LooperState
   metronome: MetronomeState
@@ -1208,6 +1221,35 @@ export interface AppState {
   liveRack: LiveRackState
   /** The user's racks (`<data>/Racks`), by name: Library › Racks. */
   racks: RackEntry[]
+  /** Quick Racks: the bank on view, its eight buttons, Store. */
+  quickRacks: QuickRacksState
+}
+
+/** Quick Racks, as the bar and pad page 4 show them. */
+export interface QuickRacksState {
+  /** The bank on view, 0-based (0 = A). */
+  bank: number
+  /** The eight buttons of the bank on view. */
+  buttons: QuickRackButton[]
+  /** Store is armed: the next button press stores the live rack. */
+  store: boolean
+  /** A button of the bank on view (0-7) waiting for the live rack to be saved (`saveRack` /
+   * `saveRackAs`) before it is stored there; null when none. */
+  storeWaiting: number | null
+  /** Quick Racks can't be changed: the file is from a newer yahaha, or there is no data folder. */
+  readOnly: boolean
+}
+
+/** One Quick Rack button. */
+export interface QuickRackButton {
+  /** The rack's id; null when empty. */
+  rack: string | null
+  /** The rack's name; empty when the button is empty or its rack is gone. */
+  name: string
+  /** It names a rack that isn't in `racks` any more. */
+  missing: boolean
+  /** Its rack is the live rack's (`liveRack.id`): lit. */
+  loaded: boolean
 }
 
 /** The live rack: what's under the player's hands now, autosaved and restored on boot. */
@@ -1359,10 +1401,10 @@ export type BendRange = 'upper' | 'lower' | 'full'
 export interface AssignableFunction {
   id: FunctionId
   name: string
-  category: 'voice' | 'style' | 'ots' | 'registration' | 'overall' | 'chordLooper'
+  category: 'voice' | 'style' | 'ots' | 'quickRacks' | 'overall' | 'chordLooper'
   /** switch: Control Type applies; trigger: fires on the press; continuous: an expression pedal. */
   kind: 'switch' | 'trigger' | 'continuous'
-  /** yahaha has it (Registration Bank +/− not yet). */
+  /** yahaha has it (not the Registration bank files, Freeze or Sequence). */
   available: boolean
 }
 
@@ -1561,7 +1603,7 @@ export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'sections', name: 'Sections' },
   { id: 'chordSetup', name: 'Chord/Setup' },
   { id: 'otsParts', name: 'OTS/Parts' },
-  { id: 'registration', name: 'Snapshots' },
+  { id: 'quickRacks', name: 'Quick Racks' },
   { id: 'multiPads', name: 'Multi Pads' },
 ]
 

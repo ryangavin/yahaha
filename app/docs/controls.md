@@ -145,68 +145,35 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **OTS Link** | When on, your hands' sounds follow the band: pressing Main A, B, C or D also recalls OTS 1, 2, 3 or 4. Changing style recalls the setting for the Main that's playing. | OTS LINK | `F10` | Pad page 3 (OTS/Parts), top row, pad 5; Shift + Pad Bank ▼ |
 | **OTS Link timing** | When OTS Link swaps the setting while the band plays: when the band reaches the Main you pressed (At Main Section Change, the default), or as soon as you press it (Immediate). Change it in Settings, Style. | OTS Link Timing | — | — |
 
-## Registration Memory
+## Quick Racks
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Previous Snapshot** | Recalls the Snapshot before the one selected: the Sequence order when Registration Sequence is on, else the previous stored button. | Registration − (foot pedal) | — | — |
-| **Next Snapshot** | Recalls the Snapshot after the one selected: the Sequence order when Registration Sequence is on, else the next stored button. | Registration + (foot pedal) | — | — |
-| **Snapshot 1** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [1] | `Shift+Q` | Pad page 4 (Snapshots), top row, pad 1 |
-| **Snapshot 2** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [2] | `Shift+W` | Pad page 4 (Snapshots), top row, pad 2 |
-| **Snapshot 3** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [3] | `Shift+E` | Pad page 4 (Snapshots), top row, pad 3 |
-| **Snapshot 4** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [4] | `Shift+R` | Pad page 4 (Snapshots), top row, pad 4 |
-| **Snapshot 5** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [5] | `Shift+T` | Pad page 4 (Snapshots), top row, pad 5 |
-| **Snapshot 6** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [6] | `Shift+Y` | Pad page 4 (Snapshots), top row, pad 6 |
-| **Snapshot 7** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [7] | `Shift+U` | Pad page 4 (Snapshots), top row, pad 7 |
-| **Snapshot 8** | Recalls the panel stored in this snapshot of the bank on view (Bank A, B, …): style, section, tempo, your parts, the mixer, split and more (the groups it stored, less any you froze). Blue when it holds a setup, red when it is the one in use, dark when empty. With Store armed, stores the panel here instead. | REGISTRATION MEMORY [8] | `Shift+I` | Pad page 4 (Snapshots), top row, pad 8 |
-| **Store** | Arms Store: the next snapshot you press stores the whole panel (the ticked Store groups) in it, replacing what it held. The snapshots flash while it waits. Press Store again to cancel. | MEMORY | `F5` | Pad page 4 (Snapshots), bottom row, pad 5 |
-| **Freeze** | While on, recalling a registration leaves the ticked Freeze groups as they are: freeze Style to change voices without changing the band, or Tempo to keep your tempo. | FREEZE | `F6` | Pad page 4 (Snapshots), bottom row, pad 6 |
-| **Regist −** | Steps back through the bank's Registration Sequence and recalls that button. Works only while the sequence is on. | Registration Sequence − (Regist − pedal) | `F7` | Pad page 4 (Snapshots), bottom row, pad 7 |
-| **Regist +** | Steps forward through the bank's Registration Sequence and recalls that button, like a pedal on stage. At the end it stops, starts again, or moves to the next bank, as the sequence says. | Registration Sequence + (Regist + pedal) | `F8` | Pad page 4 (Snapshots), bottom row, pad 8 |
-| **File −** | Loads the previous bank file in the Registration folder, on its Bank A. Its snapshots light up but nothing is recalled until you press one. | REGIST BANK − | `F11` | Pad page 4 (Snapshots), bottom row, pad 3 |
-| **File +** | Loads the next bank file in the Registration folder, on its Bank A. Its snapshots light up but nothing is recalled until you press one. | REGIST BANK + | `F12` | Pad page 4 (Snapshots), bottom row, pad 4 |
-| **Bank file** | The bank file in use: its snapshots, eight per bank (A, B, …), and its Registration Sequence. Pick another file from the Registration folder; a star means it has changes that aren't saved yet. | Registration Bank Selection | — | — |
-| **Bank −** | Shows the previous eight snapshots (Bank B to A, say) on these buttons and the pads. Nothing is recalled until you press one. | — | `Shift+O` | Pad page 4 (Snapshots), bottom row, pad 1 |
-| **Bank +** | Shows the next eight snapshots (Bank A to B, say) on these buttons and the pads, up to one empty bank past the last one in use, to store into. Nothing is recalled until you press one. | — | `Shift+P` | Pad page 4 (Snapshots), bottom row, pad 2 |
-| **Snapshot bank** | The bank of eight snapshots on view (A, B, …). Recalling a snapshot from another bank, with the sequence or Regist +/−, brings its bank on view. | — | — | — |
-| **Registration and Playlist** | Opens the Registration panel: what each button holds, renaming and clearing, the Memory and Freeze groups, the Registration Sequence and the Playlist. | Regist Bank Info / Edit, Regist Sequence, Regist Freeze, PLAYLIST | — | — |
-| **Registration panel page** | Switches between the bank file's snapshots, the Store and Freeze groups, the Registration Sequence and the Playlist. | — | — | — |
-| **New bank** | Starts a new, empty bank. Give it a name and save it to keep it; unsaved changes to the bank in use are dropped. | Regist Bank: New | — | — |
-| **Save bank** | Saves the bank to its file in the Registration folder, or under the name you typed as a new file. If another bank already has that name, nothing is saved: pick another name, or use Overwrite. Once a bank has a file, memorizing, renaming and sequence edits save themselves. | Regist Bank: Save | — | — |
-| **Overwrite bank** | Another bank already has the name you typed. Overwrite replaces that bank's file with this bank; what it held is lost. | Regist Bank: Save (overwrite) | — | — |
-| **Bank name** | The name to save the bank under. Saving with a new name makes a new file and leaves the old one as it was. A name another bank already has is refused, unless you choose Overwrite. | — | — | — |
-| **Button contents** | What this button holds: its style, tempo and the voices of Right 1–3 and Left. Click it to recall it. | Regist Bank Info | — | — |
-| **Store here** | Stores the panel as it is now in this snapshot (the ticked Store groups), replacing what it held. | MEMORY + [1]–[10] | — | — |
-| **Rename** | Renames this button. The name shows in the Registration bar and in playlists. | Regist Bank Edit: Rename | — | — |
-| **Clear** | Empties this button. Its lamp goes dark. | Regist Bank Edit: Delete | — | — |
-| **Store group** | Ticked groups are what Store keeps in a snapshot; a recall only changes what the snapshot stored. Untick Tempo, say, for snapshots that should keep whatever tempo you are playing. | Registration Memory window (items to register) | — | — |
-| **Freeze group** | Ticked groups stay as they are when you recall a registration, while Freeze is on. Style also covers the section, the Style mixer, the split, the fingering and the Left part, as on the Genos. | Regist Freeze display | — | — |
-| **Registration Sequence** | Turns the Registration Sequence on, so Regist + and Regist − step through the bank's sequence. As on the Genos this is a panel setting, not part of the bank: it stays as it is when you change banks, and yahaha remembers it between sessions. | Registration Sequence On/Off | — | — |
-| **Add step** | Adds this button to the end of the sequence. A button can come more than once. | Registration Sequence: Insert | — | — |
-| **Sequence step** | A step of the sequence: the button it recalls. Click to take it out of the sequence; the ringed step is the one last recalled. | Registration Sequence: Delete | — | — |
-| **Clear sequence** | Removes every step from the sequence. | Registration Sequence: Clear | — | — |
-| **At the end** | What Regist + does after the last step: Stop does nothing more, Top starts again at the first step, Next bank moves on to the next bank file and its first step. | Registration Sequence end (Stop / Top / Next) | — | — |
-
-## Playlist
-
-| control | what it does | Genos | key | Launchkey |
-|---|---|---|---|---|
-| **Previous song** | Loads the playlist record before the one in use: its bank and button, or its style. | Playlist (previous record) | `<` | Shift + < Track button |
-| **Next song** | Loads the next playlist record: its bank and button, or its style. Step through a set list this way without looking at the screen. | Playlist (next record) | `>` | Shift + Track > button |
-| **Playlist record** | A song in the set list. Click it to load its bank (and recall its button) or its style; the lit one is the song in use. A struck-out name means its file is gone. | Playlist Record (Load) | — | — |
-| **Playlist** | The set list in use. Pick another playlist file from the Playlists folder; a star means it has unsaved changes. | Playlist File Selection | — | — |
-| **New playlist** | Starts a new, empty set list. Unsaved changes to the one in use are dropped. | Playlist: New | — | — |
-| **Save playlist** | Saves the set list in the order shown (a sorted list is saved sorted, and goes back to Normal), to its file or under the name you typed. A name another playlist already has is refused: pick another, or use Overwrite. | Playlist: Save | — | — |
-| **Overwrite playlist** | Another playlist already has the name you typed. Overwrite replaces that playlist's file with this set list. | Playlist: Save (overwrite) | — | — |
-| **Playlist name** | The name to save the set list under. A new name makes a new file; another playlist's name needs Overwrite. | — | — | — |
-| **Add this bank** | Adds the bank in use to the end of the set list, recalling the button that is lit. The bank must be saved first. | Add Record: Select from Registration Bank | — | — |
-| **Add this style** | Adds the loaded style to the end of the set list, for a song that needs only the style. | — | — | — |
-| **Append playlist** | Adds every record of another playlist file to the end of this one. | Add Record: Append Playlist | — | — |
-| **Button to recall** | Which button of the bank this record recalls after loading it, or none to only load the bank. | Record Edit: Load Regist Memory | — | — |
-| **Move up** | Moves the record one place up the set list. Off while the list is sorted. | Playlist: Up | — | — |
-| **Move down** | Moves the record one place down the set list. Off while the list is sorted. | Playlist: Down | — | — |
-| **Delete record** | Takes the record out of the set list; its bank or style file is not touched. Off while the list is sorted. | Playlist: Delete | — | — |
-| **Sort** | Shows the set list in its own order, A to Z or Z to A. Saving while sorted saves that order. | Playlist: Sort (A to Z) | — | — |
+| **Quick Rack 1** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [1] | `Shift+Q` | Pad page 4 (Quick Racks), top row, pad 1 |
+| **Quick Rack 2** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [2] | `Shift+W` | Pad page 4 (Quick Racks), top row, pad 2 |
+| **Quick Rack 3** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [3] | `Shift+E` | Pad page 4 (Quick Racks), top row, pad 3 |
+| **Quick Rack 4** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [4] | `Shift+R` | Pad page 4 (Quick Racks), top row, pad 4 |
+| **Quick Rack 5** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [5] | `Shift+T` | Pad page 4 (Quick Racks), top row, pad 5 |
+| **Quick Rack 6** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [6] | `Shift+Y` | Pad page 4 (Quick Racks), top row, pad 6 |
+| **Quick Rack 7** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [7] | `Shift+U` | Pad page 4 (Quick Racks), top row, pad 7 |
+| **Quick Rack 8** | Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead. | REGISTRATION MEMORY [8] | `Shift+I` | Pad page 4 (Quick Racks), top row, pad 8 |
+| **Store** | Arms Store: the next Quick Rack button you press gets the live rack, replacing what it held. The buttons flash while it waits; a rack with unsaved changes, or one never saved, is saved first. Press Store again to cancel. | MEMORY | `F5` | Pad page 4 (Quick Racks), bottom row, pad 5 |
+| **Previous rack** | Loads the rack on the stored button before the lit one in the bank on view (with none lit, the last). It stops at the first; with unsaved changes it asks first. | Registration − (foot pedal) | `F7` | Pad page 4 (Quick Racks), bottom row, pad 7; Shift + < Track button |
+| **Next rack** | Loads the rack on the stored button after the lit one in the bank on view (with none lit, the first). It stops at the last; with unsaved changes it asks first. | Registration + (foot pedal) | `F8` | Pad page 4 (Quick Racks), bottom row, pad 8; Shift + Track > button |
+| **Bank −** | Shows the previous bank of eight Quick Racks (B to A, say) on these buttons and pad page 4. Nothing loads until you press one. | — | `Shift+O` | Pad page 4 (Quick Racks), bottom row, pad 1 |
+| **Bank +** | Shows the next bank of eight Quick Racks (A to B, say, up to H) on these buttons and pad page 4. Nothing loads until you press one. | — | `Shift+P` | Pad page 4 (Quick Racks), bottom row, pad 2 |
+| **Quick Racks bank** | The bank of eight Quick Racks on view, A to H. Bank − and Bank + step through them; in the Quick Racks drawer, click a letter to view that bank. | — | — | — |
+| **Clear** | Empties this Quick Rack button. The rack itself stays in your racks. | Regist Bank Edit: Delete | — | — |
+| **Rack** | One of your racks: click to load it, as a Quick Rack button does (with unsaved changes it asks first, in the Quick Racks bar). Its label, such as A1, is the Quick Rack button in the bank on view that holds it. | — | — | — |
+| **Save first** | Saves the live rack with its changes, then makes the switch you asked for. | — | — | — |
+| **Discard and switch** | Drops the live rack's unsaved changes and makes the switch. | — | — | — |
+| **Keep editing** | Cancels the switch: the live rack stays as it is, changes and all. | — | — | — |
+| **Rack name** | The name to save the live rack under, as a new rack of yours. It then goes on the waiting Quick Rack button. | — | — | — |
+| **Save rack** | Saves the live rack (a new one under the name typed, when it has never been saved), then stores it on the waiting Quick Rack button. | — | — | — |
+| **Cancel** | Nothing is saved or stored: Store disarms and the button keeps what it held. | — | — | — |
+| **New sound name** | This part plays an edited preset, which becomes a new sound of yours when the rack is saved: give it a name. | — | — | — |
+| **Save with these names** | Saves the rack, each edited preset becoming a new sound of yours under the name typed. | — | — | — |
+| **Cancel** | Nothing is saved: the live rack keeps its changes. | — | — | — |
 
 ## Keyboard parts
 
@@ -527,7 +494,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Pad Bank ▲** | Goes to the previous pad page, stopping at page 1, so a few presses always take you home. Lit in the page's colour when there's a page to go to. With Shift: Left on/off. | — | `PgUp` (terminal: `Shift+Tab`) | Pad Bank ▲ (left of the pads) |
 | **Pad Bank ▼** | Goes to the next pad page, stopping at page 4. Lit in the page's colour when there's a page to go to. With Shift: OTS Link on/off. | — | `PgDn` (terminal: `Tab`) | Pad Bank ▼ (left of the pads) |
 | **Pad page 5: Multi Pads** | Multi Pads 1–4 in the Genos lamp colours (blue has data, red playing, flashing red Synchro Start standby, amber waiting for the bar line) and STOP on the top row; SELECT + pad (Synchro Start) and STOP + pad on the bottom row. The other pads are yellow. | MULTI PAD CONTROL | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
-| **Pad page 4: Registration** | Registration buttons 1–10 in the Genos lamp colours (red in use, blue stored, dark empty), Bank −/+, Memory, Freeze and Regist −/+. The other pads are orange. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
+| **Pad page 4: Quick Racks** | Quick Racks 1–8 of the bank on view on the top row (red loaded, blue stored, dark empty; all flashing while Store is armed); Bank −/+, Store and Rack −/+ on the bottom row. The other pads are orange. | — | `PgDn` `PgUp` (terminal: `Tab` `Shift+Tab`) | Pad Bank ▲ / ▼ (left of the pads) |
 
 ## Launchkey
 
@@ -581,7 +548,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Styles** | Opens the style browser. Press again to close. | Style Selection | `Alt+S` (terminal: ) | — |
-| **Registrations** | Opens the Registration panel: bank, groups, sequence and playlist. Press again to close. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
+| **Quick Racks** | Opens Library on its Racks tab: your racks to load, each with the Quick Rack button that holds it in the bank on view. Press again to go back to Stage. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
 | **Parts and OTS** | Opens the keyboard parts drawer with the style's One Touch Settings. Press again to close. | ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
 | **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
 | **Effects** | Opens the Mixer, where the Reverb, Chorus and Variation effect blocks live. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
@@ -668,7 +635,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Pedal function** | What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, the Registration bank, tempo, transpose or a part on/off. | Assignable › Foot Pedal | — | The pedal plugged into the sustain jack |
+| **Pedal function** | What this pedal does: Sustain (or Sostenuto, Soft), a style control such as Start/Stop, Fill Up or Break, an OTS, a Quick Rack, tempo, transpose or a part on/off. | Assignable › Foot Pedal | — | The pedal plugged into the sustain jack |
 | **Pedal CC** | The control change this pedal listens for on the keyboards: the Launchkey's sustain jack sends CC 64. Clear it and the pedal listens to nothing. Bank select (0, 32), the modulation wheel (1), data entry (6, 38), volume (7), (N)RPN (98-101) and the channel mode messages (120-127) can't be used. | — | — | The sustain jack (CC 64) |
 | **Learn** | Press this, then the pedal: it takes that pedal's CC. Press again to stop waiting. | — | — | The sustain jack (CC 64) |
 | **Try** | Runs the pedal's function now, as a press would. Sustain, Sostenuto and Soft switch on or off, and stay that way until you press Try again. Modulation and Pitch Bend follow the pedal, so there is nothing to try here. | — | — | — |
