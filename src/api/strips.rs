@@ -12,7 +12,9 @@
 //! keyboard strip's EQ, sends 1-3 and insert 1, a Style strip's sends 1-3 and its style
 //! insert's on/off and amount, sends 1-3's kinds, parameters and returns. The rest is
 //! kept in [`Strips`] and shown in the state; nothing plays it yet (the mixer rework's
-//! lanes).
+//! lanes). A keyboard strip's voice settings (filter, EG, vibrato, mono, portamento) are
+//! its part's, which the session sets ([`StripCmd::part_tone`]) and reads back
+//! ([`VoiceSettings::of`]).
 
 use crate::fx::{INSERT_SLOTS, InsertSlot, KnobSpec, PartComp, SendSlot};
 use serde::{Deserialize, Serialize};
@@ -66,6 +68,193 @@ pub enum StripCmd {
     /// Whether the live rack overrides send `send` (0-2)'s kind (on: the rack keeps the
     /// kind it has now and brings it back on load, over the style's).
     SetRackSendOverride { send: u8, on: bool },
+    /// One of a keyboard strip's (0-3) voice settings, 0-127 (64 = the voice's own): its
+    /// filter, EG or vibrato (the part's CC74, 71, 73, 75, 72, 76, 77 or 78, as an OTS or
+    /// a rack sets them). A Style strip (4-11) is refused.
+    SetStripTone { strip: u8, control: ToneControl, value: u8 },
+    /// A keyboard strip's (0-3) mono mode (its XG part's Mono/Poly): one note at a time.
+    SetStripMono { strip: u8, on: bool },
+    /// A keyboard strip's (0-3) portamento switch and time (its CC65 and CC5, 0-127).
+    SetStripPortamento { strip: u8, on: bool, time: u8 },
+}
+
+/// A keyboard strip's voice setting (`setStripTone`), in `parts::TONE_CC` order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ToneControl {
+    Cutoff,
+    Resonance,
+    Attack,
+    Decay,
+    Release,
+    VibratoRate,
+    VibratoDepth,
+    VibratoDelay,
+}
+
+impl ToneControl {
+    pub const ALL: [ToneControl; 8] = [
+        ToneControl::Cutoff,
+        ToneControl::Resonance,
+        ToneControl::Attack,
+        ToneControl::Decay,
+        ToneControl::Release,
+        ToneControl::VibratoRate,
+        ToneControl::VibratoDepth,
+        ToneControl::VibratoDelay,
+    ];
+
+    /// Its index in `Parts::tone` (`parts::CUTOFF` ... `parts::VIBRATO_DELAY`).
+    pub fn index(self) -> usize {
+        match self {
+            ToneControl::Cutoff => crate::parts::CUTOFF,
+            ToneControl::Resonance => crate::parts::RESONANCE,
+            ToneControl::Attack => crate::parts::ATTACK,
+            ToneControl::Decay => crate::parts::DECAY,
+            ToneControl::Release => crate::parts::RELEASE,
+            ToneControl::VibratoRate => crate::parts::VIBRATO_RATE,
+            ToneControl::VibratoDepth => crate::parts::VIBRATO_DEPTH,
+            ToneControl::VibratoDelay => crate::parts::VIBRATO_DELAY,
+        }
+    }
+
+    /// The XG Multi Part parameter (`08 pp nn`) that is the same setting (Data List).
+    pub fn xg(self) -> u8 {
+        match self {
+            ToneControl::Cutoff => 0x18,
+            ToneControl::Resonance => 0x19,
+            ToneControl::Attack => 0x1A,
+            ToneControl::Decay => 0x1B,
+            ToneControl::Release => 0x1C,
+            ToneControl::VibratoRate => 0x15,
+            ToneControl::VibratoDepth => 0x16,
+            ToneControl::VibratoDelay => 0x17,
+        }
+    }
+}
+
+/// A keyboard strip's filter, EG and vibrato, 0-127 each; 64 is the voice's own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StripTone {
+    pub cutoff: u8,
+    pub resonance: u8,
+    pub attack: u8,
+    pub decay: u8,
+    pub release: u8,
+    pub vibrato_rate: u8,
+    pub vibrato_depth: u8,
+    pub vibrato_delay: u8,
+}
+
+impl Default for StripTone {
+    fn default() -> StripTone {
+        StripTone { cutoff: 64, resonance: 64, attack: 64, decay: 64, release: 64, vibrato_rate: 64, vibrato_depth: 64, vibrato_delay: 64 }
+    }
+}
+
+impl StripTone {
+    fn slot(&mut self, c: ToneControl) -> &mut u8 {
+        match c {
+            ToneControl::Cutoff => &mut self.cutoff,
+            ToneControl::Resonance => &mut self.resonance,
+            ToneControl::Attack => &mut self.attack,
+            ToneControl::Decay => &mut self.decay,
+            ToneControl::Release => &mut self.release,
+            ToneControl::VibratoRate => &mut self.vibrato_rate,
+            ToneControl::VibratoDepth => &mut self.vibrato_depth,
+            ToneControl::VibratoDelay => &mut self.vibrato_delay,
+        }
+    }
+
+    pub fn get(mut self, c: ToneControl) -> u8 {
+        *self.slot(c)
+    }
+
+    pub fn set(&mut self, c: ToneControl, v: u8) {
+        *self.slot(c) = v.min(127);
+    }
+}
+
+/// A keyboard strip's portamento: its switch (CC65) and time (CC5, 0-127).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Portamento {
+    pub on: bool,
+    pub time: u8,
+}
+
+/// A keyboard part's voice settings as `Parts` holds them (`Parts::tone`, `Parts::xg`):
+/// what [`Strips::voice`] reads. Unset controllers read as the voice's own (64), portamento
+/// off, poly.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct VoiceSettings {
+    pub tone: StripTone,
+    pub mono: bool,
+    pub portamento: Portamento,
+}
+
+/// The XG Multi Part Mono/Poly parameter (`08 pp 05`): 0 mono, 1 poly.
+pub const XG_MONO_POLY: (u8, u8) = (0x08, 0x05);
+
+impl VoiceSettings {
+    /// From `Parts::tone(p)` and `Parts::xg(p)`: each controller, else the XG part
+    /// parameter that is the same setting.
+    pub fn of(tone: [Option<u8>; crate::parts::TONE], xg: &[(u8, u8, u8)]) -> VoiceSettings {
+        let xg_of = |nn: u8| xg.iter().find(|&&(hh, n, _)| (hh, n) == (0x08, nn)).map(|x| x.2);
+        let mut t = StripTone::default();
+        for c in ToneControl::ALL {
+            if let Some(v) = tone[c.index()].or(xg_of(c.xg())) {
+                t.set(c, v);
+            }
+        }
+        let mono = xg_of(XG_MONO_POLY.1) == Some(0);
+        // The controllers, else the XG part's Portamento Switch (67H) and Time (68H).
+        let on = tone[crate::parts::PORTAMENTO].map(|v| v >= 64).or(xg_of(0x67).map(|v| v > 0)).unwrap_or(false);
+        let time = tone[crate::parts::PORTAMENTO_TIME].or(xg_of(0x68)).unwrap_or(0).min(127);
+        VoiceSettings { tone: t, mono, portamento: Portamento { on, time } }
+    }
+}
+
+impl StripCmd {
+    /// What a keyboard strip's voice setting command sets on its part, as
+    /// `Parts::set_tone` takes it: (part, controllers, XG parameters). None for any other
+    /// command or a Style strip. The session plays it after [`Strips::apply`] took it.
+    ///
+    /// `has_xg(part, nn)` says whether the part has XG part parameter `08 pp nn` set (an
+    /// OTS or a rack set it): the same setting is then set there too, as `Parts::send_tone`
+    /// sends the XG parameters after the controllers and the older value would win.
+    pub fn part_tone(&self, has_xg: impl Fn(usize, u8) -> bool) -> Option<(usize, [Option<u8>; crate::parts::TONE], Vec<(u8, u8, u8)>)> {
+        let strip = match *self {
+            StripCmd::SetStripTone { strip, .. } | StripCmd::SetStripMono { strip, .. } | StripCmd::SetStripPortamento { strip, .. } => strip as usize,
+            _ => return None,
+        };
+        if strip >= KEYBOARD_STRIPS {
+            return None;
+        }
+        let mut tone = [None; crate::parts::TONE];
+        let mut xg = Vec::new();
+        let mut set = |nn: u8, v: u8, always: bool| {
+            if always || has_xg(strip, nn) {
+                xg.push((0x08, nn, v));
+            }
+        };
+        match *self {
+            StripCmd::SetStripTone { control, value, .. } => {
+                tone[control.index()] = Some(value.min(127));
+                set(control.xg(), value.min(127), false);
+            }
+            StripCmd::SetStripMono { on, .. } => set(XG_MONO_POLY.1, if on { 0 } else { 1 }, true),
+            StripCmd::SetStripPortamento { on, time, .. } => {
+                tone[crate::parts::PORTAMENTO] = Some(if on { 127 } else { 0 });
+                tone[crate::parts::PORTAMENTO_TIME] = Some(time.min(127));
+                set(0x67, on as u8, false);
+                set(0x68, time.min(127), false);
+            }
+            _ => {}
+        }
+        Some((strip, tone, xg))
+    }
 }
 
 /// A strip compressor as the app shows it.
@@ -150,6 +339,13 @@ pub struct StripState {
     pub inserts: [InsertSlotState; INSERT_SLOTS],
     /// Its level to sends 1-6, 0-127 (a send that isn't there: 0).
     pub sends: [u8; SENDS],
+    /// A keyboard strip's filter, EG and vibrato (`setStripTone`), from the part's voice
+    /// settings. A Style strip's stay at 64.
+    pub tone: StripTone,
+    /// A keyboard strip's mono mode (`setStripMono`). A Style strip's is false.
+    pub mono: bool,
+    /// A keyboard strip's portamento (`setStripPortamento`). A Style strip's is off.
+    pub portamento: Portamento,
 }
 
 /// One send effect as the app shows it (`EffectsState::sends`).
@@ -185,6 +381,9 @@ pub struct StripSettings {
     pub comp: PartComp,
     pub inserts: [InsertSlot; INSERT_SLOTS],
     pub sends: [u8; SENDS],
+    /// A keyboard strip's voice settings. The session reads them from its parts before
+    /// each `fill` ([`Strips::voice`]); the dev mock keeps what the commands set.
+    pub voice: VoiceSettings,
 }
 
 /// The strips and the added send effects: what the strip commands keep. The session and
@@ -304,6 +503,23 @@ impl Strips {
         STYLE_SENDS + self.added.len()
     }
 
+    /// A keyboard strip's voice settings; a Style strip is refused.
+    fn voice_of(&mut self, strip: u8) -> Result<&mut VoiceSettings, String> {
+        if strip as usize >= KEYBOARD_STRIPS {
+            return Err(format!("strip {strip} has no voice settings (only the keyboard strips, 0-3)"));
+        }
+        Ok(&mut self.strip(strip)?.voice)
+    }
+
+    /// Keyboard strip `p`'s voice settings as its part has them now (`VoiceSettings::of`):
+    /// the session calls it before [`Strips::fill`], so an OTS, a rack or a voice change
+    /// shows too.
+    pub fn voice(&mut self, p: usize, v: VoiceSettings) {
+        if let Some(s) = self.strips.get_mut(p).filter(|_| p < KEYBOARD_STRIPS) {
+            s.voice = v;
+        }
+    }
+
     fn slot(&mut self, strip: u8, slot: u8) -> Result<&mut InsertSlot, String> {
         self.strip(strip)?.inserts.get_mut(slot as usize).ok_or_else(|| format!("no insert slot {slot} (0-1)"))
     }
@@ -378,6 +594,9 @@ impl Strips {
                 let o = self.overrides.get_mut(*send as usize).ok_or_else(|| format!("only sends 1-3 have an override (not {})", *send as usize + 1))?;
                 *o = *on;
             }
+            StripCmd::SetStripTone { strip, control, value } => self.voice_of(*strip)?.tone.set(*control, *value),
+            StripCmd::SetStripMono { strip, on } => self.voice_of(*strip)?.mono = *on,
+            StripCmd::SetStripPortamento { strip, on, time } => self.voice_of(*strip)?.portamento = Portamento { on: *on, time: (*time).min(127) },
         }
         Ok(())
     }
@@ -408,6 +627,9 @@ impl Strips {
             comp: s.comp.into(),
             inserts: [(&s.inserts[0]).into(), (&s.inserts[1]).into()],
             sends: std::array::from_fn(|i| if i < n { s.sends[i] } else { 0 }),
+            tone: s.voice.tone,
+            mono: s.voice.mono,
+            portamento: s.voice.portamento,
         };
         // Insert 1 from an older slot: its kind, on/off and amount; the other settings
         // this one's while the kind is the same.
@@ -496,6 +718,46 @@ mod tests {
         s.apply(&StripCmd::AddSend { kind: SendKind::Hall }).unwrap();
         s.apply(&StripCmd::AddSend { kind: SendKind::Hall }).unwrap();
         assert!(s.apply(&StripCmd::AddSend { kind: SendKind::Hall }).is_err(), "six at most");
+    }
+
+    #[test]
+    fn voice_settings_are_a_keyboard_strips() {
+        let mut s = Strips::default();
+        s.apply(&StripCmd::SetStripTone { strip: 1, control: ToneControl::Cutoff, value: 200 }).unwrap();
+        s.apply(&StripCmd::SetStripMono { strip: 1, on: true }).unwrap();
+        s.apply(&StripCmd::SetStripPortamento { strip: 1, on: true, time: 30 }).unwrap();
+        assert!(s.apply(&StripCmd::SetStripMono { strip: 4, on: true }).is_err(), "a Style strip has none");
+        assert!(s.apply(&StripCmd::SetStripTone { strip: 12, control: ToneControl::Attack, value: 1 }).is_err());
+        let mut st = state();
+        s.fill(&mut st);
+        let kp = &st.keyboard_parts[1].strip;
+        assert_eq!((kp.tone.cutoff, kp.tone.release, kp.mono, kp.portamento), (127, 64, true, Portamento { on: true, time: 30 }));
+        assert_eq!(st.mixer.style_parts[0].strip.tone, StripTone::default());
+        let j = serde_json::to_value(kp).unwrap();
+        assert_eq!(j["tone"]["vibratoRate"], 64);
+        assert_eq!(j["portamento"], serde_json::json!({ "on": true, "time": 30 }));
+    }
+
+    #[test]
+    fn voice_settings_go_to_the_part() {
+        let none = |_: usize, _: u8| false;
+        let (p, tone, xg) = StripCmd::SetStripTone { strip: 2, control: ToneControl::VibratoDepth, value: 90 }.part_tone(none).unwrap();
+        assert_eq!((p, tone[crate::parts::VIBRATO_DEPTH], xg.len()), (2, Some(90), 0));
+        // An XG parameter an OTS set for the same setting is set too, or it would win.
+        let (_, _, xg) = StripCmd::SetStripTone { strip: 2, control: ToneControl::Cutoff, value: 10 }.part_tone(|p, nn| (p, nn) == (2, 0x18)).unwrap();
+        assert_eq!(xg, vec![(0x08, 0x18, 10)]);
+        let (_, _, xg) = StripCmd::SetStripMono { strip: 0, on: true }.part_tone(none).unwrap();
+        assert_eq!(xg, vec![(0x08, 0x05, 0)]);
+        let (_, tone, _) = StripCmd::SetStripPortamento { strip: 3, on: false, time: 5 }.part_tone(none).unwrap();
+        assert_eq!((tone[crate::parts::PORTAMENTO], tone[crate::parts::PORTAMENTO_TIME]), (Some(0), Some(5)));
+        assert!(StripCmd::SetStripMono { strip: 5, on: true }.part_tone(none).is_none());
+        // And back: what the part holds is what the strip shows.
+        let mut t = [None; crate::parts::TONE];
+        t[crate::parts::ATTACK] = Some(20);
+        t[crate::parts::PORTAMENTO] = Some(127);
+        let v = VoiceSettings::of(t, &[(0x08, 0x05, 0), (0x08, 0x68, 40), (0x08, 0x18, 99)]);
+        assert_eq!((v.tone.attack, v.tone.cutoff, v.mono, v.portamento), (20, 99, true, Portamento { on: true, time: 40 }));
+        assert_eq!(VoiceSettings::of([None; crate::parts::TONE], &[]), VoiceSettings::default());
     }
 
     #[test]

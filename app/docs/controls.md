@@ -219,6 +219,8 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Part insert setting** | The controller sets one setting of one of this part's insert slots, across its range. | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
 | **Part send** | The controller sets this part's level to one of the added send effects (4–6). | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
 | **Rotary fast/slow** | The controller switches every rotary insert fast (upper half) or slow (lower half). | Rotary Speaker speed (Slow/Fast) | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Insert slot** | The effect in this insert slot of the part's strip. Click to pick its type and set its settings; the lamp beside it turns it on or off. The rack saves both slots. | Mixer › Effect › Insertion Effect | — | — |
+| **Done** | Closes the insert settings (Escape does too). Every change there is already sent. | — | — | — |
 | **Keyboard part** | Makes this part the one you edit: Voice −/+ and Library act on it, as the Launchkey's EDIT pads do. Clicking anywhere in the part does the same. | PART SELECT | — | Pad page 3 (OTS/Parts), bottom row, pads 5–8 (EDIT R1…L) |
 | **Sound** | The sound this part plays. Click to open Library › Sounds with this part as the target and pick another; the part keeps its level, pan, sends and octave. | Voice select (VOICE buttons) | — | — |
 | **Edit** | Opens the part's plugin window over the app. What you change there marks the sound "edited" until you save it. SoundFont sounds have no editor. | Voice Edit | — | — |
@@ -389,6 +391,17 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | Knobs 4 and 5 on the Style knob page |
 | **Track Mute order** | A starts from Rhythm 2, then Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1 and Phrase 2. B starts from Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2 and the rhythm parts last. | Style Track Mute A / B | — | — |
 | **MIDI out channel** | The channel this part plays on at yahaha's MIDI output: Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4, the band 9–16. Map a DAW track (Ableton: MIDI From yahaha, this channel) to record or re-voice it. | Part / Style channel | — | — |
+| **Cutoff** | Opens or closes this part's filter, relative to the voice: above 64 brighter, below 64 darker. 64 is the voice's own. | Voice Edit › Filter › Cutoff | — | — |
+| **Resonance** | Boosts the filter around its cutoff, relative to the voice: above 64 a sharper, more peaky tone. 64 is the voice's own. | Voice Edit › Filter › Resonance | — | — |
+| **Attack** | How quickly each note reaches full level, relative to the voice: above 64 slower, below 64 faster. 64 is the voice's own. | Voice Edit › EG › Attack | — | — |
+| **Decay** | How quickly a held note falls from its peak, relative to the voice: above 64 slower, below 64 faster. 64 is the voice's own. | Voice Edit › EG › Decay | — | — |
+| **Release** | How long a note rings on after you let go, relative to the voice: above 64 longer, below 64 shorter. 64 is the voice's own. | Voice Edit › EG › Release | — | — |
+| **Vibrato rate** | How fast the vibrato wobbles, relative to the voice: above 64 faster, below 64 slower. 64 is the voice's own. | Voice Edit › Vibrato › Speed | — | — |
+| **Vibrato depth** | How far the vibrato bends the pitch, relative to the voice: above 64 deeper, below 64 shallower. 64 is the voice's own. | Voice Edit › Vibrato › Depth | — | — |
+| **Vibrato delay** | How long a note plays before the vibrato starts, relative to the voice: above 64 later, below 64 sooner. 64 is the voice's own. | Voice Edit › Vibrato › Delay | — | — |
+| **Mono** | Lit, this part plays one note at a time: a new note cuts off the one before, as on a solo instrument. Off, it plays chords (poly). | Voice Edit › Mono/Poly | — | — |
+| **Portamento** | Lit, this part glides in pitch from one note to the next instead of jumping. Portamento time sets how long the glide takes. | Voice Edit › Portamento | — | — |
+| **Portamento time** | How long the glide between notes takes while Portamento is on, 0–127: higher is slower. | Voice Edit › Portamento Time | — | — |
 | **Mixer strip** | Selects this part: its strip lights up. A keyboard part (Right 1–3, Left) also becomes the part you edit, as the Launchkey's part buttons do. | Mixer › channel | — | — |
 | **Voice** | The sound this part plays. On a keyboard part, click to choose another in Library › Sounds, loading into this part. A Style part plays the voice the style names; the name is cut short on a narrow strip, so hover it for the whole name. | Mixer › Voice | — | — |
 | **Voice** | Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it. | Mixer › Voice | — | — |

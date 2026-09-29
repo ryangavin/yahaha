@@ -2251,6 +2251,7 @@ impl MockSession {
                 None => self.message(format!("Style part {part} has no insertion effect"), true),
             },
             AppCmd::Fx(FxCmd::SetRotaryFast { on }) => self.state.effects.rotary_fast = on,
+            AppCmd::Fx(FxCmd::ToggleRotaryFast) => self.state.effects.rotary_fast = !self.state.effects.rotary_fast,
             // The Master Compressor and Master EQ, as the session plays them (not saved).
             AppCmd::Fx(
                 ref c @ (FxCmd::SetMasterCompressorOn { .. }

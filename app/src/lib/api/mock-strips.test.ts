@@ -100,7 +100,7 @@ describe('mock strips', () => {
     expect(s.strips[11].inserts[1]).toEqual({ kind: 'distortion', on: false, values: [127, 64, 100, 0] })
     expect(s.apply({ type: 'setStripInsertSetting', strip: 11, slot: 1, setting: 3, value: 1 })).toBe('Distortion has no setting 4')
     expect(s.apply({ type: 'setStripInsertKind', strip: 11, slot: 1, kind: 'compressor' })).toBeNull()
-    expect(s.strips[11].inserts[1].values).toEqual([64, 10, 200, 100])
+    expect(s.strips[11].inserts[1].values).toEqual([64, 3, 150, 100])
     // Sends 1-3 play only their own bus's kinds.
     expect(s.apply({ type: 'setSendKind', send: 0, kind: 'chorus' })).toBe('send 1 plays Reverb types')
     expect(s.apply({ type: 'setSendKind', send: 2, kind: 'phaser' })).toBe('send 3 plays Variation types')
@@ -115,7 +115,7 @@ describe('mock strips', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'setStripCompressorOn', strip: 2, on: true })
     m.send({ type: 'setStripCompressorPreset', strip: 2, preset: 'loud' })
-    expect(m.state.keyboardParts[2].strip.comp).toEqual({ on: true, preset: 'loud', threshold: -30, ratio: 80, attack: 2, release: 150, makeup: 9, edited: false })
+    expect(m.state.keyboardParts[2].strip.comp).toEqual({ on: true, preset: 'loud', threshold: -30, ratio: 80, attack: 2, release: 150, makeup: 0, edited: false })
     m.send({ type: 'setStripCompressorParam', strip: 2, param: 'release', value: 5000 })
     expect(m.state.keyboardParts[2].strip.comp).toMatchObject({ release: 1000, edited: true })
     m.send({ type: 'setRackSendOverride', send: 1, on: true })
@@ -140,5 +140,37 @@ describe('mock strips', () => {
     m.state.liveRack.modified = false
     m.send({ type: 'setStripInsertKind', strip: 0, slot: 1, kind: 'phaser' })
     expect(m.state.liveRack.modified).toBe(true)
+  })
+
+  it('a keyboard strip keeps its voice settings; a Style strip refuses them', () => {
+    const m = new MockSession({ manual: true })
+    const kp = () => m.state.keyboardParts[1].strip
+    expect([kp().tone.cutoff, kp().tone.vibratoDelay, kp().mono, kp().portamento]).toEqual([64, 64, false, { on: false, time: 0 }])
+    m.send({ type: 'setStripTone', strip: 1, control: 'cutoff', value: 200 })
+    m.send({ type: 'setStripTone', strip: 1, control: 'vibratoDepth', value: 90 })
+    m.send({ type: 'setStripMono', strip: 1, on: true })
+    m.send({ type: 'setStripPortamento', strip: 1, on: true, time: 30 })
+    expect([kp().tone.cutoff, kp().tone.vibratoDepth, kp().tone.release, kp().mono, kp().portamento]).toEqual([127, 90, 64, true, { on: true, time: 30 }])
+    expect(m.state.keyboardParts[0].strip.mono).toBe(false)
+    for (const cmd of [
+      { type: 'setStripMono', strip: 4, on: true },
+      { type: 'setStripTone', strip: 11, control: 'attack', value: 1 },
+      { type: 'setStripPortamento', strip: 7, on: true, time: 5 },
+    ] as const) {
+      m.state.message = null
+      m.send(cmd)
+      expect(m.state.message).toMatchObject({ error: true, text: `strip ${cmd.strip} has no voice settings (only the keyboard strips, 0-3)` })
+    }
+    expect(m.state.mixer.styleParts.every((p) => !p.strip.mono && p.strip.tone.attack === 64 && !p.strip.portamento.on)).toBe(true)
+    m.state.message = null
+    m.send({ type: 'setStripMono', strip: 12, on: true })
+    expect(m.state.message).toMatchObject({ error: true })
+  })
+
+  it('a Compressor insert starts at attack 3 ms and release 150 ms', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setStripInsertKind', strip: 0, slot: 1, kind: 'compressor' })
+    const s = m.state.keyboardParts[0].strip.inserts[1].settings
+    expect(s.map((x) => [x.name, x.value, x.min, x.max])).toEqual([['Squeeze', 64, 0, 127], ['Attack', 3, 1, 80], ['Release', 150, 10, 1000], ['Output', 100, 0, 127]])
   })
 })

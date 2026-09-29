@@ -225,6 +225,10 @@ pub enum Function {
     /// Unison (a PSR-SX feature, engine/unison.rs): a Hold pedal engages it while held, a
     /// Toggle pedal latches it. Last, so older setups keep their numbers.
     Unison,
+    /// Organ Rotary Slow/Fast (RM p.140): every rotary insert's speed, a control-side
+    /// switch (`FxCmd::SetRotaryFast`). A Toggle pedal flips it on each press, Hold A is
+    /// Fast while held. Last, so older setups keep their numbers.
+    RotaryFast,
 }
 
 /// One row of the assignable-function table.
@@ -258,7 +262,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 71] = [
+pub const FUNCTIONS: [FunctionInfo; 72] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -330,6 +334,7 @@ pub const FUNCTIONS: [FunctionInfo; 71] = [
     f(Function::SnapshotBankNext, "Quick Racks Bank +", QuickRacks, Trigger),
     f(Function::SnapshotBankPrev, "Quick Racks Bank −", QuickRacks, Trigger),
     f(Function::Unison, "Unison", Style, Switch),
+    f(Function::RotaryFast, "Organ Rotary Slow/Fast", Voice, Switch),
 ];
 
 /// What running a function means, for the input thread.
@@ -396,7 +401,7 @@ impl Function {
             // The FADE IN/OUT button (OM p.67): stopped, arms a fade in; playing, fades
             // out to the stop.
             F::FadeInOut => Effect::Engine(Button::Fade),
-            F::KbdHarmonyArp | F::ArpHold | F::LeftHold | F::Unison => Effect::ControlSwitch,
+            F::KbdHarmonyArp | F::ArpHold | F::LeftHold | F::Unison | F::RotaryFast => Effect::ControlSwitch,
             _ => Effect::Control,
         }
     }

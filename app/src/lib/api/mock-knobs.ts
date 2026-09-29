@@ -2,11 +2,15 @@
 // steps and readings). A turn gives back the command it runs, which the mock then runs as
 // the session does. Only the mock uses this; with the real engine the knobs come in the state.
 
-import type { AppCmd, AppState, ControlMap, ControlTarget, FxBlock, FxParam, FxParamState, KnobFunction, KnobPage, KnobState, KnobsState } from './types'
+import type {
+  AppCmd, AppState, ControlMap, ControlTarget, FxBlock, FxParam, FxParamState, InsertSlotState, KnobFunction, KnobPage, KnobState, KnobsState, SettingState,
+} from './types'
 import { defaultControlMap } from './types'
 
-type Fn = { fn: KnobFunction; part?: number; param?: FxParam }
+type Fn = { fn: KnobFunction; part?: number; param?: FxParam; slot?: number; setting?: number; send?: number }
 const NONE: Fn = { fn: 'none' }
+/** Send effects there can be (sends 1-6). */
+const SENDS = 6
 
 /** What a controller map target does on a knob (`knobs::rack_function`). */
 export function rackFn(t: ControlTarget): Fn {
@@ -14,7 +18,19 @@ export function rackFn(t: ControlTarget): Fn {
     case 'partLevel': return { fn: 'partVolume', part: t.part }
     case 'partPan':
     case 'partReverb':
-    case 'partChorus': return { fn: t.kind, part: t.part }
+    case 'partChorus':
+    case 'partDelay': return { fn: t.kind, part: t.part }
+    // Sends 1-3 are the parts' reverb, chorus and delay sends; 4-6 the added ones.
+    case 'partSend': {
+      const part = t.part & 3
+      if (t.send === 0) return { fn: 'partReverb', part }
+      if (t.send === 1) return { fn: 'partChorus', part }
+      if (t.send === 2) return { fn: 'partDelay', part }
+      return { fn: 'partSend', part, send: Math.min(t.send, SENDS - 1) }
+    }
+    case 'partInsertOn': return { fn: 'insertOn', part: t.part & 3, slot: t.slot & 1 }
+    case 'partInsertSetting': return { fn: 'insertSetting', part: t.part & 3, slot: t.slot & 1, setting: t.setting & 3 }
+    case 'rotaryFast':
     case 'harmonyArp':
     case 'splitPoint':
     case 'harmonyVolume':
@@ -23,6 +39,26 @@ export function rackFn(t: ControlTarget): Fn {
     default: return NONE
   }
 }
+
+/** A keyboard part's insert slot as the state shows it (`StripNow::insert`). */
+function insertNow(s: AppState, part: number, slot: number): InsertSlotState {
+  return s.keyboardParts[part & 3].strip.inserts[Math.min(slot, 1)]
+}
+
+/** Setting `setting` of a part's insert slot, if its kind has it (`StripNow::setting`). */
+function settingNow(s: AppState, part: number, slot: number, setting: number): SettingState | null {
+  return insertNow(s, part, slot).settings[setting] ?? null
+}
+
+/** A part's level to send `send`, if that send is there (`StripNow::send`). */
+function sendNow(s: AppState, part: number, send: number): number | null {
+  return send < s.effects.sends.length ? s.keyboardParts[part & 3].strip.sends[Math.min(send, SENDS - 1)] : null
+}
+
+/** How far a knob step moves an insert setting: its range in about 64 steps (`setting_step`). */
+const settingStep = (x: SettingState) => Math.max(1, Math.ceil((x.max - x.min) / 64))
+/** Where an insert setting sits in its range, 0-127 (`setting_level`). */
+const settingLevel = (x: SettingState) => Math.floor(((clamp(x.value, x.min, x.max) - x.min) * 127) / Math.max(1, x.max - x.min))
 
 /** The Rack page's knobs for controller map `m`. */
 function rackFns(m: ControlMap): Fn[] {
@@ -38,11 +74,27 @@ export function faderRoute(t: ControlTarget, f: number): 'own' | 'off' | 'contro
 /** The command a fader at `v` runs for target `t` (`knobs::fader_command`), or null. */
 export function faderCommand(t: ControlTarget, v: number, s: AppState): AppCmd | null {
   v = clamp(v, 0, 127)
+  const on = v >= 64
   switch (t.kind) {
     case 'partLevel': return { type: 'setPartVolume', part: t.part, volume: v }
     case 'partPan': return { type: 'setPartPan', part: t.part, pan: v }
     case 'partReverb': return { type: 'setPartSend', part: t.part, send: 'reverb', value: v }
     case 'partChorus': return { type: 'setPartSend', part: t.part, send: 'chorus', value: v }
+    case 'partDelay': return { type: 'setPartSend', part: t.part, send: 'variation', value: v }
+    case 'partSend': {
+      if (t.send >= 0 && t.send < 3) return { type: 'setPartSend', part: t.part, send: (['reverb', 'chorus', 'variation'] as const)[t.send], value: v }
+      if (sendNow(s, t.part, t.send) === null) return null
+      return { type: 'setStripSend', strip: t.part & 3, send: t.send, level: v }
+    }
+    case 'partInsertOn':
+      return on === insertNow(s, t.part, t.slot).on ? null : { type: 'setStripInsertOn', strip: t.part & 3, slot: t.slot & 1, on }
+    case 'partInsertSetting': {
+      const x = settingNow(s, t.part, t.slot, t.setting)
+      if (!x) return null
+      const value = x.min + Math.floor((v * (x.max - x.min)) / 127)
+      return value === x.value ? null : { type: 'setStripInsertSetting', strip: t.part & 3, slot: t.slot & 1, setting: t.setting, value }
+    }
+    case 'rotaryFast': return on === s.effects.rotaryFast ? null : { type: 'setRotaryFast', on }
     case 'harmonyArp': return v >= 64 === s.harmonyArp.on ? null : { type: 'setHarmonyArpOn', on: v >= 64 }
     case 'splitPoint': return { type: 'setSplit', note: SPLIT_MIN + Math.floor((v * (SPLIT_MAX - SPLIT_MIN)) / 127) }
     case 'harmonyVolume': return { type: 'setHarmonyVolume', volume: v }
@@ -137,6 +189,27 @@ const NAMES: Record<KnobFunction, [string, string]> = {
   delayTime: ['Delay Time', 'DlyTime'],
   harmonyArp: ['Harmony/Arpeggio', 'HarmArp'],
   splitPoint: ['Split Point', 'Split'],
+  insertOn: ['', ''],
+  insertSetting: ['', ''],
+  partSend: ['', ''],
+  rotaryFast: ['Rotary Fast/Slow', 'Rotary'],
+}
+/** The strip functions' part names, full and short (Right 1-3, Left). */
+const STRIP_PART: [string, string][] = [['Right 1', 'R1'], ['Right 2', 'R2'], ['Right 3', 'R3'], ['Left', 'L']]
+
+/** A strip function's full and short names ("Right 2 Insert 2 Setting 2", "R2 I2.2"), or null for the others. */
+function stripNames(f: Fn): [string, string] | null {
+  const [p, ps] = STRIP_PART[(f.part ?? 0) & 3]
+  const slot = (f.slot ?? 0) + 1
+  switch (f.fn) {
+    case 'insertOn': return [`${p} Insert ${slot} On/Off`, `${ps} Ins${slot}`]
+    case 'insertSetting': return [`${p} Insert ${slot} Setting ${(f.setting ?? 0) + 1}`, `${ps} I${slot}.${(f.setting ?? 0) + 1}`]
+    case 'partSend': {
+      const n = clamp(f.send ?? 3, 3, SENDS - 1) + 1
+      return [`${p} Send ${n}`, `${ps} Snd${n}`]
+    }
+    default: return null
+  }
 }
 const RATES = [1, 2, 4, 8, 16, 32]
 const RTG_STEPS = 3
@@ -237,6 +310,26 @@ export class MockKnobs {
         const to = clamp(s.chord.split + delta, SPLIT_MIN, SPLIT_MAX)
         return to === s.chord.split ? null : { type: 'setSplit', note: to }
       }
+      case 'insertOn': {
+        const n = this.stepped(knob, delta)
+        if (!n) return null
+        const on = n > 0
+        return on === insertNow(s, f.part!, f.slot!).on ? null : { type: 'setStripInsertOn', strip: f.part!, slot: f.slot!, on }
+      }
+      case 'insertSetting': {
+        const x = settingNow(s, f.part!, f.slot!, f.setting!)
+        if (!x) return null
+        const to = clamp(x.value + delta * settingStep(x), x.min, x.max)
+        return to === x.value ? null : { type: 'setStripInsertSetting', strip: f.part!, slot: f.slot!, setting: f.setting!, value: to }
+      }
+      case 'partSend': {
+        const v = sendNow(s, f.part!, f.send!)
+        return v === null ? null : { type: 'setStripSend', strip: f.part!, send: f.send!, level: level(v) }
+      }
+      case 'rotaryFast': {
+        const n = this.stepped(knob, delta)
+        return n && n > 0 !== s.effects.rotaryFast ? { type: 'setRotaryFast', on: n > 0 } : null
+      }
     }
   }
 
@@ -293,6 +386,20 @@ export class MockKnobs {
         return s.harmonyArp.on ? { type: 'toggleHarmonyArp' } : null
       case 'splitPoint':
         return s.chord.split === DEFAULT_SPLIT ? null : { type: 'setSplit', note: DEFAULT_SPLIT }
+      case 'insertOn':
+        this.acc[knob] = 0
+        return insertNow(s, f.part!, f.slot!).on ? { type: 'setStripInsertOn', strip: f.part!, slot: f.slot!, on: false } : null
+      case 'insertSetting': {
+        const x = settingNow(s, f.part!, f.slot!, f.setting!)
+        return x && x.value !== x.default ? { type: 'setStripInsertSetting', strip: f.part!, slot: f.slot!, setting: f.setting!, value: x.default } : null
+      }
+      case 'partSend': {
+        const v = sendNow(s, f.part!, f.send!)
+        return v !== null && v !== 0 ? { type: 'setStripSend', strip: f.part!, send: f.send!, level: 0 } : null
+      }
+      case 'rotaryFast':
+        this.acc[knob] = 0
+        return s.effects.rotaryFast ? { type: 'setRotaryFast', on: false } : null
     }
   }
 
@@ -317,7 +424,7 @@ export class MockKnobs {
         f.fn === 'partVolume' ? [PART_NAME[f.part!], PART_SHORT[f.part!]]
         : fx ? [fx[0][f.part!], fx[1][f.part!]]
         : f.fn === 'fxParam' ? PARAM_KNOB[f.param!]!.slice(0, 2) as [string, string]
-        : NAMES[f.fn]
+        : stripNames(f) ?? NAMES[f.fn]
       const r = (value: string, level: number | null) => ({ function: f.fn, name, short, value, level })
       switch (f.fn) {
         case 'none': return r('', null)
@@ -350,6 +457,20 @@ export class MockKnobs {
         }
         case 'harmonyArp': return r(s.harmonyArp.on ? 'On' : 'Off', s.harmonyArp.on ? 127 : 0)
         case 'splitPoint': return r(noteName(s.chord.split), splitLevel(s.chord.split))
+        case 'insertOn': {
+          const on = insertNow(s, f.part!, f.slot!).on
+          return r(on ? 'On' : 'Off', on ? 127 : 0)
+        }
+        // With its name ("Drive 64"); a setting the kind hasn't reads "---".
+        case 'insertSetting': {
+          const x = settingNow(s, f.part!, f.slot!, f.setting!)
+          return x ? r(`${x.name} ${x.display}`, settingLevel(x)) : r('---', null)
+        }
+        case 'partSend': {
+          const v = sendNow(s, f.part!, f.send!)
+          return v === null ? r('---', null) : r(String(v), v)
+        }
+        case 'rotaryFast': return r(s.effects.rotaryFast ? 'Fast' : 'Slow', s.effects.rotaryFast ? 127 : 0)
       }
   }
 }

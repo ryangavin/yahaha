@@ -7,9 +7,9 @@
 
 import type {
   AppCmd, AppState, CompPreset, FxBlock, FxParam, FxParamState, FxType, InsertEffect, InsertSlotState, InsertType, PartCompParam, PartCompState, PartEq, PartInsert, PartSend,
-  SendKind, SendState, SettingState, StripCmd, StripState,
+  Portamento, SendKind, SendState, SettingState, StripCmd, StripState, StripTone,
 } from './types'
-import { clampEq, FLAT_EQ, OFF_INSERT } from './types'
+import { clampEq, defaultTone, FLAT_EQ, OFF_INSERT, TONE_CONTROLS } from './types'
 
 /** Channel strips: the 4 keyboard parts', then the 8 Style parts'. */
 export const STRIPS = 12
@@ -86,7 +86,7 @@ const PHASER: KnobSpec[] = [knob('Depth', 0, 127, 64), knob('Rate', 5, 500, 50, 
 const INSERT_KINDS: Record<string, { name: string; settings: KnobSpec[] }> = {
   none: { name: 'None', settings: [] },
   distortion: { name: 'Distortion', settings: [knob('Drive', 0, 127, 64), knob('Tone', 0, 127, 64), knob('Output', 0, 127, 100)] },
-  compressor: { name: 'Compressor', settings: [knob('Squeeze', 0, 127, 64), knob('Attack', 1, 80, 10, ms), knob('Release', 10, 1000, 200, ms), knob('Output', 0, 127, 100)] },
+  compressor: { name: 'Compressor', settings: [knob('Squeeze', 0, 127, 64), knob('Attack', 1, 80, 3, ms), knob('Release', 10, 1000, 150, ms), knob('Output', 0, 127, 100)] },
   autoWah: { name: 'Auto Wah', settings: [knob('Sensitivity', 0, 127, 64), knob('Resonance', 0, 127, 64), knob('Frequency', 0, 127, 32)] },
   tremolo: { name: 'Tremolo', settings: [knob('Depth', 0, 127, 64), knob('Note', 0, 7, EIGHTH, (v) => NOTES[v] ?? `${v}`), knob('Shape', 0, 127, 0)] },
   rotary: { name: 'Rotary', settings: [knob('Depth', 0, 127, 64), knob('Drive', 0, 127, 0), knob('Balance', 0, 127, 64)] },
@@ -164,15 +164,19 @@ interface StripSettings {
   comp: PartComp
   inserts: InsertSlot[]
   sends: number[]
+  /** A keyboard strip's voice settings (the Rust `VoiceSettings`); a Style strip's stay at their defaults. */
+  tone: StripTone
+  mono: boolean
+  portamento: Portamento
 }
 
 /** Each compressor type's threshold, ratio, attack, release and make-up (`preset_params`). */
 const COMP_PARAMS: Record<CompPreset, [number, number, number, number, number]> = {
-  natural: [-18, 25, 10, 200, 3],
-  rich: [-20, 20, 30, 400, 3],
-  punchy: [-24, 60, 5, 120, 6],
-  electronic: [-22, 40, 3, 100, 5],
-  loud: [-30, 80, 2, 150, 9],
+  natural: [-18, 25, 10, 200, 0],
+  rich: [-20, 20, 30, 400, 0],
+  punchy: [-24, 60, 5, 120, 0],
+  electronic: [-22, 40, 3, 100, 0],
+  loud: [-30, 80, 2, 150, 0],
 }
 /** Each compressor parameter's range (part_comp.rs). */
 export const COMP_RANGES: Record<PartCompParam, [number, number]> = {
@@ -196,7 +200,10 @@ function compState(c: PartComp): PartCompState {
 
 const emptySlot = (): InsertSlot => ({ kind: 'none', on: false, values: [0, 0, 0, 0] })
 const sendSlot = (kind: SendKind): SendSlot => ({ kind, params: defaults(sendParams(kind), SEND_PARAMS), returnLevel: RETURN_UNITY })
-const newStrip = (): StripSettings => ({ eq: { ...FLAT_EQ }, comp: compOf(false, 'natural'), inserts: [emptySlot(), emptySlot()], sends: [0, 0, 0, 0, 0, 0] })
+const newStrip = (): StripSettings => ({
+  eq: { ...FLAT_EQ }, comp: compOf(false, 'natural'), inserts: [emptySlot(), emptySlot()], sends: [0, 0, 0, 0, 0, 0],
+  tone: defaultTone(), mono: false, portamento: { on: false, time: 0 },
+})
 
 /** A new kind: its values back to that kind's defaults; on/off unchanged. */
 function setInsertKind(s: InsertSlot, kind: InsertType) {
@@ -228,6 +235,7 @@ function sendState(send: number, s: SendSlot, fromStyle: boolean, setByRack: boo
 const STRIP_TYPES = new Set<string>([
   'setStripEq', 'setStripCompressorOn', 'setStripCompressorPreset', 'setStripCompressorParam', 'setStripInsertKind', 'setStripInsertOn', 'setStripInsertSetting',
   'setStripSend', 'addSend', 'removeSend', 'setSendKind', 'setSendParam', 'setSendReturn', 'setRackSendOverride',
+  'setStripTone', 'setStripMono', 'setStripPortamento',
 ])
 
 /** A strip or send command (`AppCmd::Strips`). */
@@ -326,6 +334,12 @@ export class MockStrips {
 
   private strip(strip: number): StripSettings | string {
     return (Number.isInteger(strip) && this.strips[strip]) || `no strip ${strip} (0-11)`
+  }
+
+  /** A keyboard strip's settings, for its voice settings; a Style strip is refused. */
+  private voice(strip: number): StripSettings | string {
+    if (Number.isInteger(strip) && strip >= KEYBOARD_STRIPS) return `strip ${strip} has no voice settings (only the keyboard strips, 0-3)`
+    return this.strip(strip)
   }
 
   private slot(strip: number, slot: number): InsertSlot | string {
@@ -443,6 +457,25 @@ export class MockStrips {
         if (!Number.isInteger(c.send) || c.send < 0 || c.send >= STYLE_SENDS) return `only sends 1-3 have an override (not ${c.send + 1})`
         this.overrides[c.send] = c.on
         return null
+      case 'setStripTone': {
+        if (!TONE_CONTROLS.includes(c.control)) return `no voice setting ${JSON.stringify(c.control)}`
+        const s = this.voice(c.strip)
+        if (typeof s === 'string') return s
+        s.tone[c.control] = level(c.value)
+        return null
+      }
+      case 'setStripMono': {
+        const s = this.voice(c.strip)
+        if (typeof s === 'string') return s
+        s.mono = c.on
+        return null
+      }
+      case 'setStripPortamento': {
+        const s = this.voice(c.strip)
+        if (typeof s === 'string') return s
+        s.portamento = { on: c.on, time: level(c.time) }
+        return null
+      }
     }
   }
 
@@ -469,6 +502,9 @@ export class MockStrips {
       comp: compState(s.comp),
       inserts: s.inserts.map(slotState),
       sends: s.sends.map((v, i) => (i < n ? v : 0)),
+      tone: { ...s.tone },
+      mono: s.mono,
+      portamento: { ...s.portamento },
     })
     // Insert 1 from an older slot: its kind, on/off and amount; the other settings this
     // one's while the kind is the same.

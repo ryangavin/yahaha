@@ -355,6 +355,51 @@ fn a_racks_send_override_wins_over_the_style_until_dropped() {
     let _ = std::fs::remove_dir_all(dir("override-other"));
 }
 
+/// "Use style's" on a send the player took off Follow Style: the override goes, the send
+/// keeps what it plays.
+#[test]
+fn dropping_the_override_off_follow_style_keeps_the_effect() {
+    let d = dir("override-no-follow");
+    let s = session(&d);
+    s.send(FxCmd::SetFollowStyle { block: FxBlock::Reverb, on: false }).unwrap();
+    s.send(StripCmd::SetRackSendOverride { send: 0, on: true }).unwrap();
+    s.send(StripCmd::SetSendKind { send: 0, kind: SendKind::Plate }).unwrap();
+    s.send(StripCmd::SetSendReturn { send: 0, level: 100 }).unwrap();
+    s.send(StripCmd::SetRackSendOverride { send: 0, on: false }).unwrap();
+    let st = s.state();
+    let b = &st.effects.blocks[0];
+    assert_eq!((b.effect, b.return_level, b.follow_style), (FxType::Plate, 100, false), "kept");
+    assert!(!st.effects.sends[0].set_by_rack, "the override is gone");
+    assert_eq!(s.capture_rack("").sends.override_[0], None);
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A style change: the sends without an override take the new style's effects, an
+/// overridden one keeps the rack's.
+#[test]
+fn a_style_change_sets_only_the_sends_without_an_override() {
+    use crate::racks::SendSlot;
+    let d = dir("override-style-change");
+    let s = session(&d);
+    let mut rack = s.capture_rack("Plate");
+    rack.sends.override_[0] = Some(SendSlot::of(SendKind::Plate));
+    assert!(s.apply_rack(&rack).is_empty());
+    // Send 2 follows the style but plays something else, as if the last style had it.
+    s.inner.lock().fx.effect[1] = FxType::Flanger;
+    let other = write_style(&dir("override-style-change-other"));
+    s.send(LibraryCmd::LoadStylePath { path: other.display().to_string() }).unwrap();
+    s.advance(50_000_000);
+    assert_eq!(s.inner.lock().fx.effect[..2], [FxType::Plate, FxType::Chorus]);
+    let st = s.state();
+    let fx: Vec<_> = st.effects.blocks.iter().map(|b| b.effect).collect();
+    assert_eq!(fx, vec![FxType::Plate, FxType::Chorus, st.effects.blocks[2].effect], "send 2 takes the style's");
+    assert!(st.effects.sends[0].set_by_rack && !st.effects.sends[1].set_by_rack);
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+    let _ = std::fs::remove_dir_all(dir("override-style-change-other"));
+}
+
 /// Saving edited plugin sounds with the rack, on DLSMusicDevice.
 #[cfg(all(feature = "plugins", feature = "slow-tests"))]
 mod plugins {
