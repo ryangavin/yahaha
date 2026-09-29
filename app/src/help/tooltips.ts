@@ -2983,6 +2983,20 @@ const catalog = {
     keys: [],
     launchkey: 'Panel faders 1–4; the eight knobs on the Rack knob page',
   },
+  'rack.insert_chip': {
+    title: 'Insert slot',
+    body: 'The effect in this insert slot of the part\'s strip. Click to pick its type and set its settings; the lamp beside it turns it on or off. The rack saves both slots.',
+    genos: 'Mixer › Effect › Insertion Effect',
+    keys: [],
+    launchkey: null,
+  },
+  'rack.insert_close': {
+    title: 'Done',
+    body: 'Closes the insert settings (Escape does too). Every change there is already sent.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
   'rack.part': {
     title: 'Keyboard part',
     body: 'Makes this part the one you edit: Voice −/+ and Library act on it, as the Launchkey\'s EDIT pads do. Clicking anywhere in the part does the same.',
