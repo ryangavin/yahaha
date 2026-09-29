@@ -160,6 +160,23 @@ fn the_audio_callback_does_not_allocate() {
         }
     }
     ctl.fx.insert[4].store(0, Ordering::Relaxed);
+    // The Master Compressor and Master EQ: on, every type, then off (the compressor
+    // gliding back to unity).
+    {
+        use yahaha::fx::master::{CompPreset, EqPreset, MasterComp, MasterEq};
+        for (c, e) in CompPreset::ALL.into_iter().zip(EqPreset::ALL) {
+            ctl.fx.master.set_compressor(&MasterComp::of(true, c));
+            ctl.fx.master.set_eq(&MasterEq { on: true, preset: e, bands: e.bands() });
+            for _ in 0..3 {
+                assert_eq!(run(&mut core, &mut feed, &[]), none, "master compressor and EQ");
+            }
+        }
+        ctl.fx.master.set_compressor(&MasterComp::default());
+        ctl.fx.master.set_eq(&MasterEq::default());
+        for _ in 0..3 {
+            assert_eq!(run(&mut core, &mut feed, &[]), none, "master effects off");
+        }
+    }
     assert_eq!(run(&mut core, &mut feed, &[[0x8B, 60, 0], [0x8C, 64, 0]]), none, "inserts off");
     ctl.fx.legacy.store(true, Ordering::Relaxed);
     assert_eq!(run(&mut core, &mut feed, &[[0x90, 67, 100]]), none, "the SoundFont's own effects");

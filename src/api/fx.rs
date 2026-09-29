@@ -36,6 +36,132 @@ pub enum FxCmd {
     SetPartInsertAmount { part: u8, amount: u8 },
     /// Every rotary insert at its fast speed or its slow one (the Leslie switch).
     SetRotaryFast { on: bool },
+    /// The Master Compressor on or off (`EffectsState::master`).
+    SetMasterCompressorOn { on: bool },
+    /// The Master Compressor's type: its Compression, Texture and Output come with it.
+    SetMasterCompressorPreset { preset: CompPreset },
+    /// One Master Compressor parameter, clamped to its range: `compression` and `texture`
+    /// 0-100 (%), `output` -12..12 (dB).
+    SetMasterCompressorParam { param: CompParam, value: i16 },
+    /// The Master EQ on or off.
+    SetMasterEqOn { on: bool },
+    /// The Master EQ's type: every band's gain, frequency, Q and shape come with it.
+    SetMasterEqPreset { preset: EqPreset },
+    /// One Master EQ band (0-7), clamped to its ranges (`crate::fx::master`). `shelf`
+    /// only on bands 0 and 7.
+    SetMasterEqBand { band: u8, gain: i8, freq: u16, q: u8, shelf: bool },
+}
+
+pub use crate::fx::master::{CompPreset, EqBand, EqPreset, MasterComp, MasterEq, MasterSettings};
+
+/// A Master Compressor parameter (Genos RM p.136).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CompParam {
+    /// 0-100 %: threshold, ratio and knee together.
+    Compression,
+    /// 0-100 %: higher is lighter (a faster attack and release).
+    Texture,
+    /// -12..12 dB: the level after it.
+    Output,
+}
+
+impl MasterSettings {
+    /// A Master Compressor or Master EQ command applied here: None if `c` is another
+    /// effects command, else whether it was taken (an error for a band out of range).
+    /// The session and the dev mock both play the commands through it.
+    pub fn apply(&mut self, c: &FxCmd) -> Option<Result<(), String>> {
+        let comp = &mut self.compressor;
+        let eq = &mut self.eq;
+        match *c {
+            FxCmd::SetMasterCompressorOn { on } => comp.on = on,
+            FxCmd::SetMasterCompressorPreset { preset } => *comp = MasterComp::of(comp.on, preset),
+            FxCmd::SetMasterCompressorParam { param, value } => {
+                match param {
+                    CompParam::Compression => comp.compression = value.clamp(0, 100) as u8,
+                    CompParam::Texture => comp.texture = value.clamp(0, 100) as u8,
+                    CompParam::Output => comp.output = value.clamp(crate::fx::master::COMP_OUTPUT_DB.0 as i16, crate::fx::master::COMP_OUTPUT_DB.1 as i16) as i8,
+                }
+                *comp = comp.clamped();
+            }
+            FxCmd::SetMasterEqOn { on } => eq.on = on,
+            FxCmd::SetMasterEqPreset { preset } => {
+                eq.preset = preset;
+                eq.bands = preset.bands();
+            }
+            FxCmd::SetMasterEqBand { band, gain, freq, q, shelf } => {
+                let i = band as usize;
+                if i >= crate::fx::master::EQ_BANDS {
+                    return Some(Err(format!("the Master EQ has no band {band} (0-7)")));
+                }
+                eq.bands[i] = EqBand { gain, freq, q, shelf }.clamped(i);
+            }
+            _ => return None,
+        }
+        Some(Ok(()))
+    }
+
+    /// As the state shows them.
+    pub fn state(&self) -> MasterFxState {
+        let (c, e) = (self.compressor.clamped(), self.eq.clamped());
+        MasterFxState {
+            compressor: MasterCompState { on: c.on, preset: c.preset, compression: c.compression, texture: c.texture, output: c.output, edited: c.edited() },
+            eq: MasterEqState { on: e.on, preset: e.preset, bands: e.bands.to_vec(), edited: e.edited() },
+        }
+    }
+
+    /// The settings a state shows (the dev mock keeps only the state).
+    pub fn from_state(s: &MasterFxState) -> MasterSettings {
+        let c = &s.compressor;
+        let mut eq = MasterEq { on: s.eq.on, preset: s.eq.preset, ..MasterEq::default() };
+        for (i, b) in s.eq.bands.iter().take(crate::fx::master::EQ_BANDS).enumerate() {
+            eq.bands[i] = *b;
+        }
+        MasterSettings { compressor: MasterComp { on: c.on, preset: c.preset, compression: c.compression, texture: c.texture, output: c.output }, eq }
+    }
+}
+
+/// The Master Compressor and Master EQ, on the whole mix after the effect returns.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MasterFxState {
+    pub compressor: MasterCompState,
+    pub eq: MasterEqState,
+}
+
+impl Default for MasterFxState {
+    /// Both off: the Compressor at Natural, the EQ Flat.
+    fn default() -> MasterFxState {
+        MasterSettings::default().state()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MasterCompState {
+    pub on: bool,
+    /// The type the parameters started from.
+    pub preset: CompPreset,
+    /// 0-100 %.
+    pub compression: u8,
+    /// 0-100 %.
+    pub texture: u8,
+    /// -12..12 dB.
+    pub output: i8,
+    /// The parameters differ from the type's.
+    pub edited: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MasterEqState {
+    pub on: bool,
+    /// The type the bands started from.
+    pub preset: EqPreset,
+    /// The eight bands, low to high.
+    pub bands: Vec<EqBand>,
+    /// The bands differ from the type's.
+    pub edited: bool,
 }
 
 /// An effect parameter (#236): the bus's own (`crate::fx::Param`).
@@ -141,6 +267,9 @@ pub struct EffectsState {
     /// The rotary inserts at their fast speed (`setRotaryFast`).
     #[serde(default)]
     pub rotary_fast: bool,
+    /// The Master Compressor and Master EQ (both off by default).
+    #[serde(default)]
+    pub master: MasterFxState,
 }
 
 fn yes() -> bool {
@@ -217,7 +346,7 @@ impl EffectsState {
                 }
             })
             .collect();
-        EffectsState { blocks, inserts: Vec::new(), inserts_on: true, rotary_fast: false }
+        EffectsState { blocks, inserts: Vec::new(), inserts_on: true, rotary_fast: false, master: MasterFxState::default() }
     }
 
     /// As a session starts: Hall, Chorus, the dotted 1/8 delay, every return 64 (0 dB);

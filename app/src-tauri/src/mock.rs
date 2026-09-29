@@ -2148,9 +2148,11 @@ impl MockSession {
                     yahaha::fx::type_defaults(block.index(), block.type_index(effect), &mut params);
                     let kept = self.state.effects.blocks.clone();
                     let (inserts, inserts_on) = (self.state.effects.inserts.clone(), self.state.effects.inserts_on);
+                    let master = self.state.effects.master.clone();
                     self.state.effects = EffectsState::new(types, returns, band, params);
                     self.state.effects.inserts = inserts;
                     self.state.effects.inserts_on = inserts_on;
+                    self.state.effects.master = master;
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;
@@ -2174,6 +2176,21 @@ impl MockSession {
                 None => self.message(format!("Style part {part} has no insertion effect"), true),
             },
             AppCmd::Fx(FxCmd::SetRotaryFast { on }) => self.state.effects.rotary_fast = on,
+            // The Master Compressor and Master EQ, as the session plays them (not saved).
+            AppCmd::Fx(
+                ref c @ (FxCmd::SetMasterCompressorOn { .. }
+                | FxCmd::SetMasterCompressorPreset { .. }
+                | FxCmd::SetMasterCompressorParam { .. }
+                | FxCmd::SetMasterEqOn { .. }
+                | FxCmd::SetMasterEqPreset { .. }
+                | FxCmd::SetMasterEqBand { .. }),
+            ) => {
+                let mut m = yahaha::api::MasterSettings::from_state(&self.state.effects.master);
+                match m.apply(c) {
+                    Some(Err(e)) => self.message(e, true),
+                    _ => self.state.effects.master = m.state(),
+                }
+            }
             AppCmd::Rack(c) => {
                 self.rack_cmd(c.clone());
                 self.quick_after_rack_cmd(&c);
@@ -2194,9 +2211,11 @@ impl MockSession {
                     let band = std::array::from_fn(|b| e.blocks[b].band_send);
                     let kept = self.state.effects.blocks.clone();
                     let (inserts, inserts_on) = (self.state.effects.inserts.clone(), self.state.effects.inserts_on);
+                    let master = self.state.effects.master.clone();
                     self.state.effects = EffectsState::new(types, returns, band, params);
                     self.state.effects.inserts = inserts;
                     self.state.effects.inserts_on = inserts_on;
+                    self.state.effects.master = master;
                     for (b, k) in self.state.effects.blocks.iter_mut().zip(kept) {
                         b.follow_style = k.follow_style;
                         b.style_effect = k.style_effect;

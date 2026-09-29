@@ -2298,7 +2298,72 @@
       }
     ],
     "insertsOn": true,
-    "rotaryFast": false
+    "rotaryFast": false,
+    "master": {
+      "compressor": {
+        "on": true,
+        "preset": "punchy",
+        "compression": 70,
+        "texture": 80,
+        "output": 2,
+        "edited": true
+      },
+      "eq": {
+        "on": true,
+        "preset": "mellow",
+        "bands": [
+          {
+            "gain": 0,
+            "freq": 80,
+            "q": 7,
+            "shelf": true
+          },
+          {
+            "gain": 0,
+            "freq": 250,
+            "q": 7,
+            "shelf": false
+          },
+          {
+            "gain": 0,
+            "freq": 500,
+            "q": 7,
+            "shelf": false
+          },
+          {
+            "gain": 0,
+            "freq": 630,
+            "q": 7,
+            "shelf": false
+          },
+          {
+            "gain": 0,
+            "freq": 800,
+            "q": 7,
+            "shelf": false
+          },
+          {
+            "gain": 0,
+            "freq": 1000,
+            "q": 7,
+            "shelf": false
+          },
+          {
+            "gain": -2,
+            "freq": 4000,
+            "q": 7,
+            "shelf": false
+          },
+          {
+            "gain": -4,
+            "freq": 8000,
+            "q": 7,
+            "shelf": true
+          }
+        ],
+        "edited": false
+      }
+    }
   },
   "home": {
     "mains": [],

@@ -274,6 +274,12 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPartInsertOn': return 'fx.insert_part'
     case 'setPartInsertAmount': return 'fx.insert_amount'
     case 'setRotaryFast': return 'fx.rotary_fast'
+    case 'setMasterCompressorOn': return 'fx.master_comp'
+    case 'setMasterCompressorPreset': return 'fx.master_comp_type'
+    case 'setMasterCompressorParam': return ({ compression: 'fx.master_comp_compression', texture: 'fx.master_comp_texture', output: 'fx.master_comp_output' } as const)[cmd.param]
+    case 'setMasterEqOn': return 'fx.master_eq'
+    case 'setMasterEqPreset': return 'fx.master_eq_type'
+    case 'setMasterEqBand': return 'fx.master_eq_gain'
     // Racks (docs/racks.md): the Rack panel's controls; the rest open the Rack until the
     // Library Racks tab adds its own.
     case 'saveRack': return 'rack.save'

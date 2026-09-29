@@ -98,7 +98,7 @@ describe('Mixer drawer', () => {
 
   it('Effects: each block\'s type and return level (#204)', async () => {
     const s = setup()
-    const types = document.querySelectorAll<HTMLSelectElement>('select[aria-label$=" type"]')
+    const types = document.querySelectorAll<HTMLSelectElement>('.effects select[aria-label$=" type"]')
     expect([...types].map((e) => e.getAttribute('aria-label'))).toEqual(['Reverb type', 'Chorus type', 'Variation type'])
     expect(types[0].value).toBe('hall')
     await fireEvent.change(types[2], { target: { value: 'pingPong' } })
@@ -405,6 +405,34 @@ describe('Mixer drawer', () => {
     await fireEvent.click(tab('Style'))
     flushSync()
     expect(untipped(document.body)).toEqual([])
+  })
+})
+
+describe('Master Compressor and EQ', () => {
+  it('switch, type and editor send their commands, and the state shows them', () => {
+    const s = setup()
+    const tipped = (key: string) => document.querySelector<HTMLElement>(`.master-fx [data-tip="${key}"]`)!
+    expect(s.state.effects.master.compressor.on).toBe(false)
+    fireEvent.click(tipped('fx.master_comp'))
+    flushSync()
+    expect(s.state.effects.master.compressor.on).toBe(true)
+    expect(tipped('fx.master_comp').getAttribute('aria-checked')).toBe('true')
+    fireEvent.change(tipped('fx.master_comp_type'), { target: { value: 'loud' } })
+    expect(s.state.effects.master.compressor).toMatchObject({ preset: 'loud', compression: 85, texture: 45, output: 6, edited: false })
+    fireEvent.click(tipped('fx.master_eq'))
+    fireEvent.change(tipped('fx.master_eq_type'), { target: { value: 'bright' } })
+    expect(s.state.effects.master.eq.on).toBe(true)
+    expect(s.state.effects.master.eq.bands[7]).toEqual({ gain: 4, freq: 8000, q: 7, shelf: true })
+    // The editor: a band's frequency, clamped to its range; the type is then edited.
+    fireEvent.click(tipped('fx.master_edit'))
+    flushSync()
+    const freqs = document.querySelectorAll<HTMLInputElement>('.master-fx [data-tip="fx.master_eq_freq"]')
+    expect(freqs).toHaveLength(8)
+    fireEvent.change(freqs[1], { target: { value: '50' } })
+    expect(s.state.effects.master.eq.bands[1].freq).toBe(100)
+    expect(s.state.effects.master.eq.edited).toBe(true)
+    expect(document.querySelectorAll('.master-fx [data-tip="fx.master_eq_shelf"]')).toHaveLength(2)
+    expect(untipped(document.querySelector('.master-fx')!)).toEqual([])
   })
 })
 

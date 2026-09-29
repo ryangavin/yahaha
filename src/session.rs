@@ -44,6 +44,7 @@ mod library;
 mod live_rack;
 mod looper;
 mod looper_banks;
+mod master_fx;
 mod metronome;
 mod mixer;
 mod multipad;
@@ -338,6 +339,8 @@ struct Control {
     knobs: crate::knobs::Knobs,
     /// The effect bus's types and return levels (session/fx.rs).
     fx: fx::FxSettings,
+    /// The Master Compressor and Master EQ, and their file (session/master_fx.rs).
+    master: master_fx::MasterFile,
     /// The Launchkey display: what the control last touched did (session/display.rs).
     display: display::Display,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
@@ -765,6 +768,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         dynamics: Default::default(),
         knobs: Default::default(),
         fx: fx_settings,
+        master: master_fx::MasterFile::load(opts.data_dir.as_deref()),
         display: Default::default(),
         sound_settings: gm_auto::settings_file(opts.data_dir.as_deref()),
         rack_controls: Default::default(),
