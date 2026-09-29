@@ -184,7 +184,7 @@ fn the_last_handle_disposes_on_the_dispose_thread() {
     let t0 = std::time::Instant::now();
     while disposed(raw, from).is_none() {
         assert!(t0.elapsed() < Duration::from_secs(10), "never disposed");
-        std::thread::sleep(Duration::from_millis(2));
+        std::thread::sleep(Duration::from_millis(1));
     }
     assert_eq!(disposed(raw, from), Some(true), "disposed on the dispose thread, not the caller's");
     // And an instance dropped directly (no editor) the same way.
@@ -195,7 +195,7 @@ fn the_last_handle_disposes_on_the_dispose_thread() {
     let t0 = std::time::Instant::now();
     while disposed(raw, from).is_none() {
         assert!(t0.elapsed() < Duration::from_secs(10), "never disposed");
-        std::thread::sleep(Duration::from_millis(2));
+        std::thread::sleep(Duration::from_millis(1));
     }
     assert_eq!(disposed(raw, from), Some(true));
 }
@@ -204,13 +204,24 @@ fn the_last_handle_disposes_on_the_dispose_thread() {
 #[test]
 fn a_load_past_its_deadline_times_out_and_is_abandoned() {
     // No plugin hangs on demand; a zero deadline stands in for one that never returns.
-    let h = host().load_async(&PluginId::DLS, LoadConfig { timeout: Duration::ZERO, ..Default::default() }).unwrap();
+    // A fresh cache file: the load thread writes it once its lookup (a scan) is done.
+    let dir = std::env::temp_dir().join(format!("yahaha-plugin-abandon-{}", std::process::id()));
+    let cache = dir.join("plugins.json");
+    let _ = std::fs::remove_dir_all(&dir);
+    let h = PluginHost::new(Some(cache.clone())).load_async(&PluginId::DLS, LoadConfig { timeout: Duration::ZERO, ..Default::default() }).unwrap();
     assert!(matches!(h.progress(), LoadProgress::TimedOut(_)));
     let err = h.wait().err().expect("timed out");
     assert!(format!("{err}").contains("did not load"), "{err}");
-    // The abandoned load thread disposes of the instance when the plugin finishes; give it
-    // the time and make sure nothing blows up.
-    std::thread::sleep(Duration::from_millis(200));
+    // The abandoned load thread gives up (disposing of anything it made) once past its
+    // lookup: wait for that, then give the rest of it a moment and make sure nothing
+    // blows up.
+    let t0 = std::time::Instant::now();
+    while !cache.exists() {
+        assert!(t0.elapsed() < Duration::from_secs(30), "the load thread never looked the plugin up");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    std::thread::sleep(Duration::from_millis(20));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
