@@ -113,7 +113,7 @@ jobs:
         with:
           shared-key: api-doc
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
 
       - name: JSON examples in docs/app-api.md parse into the Rust types
         run: cargo run --no-default-features --example api_doc_check -- docs/app-api.md
@@ -143,7 +143,7 @@ jobs:
         with:
           shared-key: linux-rust
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
 
       - name: cargo check --no-default-features --lib
         run: cargo check --no-default-features --lib
@@ -180,7 +180,7 @@ jobs:
         with:
           shared-key: linux-app
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
           workspaces: app/src-tauri -> target
 
       - name: cargo check --all-targets (app/src-tauri)
@@ -201,7 +201,7 @@ jobs:
         with:
           shared-key: macos-rust
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
 
       - name: cargo test --profile test-quick --features plugins
         run: cargo test --profile test-quick --features plugins
@@ -219,7 +219,7 @@ jobs:
         with:
           shared-key: macos-app
           cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.head_ref == 'ci-faster' }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
           workspaces: app/src-tauri -> target
 
       - name: cargo test (app/src-tauri)
