@@ -586,6 +586,16 @@ export class MockSession implements Session {
     this.publish()
   }
 
+  /** A plugin sound's stored state (base64; '' for none), which the state shows only as
+   * `hasState`; `state` sets it, as playing the sound would capture it (tests). */
+  patchState(id: string, state?: string): string {
+    if (state !== undefined) {
+      this.sound.setState(id, state)
+      this.publish()
+    }
+    return this.sound.stateOf(id)
+  }
+
   dispose() {
     if (this.timer) clearInterval(this.timer)
     this.subs.clear()
@@ -1895,7 +1905,7 @@ export class MockSession implements Session {
         // A rule may name a catalog entry (#117): it gets that sound's library patch.
         let sc: SoundLibraryCmd = cmd
         if ((cmd.type === 'setFamilyRule' || cmd.type === 'setProgramOverride' || cmd.type === 'setDrumRule') && cmd.patch) {
-          const r = this.catalogMock.patchFor(this.state, cmd.patch, (c) => this.cmd(c))
+          const r = this.catalogMock.patchFor(this.state, cmd.patch, (c) => this.cmd(c), (id) => this.sound.stateOf(id))
           if ('error' in r) {
             this.message(r.error, true)
             break
@@ -1919,7 +1929,7 @@ export class MockSession implements Session {
           this.message(`no sound ${cmd.id}`, true)
           break
         }
-        const r = this.catalogMock.patchFor(this.state, cmd.id, (c) => this.cmd(c))
+        const r = this.catalogMock.patchFor(this.state, cmd.id, (c) => this.cmd(c), (id) => this.sound.stateOf(id))
         if ('error' in r) this.message(r.error, true)
         break
       }

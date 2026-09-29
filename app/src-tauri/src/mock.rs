@@ -492,7 +492,7 @@ impl MockSession {
 
     /// The sound catalog (#117).
     pub fn sounds(&self) -> SoundCatalog {
-        self.sounds.catalog(&self.state)
+        self.sounds.catalog(&self.state, self.sound.patches())
     }
 
     fn sounds_cmd(&mut self, c: SoundsCmd) {
@@ -518,7 +518,7 @@ impl MockSession {
             }
             return;
         }
-        match self.sounds.cmd(&self.state, c) {
+        match self.sounds.cmd(&self.state, self.sound.patches(), c) {
             Err(e) => self.message(e, true),
             Ok(sounds::Then::Nothing) => {}
             Ok(sounds::Then::Run(cmds)) => {
@@ -1348,7 +1348,7 @@ impl MockSession {
         }
         // The parts' sounds and voice names.
         self.sound.derive(st);
-        self.sounds.derive(st);
+        self.sounds.derive(st, self.sound.patches());
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
             p.muted_by_manual_bass = i == 2 && mb;
         }
@@ -2305,7 +2305,7 @@ impl MockSession {
                 };
                 // A SoundFont patch picked over a Plugins-tab plugin ends that plugin.
                 if let SoundLibraryCmd::SetPartPatch { part, id: Some(id) } = &c
-                    && self.state.sound_library.patches.iter().any(|p| &p.patch.id == id && matches!(p.patch.source, PatchSource::SoundFont { .. }))
+                    && self.sound.patches().iter().any(|p| &p.id == id && matches!(p.source, PatchSource::SoundFont { .. }))
                     && self.sound.own_plugin(*part as usize)
                 {
                     self.state.keyboard_parts[(*part & 3) as usize].plugin = None;
@@ -2323,7 +2323,7 @@ impl MockSession {
     /// A rule's patch: a catalog id becomes its library patch, added once (#117).
     fn rule_patch(&mut self, patch: Option<String>) -> Result<Option<String>, String> {
         let Some(id) = patch else { return Ok(None) };
-        match self.sounds.patch_for(&self.state, &id)? {
+        match self.sounds.patch_for(&self.state, self.sound.patches(), &id)? {
             Ok(patch) => Ok(Some(patch)),
             Err(add) => {
                 self.cmd(add);
@@ -2729,7 +2729,7 @@ mod tests {
         m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("My Grand".into()) });
         let saved = p0(&m).sound.unwrap().id;
         let patch_id = saved.strip_prefix("saved:").unwrap().to_string();
-        let p = m.state.sound_library.patches.iter().find(|p| p.patch.id == patch_id).unwrap().patch.clone();
+        let p = m.sound.patches().iter().find(|p| p.id == patch_id).unwrap().clone();
         let fields = PatchFields { name: "Renamed".into(), category: p.category, tags: p.tags, favourite: p.favourite, source: p.source };
         m.send(SoundLibraryCmd::UpdatePatch { id: patch_id.clone(), patch: fields });
         assert_eq!((p0(&m).sound.map(|t| t.name), p0(&m).voice_name), (Some("Renamed".to_string()), "Renamed".to_string()));

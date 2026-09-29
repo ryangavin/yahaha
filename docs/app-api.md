@@ -369,8 +369,8 @@ every change. A patch id that doesn't exist fails the command.
 
 | Command | Fields | What it does |
 |---|---|---|
-| `createPatch` | `patch`: PatchFields | Adds a patch at the end of the list; its new id is `soundLibrary.lastAdded`. PatchFields: `name`, `category`, `tags`, `favourite`, `source` (see [`soundLibrary`](#soundlibrary)). A sound is the raw instrument: it has no mix (docs/racks.md); an older client's `defaults` is ignored. |
-| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source); the id stays. |
+| `createPatch` | `patch`: PatchFields | Adds a patch at the end of the list; its new id is `soundLibrary.lastAdded`. PatchFields: `name`, `category`, `tags`, `favourite`, `source` (see [`soundLibrary`](#soundlibrary); a plugin source here takes `state`?, the plugin's state as base64, in place of `hasState`). A sound is the raw instrument: it has no mix (docs/racks.md); an older client's `defaults` is ignored. |
+| `updatePatch` | `id`, `patch` | Replaces a patch's fields (rename, recategorise, tags, favourite, source); the id stays. A plugin source with no `state`, for the patch's own plugin, keeps the state the library holds (so the state's source, sent back without `hasState`, never wipes it). |
 | `deletePatch` | `id` | Deletes it. Map rules that name it go; a keyboard part playing it goes back to its GM voice. |
 | `duplicatePatch` | `id` | A copy ("… copy") right after it, with a new id. |
 | `movePatch` | `id`, `to` | Moves it to position `to` (0-based) in the list. |
@@ -1128,7 +1128,7 @@ The sound library (docs/sound-library.md).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "state", "origin"? }` (the Audio Unit's id, as #91 writes it, and its state, base64). A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset's `state` is empty until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound (or a plugin sound with exactly the preset's settings, such as the one saved with an `.aupreset` by Save as…), adding it once. A patch has no mix settings (docs/racks.md). |
+| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "hasState", "origin"? }` (the Audio Unit's id, as #91 writes it, and whether the library holds its state). The state itself (base64, MBs for a sampler) stays in the library and is never in the state. A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset has no state (`hasState` false) until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound (or a plugin sound with exactly the preset's settings, such as the one saved with an `.aupreset` by Save as…), adding it once. A patch has no mix settings (docs/racks.md). |
 | `categories` | object[] | The Genos voice categories in display order: `id` (`piano`, `ePiano`, `organ`, `guitar`, `bass`, `strings`, `brass`, `saxWoodwind`, `synthLead`, `pad`, `choir`, `drumsPerc`, `sfx`) and `label`. |
 | `families` | string[16] | The GM family names; family `i` is programs 8i … 8i+7. |
 | `map` | ProgramMap | The global map: `families` (16 patch ids or null), `overrides` (`{ program, patch, volume? }`, by program) and `drums` (a patch id or null). Each rule may have a level: `familyVolumes` (16 levels or null, absent when none has one), an override's `volume`, and `drumsVolume` (absent: none). A rule's level (CC7, 0–127) is what a Style part that resolves by the rule takes when the style sets no level of its own (the mixer shows it); a library of format 2 or older had it on the sound, and it moved onto every rule naming the sound. |
@@ -1930,7 +1930,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "category": "ePiano",
         "tags": [],
         "favourite": false,
-        "source": { "kind": "plugin", "componentId": "aumu dls  appl", "state": "" },
+        "source": { "kind": "plugin", "componentId": "aumu dls  appl", "hasState": false },
         "available": false,
         "note": "needs plugin hosting (#91)"
       }

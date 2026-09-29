@@ -6,7 +6,7 @@
 import { guessCategory, presetsOf } from './mock-sound-library'
 import { MOCK_PRESETS_ID } from './mock-plugins'
 import { fontSummaries, guessCategory as guessWords, MAX_RECENTS, parsePluginId, parsePresetId, pluginCategory, pluginPresetId, presetId, type PluginPresetList, type SoundCatalog, type SoundEntry, type SoundsCmd, type SoundsState } from './sounds'
-import { originOfPresetKey, sameOrigin, type PatchCategory } from './sound-library'
+import { commandSource, originOfPresetKey, sameOrigin, type PatchCategory } from './sound-library'
 import type { AppCmd, AppState } from './types'
 
 export function initialSounds(): SoundsState {
@@ -149,7 +149,7 @@ export class MockSounds {
       case 'setSoundCategory': {
         if (saved) {
           const p = st.soundLibrary.patches.find((q) => q.id === saved)!
-          return { run: [{ type: 'updatePatch', id: saved, patch: { name: p.name, category: c.category, tags: p.tags, favourite: p.favourite, source: p.source } }] }
+          return { run: [{ type: 'updatePatch', id: saved, patch: { name: p.name, category: c.category, tags: p.tags, favourite: p.favourite, source: commandSource(p.source) } }] }
         }
         if (!c.id.startsWith('au:')) return { error: "a preset's category is its GM family" }
         this.categories.set(c.id, c.category)
@@ -172,8 +172,9 @@ export class MockSounds {
 
   /** The library patch a program map rule gets for catalog entry `id` (#117): a saved
    * sound's own, else the library's patch for the preset or plugin, added once through
-   * `run`. An id without a catalog prefix is a patch id already. */
-  patchFor(st: AppState, id: string, run: (c: AppCmd) => void): { patch: string } | { error: string } {
+   * `run`. An id without a catalog prefix is a patch id already. `stateOf`: a plugin
+   * patch's stored state (the state shows only whether it has one). */
+  patchFor(st: AppState, id: string, run: (c: AppCmd) => void, stateOf: (patch: string) => string): { patch: string } | { error: string } {
     if (id.startsWith('saved:')) return { patch: id.slice(6) }
     const pre = parsePresetId(id)
     if (!pre && !id.startsWith('au:')) return { patch: id }
@@ -191,7 +192,7 @@ export class MockSounds {
         : p.source.kind === 'plugin' &&
           p.source.componentId === plugin &&
           // Its preset's sound, or (as the session's) the one with exactly its settings.
-          (origin ? sameOrigin(p.source.origin, origin) || (state !== '' && p.source.state === state) : p.source.state === state && !p.source.origin),
+          (origin ? sameOrigin(p.source.origin, origin) || (state !== '' && stateOf(p.id) === state) : stateOf(p.id) === state && !p.source.origin),
     )
     if (have) return { patch: have.id }
     if (pre) run({ type: 'addPresetAsPatch', file: pre.file, bank: pre.bank, program: pre.program, name: null })

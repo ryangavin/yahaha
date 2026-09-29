@@ -518,7 +518,7 @@ describe('Library model', () => {
     ],
   })
   const ctx = {
-    patches: [{ id: 'pad', name: 'Pad', category: 'pad' as const, tags: [], favourite: true, source: { kind: 'plugin' as const, componentId: 'synth', state: '' } }],
+    patches: [{ id: 'pad', name: 'Pad', category: 'pad' as const, tags: [], favourite: true, source: { kind: 'plugin' as const, componentId: 'synth', hasState: false } }],
     gmMap: [{ program: 0, resolved: { sound: 'sf:A.sf2:0:0' } }],
   } as unknown as Parameters<typeof librarySounds>[2]
   const names = (c: SoundCatalog, idx: number[]) => idx.map((i) => c.entries[i].name)

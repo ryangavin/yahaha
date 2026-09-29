@@ -316,14 +316,28 @@ describe('mock session', () => {
     expect(m.state.message?.text).toContain('no settings yet')
     m.send({ type: 'exportSoundPreset', id: 'stage-grand' })
     expect(m.state.message?.text).toContain('not a plugin sound')
-    const p = m.state.soundLibrary.patches.find((q) => q.id === 'keys-au')!
-    p.source = { kind: 'plugin', componentId: 'aumu Smp7 Fake', state: 'c2FtcGxlciBkZWx1eGU=' }
+    m.patchState('keys-au', 'c2FtcGxlciBkZWx1eGU=')
     m.send({ type: 'exportSoundPreset', id: 'keys-au' })
     expect(m.state.message).toMatchObject({ error: false, text: 'Keys (AU) exported to ~/Library/Audio/Presets' })
     m.send({ type: 'exportSoundPreset', id: 'keys-au' })
     expect(m.state.message?.text).toContain('already exists')
     m.send({ type: 'exportSoundPreset', id: 'keys-au', overwrite: true })
     expect(m.state.message?.error).toBe(false)
+  })
+
+  it('updatePatch without a plugin state keeps the stored one; the state shows only hasState', () => {
+    const m = new MockSession({ manual: true })
+    m.patchState('keys-au', 'c2FtcGxlciBkZWx1eGU=')
+    const p = m.state.soundLibrary.patches.find((q) => q.id === 'keys-au')!
+    expect(p.source).toEqual({ kind: 'plugin', componentId: 'aumu dls  appl', hasState: true })
+    m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu dls  appl' } } })
+    const q = m.state.soundLibrary.patches.find((x) => x.id === 'keys-au')!
+    expect(q.name).toBe('Renamed')
+    expect(q.source).toMatchObject({ hasState: true })
+    expect(m.patchState('keys-au')).toBe('c2FtcGxlciBkZWx1eGU=')
+    // Another plugin: its own (empty) state.
+    m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu Smp7 Fake' } } })
+    expect(m.state.soundLibrary.patches.find((x) => x.id === 'keys-au')!.source).toMatchObject({ hasState: false })
   })
 
   it('Chord Looper banks: Save As, a clash refused unless overwritten, Load (#201)', () => {

@@ -10,7 +10,7 @@
 
 use super::{Control, RackLoad};
 use crate::api::{
-    voice_label, CategoryInfo, CmdError, PatchFields, PatchInfo, PluginStatus, ProgramUse, SoundFontBrowse, SoundLibraryCmd,
+    keep_plugin_state, voice_label, CategoryInfo, CmdError, PatchFields, PatchInfo, PluginStatus, ProgramUse, SoundFontBrowse, SoundLibraryCmd,
     SoundLibraryState, STYLE_PART_NAMES,
 };
 use crate::engine::Prepared;
@@ -660,6 +660,7 @@ impl Control {
                 if p.name.trim().is_empty() {
                     p.name = self.sound.lib.patches[i].name.clone();
                 }
+                keep_plugin_state(&mut p.source, &self.sound.lib.patches[i].source);
                 self.sound.lib.patches[i] = p;
             }
             SoundLibraryCmd::DeletePatch { id } => {
@@ -1658,7 +1659,7 @@ impl Control {
                 .iter()
                 .map(|p| {
                     let note = patches::unavailable_reason(p, &avail);
-                    PatchInfo { patch: p.clone(), available: note.is_none(), note }
+                    PatchInfo { patch: p.into(), available: note.is_none(), note }
                 })
                 .collect(),
             categories: Category::ALL.iter().map(|&c| CategoryInfo { id: c, label: c.label().to_string() }).collect(),
