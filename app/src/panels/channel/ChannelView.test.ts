@@ -36,7 +36,7 @@ describe('Channel view', () => {
   it('shows a keyboard part\'s strip: level, EQ, compressor, two inserts, sends and play', () => {
     setup(0)
     expect(document.querySelector('h2')?.textContent).toBe('Right 1')
-    expect([...document.querySelectorAll('section.card')].map((e) => e.getAttribute('aria-label'))).toEqual(['Level', 'EQ', 'Compressor', 'Insert 1', 'Insert 2', 'Sends', 'Play'])
+    expect([...document.querySelectorAll('section.card')].map((e) => e.getAttribute('aria-label'))).toEqual(['Level', 'EQ', 'Compressor', 'Insert 1', 'Insert 2', 'Sends', 'Tone', 'Play'])
     expect(untipped(document.body)).toEqual([])
   })
 
@@ -69,6 +69,8 @@ describe('Channel view', () => {
     expect(control(`${name} pan`)).toBeNull()
     expect(document.querySelector('[data-tip="mixer.channel.pan"]')).toBeNull()
     expect(document.querySelector('section.card[aria-label="Play"]')).toBeNull()
+    expect(document.querySelector('section.card[aria-label="Tone"]')).toBeNull()
+    expect(document.querySelector('[data-tip^="mixer.channel.tone"], [data-tip^="mixer.channel.mono"], [data-tip^="mixer.channel.portamento"]')).toBeNull()
     expect(card('Style insert')).toBeTruthy()
     await fireEvent.keyDown(control(`${name} level`)!, { key: 'Home' })
     expect(sent).toHaveBeenLastCalledWith({ type: 'setStylePartVolume', part: 0, volume: 0 })
@@ -137,6 +139,49 @@ describe('Channel view', () => {
     const eq = session.state.keyboardParts[3].strip.eq
     await fireEvent.keyDown(control('Left EQ high')!, { key: 'ArrowUp' })
     expect(sent).toHaveBeenLastCalledWith({ type: 'setStripEq', strip: 3, eq: { ...eq, highGain: eq.highGain + 1 } })
+  })
+
+  it('Tone: a knob per voice setting, shown relative to the voice, sends setStripTone', async () => {
+    const { session, sent } = setup(1)
+    const knobs = [...card('Tone').querySelectorAll('[role="slider"]')]
+    expect(knobs.map((e) => e.getAttribute('data-tip'))).toEqual([
+      'mixer.channel.tone.cutoff', 'mixer.channel.tone.resonance', 'mixer.channel.tone.attack', 'mixer.channel.tone.decay',
+      'mixer.channel.tone.release', 'mixer.channel.tone.vibrato_rate', 'mixer.channel.tone.vibrato_depth', 'mixer.channel.tone.vibrato_delay',
+    ])
+    const cutoff = control('Right 2 cutoff')!
+    expect(cutoff.getAttribute('aria-valuetext')).toBe('0')
+    await fireEvent.keyDown(cutoff, { key: 'PageUp' })
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setStripTone', strip: 1, control: 'cutoff', value: 74 })
+    flushSync()
+    expect(session.state.keyboardParts[1].strip.tone.cutoff).toBe(74)
+    expect(control('Right 2 cutoff')!.getAttribute('aria-valuetext')).toBe('+10')
+    await fireEvent.keyDown(control('Right 2 vib delay')!, { key: 'ArrowDown' })
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setStripTone', strip: 1, control: 'vibratoDelay', value: 63 })
+    flushSync()
+    expect(control('Right 2 vib delay')!.getAttribute('aria-valuetext')).toBe('−1')
+  })
+
+  it('Play: Mono sends setStripMono; Portamento and its time send setStripPortamento', async () => {
+    const { session, sent } = setup(3)
+    const play = card('Play')
+    const [mono, porta] = [...play.querySelectorAll<HTMLElement>('[role="switch"]')]
+    expect(mono.getAttribute('data-tip')).toBe('mixer.channel.mono')
+    expect(mono.getAttribute('aria-checked')).toBe('false')
+    await fireEvent.click(mono)
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setStripMono', strip: 3, on: true })
+    flushSync()
+    expect(mono.getAttribute('aria-checked')).toBe('true')
+
+    const time = control('Left portamento time')!
+    expect(time.getAttribute('data-tip')).toBe('mixer.channel.portamento_time')
+    await fireEvent.keyDown(time, { key: 'End' })
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setStripPortamento', strip: 3, on: false, time: 127 })
+    flushSync()
+    await fireEvent.click(porta)
+    expect(sent).toHaveBeenLastCalledWith({ type: 'setStripPortamento', strip: 3, on: true, time: 127 })
+    flushSync()
+    expect(session.state.keyboardParts[3].strip.portamento).toEqual({ on: true, time: 127 })
+    expect(porta.getAttribute('aria-checked')).toBe('true')
   })
 
   it('octave and bend range steppers', async () => {

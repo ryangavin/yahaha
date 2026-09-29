@@ -1,7 +1,22 @@
 // The Channel view's small tables and readings (ChannelView.svelte).
 
 import type { TipKey } from '../../help/tooltips'
-import type { InsertType } from '../../lib/api/types'
+import type { InsertType, ToneControl } from '../../lib/api/types'
+
+/** The Tone card's knobs (a keyboard strip's voice settings, `setStripTone`), in order. */
+export const TONE_KNOBS: { control: ToneControl; caption: string; tip: TipKey }[] = [
+  { control: 'cutoff', caption: 'Cutoff', tip: 'mixer.channel.tone.cutoff' },
+  { control: 'resonance', caption: 'Reso', tip: 'mixer.channel.tone.resonance' },
+  { control: 'attack', caption: 'Attack', tip: 'mixer.channel.tone.attack' },
+  { control: 'decay', caption: 'Decay', tip: 'mixer.channel.tone.decay' },
+  { control: 'release', caption: 'Release', tip: 'mixer.channel.tone.release' },
+  { control: 'vibratoRate', caption: 'Vib rate', tip: 'mixer.channel.tone.vibrato_rate' },
+  { control: 'vibratoDepth', caption: 'Vib depth', tip: 'mixer.channel.tone.vibrato_depth' },
+  { control: 'vibratoDelay', caption: 'Vib delay', tip: 'mixer.channel.tone.vibrato_delay' },
+]
+
+/** A voice setting relative to the voice's own (64): "0", "+10", "−4". */
+export const toneText = (v: number) => (v === 64 ? '0' : v > 64 ? `+${v - 64}` : `−${64 - v}`)
 
 /** Strips 0–11: the 4 keyboard parts, then the 8 Style parts. */
 export const STRIP_COUNT = 12
