@@ -331,3 +331,75 @@ fn the_meters_do_not_allocate() {
         assert_eq!(seen_rms[1], 0.0, "a silent channel reads 0");
     }
 }
+
+/// Each track's CPU (#340) is timed in the callback, per channel, into atomics, without
+/// allocating: the channels playing take time, a silent one none, and every buffer counts
+/// its length (64 frames at 48 kHz). Off the callback, a reading over a second of buffers
+/// turns them into shares.
+#[test]
+fn track_cpu_is_measured_per_track_without_allocating() {
+    const BUFFERS: u64 = 760;
+    let font = sound_font();
+    let rack = font.as_ref().map(|f| Rack::load(f, 48_000).unwrap());
+    let (mut feed, rx) = rtrb::RingBuffer::<synth::Msg>::new(256);
+    let ctl = Arc::new(SynthControl::new(0));
+    let (mut core, _swap, _link) = AudioCore::new(rack, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+    let mut out = vec![0f32; 128];
+    // Right 1 and the Bass part.
+    for m in [[0x90u8, 60, 100], [0x9A, 40, 100]] {
+        feed.push(m).unwrap();
+    }
+    let mut window = synth::CpuWindow::default();
+    window.read(&ctl.cpu);
+    let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    COUNT.with(|c| c.set(true));
+    for _ in 0..BUFFERS {
+        core.process(&mut out);
+    }
+    COUNT.with(|c| c.set(false));
+    assert_eq!((ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f), (0, 0), "timing the tracks allocated");
+    assert_eq!(ctl.cpu.buffers.load(Ordering::Relaxed), BUFFERS);
+    assert_eq!(ctl.cpu.budget_ns.load(Ordering::Relaxed), BUFFERS * 1_333_333, "64 frames at 48 kHz, each");
+    let r = window.read(&ctl.cpu);
+    assert!((r.buffer_us - 1333.333).abs() < 0.01, "{r:?}");
+    if font.is_some() {
+        let ns: Vec<u64> = ctl.cpu.track_ns.iter().map(|a| a.load(Ordering::Relaxed)).collect();
+        assert!(ns[0] > 0 && ns[10] > 0, "Right 1 and the Bass part took time: {ns:?}");
+        assert_eq!(ns[1], 0, "Left played nothing");
+        assert!(r.track[0] > 0.0 && r.track[10] > 0.0 && r.track[1] == 0.0, "{r:?}");
+        assert!(r.track_peak[0] >= r.track[0] && r.total >= r.track[0] + r.track[10], "{r:?}");
+    }
+}
+
+/// A track a plugin plays (#340): its time is the plugin's render, on its own channel only.
+/// No SoundFont here, so nothing else takes any time.
+#[cfg(feature = "plugins")]
+#[test]
+fn a_plugin_tracks_cpu_is_its_render() {
+    use yahaha::plugin::{LoadConfig, PluginHost, PluginId, Swap};
+    use yahaha::route::Source;
+    let (mut feed, rx) = rtrb::RingBuffer::<synth::Msg>::new(256);
+    let ctl = Arc::new(SynthControl::new(0));
+    let (mut core, _swap, link) = AudioCore::new(None, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+    let mut link = link.unwrap();
+    let dls = PluginHost::new(None).load(&PluginId::DLS, LoadConfig { max_frames: synth::PLUGIN_MAX_BLOCK as u32, ..Default::default() }).unwrap();
+    // Right 2 (channel 2) plays it.
+    link.assign(2, dls, Swap::default()).ok().unwrap();
+    ctl.routes.set(2, Source::Plugin);
+    feed.push([0x92, 64, 100]).unwrap();
+    let mut out = vec![0f32; 128];
+    let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    COUNT.with(|c| c.set(true));
+    for _ in 0..20 {
+        core.process(&mut out);
+    }
+    COUNT.with(|c| c.set(false));
+    assert_eq!((ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f), (0, 0), "timing the plugin's track allocated");
+    let ns: Vec<u64> = ctl.cpu.track_ns.iter().map(|a| a.load(Ordering::Relaxed)).collect();
+    assert!(ns[2] > 0, "the plugin's track took time: {ns:?}");
+    assert!(ns.iter().enumerate().all(|(ch, &t)| ch == 2 || t == 0), "only its own: {ns:?}");
+    link.clear(2, 0);
+    ctl.routes.set(2, Source::SoundFont(0));
+    core.process(&mut out);
+    let _ = link.take_retired();
+}

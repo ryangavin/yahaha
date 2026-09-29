@@ -1498,6 +1498,30 @@ fn midi_input_choice() {
     assert!(s.state().io.all_inputs);
 }
 
+/// The meters carry each track's CPU (#340): a keyboard part playing takes a share of the
+/// buffer, one that is silent none, and the total is at least the parts'. A reading covers
+/// a second of the session's clock.
+#[test]
+fn the_meters_carry_each_tracks_cpu() {
+    let Some(p) = style("SlowWalker.T552.sty") else { return };
+    let sf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
+    let Some(sf2) = library::sound_font_files(&sf_dir).into_iter().map(|f| sf_dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX)) else {
+        return;
+    };
+    let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
+    s.offline_audio(Some(&sf2), 48_000).unwrap();
+    let m = s.meters();
+    assert!(m.channels.iter().all(|c| c.cpu == 0.0) && m.cpu.total == 0.0, "the first read starts the window");
+    s.midi_in(Port::Keys, &[0x90, 72, 110]);
+    s.render(48_000 + 4800);
+    let m = s.meters();
+    let cpu = |ch: u8| m.channels.iter().find(|c| c.channel == ch).map_or(-1.0, |c| c.cpu);
+    let right1 = m.channels.iter().find(|c| c.channel == 1).unwrap();
+    assert!(right1.cpu > 0.0 && right1.cpu_peak >= right1.cpu, "Right 1 plays: {m:?}");
+    assert_eq!(cpu(2), 0.0, "Left is silent");
+    assert!(m.cpu.total >= right1.cpu && m.cpu.peak > 0.0 && m.cpu.buffer_us > 0.0, "{:?}", m.cpu);
+}
+
 #[test]
 fn the_main_font_loads_into_a_rack_once_there_is_a_synth() {
     let Some(p) = style("SlowWalker.T552.sty") else { return };

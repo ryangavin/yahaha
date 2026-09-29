@@ -13,7 +13,7 @@
 
 import { initialState } from './api/mock'
 import type { Session } from './api/session'
-import type { AppCmd, AppState, ClockState, LibraryList, SoundCatalog } from './api/types'
+import type { AppCmd, AppState, ClockState, LibraryList, Meters, SoundCatalog } from './api/types'
 
 class AppStore {
   state = $state.raw<AppState>(initialState())
@@ -68,6 +68,11 @@ class AppStore {
 
   send(cmd: AppCmd) {
     this.session?.send(cmd)
+  }
+
+  /** The latest meters (levels and, #340, each track's CPU); null without a session. */
+  meters(): Promise<Meters | null> {
+    return this.session ? this.session.meters() : Promise.resolve(null)
   }
 
   /** Open (focus) or close a keyboard part's plugin editor window (the app shell's, on

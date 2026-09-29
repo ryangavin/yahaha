@@ -115,6 +115,134 @@ pub struct SynthControl {
     pub routes: ChannelRoutes,
     /// The shared effect bus's settings (#204): types, return levels.
     pub fx: crate::fx::FxControl,
+    /// Each track's render time (#340), for the Mixer's CPU readout.
+    pub cpu: CpuCounters,
+}
+
+/// Each track's (MIDI channel's) render time, measured by the audio callback into atomics
+/// (#340): no allocation, no lock. A track's time is whatever renders it: its SoundFont
+/// voices, filter and insertion effect in the rack, and its plugin when one plays it.
+/// [`CpuWindow`] turns them into shares of the buffer's time, off the audio thread.
+pub struct CpuCounters {
+    /// Each channel's render time since start, in ns.
+    pub track_ns: [AtomicU64; 16],
+    /// The buffers rendered since start, and their length in ns (the time they had).
+    pub buffers: AtomicU64,
+    pub budget_ns: AtomicU64,
+    /// Each channel's worst buffer since the last [`CpuWindow`] reading: its render time
+    /// over the buffer's length (f32 bits; a positive f32's bits order as the value does).
+    pub track_peak: [AtomicU32; 16],
+    /// The worst buffer's time for every track together, the same way.
+    pub total_peak: AtomicU32,
+}
+
+impl Default for CpuCounters {
+    fn default() -> CpuCounters {
+        CpuCounters {
+            track_ns: std::array::from_fn(|_| AtomicU64::new(0)),
+            buffers: AtomicU64::new(0),
+            budget_ns: AtomicU64::new(0),
+            track_peak: std::array::from_fn(|_| AtomicU32::new(0)),
+            total_peak: AtomicU32::new(0),
+        }
+    }
+}
+
+impl CpuCounters {
+    /// One buffer `budget_ns` long whose tracks took `ns` to render. RT-safe: relaxed
+    /// atomics only.
+    #[inline]
+    pub fn record(&self, ns: &[u64; 16], budget_ns: u64) {
+        if budget_ns == 0 {
+            return;
+        }
+        let per = 1.0 / budget_ns as f32;
+        let mut total = 0u64;
+        for (ch, &t) in ns.iter().enumerate() {
+            if t == 0 {
+                continue;
+            }
+            total += t;
+            self.track_ns[ch].fetch_add(t, Relaxed);
+            self.track_peak[ch].fetch_max((t as f32 * per).to_bits(), Relaxed);
+        }
+        self.buffers.fetch_add(1, Relaxed);
+        self.budget_ns.fetch_add(budget_ns, Relaxed);
+        if total > 0 {
+            self.total_peak.fetch_max((total as f32 * per).to_bits(), Relaxed);
+        }
+    }
+}
+
+/// How much audio a [`CpuReading`] averages over (1 s of buffers: live, a second).
+pub const CPU_WINDOW_NS: u64 = 1_000_000_000;
+
+/// The tracks' CPU over the last window (#340): shares of the buffers' time (1.0 = a track
+/// took as long to render as the buffer lasts, which leaves nothing for the rest).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CpuReading {
+    /// Each channel's render time over the window's buffer time: its average share.
+    pub track: [f32; 16],
+    /// Each channel's worst single buffer in the window.
+    pub track_peak: [f32; 16],
+    /// Every track together: average, and the worst buffer.
+    pub total: f32,
+    pub total_peak: f32,
+    /// The buffer's length (µs): the time budget each share is of. 0 before any buffer.
+    pub buffer_us: f32,
+}
+
+/// Reads [`CpuCounters`] off the audio thread into a [`CpuReading`] once a window: once
+/// [`CPU_WINDOW_NS`] of buffers have played since the last reading (audio time, so an
+/// offline render reads the same as live).
+#[derive(Clone, Debug, Default)]
+pub struct CpuWindow {
+    /// The counters at the start of the window: each channel's time, the buffers and
+    /// their length (None: not read yet).
+    last: Option<([u64; 16], u64, u64)>,
+    latest: CpuReading,
+}
+
+impl CpuWindow {
+    /// The latest reading, first making a new one if a window's worth of buffers has
+    /// played since the last. The first read only starts the window.
+    pub fn read(&mut self, c: &CpuCounters) -> CpuReading {
+        let budget = c.budget_ns.load(Relaxed);
+        let Some((last_ns, last_buffers, last_budget)) = self.last else {
+            self.start(c, budget);
+            return self.latest;
+        };
+        // A new synth's counters start again from 0: start a new window.
+        if budget < last_budget {
+            self.start(c, budget);
+            return self.latest;
+        }
+        let db = budget - last_budget;
+        if db < CPU_WINDOW_NS {
+            return self.latest;
+        }
+        let ns: [u64; 16] = std::array::from_fn(|ch| c.track_ns[ch].load(Relaxed));
+        let dn = c.buffers.load(Relaxed).saturating_sub(last_buffers).max(1);
+        let track: [f32; 16] = std::array::from_fn(|ch| (ns[ch].saturating_sub(last_ns[ch]) as f64 / db as f64) as f32);
+        self.latest = CpuReading {
+            track,
+            track_peak: std::array::from_fn(|ch| f32::from_bits(c.track_peak[ch].swap(0, Relaxed))),
+            total: track.iter().sum(),
+            total_peak: f32::from_bits(c.total_peak.swap(0, Relaxed)),
+            buffer_us: (db as f64 / dn as f64 / 1000.0) as f32,
+        };
+        self.start(c, budget);
+        self.latest
+    }
+
+    /// Start a window at the counters as they are (the peaks were taken or are dropped).
+    fn start(&mut self, c: &CpuCounters, budget: u64) {
+        let ns = std::array::from_fn(|ch| c.track_ns[ch].load(Relaxed));
+        for p in c.track_peak.iter().chain(std::iter::once(&c.total_peak)) {
+            p.store(0, Relaxed);
+        }
+        self.last = Some((ns, c.buffers.load(Relaxed), budget));
+    }
 }
 
 pub struct Synth {
@@ -310,6 +438,7 @@ impl SynthControl {
             click_volume: AtomicU8::new(crate::click::DEFAULT_VOLUME),
             routes: ChannelRoutes::new(),
             fx: crate::fx::FxControl::new(),
+            cpu: CpuCounters::default(),
         }
     }
 }
@@ -995,6 +1124,16 @@ impl AudioCore {
         if prof {
             crate::perf::PERF.plugin_mask.store(active as u32, Relaxed);
         }
+        // Each track's cost this buffer (#340): the rack's part and the plugin playing it.
+        #[cfg_attr(not(feature = "plugins"), allow(unused_mut))]
+        let mut track_ns = self.rack.as_ref().map_or([0u64; 16], |r| *r.track_ns());
+        #[cfg(feature = "plugins")]
+        for (ch, t) in track_ns.iter_mut().enumerate() {
+            if active >> ch & 1 == 1 {
+                *t += self.plugins.last_render_ns(ch as u8);
+            }
+        }
+        ctl.cpu.record(&track_ns, (frames as f64 * 1e9 / self.sample_rate as f64) as u64);
         if !self.legacy {
             self.fx.process_add(sends, frames, left, right, &ctl.fx);
         }
@@ -1975,6 +2114,45 @@ mod rack_tests {
         let (peaks, master, _) = take_meters(&c);
         let (rms, master_rms) = take_rms(&c);
         assert!(peaks.iter().chain(&rms).chain(&master).chain(&master_rms).all(|&v| v == 0.0), "reset by the take");
+    }
+
+    /// The tracks' CPU (#340): each channel's render time over the buffers' time, per
+    /// channel, averaged over a second of buffers, with the worst buffer; a read before the
+    /// next second is in hands out the same reading.
+    #[test]
+    fn track_cpu_is_each_channels_share_of_the_buffer() {
+        const MS: u64 = 1_000_000;
+        let c = SynthControl::new(0);
+        let mut w = CpuWindow::default();
+        assert_eq!(w.read(&c.cpu), CpuReading::default(), "the first read starts the window");
+        // Four 250 ms buffers: Right 1 takes 25 ms of each, the Bass part 50 ms, then 125.
+        let mut ns = [0u64; 16];
+        for bass in [50, 50, 50, 125] {
+            ns[0] = 25 * MS;
+            ns[10] = bass * MS;
+            c.cpu.record(&ns, 250 * MS);
+            if bass == 50 {
+                assert_eq!(w.read(&c.cpu), CpuReading::default(), "less than a second of buffers: no reading yet");
+            }
+        }
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        let r = w.read(&c.cpu);
+        assert!(near(r.track[0], 0.1) && near(r.track_peak[0], 0.1), "Right 1: {r:?}");
+        assert!(near(r.track[10], 0.275) && near(r.track_peak[10], 0.5), "the Bass part, average and worst buffer: {r:?}");
+        assert!(r.track.iter().chain(&r.track_peak).enumerate().all(|(i, &x)| i % 16 == 0 || i % 16 == 10 || x == 0.0), "the others took nothing: {r:?}");
+        assert!(near(r.total, 0.375) && near(r.total_peak, 0.6), "{r:?}");
+        assert!(near(r.buffer_us, 250_000.0));
+        c.cpu.record(&[225 * MS; 16], 250 * MS);
+        assert_eq!(w.read(&c.cpu), r, "the same reading until the next second is in");
+        for _ in 0..3 {
+            c.cpu.record(&[225 * MS; 16], 250 * MS);
+        }
+        let r = w.read(&c.cpu);
+        assert!(near(r.track[3], 0.9) && near(r.track_peak[3], 0.9) && near(r.track[10], 0.9), "the next second's: {r:?}");
+        // A new synth: its counters start from 0, and so does the window.
+        let c = SynthControl::new(0);
+        c.cpu.record(&[MS; 16], 250 * MS);
+        assert_eq!(w.read(&c.cpu), r, "a new window starts");
     }
 
     #[test]

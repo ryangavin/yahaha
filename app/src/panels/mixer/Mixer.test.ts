@@ -333,6 +333,44 @@ describe('Mixer drawer', () => {
     expect(s.state.mixer.styleParts.map((p) => p.on)).toEqual([false, false, false, true, false, false, false, false])
   })
 
+  it('each strip shows its own track\'s CPU from the meters, the total and the plugin instances (#340, #407)', async () => {
+    const s = new MockSession({ manual: true, demo: true })
+    // A distinct reading per channel: channel n takes n %, its worst buffer 2n %.
+    s.meters = () =>
+      Promise.resolve({
+        atMs: 0,
+        channels: Array.from({ length: 16 }, (_, i) => ({ channel: i + 1, peak: 0, rms: 0, cpu: (i + 1) / 100, cpuPeak: (2 * (i + 1)) / 100 })),
+        master: [0, 0] as [number, number],
+        masterRms: [0, 0] as [number, number],
+        clips: 0,
+        cpu: { total: 1.36, peak: 0.4, bufferUs: 1333 },
+      })
+    s.send({ type: 'setPartPlugin', part: 1, id: 'aumu dls  appl', state: null })
+    s.advance(1000)
+    expect(s.state.plugins.instances).toBe(1)
+    app.attach(s)
+    ui.mixer = true
+    flushSync()
+    render(Mixer)
+    await new Promise((r) => setTimeout(r, 0))
+    flushSync()
+    const cpu = () => [...document.querySelectorAll('.strips [data-testid="cpu"]')].map((e) => e.textContent?.replace(/\s+/g, ' ').trim())
+    // Right 1 (ch 1), Right 2 (ch 3), Right 3 (ch 4), Left (ch 2); Style: ch 9–16 together; M.Pad: ch 5–8.
+    expect(cpu()).toEqual(['1.0% pk 2.0%', '3.0% pk 6.0%', '4.0% pk 8.0%', '2.0% pk 4.0%', '100% ≤ pk 200%', '26% ≤ pk 52%', '', ''])
+    expect(document.querySelector('.strips [data-testid="cpu"] [data-tip="mixer.cpu"]')).not.toBeNull()
+    // Red: Style by its 100% average; M.Pad's summed peak (52%) is past CPU_WARN but its
+    // average (26%) isn't, so it stays un-warned; a single track warns by its own peak.
+    const warn = () => [...document.querySelectorAll('.strips [data-testid="cpu"]')].map((e) => e.classList.contains('warn'))
+    expect(warn()).toEqual([false, false, false, false, true, false, false, false])
+    expect(document.querySelectorAll('.strips [data-tip="mixer.cpu_group"]').length).toBe(2)
+    const total = document.querySelector('[data-testid="cpu-total"]')!.textContent!.replace(/\s+/g, ' ')
+    expect(total).toContain('CPU 136% · pk 40% of a 1.3 ms buffer')
+    expect(total).toContain('Plugin instances 1')
+    await fireEvent.click(tab('Style'))
+    flushSync()
+    expect(cpu()).toEqual(['9.0% pk 18%', '10% pk 20%', '11% pk 22%', '12% pk 24%', '13% pk 26%', '14% pk 28%', '15% pk 30%', '16% pk 32%'])
+  })
+
   it('every control has a tooltip, on both tabs', async () => {
     setup()
     expect(untipped(document.body)).toEqual([])

@@ -284,6 +284,8 @@ struct Control {
     /// The pads use palette colours (`Options::palette_leds`).
     palette_leds: bool,
     offline: Option<Offline>,
+    /// The tracks' CPU readings for the meters (#340).
+    cpu: synth::CpuWindow,
     /// Style previews to the engine thread, and finished ones back to free here.
     audition_tx: Producer<Box<Audition>>,
     old_audition_rx: Consumer<Box<Audition>>,
@@ -729,6 +731,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         clock_ns: if offline { 0 } else { rt::now_ns() },
         palette_leds: opts.palette_leds,
         offline: None,
+        cpu: synth::CpuWindow::default(),
         audition_tx: ch.audition_tx,
         old_audition_rx: ch.old_audition_rx,
         style_seq: 0,
@@ -955,17 +958,26 @@ impl Session {
     /// app's meter bridge), which applies its own decay and peak hold. Without the synth
     /// (offline, or no SoundFont), no channels and zero levels.
     pub fn meters(&self) -> Meters {
-        let ctl = self.inner.lock();
+        let mut ctl = self.inner.lock();
         let now = ctl.offline.as_ref().map_or_else(rt::now_ns, |o| o.now);
-        let Some(sy) = &ctl.synth else { return Meters { at_ms: ns_to_ms(now), ..Meters::default() } };
-        let (peaks, master, clips) = synth::take_meters(&sy.control);
-        let (rms, master_rms) = synth::take_rms(&sy.control);
+        let Some(control) = ctl.synth.as_ref().map(|sy| sy.control.clone()) else { return Meters { at_ms: ns_to_ms(now), ..Meters::default() } };
+        let (peaks, master, clips) = synth::take_meters(&control);
+        let (rms, master_rms) = synth::take_rms(&control);
+        // The tracks' CPU (#340): a new reading once a second of audio, the same one between.
+        let cpu = ctl.cpu.read(&control.cpu);
         Meters {
             at_ms: ns_to_ms(now),
-            channels: synth::METER_CHANNELS.iter().map(|&c| ChannelMeter { channel: c + 1, peak: peaks[c as usize], rms: rms[c as usize] }).collect(),
+            channels: synth::METER_CHANNELS
+                .iter()
+                .map(|&c| {
+                    let i = c as usize;
+                    ChannelMeter { channel: c + 1, peak: peaks[i], rms: rms[i], cpu: cpu.track[i], cpu_peak: cpu.track_peak[i] }
+                })
+                .collect(),
             master,
             master_rms,
             clips,
+            cpu: CpuMeter { total: cpu.total, peak: cpu.total_peak, buffer_us: cpu.buffer_us },
         }
     }
 

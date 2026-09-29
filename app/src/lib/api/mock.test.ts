@@ -5,6 +5,30 @@ import { MockSession, noteName, transposeChord } from './mock'
 const bar = (m: MockSession) => (60000 / m.state.transport.tempo) * m.state.transport.beatsPerBar
 
 describe('mock session', () => {
+  it('meters: each track\'s CPU (#340), a plugin\'s on its own channel; plugin instances counted (#407)', async () => {
+    const m = new MockSession({ manual: true })
+    const cpu = async () => new Map((await m.meters()).channels.map((c) => [c.channel, c.cpu]))
+    let c = await cpu()
+    expect(c.size).toBe(16)
+    expect(c.get(1)).toBeGreaterThan(0) // Right 1, on, SoundFont
+    expect([...c.entries()].filter(([ch]) => ch >= 9).every(([, x]) => x === 0)).toBe(true) // the band stopped
+    // AUSampler (the heavy one) on Right 2 (channel 3).
+    m.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null })
+    expect(m.state.plugins.instances).toBe(0) // still loading
+    m.advance(1000)
+    expect(m.state.plugins.instances).toBe(1)
+    m.send({ type: 'startStop' })
+    c = await cpu()
+    expect(c.get(3)).toBeGreaterThan(0.25)
+    expect(c.get(9)).toBeGreaterThan(0) // Rhythm 1 plays
+    expect(c.get(5)).toBe(0) // no Multi Pad
+    const meters = await m.meters()
+    expect(meters.channels.find((x) => x.channel === 3)!.cpuPeak).toBeGreaterThan(c.get(3)!)
+    expect(meters.cpu.total).toBeCloseTo([...c.values()].reduce((a, b) => a + b, 0))
+    m.send({ type: 'clearPartPlugin', part: 1 })
+    expect(m.state.plugins.instances).toBe(0)
+  })
+
   it('starts stopped with Sync Start armed; Start/Stop starts it on Main A', () => {
     const m = new MockSession({ manual: true })
     expect(m.state.transport.running).toBe(false)
