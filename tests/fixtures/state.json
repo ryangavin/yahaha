@@ -362,6 +362,11 @@
         "highGain": 0,
         "highFreq": 10000
       },
+      "insert": {
+        "effect": "distortion",
+        "on": false,
+        "amount": 64
+      },
       "patch": null
     },
     {
@@ -386,6 +391,11 @@
         "lowFreq": 80,
         "highGain": 0,
         "highFreq": 10000
+      },
+      "insert": {
+        "effect": "distortion",
+        "on": false,
+        "amount": 64
       },
       "patch": null
     },
@@ -412,6 +422,11 @@
         "highGain": 0,
         "highFreq": 10000
       },
+      "insert": {
+        "effect": "distortion",
+        "on": false,
+        "amount": 64
+      },
       "patch": null
     },
     {
@@ -436,6 +451,11 @@
         "lowFreq": 80,
         "highGain": 0,
         "highFreq": 10000
+      },
+      "insert": {
+        "effect": "distortion",
+        "on": false,
+        "amount": 64
       },
       "patch": null
     }

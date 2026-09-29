@@ -24,7 +24,7 @@ import { MockStyleRacks } from './mock-style-racks'
 import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, clampEq, defaultControlMap, FLAT_EQ, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  BREAK, CHORD_SETTLE_MAX_MS, clampEq, defaultControlMap, FLAT_EQ, OFF_INSERT, type PartInsert, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxParam, type FxParamState, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PartEq, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
@@ -207,7 +207,7 @@ export function initialState(): AppState {
   const s = STYLES[0]
   const part = (i: number, program: number, on: boolean) => ({
     name: KEYBOARD_PART_NAMES[i], channel: [1, 3, 4, 2][i], on, sounding: on, selected: i === 0,
-    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0, eq: { ...FLAT_EQ }, fader: null, patch: null as string | null,
+    volume: 100, waiting: false, program, voiceName: GM[program], playsBass: false, octave: 0, pan: 64, reverb: 0, chorus: 0, variation: 0, eq: { ...FLAT_EQ }, insert: { ...OFF_INSERT }, fader: null, patch: null as string | null,
   })
   const state: AppState = {
     version: 1,
@@ -1124,6 +1124,11 @@ export class MockSession implements Session {
       const eq = mockOtsEq(n, i)
       if (eq) p.eq = { ...eq }
       else if (o.program !== null) p.eq = { ...FLAT_EQ }
+      // The insert slot, as apply_ots sets it: the OTS's insertion type turns it on with its
+      // effect; a part it gives a voice but no type turns it off; others keep theirs.
+      const insert = mockOtsInsert(n, i)
+      if (insert) p.insert = { ...insert }
+      else if (o.program !== null) p.insert = { ...p.insert, on: false }
       p.on = o.on
       p.octave = o.octave
       if (p.volume !== o.volume) p.waiting = panel
@@ -1572,6 +1577,15 @@ export class MockSession implements Session {
         break
       case 'setPartEq':
         st.keyboardParts[cmd.part].eq = clampEq(cmd.eq)
+        break
+      case 'setKeyboardInsertEffect':
+        st.keyboardParts[cmd.part].insert = { ...st.keyboardParts[cmd.part].insert, effect: cmd.effect }
+        break
+      case 'setKeyboardInsertOn':
+        st.keyboardParts[cmd.part].insert = { ...st.keyboardParts[cmd.part].insert, on: cmd.on }
+        break
+      case 'setKeyboardInsertAmount':
+        st.keyboardParts[cmd.part].insert = { ...st.keyboardParts[cmd.part].insert, amount: Math.max(0, Math.min(127, Math.round(cmd.amount))) }
         break
       case 'setFaderPage':
       case 'toggleFaderPage': {
@@ -2112,6 +2126,12 @@ export function mockOtsEq(n: number, p: number): PartEq | null {
   return n === 0 && p === 0 ? { ...FLAT_EQ, lowGain: 3, highGain: 2 } : null
 }
 
+/** The insert slot the mock's OTS `n` sets on part `p`, from its XG insertion type: only
+ *  OTS 1's Right 1 has one (a rotary speaker); the Rust dev mock has the same (`mock_ots_insert`). */
+export function mockOtsInsert(n: number, p: number): PartInsert | null {
+  return n === 0 && p === 0 ? { effect: 'rotary', on: true, amount: 64 } : null
+}
+
 const MOCK_STYLE_SENDS:[number, number, number][] = [[30, 0, 0], [30, 0, 0], [20, 0, 0], [40, 10, 0], [40, 10, 0], [50, 20, 0], [50, 10, 20], [50, 10, 20]]
 
 /**
@@ -2122,7 +2142,7 @@ const MOCK_STYLE_SENDS:[number, number, number][] = [[30, 0, 0], [30, 0, 0], [20
 /** What the live rack holds, as the state shows it (docs/racks.md): the keyboard parts'
  *  sounds and mix, the split, the keyboard transpose, Harmony/Arp and the controller map. */
 export function liveRackView(st: AppState): string {
-  const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false])
+  const parts = st.keyboardParts.map((p) => [p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.eq, p.insert, p.patch, p.plugin?.id ?? null, p.sound ?? null, p.soundEdited ?? false])
   return JSON.stringify([parts, st.chord.split, st.chord.transposeKeyboard, st.harmonyArp, st.liveRack.controls])
 }
 

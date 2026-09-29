@@ -32,8 +32,9 @@
 //!
 //! Insertion effects (#269, [`insert`]): a style's XG Insertion Effect on one of its parts
 //! (a distortion or amp simulator, a compressor, a wah, a tremolo, a rotary speaker) runs
-//! on that part's own stem, before its sends and the mix ([`BandInserts`], run by
-//! `synth::Rack::render`).
+//! on that part's own stem, before its sends and the mix ([`ChannelInserts`], run by
+//! `synth::Rack::render`). Each keyboard part has an insert slot of its own
+//! ([`PartInsert`]); a part played by a plugin gets its insert in the plugin rack.
 //!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
 //! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
@@ -52,7 +53,7 @@ pub mod xg;
 
 pub use chorus::{Chorus, ChorusType};
 pub use delay::{Delay, DelayType, NOTES};
-pub use insert::{BandInserts, Insert, InsertKind, InsertSettings};
+pub use insert::{ChannelInserts, Insert, InsertEffect, InsertKind, InsertSettings, PartInsert};
 pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 

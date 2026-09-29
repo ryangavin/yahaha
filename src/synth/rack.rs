@@ -4,7 +4,7 @@
 //!
 //! Each MIDI channel is a part and renders its own stereo stem. Everything that works on a
 //! part's signal runs here, on its stem, in yahaha code: the live tone filter (CC74/71,
-//! #346 step 3; part_tone.rs), the channel-strip EQ (#247, `fx::part_eq`), the Style parts' insertion effects (#269), the meters (peak and RMS), the sends into the effect bus (#204) and the
+//! #346 step 3; part_tone.rs), the channel-strip EQ (#247, `fx::part_eq`), the insertion effects (#269: the Style parts', and the keyboard parts' own slots), the meters (peak and RMS), the sends into the effect bus (#204) and the
 //! performance view's per-part cost. Upstream rustysynth has no public voice count, so the
 //! notes a part holds are counted here, from the messages it gets ([`Part::track`]).
 //!
@@ -475,6 +475,12 @@ impl Rack {
         &self.track_ns
     }
 
+    /// The part of `track_ns` a channel's insertion effect took.
+    #[cfg(test)]
+    pub(super) fn insert_ns(&self, ch: usize) -> u64 {
+        self.track_ns[ch] - self.ch_ns[ch]
+    }
+
     /// The notes sounding now, in every part (held or kept by the pedal; see `Part::notes`).
     pub fn voices(&self) -> usize {
         self.parts.iter().map(|p| p.notes() as usize).sum()
@@ -672,8 +678,9 @@ impl Rack {
     /// Render `left.len()` frames of the mix into `left`/`right` and the effect bus's send
     /// buses into `sends` (all overwritten; bus b's left side at `2 * b * n`, its right at
     /// `(2 * b + 1) * n`), noting each channel's peak in `peaks`. `fade` ramps the whole
-    /// from one gain to another over the buffer. `inserts`: the Style parts' insertion
-    /// effects (#269), each on its part's stem before the meters, the sends and the mix.
+    /// from one gain to another over the buffer. `inserts`: the parts' insertion effects
+    /// (#269: the Style parts' and the keyboard parts' own), each on its part's stem before
+    /// the meters, the sends and the mix, its time counted in the part's (`track_ns`).
     pub(super) fn render(
         &mut self,
         left: &mut [f32],
@@ -681,7 +688,7 @@ impl Rack {
         sends: &mut [f32],
         peaks: &[AtomicU32; 16],
         fade: Option<(f32, f32)>,
-        mut inserts: Option<&mut crate::fx::BandInserts>,
+        mut inserts: Option<&mut crate::fx::ChannelInserts>,
     ) {
         let n = left.len().min(self.tmp_l.len()).min(sends.len() / (2 * BUSES));
         let (left, right) = (&mut left[..n], &mut right[..n]);

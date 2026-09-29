@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import { isTipKey } from '../../help/tooltips'
-import { FLAT_EQ } from '../../lib/api/types'
+import { FLAT_EQ, OFF_INSERT } from '../../lib/api/types'
 import Mixer from './Mixer.svelte'
 import { partVoice, styleVoice } from './voice'
 
@@ -103,7 +103,8 @@ describe('Mixer drawer', () => {
     expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Reverb Hall')
     expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Delay Delay 1/8.')
     // No effect controls of its own any more: the type pickers, editors and inserts moved.
-    expect(document.querySelector('select')).toBeNull()
+    // (The keyboard strips' own insert slot pickers stay on the strips.)
+    expect(document.querySelector('select:not(.ins-kind)')).toBeNull()
     expect(document.querySelector('[aria-label="Style inserts"]')).toBeNull()
     s.send({ type: 'setEffectType', block: 'reverb', effect: 'plate' })
     flushSync()
@@ -179,6 +180,30 @@ describe('Mixer drawer', () => {
     // The Style tab has no EQ.
     await fireEvent.click(tab('Style'))
     expect(eqKnobs()).toHaveLength(0)
+  })
+
+  it('Panel strips have an insert slot: effect, on and amount, each with its command and tooltip', async () => {
+    const s = setup()
+    const kinds = () => [...document.querySelectorAll<HTMLSelectElement>('.strips .ins select')]
+    const ons = () => [...document.querySelectorAll<HTMLButtonElement>('.strips .ins button')]
+    const amounts = () => [...document.querySelectorAll<HTMLElement>('.strips .ins .knob')]
+    expect([kinds().length, ons().length, amounts().length]).toEqual([4, 4, 4])
+    expect(kinds()[0].getAttribute('aria-label')).toBe('Right 1 insert effect')
+    expect([kinds()[0].dataset.tip, ons()[0].dataset.tip, amounts()[0].dataset.tip]).toEqual(['mixer.part.insert_effect', 'mixer.part.insert_on', 'mixer.part.insert_amount'])
+    expect(kinds()[0].value).toBe('distortion')
+    expect(ons()[0].getAttribute('aria-pressed')).toBe('false')
+    await fireEvent.change(kinds()[3], { target: { value: 'rotary' } })
+    expect(s.state.keyboardParts[3].insert).toEqual({ effect: 'rotary', on: false, amount: 64 })
+    await fireEvent.click(ons()[3])
+    expect(s.state.keyboardParts[3].insert.on).toBe(true)
+    await fireEvent.keyDown(amounts()[3], { key: 'End' })
+    expect(s.state.keyboardParts[3].insert.amount).toBe(127)
+    flushSync()
+    expect(ons()[3].getAttribute('aria-pressed')).toBe('true')
+    expect(kinds()[3].value).toBe('rotary')
+    // The Style tab has none.
+    await fireEvent.click(tab('Style'))
+    expect(kinds()).toHaveLength(0)
   })
 
   it('Style strips have Reverb, Chorus and Delay knobs: the style\'s until turned, then the part\'s own (#268)', async () => {
@@ -325,7 +350,7 @@ describe('voice lines', () => {
     expect(styleVoice(null)).toEqual({ plays: '—', writtenFor: '' })
   })
   it('a keyboard part under Manual Bass plays the Style Bass', () => {
-    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, eq: FLAT_EQ, fader: null, patch: null }
+    const p = { name: 'Left', channel: 2, on: false, sounding: true, selected: false, volume: 100, waiting: false, program: 48, voiceName: 'Finger Bass', playsBass: true, octave: 0, pan: 64, reverb: 40, chorus: 0, variation: 0, eq: FLAT_EQ, insert: OFF_INSERT, fader: null, patch: null }
     expect(partVoice(p).writtenFor).toContain('Manual Bass')
     expect(partVoice({ ...p, playsBass: false, voiceName: 'Strings' })).toEqual({ plays: 'Strings', writtenFor: 'GM 49' })
   })

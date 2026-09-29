@@ -1,5 +1,8 @@
-//! Insertion effects (#269): one effect on one Style part's own signal, before its sends
-//! and the mix, as a style's XG Insertion Effect SysEx asks for (`xg::StyleInserts`).
+//! Insertion effects (#269): one effect on one part's own signal, before its sends and the
+//! mix: a Style part's as the style's XG Insertion Effect SysEx asks for
+//! (`xg::StyleInserts`), a keyboard part's from its own insert slot ([`PartInsert`], set
+//! by the player, an OTS or a rack). Whatever plays the part runs it: the SoundFont rack on
+//! the part's stem ([`ChannelInserts`]), the plugin rack on the plugin's output.
 //!
 //! The kinds are the ones the corpus styles use most (see `xg::insert_kind`):
 //! - [`InsertKind::Distortion`]: the amp simulators, overdrives and distortions (British
@@ -18,7 +21,87 @@
 //! dry sound in and out over 20 ms, never clicking. Everything is allocated in
 //! [`Insert::new`]; [`Insert::process`] never allocates.
 
+use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
+
+/// An insertion effect yahaha plays, on the wire (the app API, a rack file): an
+/// [`InsertKind`] other than None.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsertEffect {
+    #[default]
+    Distortion,
+    Compressor,
+    AutoWah,
+    Tremolo,
+    Rotary,
+}
+
+impl InsertEffect {
+    pub const fn kind(self) -> InsertKind {
+        match self {
+            InsertEffect::Distortion => InsertKind::Distortion,
+            InsertEffect::Compressor => InsertKind::Compressor,
+            InsertEffect::AutoWah => InsertKind::AutoWah,
+            InsertEffect::Tremolo => InsertKind::Tremolo,
+            InsertEffect::Rotary => InsertKind::Rotary,
+        }
+    }
+}
+
+impl From<InsertKind> for InsertEffect {
+    fn from(k: InsertKind) -> InsertEffect {
+        match k {
+            InsertKind::Distortion | InsertKind::None => InsertEffect::Distortion,
+            InsertKind::Compressor => InsertEffect::Compressor,
+            InsertKind::AutoWah => InsertEffect::AutoWah,
+            InsertKind::Tremolo => InsertEffect::Tremolo,
+            InsertKind::Rotary => InsertEffect::Rotary,
+        }
+    }
+}
+
+/// A keyboard part's insert slot (Genos Mixer > Effect: Insertion Effect On/Off, Type and
+/// Depth): its effect, whether it plays, and its amount (0-127, `InsertSettings::amount`).
+/// Off, the part's audio is bit-identical to no insert at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PartInsert {
+    pub effect: InsertEffect,
+    pub on: bool,
+    pub amount: u8,
+}
+
+impl Default for PartInsert {
+    fn default() -> PartInsert {
+        PartInsert::OFF
+    }
+}
+
+impl PartInsert {
+    /// Off, a distortion at the middle amount: what a part has until something sets it.
+    pub const OFF: PartInsert = PartInsert { effect: InsertEffect::Distortion, on: false, amount: 64 };
+
+    /// What plays: its effect's kind when on, else None.
+    pub fn kind(&self) -> InsertKind {
+        if self.on { self.effect.kind() } else { InsertKind::None }
+    }
+
+    /// Exactly `OFF` (a rack leaves such a slot out of its file).
+    pub fn is_default(&self) -> bool {
+        *self == PartInsert::OFF
+    }
+
+    /// As a `u32` for an atomic: effect, on, amount (`from_bits` reads it back).
+    pub const fn to_bits(self) -> u32 {
+        let amount = if self.amount > 127 { 127 } else { self.amount };
+        self.effect.kind() as u32 | (self.on as u32) << 8 | (amount as u32) << 16
+    }
+
+    pub fn from_bits(v: u32) -> PartInsert {
+        PartInsert { effect: InsertEffect::from(InsertKind::from_u8(v as u8)), on: (v >> 8) & 1 == 1, amount: ((v >> 16) as u8).min(127) }
+    }
+}
 
 /// An insertion effect's kind. `as u8` on the control atomics (`FxControl::insert`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -276,39 +359,55 @@ impl Insert {
     }
 }
 
-/// The eight Style parts' inserts (channels 9-16), each run on its part's stem by the
-/// synth's rack (audio thread; allocated in `new`).
-pub struct BandInserts {
-    slots: [Insert; 8],
-    settings: [InsertSettings; 8],
-}
+impl InsertSettings {
+    /// No effect.
+    pub const NONE: InsertSettings = InsertSettings { kind: InsertKind::None, amount: 64, bpm: 120.0, fast: false };
 
-impl BandInserts {
-    pub fn new(rate: f32) -> BandInserts {
-        BandInserts {
-            slots: std::array::from_fn(|_| Insert::new(rate)),
-            settings: [InsertSettings { kind: InsertKind::None, amount: 64, bpm: 120.0, fast: false }; 8],
-        }
-    }
-
-    /// Take the control side's settings (once per buffer).
-    pub fn update(&mut self, ctl: &super::FxControl) {
+    /// Every channel's insert as the control side has it (read once per buffer): the Style
+    /// parts' (channels 9-16) from the style (`FxControl::insert`), none on the others;
+    /// the caller puts the keyboard parts' own in (`PartInsert`, `with`).
+    pub fn channels(ctl: &super::FxControl) -> [InsertSettings; 16] {
         use std::sync::atomic::Ordering::Relaxed;
         let bpm = ctl.tempo.load(Relaxed) as f32 / 100.0;
         let fast = ctl.rotary_fast.load(Relaxed);
-        for (p, s) in self.settings.iter_mut().enumerate() {
-            *s = InsertSettings { kind: InsertKind::from_u8(ctl.insert[p].load(Relaxed)), amount: ctl.insert_amount[p].load(Relaxed), bpm, fast };
+        let mut out = [InsertSettings { bpm, fast, ..InsertSettings::NONE }; 16];
+        for (p, s) in out[super::BAND_CHANNELS].iter_mut().enumerate() {
+            s.kind = InsertKind::from_u8(ctl.insert[p].load(Relaxed));
+            s.amount = ctl.insert_amount[p].load(Relaxed);
         }
+        out
+    }
+
+    /// These settings (their tempo and rotary speed) with a keyboard part's slot.
+    pub fn with(self, slot: PartInsert) -> InsertSettings {
+        InsertSettings { kind: slot.kind(), amount: slot.amount, ..self }
     }
 }
 
-impl BandInserts {
+/// Every MIDI channel's insert on the SoundFont side, each run on its part's stem by the
+/// synth's rack (audio thread; allocated in `new`): the Style parts' (channels 9-16) and
+/// the keyboard parts' (channels 1-4).
+pub struct ChannelInserts {
+    slots: [Insert; 16],
+    settings: [InsertSettings; 16],
+}
+
+impl ChannelInserts {
+    pub fn new(rate: f32) -> ChannelInserts {
+        ChannelInserts { slots: std::array::from_fn(|_| Insert::new(rate)), settings: [InsertSettings::NONE; 16] }
+    }
+
+    /// Take the settings for this buffer (`InsertSettings::channels`).
+    pub fn set(&mut self, settings: &[InsertSettings; 16]) {
+        self.settings = *settings;
+    }
+
     /// The channels (bit = channel) whose stem runs through `process` before the mix.
     pub fn mask(&self) -> u16 {
         let mut m = 0;
-        for (p, (slot, s)) in self.slots.iter().zip(&self.settings).enumerate() {
+        for (ch, (slot, s)) in self.slots.iter().zip(&self.settings).enumerate() {
             if slot.active(s.kind) {
-                m |= 1 << (super::BAND_CHANNELS.start + p);
+                m |= 1 << ch;
             }
         }
         m
@@ -317,16 +416,17 @@ impl BandInserts {
     /// Run channel `channel`'s stem (`left`/`right`) through its effect in place. `level`
     /// is the part's gain in the mix (volume x expression, squared, x the master volume).
     pub fn process(&mut self, channel: usize, left: &mut [f32], right: &mut [f32], level: f32) {
-        if let Some(p) = channel.checked_sub(super::BAND_CHANNELS.start).filter(|&p| p < 8) {
-            let perf = &crate::perf::PERF;
-            let t0 = perf.on().then(crate::rt::host_now);
-            self.slots[p].process(left, right, level, &self.settings[p]);
-            // The top view (#296): its time and output peak, atomics only.
-            if let Some(t0) = t0 {
-                perf.insert[p].add(crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0)));
-                let peak = left.iter().chain(right.iter()).fold(0f32, |m, x| m.max(x.abs()));
-                crate::perf::Perf::peak(&perf.insert_peak[p], peak);
-            }
+        let Some(slot) = self.slots.get_mut(channel) else { return };
+        // The top view (#296) shows the Style parts' inserts.
+        let band = channel.checked_sub(super::BAND_CHANNELS.start).filter(|&p| p < 8);
+        let perf = &crate::perf::PERF;
+        let t0 = band.is_some_and(|_| perf.on()).then(crate::rt::host_now);
+        slot.process(left, right, level, &self.settings[channel]);
+        // Its time and output peak, atomics only.
+        if let (Some(t0), Some(p)) = (t0, band) {
+            perf.insert[p].add(crate::rt::host_to_ns(crate::rt::host_now().wrapping_sub(t0)));
+            let peak = left.iter().chain(right.iter()).fold(0f32, |m, x| m.max(x.abs()));
+            crate::perf::Perf::peak(&perf.insert_peak[p], peak);
         }
     }
 }
