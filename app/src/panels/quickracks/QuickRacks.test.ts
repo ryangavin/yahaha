@@ -1,6 +1,6 @@
 // Quick Racks on the mock session (docs/racks.md item 6): the bar's buttons load racks and
 // light like pad page 4, Store puts the live rack on a button (saving it first when it has
-// to), the unsaved-changes guard asks, banks step, Clear empties; the drawer, page 4's pads
+// to), the unsaved-changes guard asks, banks step, Clear empties; Library › Racks, page 4's pads
 // and Shift + Track run the same commands.
 
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
@@ -13,7 +13,6 @@ import { quickLook } from '../../lib/api/quick-racks'
 import { app, ui } from '../../lib/store.svelte'
 import Launchkey from '../launchkey/Launchkey.svelte'
 import QuickBar from './QuickBar.svelte'
-import QuickRacks from './QuickRacks.svelte'
 
 function setup() {
   const session = new MockSession({ manual: true })
@@ -42,7 +41,7 @@ async function storeAs(slot: number, name: string) {
 afterEach(() => {
   cleanup()
   app.detach()
-  ui.quick = false
+  ui.view = 'stage'
 })
 
 describe('Quick Racks bar', () => {
@@ -341,31 +340,8 @@ describe('Quick Racks in the mock', () => {
   })
 })
 
-describe('Quick Racks drawer', () => {
-  it('lists your racks to load, and shows the bank on view to store, load and clear', async () => {
-    const s = setup()
-    render(QuickRacks)
-    expect(q('[aria-label="Your racks"]').textContent).toContain('No racks yet')
-    s.send({ type: 'toggleQuickRackStore' })
-    s.send({ type: 'pressQuickRack', slot: 0 })
-    s.send({ type: 'saveRackAs', name: 'Ballad' })
-    s.send({ type: 'newRack' })
-    flushSync()
-    const rack = tipped('quick.rack')
-    expect(rack.map((b) => b.textContent)).toEqual([expect.stringContaining('Ballad')])
-    await click(rack[0])
-    expect(s.state.liveRack.name).toBe('Ballad')
-    // Bank letters: click H, then Store and a button there.
-    await click(tipped('quick.bank').find((b) => b.textContent === 'H')!)
-    expect(s.state.quickRacks.bank).toBe(7)
-    await click(tipped('quick.store')[0])
-    await click(tipped('quick.3')[0])
-    expect(s.state.quickRacks.buttons[2].name).toBe('Ballad')
-    await click(tipped('quick.clear')[0])
-    expect(s.state.quickRacks.buttons[2].rack).toBeNull()
-  })
-
-  it('asks the unsaved-changes question itself while open', async () => {
+describe('Library › Racks', () => {
+  it('opens from nav "Quick Racks" and loads your racks, labelled with their Quick Rack button', async () => {
     const s = setup()
     render(App, { props: { session: s } })
     s.send({ type: 'toggleQuickRackStore' })
@@ -373,12 +349,17 @@ describe('Quick Racks drawer', () => {
     s.send({ type: 'saveRackAs', name: 'Ballad' })
     s.send({ type: 'newRack' })
     s.send({ type: 'setPartVoice', part: 0, program: 3 })
-    ui.quick = true
     flushSync()
-    await click(tipped('quick.rack')[0])
-    // Once, in the drawer: the bar keeps its buttons.
+    const nav = [...document.querySelectorAll('nav.quick-nav button')].find((b) => b.textContent!.trim() === 'Quick Racks')!
+    await click(nav)
+    expect(ui.view).toBe('library')
+    expect(ui.libraryTab).toBe('racks')
+    const rack = tipped('quick.rack')
+    expect(rack.map((b) => b.textContent)).toEqual([expect.stringContaining('Ballad')])
+    expect(rack[0].textContent).toContain('A1')
+    await click(rack[0])
+    // The guard asks in Library's Quick Racks bar.
     expect(tipped('quick.discard')).toHaveLength(1)
-    expect(q('.qbar [data-tip="quick.1"]')).toBeTruthy()
     await click(tipped('quick.discard')[0])
     expect(s.state.liveRack).toMatchObject({ name: 'Ballad', modified: false })
   })

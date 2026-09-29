@@ -21,6 +21,8 @@ const GROUPS: [string, string][] = [
   ['ots', 'One Touch Settings'],
   ['quick', 'Quick Racks'],
   ['part', 'Keyboard parts'],
+  ['view', 'Stage | Library'],
+  ['library', 'Library'],
   ['sounds', 'Sound Browser'],
   ['harmony', 'Keyboard Harmony / Arpeggio'],
   ['mixer', 'Mixer'],

@@ -165,15 +165,26 @@ export interface SoundPick {
   onpick: (id: string) => void
 }
 
+/** The top-level page under the header (docs/racks.md, "Screens"): the stage, or Library. */
+export type View = 'stage' | 'library'
+
+/** Library's tabs. */
+export type LibraryTab = 'racks' | 'sounds' | 'instruments' | 'map'
+
 class UiStore {
+  /** The page in place of the stage: Stage | Library (the header's switch, Alt+B). Drawers
+   * open over either. */
+  view = $state<View>('stage')
+  /** Library's tab, kept while it's closed. */
+  libraryTab = $state<LibraryTab>('sounds')
+  /** The keyboard part (0-3) Library's Sounds and Instruments load into: "Loads into". */
+  libraryPart = $state(0)
   /** Overlays and drawers around the hardware view. */
   browser = $state(false)
   settings = $state(false)
   parts = $state(false)
   mixer = $state(false)
   charts = $state(false)
-  /** The Quick Racks drawer (the user's racks and the bank on view), until Library › Racks. */
-  quick = $state(false)
   looper = $state(false)
   multipad = $state(false)
   harmony = $state(false)
@@ -195,10 +206,17 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'charts' | 'quick' | 'looper' | 'multipad' | 'harmony' | 'sound') {
+  toggleDrawer(d: 'parts' | 'mixer' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony' | 'sound') {
     const open = !this[d]
-    this.parts = this.mixer = this.settings = this.charts = this.quick = this.looper = this.multipad = this.harmony = this.sound = false
+    this.parts = this.mixer = this.settings = this.charts = this.looper = this.multipad = this.harmony = this.sound = false
     this[d] = open
+  }
+
+  /** Show Library, on `tab` (else the last one) and loading into `part` (else the last one). */
+  openLibrary(tab?: LibraryTab, part?: number) {
+    if (tab) this.libraryTab = tab
+    if (part !== undefined) this.libraryPart = Math.max(0, Math.min(3, part))
+    this.view = 'library'
   }
 
   setTheme(t: Theme) {
@@ -235,11 +253,15 @@ class UiStore {
     if (this.parts) return !(this.parts = false)
     if (this.mixer) return !(this.mixer = false)
     if (this.charts) return !(this.charts = false)
-    if (this.quick) return !(this.quick = false)
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)
     if (this.harmony) return !(this.harmony = false)
     if (this.sound) return !(this.sound = false)
+    // Library is a page, not an overlay: Esc goes back to Stage once nothing is open over it.
+    if (this.view === 'library') {
+      this.view = 'stage'
+      return true
+    }
     return false
   }
 }

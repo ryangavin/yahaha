@@ -1,5 +1,6 @@
 <!--
-  The app bar above the hardware view, one row: the brand, the transport section
+  The app bar above the hardware view, one row: the brand, the Stage | Library switch
+  (the page under the bar, Alt+B), the transport section
   (TransportBar.svelte: Start/Stop, Sync, Intro, Ending, Tempo, Tap, bar.beat and the
   section) and the app's own controls (Settings, help mode, theme).
 
@@ -15,7 +16,8 @@
 -->
 <script lang="ts">
   import { app, ui } from '../../lib/store.svelte'
-  import { tips } from '../../lib/tooltip/tip.svelte'
+  import { toggleLibrary } from '../../lib/nav'
+  import { tip, tips } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import TransportBar from './TransportBar.svelte'
 
@@ -29,6 +31,13 @@
     <span class="engraved sub">software arranger</span>
     {#if app.kind === 'mock' || s.io.offline}<span class="engraved badge"><span class="long">{app.kind === 'mock' ? 'mock session' : 'offline session'}</span><span class="short">{app.kind === 'mock' ? 'mock' : 'offline'}</span></span>{/if}
   </span>
+
+  <!-- Stage | Library (docs/racks.md, "Screens"): next to the logo, so it's in reach
+       whatever drawer is open. Alt+B toggles it (lib/nav.ts). -->
+  <div class="views mat-well" role="group" aria-label="View">
+    <button type="button" class:on={ui.view === 'stage'} aria-pressed={ui.view === 'stage'} use:tip={'view.stage'} onclick={() => (ui.view = 'stage')}>Stage</button>
+    <button type="button" class:on={ui.view === 'library'} aria-pressed={ui.view === 'library'} use:tip={'view.library'} onclick={() => ui.view !== 'library' && toggleLibrary()}>Library</button>
+  </div>
 
   <TransportBar />
 
@@ -71,6 +80,35 @@
   .sub {
     line-height: 1.1;
     white-space: nowrap;
+  }
+  .views {
+    display: flex;
+    flex: none;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 6px;
+  }
+  .views button {
+    min-height: 2.1rem;
+    padding: 0 0.9rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--screen-dim);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: 0.04em;
+  }
+  .views button:not(.on):hover {
+    color: var(--screen-ink);
+  }
+  .views button.on {
+    background: linear-gradient(180deg, var(--raised-hi), var(--raised-lo));
+    color: var(--ink);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      inset 0 -2px 0 var(--accent);
   }
   .app-controls {
     display: flex;

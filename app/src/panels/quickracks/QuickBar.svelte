@@ -7,8 +7,7 @@
 
   The buttons light like pad page 4 (red loaded, blue stored, dark empty; all flashing
   while Store is armed). When a switch or a Store asks something (unsaved changes, sound
-  names, a rack to save first) the question takes the buttons' place (RackPrompt), unless
-  the Quick Racks drawer is open and asks it there.
+  names, a rack to save first) the question takes the buttons' place (RackPrompt).
 
   State: quickRacks, liveRack. Commands: pressQuickRack, stepQuickRackBank,
   toggleQuickRackStore, clearQuickRack (and the guard's answers, guard.svelte.ts).
@@ -16,7 +15,7 @@
 <script lang="ts">
   import { QUICK } from '../../help/actions'
   import { bankLetter, quickLabel, quickLook, quickName } from '../../lib/api/quick-racks'
-  import { app, clock, ui } from '../../lib/store.svelte'
+  import { app, clock } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
   import { guard } from './guard.svelte'
@@ -25,7 +24,7 @@
   const q = $derived(app.state.quickRacks)
   const beats = $derived(clock.beats)
   const armed = { rgb: [127, 0, 0] as [number, number, number], level: 'bright' as const, anim: 'flash' as const }
-  const ask = $derived(asking(app.state) && !ui.quick)
+  const ask = $derived(asking(app.state))
 
   // A Save first that has gone through sends the switch it was for.
   $effect(() => guard.settle(app.state))

@@ -195,7 +195,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPluginInProcess': return 'part.plugin_in_process'
     case 'reloadPartPlugin': return 'part.plugin_reload'
     // Sent when an instrument is opened in the browser.
-    case 'markPluginSeen': return 'sounds.instrument'
+    case 'markPluginSeen': return 'library.inst_browse'
     case 'toggleHarmonyArp':
     case 'setHarmonyArpOn': return 'harmony.switch'
     case 'setHarmonyType': return 'harmony.type'

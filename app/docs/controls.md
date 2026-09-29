@@ -202,6 +202,43 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 | **Library patch** | The part plays a patch from your sound library. Pick a GM voice instead to go back to it. | Voice Selection | — | — |
 
+## Stage | Library
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Stage** | Shows the stage: the lead sheet, the Launchkey and the keys. Esc in Library comes back here too. | — | `Alt+B` (terminal: ) | — |
+| **Library** | Shows Library in place of the stage: racks, sounds, instruments and the style map. The band and the drawers keep working while it is open. | Voice Selection | `Alt+B` (terminal: ) | — |
+
+## Library
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Racks** | The live rack (what is under your hands, autosaved) and the racks that need attention. Loading and saving racks comes next. | Registration Memory | — | — |
+| **Sounds** | Every sound a keyboard part can play: yours, plugin presets and SoundFont voices, by category. Click one to hear it on the target part. | Voice Selection | — | — |
+| **Instruments** | Your plugins and SoundFonts, with New and Missing ones marked. Browse lists an instrument's sounds; + New sound starts from a blank plugin. | — | — | — |
+| **Style map** | The program map that makes every style play your sounds instead of the GM voices it asks for, and Add from SoundFont. | — | `Alt+Y` (terminal: ) | — |
+| **Loads into** | The keyboard part that Sounds and Instruments load into. It starts on the part you came from; switch it here without leaving Library. | PART SELECT | — | — |
+| **Back to Stage** | Closes Library and shows the stage again. Nothing is lost: the live rack keeps what you picked. | — | `Esc` | — |
+| **Search sounds** | Narrows the list by name, instrument or category. ↑ ↓ step through the list and play each sound on the target part; Enter plays the selected one. | — | — | — |
+| **Sound list** | Click a sound to hear it on the target part at once. ↑ ↓ step and play, Enter plays the selected one, Ctrl+D stars it. | Voice Selection | — | — |
+| **Sound** | Click to play it on the target part at once. ▶ marks what the target part plays, and R1…L which parts play it; the badge says Mine, Factory (a plugin preset) or SoundFont. | Voice Selection | — | — |
+| **All** | Your sounds, every plugin with its listed presets, and the SoundFont voice the map plays for each GM program. Instruments › Browse lists every preset of one instrument. | — | — | — |
+| **Mine** | Only the sounds in My Sounds: the ones you saved or copied. | User | — | — |
+| **Factory** | Only plugins and their own presets. | Preset | — | — |
+| **SoundFont** | Only SoundFont voices. | — | — | — |
+| **Starred** | Only the sounds you starred. Combines with the other chips. | Favorite | — | — |
+| **Instrument filter** | The list shows only this instrument's sounds (from Instruments › Browse). Click to show every instrument again. | — | — | — |
+| **Category** | Shows only this category. The number is how many sounds the other filters leave in it. | Voice category | — | — |
+| **Copy to My Sounds** | Keeps this sound in My Sounds, where you can rename it, file it and find it under Mine. | — | — | — |
+| **Browse** | Opens Sounds showing only this instrument, with every one of its presets. | — | — | — |
+| **+ New sound** | Loads a blank instance of this plugin on the target part and opens its window. Save as… keeps what you make. | — | — | — |
+| **More** | The plugin's housekeeping: the category its sounds file under, whether it runs in yahaha's process, and its window. | — | — | — |
+| **Show racks** | Opens Racks with Needs attention on: the racks with parts on this missing plugin. Those parts are silent until you pick a new sound or reinstall it. | — | — | — |
+| **Needs attention** | Shows only the racks with a part whose plugin is missing. Those parts stay silent until you replace their sound or reinstall the plugin. | — | — | — |
+| **Live rack** | What is under your hands now, with its four parts' sounds. It autosaves, so it comes back when yahaha starts; ● means changed since it was loaded. | — | — | — |
+| **Rack that needs attention** | A saved rack with a part whose plugin is missing. Loading racks comes next; the rack itself is kept as it is. | — | — | — |
+| **Coming next** | New, save, save as and revert arrive with the rack commands. Until then the live rack autosaves, so nothing you pick is lost. | — | — | — |
+
 ## Sound Browser
 
 | control | what it does | Genos | key | Launchkey |
@@ -510,7 +547,6 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Sound Browser** | Opens the Sound Browser for the selected keyboard part (Right 1 if none): every preset, plugin and saved sound. Press again to close. | Voice Selection | `Alt+B` (terminal: ) | — |
 | **Styles** | Opens the style browser. Press again to close. | Style Selection | `Alt+S` (terminal: ) | — |
 | **Quick Racks** | Opens the Quick Racks drawer: your racks to load, and the buttons of the bank on view to store and clear. Press again to close. | REGISTRATION MEMORY | `Alt+R` (terminal: ) | — |
 | **Parts and OTS** | Opens the keyboard parts drawer with the style's One Touch Settings. Press again to close. | ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
@@ -520,7 +556,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Chord Looper** | Opens the Chord Looper. Press again to close. | Menu › Chord Looper | `Alt+L` (terminal: ) | — |
 | **Charts** | Opens the iReal Pro chart player. Press again to close. | — | `Alt+C` (terminal: ) | — |
 | **Harmony/Arp** | Opens the Keyboard Harmony and Arpeggio panel. Press again to close. | HARMONY/ARPEGGIO | `Alt+H` (terminal: ) | — |
-| **Sound Library** | Opens your sound library and program map. Press again to close. | — | `Alt+Y` (terminal: ) | — |
+| **Library** | Switches between the stage and Library, where you pick racks, sounds and instruments. Library opens loading into the selected part (Right 1 if none). | Voice Selection | `Alt+B` (terminal: ) | — |
 | **Settings** | Opens the settings. Press again to close. | — | `Alt+T` (terminal: ) | — |
 
 ## Panels around the hardware view
@@ -534,7 +570,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Chord Looper** | Opens the Chord Looper: record a chord progression, loop it, and keep it in one of eight memories. | Menu › Chord Looper | — | — |
 | **Close** | Closes this panel. The band keeps playing. | — | `Esc` | — |
 | **Multi Pads** | Opens the Multi Pads: four short phrases from a pad bank that you trigger over the band, and the bank list. | MULTI PAD CONTROL | — | — |
-| **Sound Library** | Opens your sound library: a short list of patches, and the program map that makes every style play them instead of the GM voices it asks for. | Voice Selection (your own list) | — | — |
+| **Library** | Opens Library on Sounds, loading into the selected part: click a sound to hear it on that part at once. | Voice Selection | `Alt+B` (terminal: ) | — |
 
 ## Settings
 
