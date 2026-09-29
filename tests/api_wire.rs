@@ -258,8 +258,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setArpVelocity","mode":"fixed","velocity":90}"#,
     r#"{"type":"setArpKeepKeyOn","on":false}"#,
     // Sound library
-    r#"{"type":"createPatch","patch":{"name":"My Bass","category":"bass","tags":["warm"],"favourite":false,"source":{"kind":"soundFont","file":"GeneralUser-GS.sf2","bank":0,"program":33},"defaults":{"volume":100,"pan":null,"reverb":20,"chorus":null,"octave":-1}}}"#,
-    r#"{"type":"updatePatch","id":"keys","patch":{"name":"Keys","category":"ePiano","tags":[],"favourite":true,"source":{"kind":"plugin","componentId":"aumu dls  appl","state":"AAE="},"defaults":{"volume":null,"pan":64,"reverb":null,"chorus":null,"octave":0}}}"#,
+    r#"{"type":"createPatch","patch":{"name":"My Bass","category":"bass","tags":["warm"],"favourite":false,"source":{"kind":"soundFont","file":"GeneralUser-GS.sf2","bank":0,"program":33}}}"#,
+    r#"{"type":"updatePatch","id":"keys","patch":{"name":"Keys","category":"ePiano","tags":[],"favourite":true,"source":{"kind":"plugin","componentId":"aumu dls  appl","state":"AAE="}}}"#,
     r#"{"type":"deletePatch","id":"my-bass"}"#,
     r#"{"type":"duplicatePatch","id":"my-bass"}"#,
     r#"{"type":"movePatch","id":"my-bass","to":0}"#,

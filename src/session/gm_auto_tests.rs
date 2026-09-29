@@ -42,14 +42,10 @@ fn the_most_gm_complete_font_is_main_and_the_others_fill_its_gaps() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
-fn offline(data: &Path) -> Option<Session> {
-    let style = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !style.exists() {
-        eprintln!("corpus missing; skipping");
-        return None;
-    }
+fn offline(data: &Path) -> Session {
+    let style = crate::session::testing::style_path();
     let opts = Options { paths: vec![style], data_dir: Some(data.to_path_buf()), sound_font_dir: Some(data.join("sf")), ..Options::default() };
-    Some(Session::offline(opts).unwrap())
+    Session::offline(opts).unwrap()
 }
 
 #[test]
@@ -57,7 +53,7 @@ fn the_session_routes_the_auto_fill_and_leaves_the_main_font_unrouted() {
     let data = folder("routes");
     // An old default sound set is ignored: the map decides, and Main is the main font.
     std::fs::write(data.join(FILE_NAME), r#"{"defaultSoundSet":"Tail.sf2"}"#).unwrap();
-    let Some(s) = offline(&data) else { return };
+    let s = offline(&data);
     let st = s.state();
     let rows = &st.sound_library.gm_map;
     assert_eq!(rows.len(), 129);

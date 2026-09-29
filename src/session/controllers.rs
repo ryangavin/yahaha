@@ -79,17 +79,8 @@ impl Control {
 mod tests {
     use crate::api::*;
     use crate::controllers::{ControlType, Function};
-    use crate::session::{Options, Port, Session};
-    use std::path::Path;
-
-    fn offline() -> Option<Session> {
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-        if !p.exists() {
-            eprintln!("corpus missing; skipping");
-            return None;
-        }
-        Some(Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap())
-    }
+    use crate::session::testing::session as offline;
+    use crate::session::{Port, Session};
 
     fn pedal(pedal: u8, cc: u8, function: Function) -> ControllersCmd {
         ControllersCmd::SetPedal { pedal, cc: Some(cc), function, control_type: Default::default(), reverse: false, range: Default::default() }
@@ -105,7 +96,7 @@ mod tests {
 
     #[test]
     fn a_pedal_runs_the_style() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         s.send(pedal(1, 66, Function::StartStop)).unwrap();
         s.send(pedal(2, 67, Function::FillUp)).unwrap();
         s.midi_in(Port::Keys, &[0xB0, 66, 127]);
@@ -127,7 +118,7 @@ mod tests {
 
     #[test]
     fn control_side_functions_from_a_pedal_and_from_software() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         s.send(pedal(1, 66, Function::OtsNext)).unwrap();
         s.midi_in(Port::Keys, &[0xB0, 66, 127]);
         assert_eq!(s.state().ots.applied, 1, "OTS + from none: OTS 1");
@@ -157,7 +148,7 @@ mod tests {
     /// button 7 switches it too.
     #[test]
     fn left_hold_is_assignable() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         let hold = |s: &Session| s.state().chord.left_hold;
         assert_eq!(Function::LeftHold.kind(), crate::controllers::Kind::Switch);
         s.send(pedal(1, 66, Function::LeftHold)).unwrap();
@@ -177,7 +168,7 @@ mod tests {
     #[test]
     fn chord_looper_is_assignable() {
         use crate::api::LooperMode;
-        let Some(s) = offline() else { return };
+        let s = offline();
         assert_eq!(Function::ChordLooperRec.info().name, "Chord Looper Rec/Stop");
         s.send(pedal(1, 66, Function::ChordLooperRec)).unwrap();
         s.midi_in(Port::Keys, &[0xB0, 66, 127]);
@@ -204,7 +195,7 @@ mod tests {
     #[test]
     fn fade_in_out_is_assignable() {
         use crate::engine::FadeState;
-        let Some(s) = offline() else { return };
+        let s = offline();
         assert_eq!(Function::FadeInOut.info().name, "Fade In/Out");
         s.send(pedal(1, 66, Function::FadeInOut)).unwrap();
         assert_eq!(s.state().transport.fade, FadeState::Off);
@@ -221,7 +212,7 @@ mod tests {
     #[test]
     fn tap_sets_the_tempo_while_playing_and_section_reset_is_assignable() {
         const MS: u64 = 1_000_000;
-        let Some(s) = offline() else { return };
+        let s = offline();
         s.send(StyleSettingsCmd::SetSectionReset { on: false }).unwrap();
         // The position as the app shows it: bar and beat from 1.
         let at = |s: &Session| (s.state().transport.bar, s.state().transport.beat);
@@ -270,7 +261,7 @@ mod tests {
     /// A pedal holds the arpeggio while it is down, a Toggle pedal switches Harmony/Arpeggio.
     #[test]
     fn a_pedal_holds_the_arpeggio_and_switches_harmony() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         let set = |function, control_type| ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function, control_type, reverse: false, range: Default::default() };
         s.send(set(Function::ArpHold, ControlType::HoldA)).unwrap();
         assert!(!s.state().harmony_arp.arp.pedal_hold);
@@ -305,7 +296,7 @@ mod tests {
 
     #[test]
     fn sustain_follows_the_parts_switches() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         s.send(PartsCmd::SetPartOn { part: 1, on: false }).unwrap();
         s.take_output();
         // Right 1 is on: the pedal reaches it only.
@@ -332,7 +323,7 @@ mod tests {
     /// sustain lets go (it would otherwise stay on with nothing left to turn it off).
     #[test]
     fn a_pedal_given_another_function_releases_its_sustain() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         let toggle = |function| ControllersCmd::SetPedal { pedal: 0, cc: Some(64), function, control_type: crate::controllers::ControlType::Toggle, reverse: false, range: Default::default() };
         s.send(toggle(Function::Sustain)).unwrap();
         s.midi_in(Port::Keys, &[0xB0, 64, 127]);
@@ -346,7 +337,7 @@ mod tests {
 
     #[test]
     fn a_held_pedal_survives_the_band_and_panic_releases_it() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         s.midi_in(Port::Keys, &[0xB0, 64, 127]);
         s.midi_in(Port::Keys, &[0xE0, 0, 0x60]);
         s.take_output();
@@ -375,7 +366,7 @@ mod tests {
     /// Reset All Controllers; 1 is the wheel) is refused, not silently dead.
     #[test]
     fn a_pedal_refuses_ccs_it_could_never_hear() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         for cc in [0, 1, 7, 32, 121] {
             let e = s.send(pedal(1, cc, Function::StartStop)).unwrap_err();
             assert!(matches!(&e, CmdError::Failed(t) if t.contains(&format!("CC {cc}"))), "{e:?}");
@@ -389,7 +380,7 @@ mod tests {
     /// Transpose +/− from a pedal is the TRANSPOSE buttons (RM p.144): Master transpose.
     #[test]
     fn transpose_pedal_moves_master_transpose() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         s.send(pedal(1, 66, Function::TransposeUp)).unwrap();
         s.midi_in(Port::Keys, &[0xB0, 66, 127]);
         let c = s.state().chord.clone();
@@ -400,7 +391,7 @@ mod tests {
     /// says, and pressing the pedal lets go.
     #[test]
     fn hold_b_sustain_is_on_while_the_pedal_is_up() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         s.take_output();
         let hold_b = ControllersCmd::SetPedal { pedal: 0, cc: Some(64), function: Function::Sustain, control_type: crate::controllers::ControlType::HoldB, reverse: false, range: Default::default() };
         s.send(hold_b).unwrap();
@@ -413,7 +404,7 @@ mod tests {
 
     #[test]
     fn bend_range_and_learn() {
-        let Some(s) = offline() else { return };
+        let s = offline();
         s.take_output();
         s.send(ControllersCmd::SetBendRange { part: 0, semitones: 7 }).unwrap();
         let out = keyboard_msgs(&s);
