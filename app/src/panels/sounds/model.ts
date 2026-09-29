@@ -8,8 +8,9 @@
 // preset, and a plugin's factory presets and .aupreset files, are reached through that
 // instrument's chip.
 
+import { partSound } from '../../lib/api/part-sound'
 import { CATEGORY_LABELS } from '../../lib/api/sound-library'
-import type { GmMapRow, PatchCategory, PatchInfo, SoundCatalog, SoundEntry, SoundSource } from '../../lib/api/types'
+import type { GmMapRow, PatchCategory, PatchInfo, PluginStatus, SoundCatalog, SoundEntry, SoundSource } from '../../lib/api/types'
 
 /** A chip. An instrument is `sf:<file>` (a SoundFont) or `au:<component id>` (a plugin). */
 export type SoundView =
@@ -138,28 +139,25 @@ export function visibleSounds(catalog: SoundCatalog, view: SoundView, query: str
 export interface PlayingPart {
   program: number
   patch: string | null
-  plugin?: { id: string; name?: string; presetKey?: string | null } | null
+  plugin?: { id: string; name?: string; status?: PluginStatus; preset?: string | null; presetKey?: string | null } | null
   playsBass: boolean
   sound?: { id: string; name: string } | null
 }
 
-/** The entry a keyboard part plays now: the Sound its state names; else its plugin
- * preset or plugin; else what the GM map resolves its program to; else its voice on the
- * synth's main font. */
-export function playingId(p: PlayingPart, soundFontFile: string | null, gmMap: GmMapRow[] = []): string | null {
+/** The entry a keyboard part plays now: the Sound the engine names (`sound`), else the
+ * same rule the engine names it by (`partSound`: a plugin's preset, sound or plugin, a
+ * failed plugin's SoundFont voice, the GM map with its auto-fill). Null: nothing covers
+ * its voice, so no row plays. */
+export function playingId(p: PlayingPart, ctx: SoundContext): string | null {
   if (p.sound) return p.sound.id
-  if (p.patch) return `saved:${p.patch}`
-  if (p.plugin?.presetKey) return `au:${p.plugin.id}#${p.plugin.presetKey}`
-  if (p.plugin) return `au:${p.plugin.id}`
-  const row = gmMap.find((r) => r.program === p.program)
-  if (row?.resolved.sound) return row.resolved.sound
-  return soundFontFile ? `sf:${soundFontFile}:0:${p.program}` : null
+  return partSound({ plugin: p.plugin, own: p.playsBass ? null : p.patch, program: p.program }, ctx.patches, ctx.gmMap).sound?.id ?? null
 }
 
-/** The footer's "<Part> plays <instrument> · <sound>": the instrument's name. */
+/** The footer's "<Part> plays <instrument> · <sound>": the instrument's name (a failed
+ * plugin's part plays its SoundFont voice). */
 export function instrumentName(p: PlayingPart, ctx: SoundContext, plugins: { id: string; name: string }[], soundFontFile: string | null): string {
-  if (p.plugin) return p.plugin.name ?? plugins.find((x) => x.id === p.plugin!.id)?.name ?? p.plugin.id
-  const id = playingId(p, soundFontFile, ctx.gmMap)
+  if (p.plugin && p.plugin.status !== 'failed') return p.plugin.name ?? plugins.find((x) => x.id === p.plugin!.id)?.name ?? p.plugin.id
+  const id = playingId(p, ctx)
   const font = (f: string) => f.replace(/\.sf2$/i, '')
   const sf = id && /^sf:(.+):\d+:\d+$/.exec(id)
   if (sf) return font(sf[1])
@@ -168,6 +166,13 @@ export function instrumentName(p: PlayingPart, ctx: SoundContext, plugins: { id:
   if (src?.kind === 'plugin') return plugins.find((x) => x.id === src.componentId)?.name ?? src.componentId
   if (src) return font(src.file)
   return soundFontFile ? font(soundFontFile) : 'the synth'
+}
+
+/** The footer's "<instrument> · <sound>" (the instrument alone for a bare plugin). */
+export function nowPlaying(p: PlayingPart & { voiceName: string }, ctx: SoundContext, plugins: { id: string; name: string }[], soundFontFile: string | null): string {
+  const inst = instrumentName(p, ctx, plugins, soundFontFile)
+  const sound = p.sound?.name ?? p.voiceName
+  return sound === inst ? inst : `${inst} · ${sound}`
 }
 
 /** The file name a preset name saves as (as `presets::safe_name`). */

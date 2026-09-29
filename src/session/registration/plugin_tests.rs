@@ -385,7 +385,7 @@ fn a_recalled_plugin_shows_its_sound() {
             m.sections.get_mut("parts").unwrap().pointer_mut("/parts/0/voice").unwrap().as_object_mut().unwrap().remove("sound");
         }
         s.send(PluginCmd::ClearPartPlugin { part: 0 }).unwrap();
-        assert_eq!(s.state().keyboard_parts[0].sound, None);
+        assert_ne!(s.state().keyboard_parts[0].sound.as_ref(), Some(&tag), "back on its SoundFont voice");
         s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
         assert_eq!(wait_loaded(&s, 0), Some(PluginStatus::Playing));
         wait_reads(&s);

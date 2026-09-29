@@ -39,7 +39,7 @@
   import Instruments from './Instruments.svelte'
   import { browserNav, type BrowserTab } from './nav.svelte'
   import SoundEdit from './SoundEdit.svelte'
-  import { SOURCE_BADGE, allSoundIds, categoryCounts, instrumentName, instruments, mapSlots, patchesById, playingId, presetFileName, visibleSounds, type SoundView } from './model'
+  import { SOURCE_BADGE, allSoundIds, categoryCounts, instruments, mapSlots, nowPlaying, patchesById, playingId, presetFileName, visibleSounds, type SoundView } from './model'
 
   let { part = 0, pick = null }: { part?: number; pick?: SoundPick | null } = $props()
 
@@ -65,7 +65,7 @@
 
   const kp = $derived(pick ? undefined : app.state.keyboardParts[part])
   const plugins = $derived(app.state.plugins)
-  const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, app.state.io.soundFontFile, ctx.gmMap) : null)
+  const playing = $derived(pick ? (pick.value ? `saved:${pick.value}` : null) : kp ? playingId(kp, ctx) : null)
   const auditioning = $derived(app.state.sounds?.auditioning ?? null)
   const running = $derived(app.state.transport.running)
 
@@ -133,8 +133,16 @@
   }
 
   let cursorId = $state<string | null>(null)
-  const cursor = $derived(Math.max(0, cursorId === null ? rows.findIndex((i) => entries[i].id === playing) : rows.findIndex((i) => entries[i].id === cursorId)))
+  // No row is active while the playing sound (or the one moved to) isn't in the list: the
+  // first row isn't passed off as playing. ↓ then starts at the top.
+  const cursor = $derived(rows.findIndex((i) => entries[i].id === (cursorId ?? playing)))
   const selected = $derived(rows[cursor] === undefined ? undefined : entries[rows[cursor]])
+  // Typing a filter that hides the row moved to (or the playing one) moves to its first
+  // match, so Enter plays it (the playing row keeps its ▶ wherever it is).
+  function onfilter() {
+    if (cursor < 0 && rows.length) cursorId = entries[rows[0]].id
+    ensureVisible(cursor, true)
+  }
   // The selected library sound: rename, recategorise, delete (SoundEdit). A plugin's
   // category is filed on the Instruments tab (O2), with the rest of its housekeeping.
   const selPatch = $derived(!pick && selected?.source === 'saved' ? byId.get(selected.id) : undefined)
@@ -149,9 +157,10 @@
   const slice = $derived(rows.slice(first, last))
 
   function ensureVisible(k: number, center = false) {
-    if (!list || k < 0) return
+    if (!list) return
     const h = list.clientHeight || height
-    const top = k * ROW
+    // No active row (the playing sound isn't listed): the list's top.
+    const top = Math.max(0, k) * ROW
     if (center) list.scrollTop = Math.max(0, top - h / 2 + ROW / 2)
     else if (top < list.scrollTop) list.scrollTop = top
     else if (top + ROW > list.scrollTop + h) list.scrollTop = top + ROW - h
@@ -306,7 +315,7 @@
           aria-label="Filter sounds"
           use:tip={'sounds.filter'}
           onkeydown={onkey}
-          oninput={() => void tick().then(() => ensureVisible(cursor, true))}
+          oninput={() => void tick().then(onfilter)}
           onfocus={() => queueMicrotask(() => input && tips.hide(input))}
         />
         <span class="count engraved">{rows.length.toLocaleString()} of {entries.length.toLocaleString()}{#if listingChip}&nbsp;· listing presets{:else if app.state.sounds?.scanning}&nbsp;· scanning plugins{/if}</span>
@@ -387,7 +396,7 @@
       <footer class="foot">
         {#if pick}<span class="now">Pick the sound for <b>{pick.title}</b></span>
         {:else if kp}
-          <span class="now">{kp.name} plays <b>{instrumentName(kp, ctx, plugins.list, app.state.io.soundFontFile)}</b> · <b>{kp.sound?.name ?? kp.voiceName}</b>{#if kp.plugin && kp.plugin.status !== 'playing'}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{/if}</span>
+          <span class="now">{kp.name} plays <b>{nowPlaying(kp, ctx, plugins.list, app.state.io.soundFontFile)}</b>{#if kp.plugin && kp.plugin.status !== 'playing'}&nbsp;· {pluginStatusLine(kp.plugin, plugins.available).replace(/ ▾$/, '')}{/if}</span>
           {#if kp.soundEdited}<span class="edited" use:tip={'sounds.edited'}>edited</span>{/if}
         {/if}
         {#if auditioning}<HwButton tip="sounds.audition_stop" onclick={() => app.send({ type: 'stopSoundAudition' })}>■ Stop</HwButton>{/if}

@@ -94,13 +94,195 @@ pub struct KeyboardPart {
     /// plays, through the program map (`voiceName` names the patch it resolves to).
     #[serde(default)]
     pub patch: Option<String>,
-    /// The Sound it plays (docs/sound-browser.md): its plugin's sound, else its own patch
-    /// or the patch the map gives its voice. Absent: an unnamed plugin state or a bare GM
-    /// voice. The footer reads "<name> plays <instrument> · <sound>".
+    /// The Sound it plays, as the Sounds dialog's catalog names it ([`part_sound`]): its
+    /// plugin's preset, library sound or the bare plugin; else (no plugin, or one that
+    /// failed) its own SoundFont patch or what the GM map resolves its voice to. Absent: a
+    /// GM voice nothing covers. The footer reads "<name> plays <instrument> · <sound>".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sound: Option<crate::patches::SoundTag>,
     /// Its plugin's state no longer matches `sound` (edited in the plugin's editor, or a
     /// recalled edit): Save or Save as… keeps it. Left out when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sound_edited: bool,
+}
+
+/// What a keyboard part plays, named: the Sound (a catalog entry id and its name) and the
+/// `voiceName` every panel shows. Built by [`part_sound`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PartSound {
+    /// `saved:<patch>`, `sf:<file>:<bank>:<program>`, `au:<component>#<preset key>` or
+    /// `au:<component>`; None when nothing covers the part's GM voice.
+    pub sound: Option<crate::patches::SoundTag>,
+    pub voice_name: String,
+}
+
+/// What [`part_sound`] reads of a keyboard part.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PartSoundOf<'a> {
+    /// Its plugin, if it has one.
+    pub plugin: Option<&'a super::PartPlugin>,
+    /// The library Sound the plugin's voice names (a stored tag: its name may be stale).
+    pub plugin_sound: Option<&'a crate::patches::SoundTag>,
+    /// Its own library patch (None under Manual Bass).
+    pub own: Option<&'a str>,
+    /// The GM program its channel plays.
+    pub program: u8,
+}
+
+/// The Sound a keyboard part plays and its voice name, from what actually sounds. The
+/// engine and the dev mock both name parts through this; its twin for the web is
+/// `app/src/lib/api/part-sound.ts`.
+///
+/// - A plugin that is loading, playing or muted: the preset it was given (unless its sound
+///   is another library sound, one the user saved), else its library sound, named as the
+///   library names it now (a rename shows at once; a deleted one is no longer named), else
+///   the bare plugin. The voice name is a preset's (or a factory or file preset's
+///   sound's) "<plugin> · <preset>", else the user's sound's name, or the plugin's.
+/// - A plugin that failed plays the SoundFont voice, as a part with no plugin does: its own
+///   SoundFont patch, else what the GM map (with its auto-fill) resolves its program to;
+///   `font_name` names a font preset. A program nothing covers has no Sound, only its GM
+///   name.
+pub fn part_sound(
+    lib: &crate::patches::SoundLibrary,
+    style: Option<&str>,
+    auto: &crate::patches::AutoFill,
+    part: PartSoundOf,
+    font_name: &dyn Fn(&crate::patches::FontPreset) -> Option<String>,
+) -> PartSound {
+    use crate::patches::{Patch, PatchSource, PluginOrigin, SoundId, SoundTag};
+    let library = |id: &str| match SoundId::parse(id) {
+        Some(SoundId::Library(id)) => lib.patch(&id),
+        _ => None,
+    };
+    if let Some(pl) = part.plugin.filter(|p| p.status != super::PluginStatus::Failed) {
+        let saved = part.plugin_sound.and_then(|t| library(&t.id));
+        let preset = pl.preset_key.as_deref().zip(pl.preset.as_deref());
+        // A preset's own library record (added when it was picked) is that preset.
+        let is_preset = |key: &str, p: &Patch| PluginOrigin::from_preset_key(key).is_some_and(|o| p.source.same_plugin_origin(&pl.id, &o));
+        // (the Sound, a name of the user's own)
+        let (sound, own) = match (preset, saved) {
+            (Some((key, name)), s) if s.is_none_or(|p| is_preset(key, p)) => (SoundTag { id: super::plugin_preset_id(&pl.id, key), name: name.to_string() }, false),
+            (_, Some(p)) => (p.tag(), matches!(&p.source, PatchSource::Plugin { origin, .. } if origin.is_user())),
+            _ => (SoundTag { id: format!("au:{}", pl.id), name: pl.name.clone() }, true),
+        };
+        let voice_name = if own { sound.name.clone() } else { format!("{} · {}", pl.name, sound.name) };
+        return PartSound { sound: Some(sound), voice_name };
+    }
+    let font = |p: &&Patch| matches!(p.source, PatchSource::SoundFont { .. });
+    if let Some(p) = part.own.and_then(|id| lib.patch(id)).filter(font) {
+        return PartSound { sound: Some(p.tag()), voice_name: p.name.clone() };
+    }
+    let gm = || PartSound { sound: None, voice_name: super::gm_name(part.program).to_string() };
+    let Some(id) = crate::patches::resolve_gm(lib, style, auto, false, part.program).sound else { return gm() };
+    match SoundId::parse(&id) {
+        Some(SoundId::Font(f)) => {
+            let name = font_name(&f).unwrap_or_else(|| super::gm_name(part.program).to_string());
+            PartSound { sound: Some(SoundTag { id, name: name.clone() }), voice_name: name }
+        }
+        // A plugin sound the map gives the voice, with no plugin playing it: nothing names
+        // the SoundFont voice that plays.
+        _ => library(&id).filter(font).map_or_else(gm, |p| PartSound { sound: Some(p.tag()), voice_name: p.name.clone() }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{PartPlugin, PluginStatus};
+    use crate::patches::{AutoFill, Category, FontPreset, Patch, PatchDefaults, PatchSource, PluginOrigin, SoundLibrary, SoundTag};
+
+    const SMP: &str = "aumu Smp7 Fake";
+
+    fn patch(id: &str, name: &str, source: PatchSource) -> Patch {
+        Patch { id: id.into(), name: name.into(), category: Category::Piano, tags: vec![], favourite: false, source, defaults: PatchDefaults::default() }
+    }
+
+    fn plugin_sound(id: &str, name: &str, origin: PluginOrigin) -> Patch {
+        patch(id, name, PatchSource::Plugin { component_id: SMP.into(), state: String::new(), origin })
+    }
+
+    fn lib() -> SoundLibrary {
+        let mut lib = SoundLibrary::default();
+        lib.patches = vec![
+            patch("grand", "Stage Grand", PatchSource::SoundFont { file: "A.sf2".into(), bank: 0, program: 0 }),
+            plugin_sound("warm", "Warm Keys", PluginOrigin::Factory { number: 3 }),
+            plugin_sound("mine", "My Keys", PluginOrigin::User),
+        ];
+        lib.map.set_override(1, Some("grand".into()));
+        lib.map.set_override(2, Some("mine".into()));
+        lib
+    }
+
+    /// The auto-fill has programs 0-9 on A.sf2, named "A<n>".
+    fn auto() -> AutoFill {
+        AutoFill { programs: (0..128u8).map(|p| (p < 10).then(|| FontPreset::new("A.sf2", 0, p))).collect(), drums: None }
+    }
+
+    fn named(lib: &SoundLibrary, of: PartSoundOf) -> (Option<String>, Option<String>, String) {
+        let r = part_sound(lib, None, &auto(), of, &|f| Some(format!("A{}", f.program)));
+        (r.sound.as_ref().map(|t| t.id.clone()), r.sound.map(|t| t.name), r.voice_name)
+    }
+
+    fn sampler(status: PluginStatus, preset: Option<(&str, &str)>) -> PartPlugin {
+        PartPlugin {
+            id: SMP.into(),
+            name: "Sampler Deluxe".into(),
+            status,
+            preset: preset.map(|p| p.1.into()),
+            preset_key: preset.map(|p| p.0.into()),
+            ..PartPlugin::default()
+        }
+    }
+
+    fn some(id: &str, name: &str, voice: &str) -> (Option<String>, Option<String>, String) {
+        (Some(id.into()), Some(name.into()), voice.into())
+    }
+
+    #[test]
+    fn a_plugin_part_is_named_by_its_preset_sound_or_plugin() {
+        let lib = lib();
+        let tag = |id: &str, name: &str| SoundTag { id: format!("saved:{id}"), name: name.into() };
+        let pl = sampler(PluginStatus::Playing, Some(("f:3", "Warm Keys")));
+        // A preset with no library record, or with its own (factory) record: the preset's row.
+        let want = some(&format!("au:{SMP}#f:3"), "Warm Keys", "Sampler Deluxe · Warm Keys");
+        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&pl), program: 7, ..Default::default() }), want);
+        let warm = tag("warm", "Warm Keys");
+        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&pl), plugin_sound: Some(&warm), program: 7, ..Default::default() }), want);
+        // A sound the user saved from it: that sound, as the library names it now.
+        let stale = tag("mine", "Old name");
+        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&pl), plugin_sound: Some(&stale), program: 7, ..Default::default() }), some("saved:mine", "My Keys", "My Keys"));
+        // A factory preset's sound picked from the library (its state captured, no preset).
+        let bare = sampler(PluginStatus::Playing, None);
+        assert_eq!(
+            named(&lib, PartSoundOf { plugin: Some(&bare), plugin_sound: Some(&warm), program: 7, ..Default::default() }),
+            some("saved:warm", "Warm Keys", "Sampler Deluxe · Warm Keys")
+        );
+        // A deleted sound, and no sound: the bare plugin.
+        let gone = tag("gone", "Gone");
+        let want = some(&format!("au:{SMP}"), "Sampler Deluxe", "Sampler Deluxe");
+        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&bare), plugin_sound: Some(&gone), program: 7, ..Default::default() }), want);
+        assert_eq!(named(&lib, PartSoundOf { plugin: Some(&bare), program: 7, ..Default::default() }), want);
+        // Muted and loading keep the plugin's name (the status says why it is silent).
+        for status in [PluginStatus::Muted, PluginStatus::Loading] {
+            let pl = sampler(status, Some(("f:3", "Warm Keys")));
+            assert_eq!(named(&lib, PartSoundOf { plugin: Some(&pl), program: 7, ..Default::default() }).2, "Sampler Deluxe · Warm Keys");
+        }
+    }
+
+    #[test]
+    fn a_soundfont_part_is_named_by_what_the_synth_plays() {
+        let lib = lib();
+        // The GM map's auto-fill, a rule, its own SoundFont patch.
+        assert_eq!(named(&lib, PartSoundOf { program: 7, ..Default::default() }), some("sf:A.sf2:0:7", "A7", "A7"));
+        assert_eq!(named(&lib, PartSoundOf { program: 1, ..Default::default() }), some("saved:grand", "Stage Grand", "Stage Grand"));
+        assert_eq!(named(&lib, PartSoundOf { own: Some("grand"), program: 7, ..Default::default() }), some("saved:grand", "Stage Grand", "Stage Grand"));
+        // A failed plugin plays the SoundFont voice, its own plugin patch too.
+        let failed = sampler(PluginStatus::Failed, Some(("f:3", "Warm Keys")));
+        let warm = SoundTag { id: "saved:warm".into(), name: "Warm Keys".into() };
+        let of = PartSoundOf { plugin: Some(&failed), plugin_sound: Some(&warm), own: Some("warm"), program: 7 };
+        assert_eq!(named(&lib, of), some("sf:A.sf2:0:7", "A7", "A7"));
+        // Nothing covers it, or the map gives a plugin sound no plugin plays: its GM name.
+        assert_eq!(named(&lib, PartSoundOf { program: 40, ..Default::default() }), (None, None, "Violin".into()));
+        assert_eq!(named(&lib, PartSoundOf { program: 2, ..Default::default() }), (None, None, crate::api::gm_name(2).into()));
+    }
 }

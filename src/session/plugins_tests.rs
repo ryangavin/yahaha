@@ -909,7 +909,9 @@ fn a_part_shows_its_sound_and_when_it_was_edited() {
     s.offline_audio(None, 48_000).unwrap();
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
-    assert_eq!(s.state().keyboard_parts[0].sound, None, "a bare plugin plays no named sound");
+    let bare = s.state().keyboard_parts[0].clone();
+    assert_eq!(bare.sound.map(|t| t.id), Some(format!("au:{DLS}")), "a bare plugin is its catalog row");
+    assert_eq!(bare.voice_name, bare.plugin.unwrap().name, "named by the plugin, not its GM voice");
     // Save with no sound is Save as….
     s.send(SoundLibraryCmd::SaveSound { part: 0 }).unwrap();
     let id = s.state().sound_library.last_added.clone().unwrap();

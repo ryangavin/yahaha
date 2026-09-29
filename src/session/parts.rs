@@ -1,7 +1,7 @@
 //! Keyboard parts (Right 1-3, Left).
 
 use super::{Control, View};
-use crate::api::{gm_name, CmdError, KeyboardPart, PartsCmd};
+use crate::api::{CmdError, KeyboardPart, PartsCmd};
 use crate::parts;
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -70,9 +70,8 @@ impl Control {
         (0..parts::COUNT)
             .map(|p| {
                 let plays_bass = p == parts::LEFT && kp.manual_bass.load(Relaxed);
-                // Its own sound library patch, and the patch its channel plays (#103).
-                let (patch, plays) = self.part_sound(p);
-                let (sound, sound_edited) = self.part_sound_tag(p);
+                // What actually sounds, named as the library names it now.
+                let (named, sound_edited) = self.part_sound_named(p);
                 KeyboardPart {
                     name: parts::NAMES[p].to_string(),
                     channel: parts::CHANNEL[p] + 1,
@@ -82,7 +81,7 @@ impl Control {
                     volume: kp.volume(p),
                     waiting: kp.waiting(p),
                     program: kp.program[p].load(Relaxed),
-                    voice_name: plays.unwrap_or_else(|| gm_name(kp.channel_program(p)).to_string()),
+                    voice_name: named.voice_name,
                     plays_bass,
                     octave: kp.octave[p].load(Relaxed).clamp(-2, 2),
                     pan: kp.fx(p)[parts::PAN],
@@ -91,8 +90,8 @@ impl Control {
                     variation: kp.fx(p)[parts::VARIATION],
                     fader: v.fader_hw[p],
                     plugin: self.channel_plugin_state(parts::CHANNEL[p]),
-                    patch,
-                    sound,
+                    patch: self.part_patch_id(p),
+                    sound: named.sound,
                     sound_edited,
                 }
             })
