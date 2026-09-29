@@ -189,12 +189,12 @@ pub fn part_sound(
 mod tests {
     use super::*;
     use crate::api::{PartPlugin, PluginStatus};
-    use crate::patches::{AutoFill, Category, FontPreset, Patch, PatchDefaults, PatchSource, PluginOrigin, SoundLibrary, SoundTag};
+    use crate::patches::{AutoFill, Category, FontPreset, Patch, PatchSource, PluginOrigin, SoundLibrary, SoundTag};
 
     const SMP: &str = "aumu Smp7 Fake";
 
     fn patch(id: &str, name: &str, source: PatchSource) -> Patch {
-        Patch { id: id.into(), name: name.into(), category: Category::Piano, tags: vec![], favourite: false, source, defaults: PatchDefaults::default() }
+        Patch { id: id.into(), name: name.into(), category: Category::Piano, tags: vec![], favourite: false, source }
     }
 
     fn plugin_sound(id: &str, name: &str, origin: PluginOrigin) -> Patch {
