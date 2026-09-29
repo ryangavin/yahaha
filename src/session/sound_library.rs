@@ -262,6 +262,12 @@ pub(super) struct SoundLib {
 }
 
 impl SoundLib {
+    /// Tests: whether a sound-font load the pump will report is still in flight.
+    #[cfg(test)]
+    pub(super) fn is_loading(&self) -> bool {
+        self.loading.is_some()
+    }
+
     /// Open the library in `data_dir` (none: an empty one, never saved).
     pub(super) fn open(data_dir: Option<&Path>) -> SoundLib {
         let path = data_dir.map(|d| d.join(patches::FILE_NAME));

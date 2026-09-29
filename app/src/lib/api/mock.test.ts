@@ -335,6 +335,14 @@ describe('mock session', () => {
     expect(q.name).toBe('Renamed')
     expect(q.source).toMatchObject({ hasState: true })
     expect(m.patchState('keys-au')).toBe('c2FtcGxlciBkZWx1eGU=')
+    // The same plugin with another origin (a factory preset): the old state doesn't carry over.
+    m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu dls  appl', origin: { kind: 'factory', number: 3 } } } })
+    expect(m.state.soundLibrary.patches.find((x) => x.id === 'keys-au')!.source).toMatchObject({ hasState: false, origin: { kind: 'factory', number: 3 } })
+    expect(m.patchState('keys-au')).toBe('')
+    // That preset's own state is kept by the next update of the same preset.
+    m.patchState('keys-au', 'bmV3')
+    m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu dls  appl', origin: { kind: 'factory', number: 3 } } } })
+    expect(m.patchState('keys-au')).toBe('bmV3')
     // Another plugin: its own (empty) state.
     m.send({ type: 'updatePatch', id: 'keys-au', patch: { name: 'Renamed', category: 'ePiano', tags: [], favourite: false, source: { kind: 'plugin', componentId: 'aumu Smp7 Fake' } } })
     expect(m.state.soundLibrary.patches.find((x) => x.id === 'keys-au')!.source).toMatchObject({ hasState: false })

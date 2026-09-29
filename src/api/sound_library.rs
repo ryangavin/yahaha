@@ -158,12 +158,18 @@ impl From<&PatchSource> for PatchSourceView {
     }
 }
 
-/// `updatePatch`'s rule: a plugin source with no state, for the same plugin as the patch's
-/// `old` source, keeps its stored state (the state shows none to send back).
+/// `updatePatch`'s rule: a plugin source with no state, for the same plugin and origin as
+/// the patch's `old` source, keeps its stored state (the state shows none to send back).
+/// Another plugin, or another origin (e.g. another factory preset), starts with none: the
+/// old state belongs to the old sound.
 pub fn keep_plugin_state(new: &mut PatchSource, old: &PatchSource) {
-    if let (PatchSource::Plugin { component_id, state, .. }, PatchSource::Plugin { component_id: was, state: stored, .. }) = (new, old)
+    if let (
+        PatchSource::Plugin { component_id, state, origin },
+        PatchSource::Plugin { component_id: was, state: stored, origin: was_origin },
+    ) = (new, old)
         && state.is_empty()
         && component_id == was
+        && origin == was_origin
     {
         state.clone_from(stored);
     }
@@ -298,6 +304,13 @@ mod tests {
         let mut other = PatchSource::plugin("aumu dls  appl", "");
         keep_plugin_state(&mut other, &stored);
         assert_eq!(other, PatchSource::plugin("aumu dls  appl", ""), "another plugin's state never carries over");
+        let preset = |number| PatchSource::Plugin { component_id: "aumu Smp7 Fake".into(), state: String::new(), origin: PluginOrigin::Factory { number } };
+        let mut another_preset = preset(3);
+        keep_plugin_state(&mut another_preset, &stored);
+        assert_eq!(another_preset, preset(3), "another factory preset of the same plugin starts with none");
+        let mut made_here = PatchSource::plugin("aumu Smp7 Fake", "");
+        keep_plugin_state(&mut made_here, &stored);
+        assert_eq!(made_here, PatchSource::plugin("aumu Smp7 Fake", ""), "nor does a user origin take a factory preset's");
         let mut given = plugin("bmV3").source;
         keep_plugin_state(&mut given, &stored);
         assert_eq!(given, plugin("bmV3").source, "a state sent replaces it");
