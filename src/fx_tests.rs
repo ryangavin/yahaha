@@ -8,28 +8,15 @@ use crate::fx::xg::{StyleFx, style_inserts};
 #[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_styles_effects() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
-    if !dir.exists() {
+    let files = crate::library::corpus_loaded();
+    if files.is_empty() {
         eprintln!("corpus missing; skipping");
         return;
-    }
-    let mut files = Vec::new();
-    let mut stack = vec![dir];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(d).unwrap().flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.extension().is_some_and(|x| matches!(x.to_ascii_lowercase().to_str(), Some("sty" | "prs" | "sst"))) {
-                files.push(p);
-            }
-        }
     }
     let mut counts = std::collections::BTreeMap::<(usize, String, Option<u8>), usize>::new();
     let (mut with_params, mut with_ret) = (0, [0usize; 3]);
     let mut n = 0;
-    for f in &files {
-        let Ok(s) = crate::sff::Style::load(f) else { continue };
+    for (f, s) in files {
         n += 1;
         let fx = StyleFx::parse(&s.sint().sysex);
         if let Some(r) = &fx.blocks[0] {
@@ -46,9 +33,8 @@ fn corpus_styles_effects() {
     // #269: the insertion effects, as each style's first setup routes them.
     let mut ins = std::collections::BTreeMap::<(String, String), usize>::new();
     let (mut blocks, mut styles) = (0, 0);
-    for f in &files {
-        let Ok(s) = crate::sff::Style::load(f) else { continue };
-        let prep = crate::engine::Prepared::new(&s);
+    for (_, s) in files {
+        let prep = crate::engine::Prepared::new(s);
         let found = style_inserts(prep.setups[0].init.iter());
         styles += !found.is_empty() as usize;
         blocks += found.len();
