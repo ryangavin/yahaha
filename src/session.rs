@@ -50,10 +50,12 @@ mod offline;
 mod ots;
 mod pads;
 mod param_lock;
+mod part_sound;
 mod parts;
 mod plugins;
 mod playlist;
 mod preview;
+mod racks;
 mod registration;
 mod settings;
 mod style_change;
@@ -332,6 +334,9 @@ struct Control {
     sound: sound_library::SoundLib,
     /// `sound-settings.json` (session/gm_auto.rs), where the catalog keeps its settings.
     sound_settings: Option<PathBuf>,
+    /// The loaded rack's controller map (session/racks.rs): what a rack applied sets and a
+    /// capture reads. The Rack knob page will play it.
+    rack_controls: crate::racks::ControlMap,
     /// The sound catalog (#117).
     sounds: sounds::Sounds,
 }
@@ -722,6 +727,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         fx: fx_settings,
         display: Default::default(),
         sound_settings: gm_auto::settings_file(opts.data_dir.as_deref()),
+        rack_controls: Default::default(),
     };
     let mut control = control;
     control.list_sound_fonts();

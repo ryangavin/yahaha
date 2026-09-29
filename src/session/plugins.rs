@@ -464,6 +464,14 @@ mod imp {
             }
         }
 
+        /// Keep `voice` on channel `ch` as failed with `error` (after a load that could not
+        /// start): the choice survives, saved and retryable, as a failed start-up restore's
+        /// does. The channel plays its SoundFont meanwhile.
+        pub(crate) fn keep_failed_channel_plugin(&mut self, ch: u8, voice: PluginVoice, error: String) {
+            self.plugins.channels[(ch & 15) as usize] = Some(ChannelPlugin::failed(voice, None, error));
+            self.plugins.dirty = true;
+        }
+
         /// The editor handle of channel `ch`'s playing plugin (for the app's main thread).
         pub(crate) fn channel_editor(&self, ch: u8) -> Option<EditorTarget> {
             let c = self.plugins.channels[(ch & 15) as usize].as_ref()?;
@@ -1230,6 +1238,7 @@ impl Control {
         Err("this build has no plugin host (the `plugins` feature)".into())
     }
     pub(crate) fn clear_channel_plugin(&mut self, _ch: u8) {}
+    pub(crate) fn keep_failed_channel_plugin(&mut self, _ch: u8, _voice: PluginVoice, _error: String) {}
     pub(crate) fn channel_plugin_state(&self, _ch: u8) -> Option<PartPlugin> {
         None
     }

@@ -13,6 +13,7 @@
 use super::super::fx::{effects_capture, effects_recall, PadSendsReg};
 use super::super::harmony_arp::{harmony_arp_capture, harmony_arp_recall};
 use super::super::looper::{looper_capture, looper_recall};
+use super::super::part_sound::OnFail;
 use super::super::style_settings::{style_settings_capture, style_settings_recall};
 use super::super::Control;
 use crate::api::{gm_name, ChordCmd, LibraryCmd, LockItem, MultiPadCmd, PartsCmd, StopAcmpMode};
@@ -20,6 +21,7 @@ use crate::engine::{Button, StyleControls, Transpose};
 use crate::fingering::Fingering;
 use crate::live::Cmd;
 use crate::parts;
+use crate::racks::ToneReg;
 use crate::registration::{Group, Groups, Memory, VoiceRef};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -466,74 +468,6 @@ struct PartReg {
     bend_range: Option<u8>,
 }
 
-/// A part's `parts::TONE_CC` controllers by name, and its XG multi part parameters as
-/// `[hh, nn, vv]` (`F0 43 1n 4C hh pp nn vv F7`). None / empty: not set.
-#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ToneReg {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    cutoff: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    resonance: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    attack: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    decay: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    release: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    vibrato_rate: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    vibrato_depth: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    vibrato_delay: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    portamento: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    portamento_time: Option<u8>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    xg: Vec<[u8; 3]>,
-}
-
-impl ToneReg {
-    fn is_empty(&self) -> bool {
-        *self == ToneReg::default()
-    }
-
-    fn capture(kp: &parts::Parts, p: usize) -> ToneReg {
-        let t = kp.tone(p);
-        ToneReg {
-            cutoff: t[parts::CUTOFF],
-            resonance: t[parts::RESONANCE],
-            attack: t[parts::ATTACK],
-            decay: t[parts::DECAY],
-            release: t[parts::RELEASE],
-            vibrato_rate: t[parts::VIBRATO_RATE],
-            vibrato_depth: t[parts::VIBRATO_DEPTH],
-            vibrato_delay: t[parts::VIBRATO_DELAY],
-            portamento: t[parts::PORTAMENTO],
-            portamento_time: t[parts::PORTAMENTO_TIME],
-            xg: kp.xg(p).into_iter().map(|(hh, nn, vv)| [hh, nn, vv]).collect(),
-        }
-    }
-
-    /// By `parts::TONE_CC` index.
-    fn controllers(&self) -> [Option<u8>; parts::TONE] {
-        let mut t = [None; parts::TONE];
-        t[parts::CUTOFF] = self.cutoff;
-        t[parts::RESONANCE] = self.resonance;
-        t[parts::ATTACK] = self.attack;
-        t[parts::DECAY] = self.decay;
-        t[parts::RELEASE] = self.release;
-        t[parts::VIBRATO_RATE] = self.vibrato_rate;
-        t[parts::VIBRATO_DEPTH] = self.vibrato_depth;
-        t[parts::VIBRATO_DELAY] = self.vibrato_delay;
-        t[parts::PORTAMENTO] = self.portamento;
-        t[parts::PORTAMENTO_TIME] = self.portamento_time;
-        t
-    }
-}
-
 /// A library patch in a registration: its id, and its name for Regist Bank Info (and the
 /// message when it is gone).
 #[derive(Clone, Serialize, Deserialize)]
@@ -589,12 +523,14 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
             Some(v) => {
                 kp.set_program(p, v.program().unwrap_or(0));
                 let r = match v {
-                    VoiceRef::Plugin { id, name, state, sound, .. } => c.recall_part_plugin(p, id, name, state.as_deref(), sound.as_ref()),
+                    VoiceRef::Plugin { id, name, state, sound, .. } => {
+                        c.recall_part_plugin(p, id, name, state.as_deref(), sound.as_ref(), OnFail::Clear).map(|_| ())
+                    }
                     VoiceRef::Gm { .. } => {
                         // A GM voice: no plugin from the Plugins tab (a library patch's own
                         // plugin is the patch's business, below).
                         c.clear_part_tab_plugin(p);
-                        recall_patch(c, p, part.patch.as_ref())
+                        c.recall_part_patch(p, part.patch.as_ref().map(|r| (r.id.as_str(), r.name.as_str())))
                     }
                 };
                 if let Err(e) = r {
@@ -624,25 +560,6 @@ fn parts_recall(c: &mut Control, v: &Value, g: Groups) -> Result<(), String> {
     // The engine sends the new volumes (CC7) on its next wake.
     c.wake_engine();
     err.map_or(Ok(()), Err)
-}
-
-/// Part `p`'s own patch, as the registration has it: the patch (if it isn't already the
-/// part's), or none (the GM voice just set). A patch no longer in the sound library leaves
-/// the part on its GM voice, and says so.
-fn recall_patch(c: &mut Control, p: usize, patch: Option<&PatchReg>) -> Result<(), String> {
-    let now = c.part_patch(p).map(|(id, _)| id);
-    match patch {
-        Some(r) if now.as_deref() == Some(r.id.as_str()) => Ok(()),
-        Some(r) if c.has_patch(&r.id) => c.set_part_patch(p, Some(r.id.clone())).map_err(|e| e.to_string()),
-        Some(r) => {
-            c.sound_library_part_voice(p);
-            Err(format!("{}: patch {} is not in the sound library; it plays its GM voice", parts::NAMES[p], r.name))
-        }
-        None => {
-            c.sound_library_part_voice(p);
-            Ok(())
-        }
-    }
 }
 
 // ----- transpose (group Transpose) -----

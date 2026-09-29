@@ -10,6 +10,7 @@ pub mod bench;
 pub mod capture;
 pub mod click;
 pub mod controllers;
+pub mod data_files;
 pub mod engine;
 pub mod fingering;
 pub mod fx;
@@ -38,6 +39,7 @@ pub mod plugin;
 compile_error!("the `plugins` feature (Audio Unit hosting) is macOS only; build without it on this platform");
 #[cfg(test)]
 mod recognizer_golden;
+pub mod racks;
 pub mod registration;
 pub mod route;
 pub mod rt;

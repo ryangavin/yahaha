@@ -86,7 +86,7 @@ pub(super) struct RegState {
     plugin_fill: Option<plugin::PluginFill>,
     /// The bank (or what its buttons' plugins play) changed: preload its plugins again at
     /// the next pump (registration/plugin.rs, `warm_bank_plugins`).
-    warm_dirty: bool,
+    pub(super) warm_dirty: bool,
 }
 
 impl RegState {

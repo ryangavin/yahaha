@@ -16,7 +16,6 @@ use super::sections::part_group;
 use crate::api::{base64_decode, PluginStatus};
 use crate::parts;
 use crate::registration::{Bank, Groups, VoiceRef};
-use crate::patches::SoundTag;
 use crate::session::PluginVoice;
 use serde_json::Value;
 use std::sync::atomic::Ordering::Relaxed;
@@ -88,48 +87,6 @@ impl Control {
         // named: the state stored is the edit, and recall shows it edited.
         let sound = self.channel_sound(parts::CHANNEL[p]).and_then(|(s, _)| s);
         Some(VoiceRef::Plugin { id, name, state, program: self.shared.parts.program[p].load(Relaxed) & 127, sound })
-    }
-
-    /// Recall part `p`'s plugin: nothing when it already plays that plugin with that
-    /// state (playing or loading); else load it as `setPartPlugin` does (the part's library
-    /// patch ends). A plugin that can't play (not installed, no plugin host in this build)
-    /// leaves the part on its GM voice, and says so.
-    ///
-    /// `sound` is the Sound the record names; a record from before sounds had ids names
-    /// none, and gets the library's sound with exactly that state, if there is one.
-    pub(super) fn recall_part_plugin(&mut self, p: usize, id: &str, name: &str, state: Option<&str>, sound: Option<&SoundTag>) -> Result<(), String> {
-        let ch = parts::CHANNEL[p];
-        let same = !self.part_has_patch_plugin(p)
-            && self.part_plugin_voice(p).is_some_and(|(i, s)| i == id && s.as_deref() == state)
-            && self.channel_plugin_state(ch).is_some_and(|s| matches!(s.status, PluginStatus::Playing | PluginStatus::Loading));
-        if same {
-            return Ok(());
-        }
-        let name = if name.is_empty() { id } else { name };
-        let bytes = match state {
-            Some(s) => Some(base64_decode(s).ok_or_else(|| format!("{}: {name}'s stored settings are not readable", parts::NAMES[p]))?),
-            None => None,
-        };
-        self.sound_library_part_plugin(p, true);
-        // A preloaded instance is used up: the pool refills at the next pump.
-        self.reg.warm_dirty = true;
-        let sound = sound.cloned().or_else(|| self.sound_tag_for_state(id, state.unwrap_or_default()));
-        let r = self.assign_channel_plugin(ch, PluginVoice { id: id.to_string(), state: bytes, preset: None, sound });
-        if r.is_err() {
-            self.clear_channel_plugin(ch);
-        }
-        self.mark_plugins_dirty();
-        r.map_err(|e| format!("{}: {name} can't play ({e}); it plays its GM voice", parts::NAMES[p]))
-    }
-
-    /// A GM voice recalled on part `p`: a plugin picked on the Plugins tab goes (the part's
-    /// library patch, and a plugin that patch plays, are the `patch` recall's).
-    pub(super) fn clear_part_tab_plugin(&mut self, p: usize) {
-        let ch = parts::CHANNEL[p];
-        if self.channel_plugin_state(ch).is_some() && !self.part_has_patch_plugin(p) {
-            self.clear_channel_plugin(ch);
-            self.mark_plugins_dirty();
-        }
     }
 
     /// After a Memorize into `button` of `groups`: read the state of each stored part's
