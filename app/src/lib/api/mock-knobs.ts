@@ -2,13 +2,66 @@
 // steps and readings). A turn gives back the command it runs, which the mock then runs as
 // the session does. Only the mock uses this; with the real engine the knobs come in the state.
 
-import type { AppCmd, AppState, FxBlock, FxParam, FxParamState, KnobFunction, KnobPage, KnobState, KnobsState } from './types'
+import type { AppCmd, AppState, ControlMap, ControlTarget, FxBlock, FxParam, FxParamState, KnobFunction, KnobPage, KnobState, KnobsState } from './types'
+import { defaultControlMap } from './types'
 
 type Fn = { fn: KnobFunction; part?: number; param?: FxParam }
 const NONE: Fn = { fn: 'none' }
+
+/** What a controller map target does on a knob (`knobs::rack_function`). */
+export function rackFn(t: ControlTarget): Fn {
+  switch (t.kind) {
+    case 'partLevel': return { fn: 'partVolume', part: t.part }
+    case 'partPan':
+    case 'partReverb':
+    case 'partChorus': return { fn: t.kind, part: t.part }
+    case 'harmonyArp':
+    case 'splitPoint':
+    case 'harmonyVolume':
+    case 'metronomeVolume':
+    case 'tempo': return { fn: t.kind }
+    default: return NONE
+  }
+}
+
+/** The Rack page's knobs for controller map `m`. */
+function rackFns(m: ControlMap): Fn[] {
+  return m.knobs.slice(0, 8).map(rackFn)
+}
+
+/** A fader's route on the input thread for target `t` of fader `f` (`knobs::fader_routes`). */
+export function faderRoute(t: ControlTarget, f: number): 'own' | 'off' | 'control' {
+  if (t.kind === 'partLevel' && t.part === f) return 'own'
+  return rackFn(t).fn === 'none' || t.kind === 'tempo' ? 'off' : 'control'
+}
+
+/** The command a fader at `v` runs for target `t` (`knobs::fader_command`), or null. */
+export function faderCommand(t: ControlTarget, v: number, s: AppState): AppCmd | null {
+  v = clamp(v, 0, 127)
+  switch (t.kind) {
+    case 'partLevel': return { type: 'setPartVolume', part: t.part, volume: v }
+    case 'partPan': return { type: 'setPartPan', part: t.part, pan: v }
+    case 'partReverb': return { type: 'setPartSend', part: t.part, send: 'reverb', value: v }
+    case 'partChorus': return { type: 'setPartSend', part: t.part, send: 'chorus', value: v }
+    case 'harmonyArp': return v >= 64 === s.harmonyArp.on ? null : { type: 'setHarmonyArpOn', on: v >= 64 }
+    case 'splitPoint': return { type: 'setSplit', note: SPLIT_MIN + Math.floor((v * (SPLIT_MAX - SPLIT_MIN)) / 127) }
+    case 'harmonyVolume': return { type: 'setHarmonyVolume', volume: v }
+    case 'metronomeVolume': return { type: 'setMetronomeVolume', volume: v }
+    default: return null
+  }
+}
+
+const SPLIT_MIN = 24
+const SPLIT_MAX = 96
+const DEFAULT_SPLIT = 54
+const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+const noteName = (n: number) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 2}`
+const splitLevel = (n: number) => Math.floor(((clamp(n, SPLIT_MIN, SPLIT_MAX) - SPLIT_MIN) * 127) / (SPLIT_MAX - SPLIT_MIN))
+
 const PAGES: Record<KnobPage, Fn[]> = {
   style: [{ fn: 'dynamics' }, { fn: 'retriggerRate' }, { fn: 'retriggerOnOff' }, { fn: 'trackMuteA' }, { fn: 'trackMuteB' }, { fn: 'swing' }, NONE, { fn: 'tempo' }],
-  parts: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partVolume', part })).concat([{ fn: 'harmonyVolume' }, { fn: 'metronomeVolume' }, NONE, { fn: 'tempo' }]),
+  // The live rack's controller map (`fns`); this is the default map's.
+  rack: rackFns(defaultControlMap()),
   pan: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partPan', part })).concat([0, 1, 2].map((part): Fn => ({ fn: 'fxReturn', part })), [{ fn: 'tempo' }]),
   // One page per effect: the parts' sends to it, its parameters, its return on knob 8.
   reverb: [0, 1, 2, 3].map((part): Fn => ({ fn: 'partReverb', part })).concat([
@@ -21,8 +74,8 @@ const PAGES: Record<KnobPage, Fn[]> = {
     { fn: 'delayTime' }, { fn: 'fxParam', param: 'delayFeedback' }, { fn: 'fxParam', param: 'delayTone' }, { fn: 'fxReturn', part: 2 },
   ]),
 }
-const ORDER: KnobPage[] = ['style', 'parts', 'pan', 'reverb', 'chorus', 'delay']
-const PAGE_NAME: Record<KnobPage, string> = { style: 'Style', parts: 'Parts', pan: 'Pan', reverb: 'Reverb', chorus: 'Chorus', delay: 'Delay' }
+const ORDER: KnobPage[] = ['style', 'rack', 'pan', 'reverb', 'chorus', 'delay']
+const PAGE_NAME: Record<KnobPage, string> = { style: 'Style', rack: 'Rack', pan: 'Pan', reverb: 'Reverb', chorus: 'Chorus', delay: 'Delay' }
 /** The effect pages' parameters (#236): full and short names, and how far a knob step moves each. */
 const PARAM_KNOB: Partial<Record<FxParam, [string, string, number]>> = {
   reverbTime: ['Reverb Time', 'RevTime', 1],
@@ -82,6 +135,8 @@ const NAMES: Record<KnobFunction, [string, string]> = {
   fxReturn: ['', ''],
   fxParam: ['', ''],
   delayTime: ['Delay Time', 'DlyTime'],
+  harmonyArp: ['Harmony/Arpeggio', 'HarmArp'],
+  splitPoint: ['Split Point', 'Split'],
 }
 const RATES = [1, 2, 4, 8, 16, 32]
 const RTG_STEPS = 3
@@ -108,9 +163,14 @@ export class MockKnobs {
     this.setPage(ORDER[clamp(ORDER.indexOf(this.page) + delta, 0, ORDER.length - 1)])
   }
 
+  /** The page's knobs: the Rack page's follow the live rack's controller map. */
+  private fns(s: AppState): Fn[] {
+    return this.page === 'rack' ? rackFns(s.liveRack.controls) : PAGES[this.page]
+  }
+
   /** Knob `knob` turned `delta` steps: the command it runs, or null. */
   turn(knob: number, delta: number, s: AppState): AppCmd | null {
-    const f = PAGES[this.page][knob] ?? NONE
+    const f = this.fns(s)[knob] ?? NONE
     const level = (v: number) => clamp(v + delta * LEVEL_STEP, 0, 127)
     switch (f.fn) {
       case 'none':
@@ -169,12 +229,20 @@ export class MockKnobs {
         }
         return to === x.value ? null : { type: 'setEffectParam', block, param: p, value: to }
       }
+      case 'harmonyArp': {
+        const n = this.stepped(knob, delta)
+        return n && n > 0 !== s.harmonyArp.on ? { type: 'toggleHarmonyArp' } : null
+      }
+      case 'splitPoint': {
+        const to = clamp(s.chord.split + delta, SPLIT_MIN, SPLIT_MAX)
+        return to === s.chord.split ? null : { type: 'setSplit', note: to }
+      }
     }
   }
 
   /** Knob `knob` put back to its default (a double-click): the command, or null (`src/knobs.rs` reset). */
   reset(knob: number, s: AppState): AppCmd | null {
-    const f = PAGES[this.page][knob] ?? NONE
+    const f = this.fns(s)[knob] ?? NONE
     switch (f.fn) {
       case 'none':
         return null
@@ -220,6 +288,11 @@ export class MockKnobs {
         const [block, x] = fxParam(s, p)
         return { type: 'setEffectParam', block, param: p, value: x.default }
       }
+      case 'harmonyArp':
+        this.acc[knob] = 0
+        return s.harmonyArp.on ? { type: 'toggleHarmonyArp' } : null
+      case 'splitPoint':
+        return s.chord.split === DEFAULT_SPLIT ? null : { type: 'setSplit', note: DEFAULT_SPLIT }
     }
   }
 
@@ -233,7 +306,12 @@ export class MockKnobs {
   }
 
   state(s: AppState): KnobsState {
-    const knobs = PAGES[this.page].map((f): KnobState => {
+    const knobs = this.fns(s).map((f) => this.read(f, s))
+    return { page: this.page, pageName: PAGE_NAME[this.page], pageNumber: ORDER.indexOf(this.page) + 1, pageCount: ORDER.length, knobs }
+  }
+
+  /** Function `f` as it reads now (on a knob, or on a fader the controller map gives it). */
+  read(f: Fn, s: AppState): KnobState {
       const fx = PART_FX[f.fn]
       const [name, short] =
         f.fn === 'partVolume' ? [PART_NAME[f.part!], PART_SHORT[f.part!]]
@@ -270,8 +348,8 @@ export class MockKnobs {
           const x = fxParam(s, f.fn === 'delayTime' ? delayParam(s) : f.param!)[1]
           return r(x.display, Math.floor(((x.value - x.min) * 127) / Math.max(1, x.max - x.min)))
         }
+        case 'harmonyArp': return r(s.harmonyArp.on ? 'On' : 'Off', s.harmonyArp.on ? 127 : 0)
+        case 'splitPoint': return r(noteName(s.chord.split), splitLevel(s.chord.split))
       }
-    })
-    return { page: this.page, pageName: PAGE_NAME[this.page], pageNumber: ORDER.indexOf(this.page) + 1, pageCount: ORDER.length, knobs }
   }
 }

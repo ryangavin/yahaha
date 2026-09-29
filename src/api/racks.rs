@@ -2,7 +2,7 @@
 //! duplicate, delete, with the switching guard), the user's racks, and the live rack's
 //! name, where it came from, whether it has unsaved changes, and its controller map.
 
-pub use crate::racks::{ControlMap, ControlTarget};
+pub use crate::racks::{ControlMap, ControlTarget, RackControl};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -43,6 +43,15 @@ pub enum RackCmd {
     DeleteRack { id: String },
     /// Keep editing: the prompt (`liveRack.prompt`) goes, nothing else changes.
     DismissRackPrompt,
+    /// Set what Launchkey fader or knob `index` (0-based: faders 1-4, knobs 1-8) does in
+    /// the live rack's controller map. The live rack is modified; Save rack keeps it. A
+    /// fader can't have the tempo, and a target this build doesn't know is refused.
+    SetRackControl { control: RackControl, index: u8, target: ControlTarget },
+    /// Panel fader `fader` (0-3) moved to `volume` (0-127) where the controller map gives
+    /// it something other than its own part's level (the Launchkey sends it, and the app's
+    /// fader mirror): runs its target's command (a level, pan or send is set to the value,
+    /// Harmony/Arp is on from 64, the split point spans 24-96). Nothing for none.
+    MoveRackFader { fader: u8, volume: u8 },
 }
 
 /// `soundNames`: names by part, keyed "0"-"3" as JSON object keys are strings (read from a

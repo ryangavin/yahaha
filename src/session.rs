@@ -55,12 +55,12 @@ mod part_sound;
 mod parts;
 mod plugin_presence;
 mod plugins;
-mod playlist;
 mod preview;
 mod quick_racks;
+mod style_racks;
 mod racks;
 mod rack_cmds;
-mod registration;
+mod rack_controls;
 mod settings;
 mod style_change;
 mod sound_library;
@@ -139,8 +139,8 @@ pub struct Options {
     pub transpose: Transpose,
     /// The chord-settle window, in ms (`ChordCmd::SetChordSettle`).
     pub chord_settle_ms: u32,
-    /// Where Registration banks (`<dir>/Registration`), Playlists (`<dir>/Playlists`) and
-    /// the sound library (`sound-library.json`) are saved. None: they can't be saved (tests, `state-json`). `default_data_dir()` is
+    /// Where racks, Quick Racks, Parameter Lock, Chord Looper memories and the sound
+    /// library (`sound-library.json`) are saved. None: they can't be saved (tests, `state-json`). `default_data_dir()` is
     /// the usual one.
     pub data_dir: Option<PathBuf>,
     /// The live rack's file (session/live_rack.rs): it autosaves there and comes back from
@@ -323,10 +323,8 @@ struct Control {
     charts: chart::Charts,
     /// The Style settings the engine plays by (`StyleSettingsCmd`).
     style_settings: StyleSettings,
-    /// Registration Memory (banks, Freeze, Sequence).
-    reg: registration::RegState,
-    /// The Playlist.
-    playlist: playlist::PlaylistCtl,
+    /// Parameter Lock (session/param_lock.rs).
+    locks: param_lock::ParamLocks,
     /// Chord Looper memories and the rings to the engine's looper.
     looper: looper::LooperCtl,
     /// Metronome settings.
@@ -365,6 +363,8 @@ struct Control {
     presence: plugin_presence::Presence,
     /// Quick Racks: the buttons, the bank on view, Store (session/quick_racks.rs).
     quick: quick_racks::QuickCtl,
+    /// Style racks: which OTS buttons load a user rack, per style (session/style_racks.rs).
+    style_racks: style_racks::StyleRacksCtl,
     /// The command being applied came from the Launchkey or a pedal, which have no dialog
     /// (a rack switch keeps unsaved changes as a Recovered rack instead of asking).
     hardware: bool,
@@ -420,8 +420,6 @@ impl Control {
             AppCmd::StyleChange(c) => self.style_change_cmd(c),
             AppCmd::Chart(c) => self.chart_cmd(c),
             AppCmd::StyleSettings(c) => self.style_settings_cmd(c),
-            AppCmd::Registration(c) => self.registration_cmd(c),
-            AppCmd::Playlist(c) => self.playlist_cmd(c),
             AppCmd::Looper(c) => self.looper_cmd(c),
             AppCmd::Metronome(c) => self.metronome_cmd(c),
             AppCmd::MultiPad(c) => self.multipad_cmd(c),
@@ -437,6 +435,7 @@ impl Control {
             AppCmd::Rack(c) => {
                 let r = self.rack_cmd(c.clone());
                 self.quick_after_rack_cmd(&c, r.is_ok());
+                self.style_racks_after_rack_cmd(&c, r.is_ok());
                 r
             }
             AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
@@ -492,7 +491,6 @@ impl Control {
         self.pump_sound_font();
         self.pump_rescan();
         self.pump_devices(now);
-        self.pump_registration(now);
         self.pump_looper();
         self.pump_metronome();
         self.pump_chart();
@@ -550,8 +548,6 @@ impl Control {
             style_change: self.style_change,
             chart: self.chart_state(),
             style_settings: self.style_settings.into(),
-            registration: self.registration_state(),
-            playlist: self.playlist_state(),
             multi_pad: self.multipad_state(),
             controllers: self.controllers_state(),
             harmony_arp: self.harmony_arp_state(),
@@ -753,8 +749,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         sources_ns: 0,
         charts: chart::Charts::new(ch.chart_tx, ch.old_chart_rx),
         style_settings: StyleSettings::default(),
-        reg: registration::RegState::new(opts.data_dir.as_ref().map(|d| d.join("Registration"))),
-        playlist: playlist::PlaylistCtl::new(opts.data_dir.as_ref().map(|d| d.join("Playlists"))),
+        locks: param_lock::ParamLocks::load(opts.data_dir.as_deref()),
         looper: looper::LooperCtl::new(ch.looper_tx, ch.recorded_rx, opts.data_dir.as_ref().map(|d| d.join("ChordLooper"))),
         metronome: Default::default(),
         pad_tx: ch.pad_tx,
@@ -773,6 +768,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         live_rack: Default::default(),
         presence: plugin_presence::Presence::open(opts.data_dir.as_deref()),
         quick: quick_racks::QuickCtl::open(opts.data_dir.as_deref()),
+        style_racks: style_racks::StyleRacksCtl::open(opts.data_dir.as_deref()),
         hardware: false,
     };
     let mut control = control;
@@ -782,6 +778,9 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
     }
     if let Some(e) = control.quick.load_error().map(str::to_string) {
         control.say(format!("Quick Racks not loaded (they will not be saved over): {e}"), true);
+    }
+    if let Some(e) = control.style_racks.load_error().map(str::to_string) {
+        control.say(format!("Style racks not loaded (they will not be saved over): {e}"), true);
     }
     Ok((shared, Assembled { control, engine: EngineLoopParts { engine, io: ch.io }, input }))
 }

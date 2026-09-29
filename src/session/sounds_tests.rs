@@ -149,18 +149,6 @@ fn favourites_and_recents_are_saved() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
-#[test]
-fn a_preset_auditions_and_an_unknown_plugin_is_refused() {
-    let data = folder("audition");
-    let s = offline(&data);
-    s.send(SoundsCmd::AuditionSound { id: "sf:B.sf2:0:88".into() }).unwrap();
-    assert_eq!(s.state().sounds.auditioning.as_deref(), Some("sf:B.sf2:0:88"));
-    s.send(SoundsCmd::StopSoundAudition).unwrap();
-    assert_eq!(s.state().sounds.auditioning, None);
-    assert!(s.send(SoundsCmd::AuditionSound { id: "au:aumu dls  appl".into() }).is_err());
-    let _ = std::fs::remove_dir_all(&data);
-}
-
 /// Each publish's catalog check never reads a plugin sound's state (a sampler's is MBs;
 /// the catalog does not show it): a new state is no new revision, a new name is.
 #[test]

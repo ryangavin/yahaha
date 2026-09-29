@@ -10,9 +10,6 @@ import type { PatchCategory } from './sound-library'
 export type SoundsCmd =
   /** Mark or unmark a favourite (a saved sound's is its patch's `favourite`). */
   | { type: 'setSoundFavourite'; id: string; on: boolean }
-  /** Play a sound on its own for a moment (the band must be stopped). */
-  | { type: 'auditionSound'; id: string }
-  | { type: 'stopSoundAudition' }
   /** Keyboard part `part` (0-3) plays the sound, by the route its source has. */
   | { type: 'assignSound'; part: number; id: string }
   /** As assignSound, keeping the part's mix (level, pan, sends, octave, voice settings,
@@ -92,8 +89,6 @@ export interface SoundsState {
   count: number
   /** Plugins are being scanned: more may come. */
   scanning: boolean
-  /** The id being auditioned. */
-  auditioning: string | null
   /** Plugins (`au:<id>`) whose presets are being listed. */
   listingPresets?: string[]
 }

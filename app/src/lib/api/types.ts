@@ -132,6 +132,10 @@ export type AppCmd =
   | { type: 'toggleOtsLink' }
   /** OTS Link Timing: recall as the Main is pressed, or when it starts playing. */
   | { type: 'setOtsLinkTiming'; timing: OtsLinkTiming }
+  /** For the loaded style, OTS `index` loads the user's rack `id` instead of its own (style-racks.json). */
+  | { type: 'setOtsRack'; index: number; id: string }
+  /** For the loaded style, OTS `index` is the style's own again. */
+  | { type: 'clearOtsRack'; index: number }
   // Style Setting > Change Behavior
   | { type: 'setTempoChange'; rule: ChangeRule }
   | { type: 'setPartsChange'; rule: ChangeRule }
@@ -194,7 +198,7 @@ export type AppCmd =
   | SoundsCmd
   // Keyboard Harmony / Arpeggio (docs/app-api.md): see HarmonyArpState below.
   | HarmonyArpCmd
-  // Parameter Lock: groups that Registration, OTS and Playlist recalls leave alone.
+  // Parameter Lock: groups that rack and OTS recalls leave alone.
   | { type: 'setParamLock'; item: LockItem; on: boolean }
   // Style Dynamics Control, Touch and Accent (#180): see DynamicsState below.
   | DynamicsCmd
@@ -244,6 +248,8 @@ export type RackCmd =
   | { type: 'deleteRack'; id: string }
   /** Keep editing: `liveRack.prompt` goes. */
   | { type: 'dismissRackPrompt' }
+  | { type: 'setRackControl'; control: RackControl; index: number; target: ControlTarget }
+  | { type: 'moveRackFader'; fader: number; volume: number }
 
 /** The effect bus's blocks (#204; docs/app-api.md › Effects). */
 export type FxCmd =
@@ -360,7 +366,7 @@ export type KnobsCmd =
   /** Knob `knob` back to its function's default (a double-click): Dynamics max, sends dry, pan centre. */
   | { type: 'resetKnob'; knob: number }
 
-export type KnobPage = 'style' | 'parts' | 'pan' | 'reverb' | 'chorus' | 'delay'
+export type KnobPage = 'style' | 'rack' | 'pan' | 'reverb' | 'chorus' | 'delay'
 export type KnobFunction =
   | 'none'
   | 'dynamics'
@@ -380,6 +386,8 @@ export type KnobFunction =
   | 'fxReturn'
   | 'fxParam'
   | 'delayTime'
+  | 'harmonyArp'
+  | 'splitPoint'
 
 /** The Knob Assign page and its eight knobs. */
 export interface KnobsState {
@@ -421,7 +429,7 @@ export type AccentMode = 'hits' | 'fill'
 /** Accent hears the chord section only, or both hands. */
 export type AccentSource = 'left' | 'both'
 
-/** Style Dynamics: System settings, not in Registration. */
+/** Style Dynamics: System settings, not in racks. */
 export interface DynamicsState {
   /** Style Setting › Dynamics Control: the level acts on the Style. */
   control: boolean
@@ -862,6 +870,20 @@ export interface OtsState {
   link: boolean
   /** When OTS Link recalls during playback. */
   linkTiming: OtsLinkTiming
+  /** Per OTS of the loaded style (as `settings`): the user's rack its button loads instead. */
+  racks: OtsRack[]
+  /** style-racks.json can't be changed (a newer yahaha's, or no data folder). */
+  racksReadOnly: boolean
+}
+
+/** What one OTS button of the loaded style loads (docs/racks.md "Styles and OTS"). */
+export interface OtsRack {
+  /** The user's rack it loads; null: the style's own OTS. */
+  rack: string | null
+  /** That rack's name; empty for the style's own. */
+  name: string
+  /** The rack chosen is gone: the style's own loads. */
+  missing: boolean
 }
 
 export interface LibraryStatus {
@@ -1273,6 +1295,13 @@ export type ControlTarget =
   | { kind: 'partLevel' | 'partPan' | 'partReverb' | 'partChorus'; part: number }
   | { kind: 'harmonyArp' }
   | { kind: 'splitPoint' }
+  | { kind: 'harmonyVolume' }
+  | { kind: 'metronomeVolume' }
+  /** Knobs only. */
+  | { kind: 'tempo' }
+
+/** A controller in the controller map (`setRackControl`). */
+export type RackControl = 'fader' | 'knob'
 
 /** A rack's controller map: four fader targets and eight knob targets. */
 export interface ControlMap {
@@ -1280,10 +1309,12 @@ export interface ControlMap {
   knobs: ControlTarget[]
 }
 
-/** A new rack's map (`ControlMap::default`): the parts' levels on faders 1-4 and knobs 1-4. */
+/** A new rack's map (`ControlMap::default`): the Parts knob page before racks. The parts'
+ * levels on faders 1-4 and knobs 1-4, then Harmony volume, Metronome volume, none, Tempo. */
 export function defaultControlMap(): ControlMap {
   const level = (part: number): ControlTarget => ({ kind: 'partLevel', part })
-  return { faders: [0, 1, 2, 3].map(level), knobs: [...[0, 1, 2, 3].map(level), ...Array.from({ length: 4 }, (): ControlTarget => ({ kind: 'none' }))] }
+  const rest: ControlTarget[] = [{ kind: 'harmonyVolume' }, { kind: 'metronomeVolume' }, { kind: 'none' }, { kind: 'tempo' }]
+  return { faders: [0, 1, 2, 3].map(level), knobs: [...[0, 1, 2, 3].map(level), ...rest] }
 }
 
 /** What a refused rack command asks. */
@@ -1654,7 +1685,6 @@ export const KEYBOARD_PART_NAMES = ['Right 1', 'Right 2', 'Right 3', 'Left']
 export interface HomeState {
   mains: HomeMain[]
   progress: { running: boolean; bar: number; beat: number; bars: number | null; beatsPerBar: number; fraction: number }
-  snapshot: { index: number; label: string; name: string; bank: string } | null
   ots: { index: number; name: string } | null
   bandSends: { block: FxBlock; name: string; effectName: string; level: number }[]
 }

@@ -60,7 +60,7 @@ fn keyboard_note_path_does_not_allocate() {
 
     let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
     input.packet(1, yahaha::rt::host_now(), &[0x90, 62, 100, 0x80, 62, 0]);
-    let (mut assigned, mut strikes, mut levels, mut holds) = (0, 0, 0, 0);
+    let (mut assigned, mut strikes, mut levels, mut holds, mut rack_faders, mut knobs) = (0, 0, 0, 0, 0, 0);
     for round in 0..50u8 {
         // Dynamics Touch / Accent on in some rounds: chord-section strikes go to the engine.
         shared.strikes.store(round % 4 < 2, Ordering::Relaxed);
@@ -80,9 +80,18 @@ fn keyboard_note_path_does_not_allocate() {
         // (the level goes to the engine ring).
         let foot = if round % 2 == 0 { Function::PitchBend } else { Function::DynamicsControl };
         ctl.set_pedal(2, PedalSetup { cc: Some(4), function: foot, range: Range::Full, ..PedalSetup::default() });
-        while actions_rx.pop().is_ok() {
-            assigned += 1;
+        while let Ok(a) = actions_rx.pop() {
+            match a {
+                yahaha::launchkey::Action::RackFader(..) => rack_faders += 1,
+                yahaha::launchkey::Action::Knob(..) => knobs += 1,
+                _ => assigned += 1,
+            }
         }
+        // The live rack's controller map, by round: every Panel fader on its own part's
+        // level (the input thread's takeover), or faders 1 and 4 on another target (an
+        // action for the control side) and fader 2 on none.
+        use yahaha::parts::FaderRoute::{Control, Off, Own};
+        shared.parts.set_rack_faders(if round % 3 == 0 { [Own; 4] } else { [Control, Off, Own, Control] });
         shared.key_shift.store((round % 5) as i8 - 2, Ordering::Relaxed);
         // [ACMP] off in some rounds (#266): no chord section, any key for Sync Start.
         shared.acmp.store(round % 3 != 0, Ordering::Relaxed);
@@ -122,6 +131,10 @@ fn keyboard_note_path_does_not_allocate() {
         let (f1, mb) = (*FADER_CC.start(), *FADER_BTN_CC.end());
         input.packet(TAG_PADS, 0, &[0xB0, SHIFT_CC, 127, 0xB0, mb, 127, 0xB0, SHIFT_CC, 0]);
         input.packet(TAG_PADS, 0, &[0xB0, f1, round, 0xB0, f1 + 2, 127 - round, 0xB0, f1, 64]);
+        // Every Panel fader 1-4 (the layer, stepped each round, is Volume in some), and
+        // an encoder: a knob on the Knob Assign page, run by the control side.
+        input.packet(TAG_PADS, 0, &[0xB0, f1, round, 0xB0, f1 + 1, round, 0xB0, f1 + 3, 127 - round]);
+        input.packet(TAG_PADS, 0, &[0xBF, 21, 65]);
         if round % 7 == 0 {
             input.packet(TAG_PADS, 0, &[0xB0, mb, 127]);
         }
@@ -134,6 +147,8 @@ fn keyboard_note_path_does_not_allocate() {
     assert!(strikes > 0, "chord-section strikes went to the engine");
     assert!(levels > 0, "the Dynamics Control pedal went to the engine");
     assert!(holds > 0, "the tempo buttons went to the engine");
+    assert!(rack_faders > 0, "remapped faders went through the actions ring");
+    assert!(knobs > 0, "the knobs went through the actions ring");
 }
 
 /// The processor slot: every Harmony type (Strum's late notes and the Echo category go to

@@ -1,13 +1,11 @@
 //! The shared effect bus (#204, `crate::fx`): the control side's part. Each block's type,
-//! return level and band send (#236) (`FxCmd`, `AppState::effects`, the Registration's `effects` section),
+//! return level and band send (#236) (`FxCmd`, `AppState::effects`),
 //! and the style tempo the Variation block's delay follows (from the engine's snapshot).
 //! The audio thread reads them from `SynthControl::fx`, which `pump_fx` keeps up to date.
 
 use super::Control;
-use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxParam, FxType, InsertEffect, InsertState, StyleEffectState};
+use crate::api::{CmdError, EffectsState, FxBlock, FxCmd, FxType, InsertEffect, InsertState, StyleEffectState};
 use crate::fx::xg::StyleFx;
-use crate::registration::{Group, Groups};
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering::Relaxed;
 
 /// Each block's type and return level (indexed by `FxBlock::index`).
@@ -17,7 +15,7 @@ pub(super) struct FxSettings {
     pub(super) returns: [u8; 3],
     /// The band send scales (#236), 0-127 %.
     pub(super) band: [u8; 3],
-    /// The Multi Pad send scales (#267), 0-127 % (Registration: the Multi Pad group).
+    /// The Multi Pad send scales (#267), 0-127 %.
     pub(super) pad: [u8; 3],
     /// The effect parameters (#236, `crate::fx::Param::index`).
     pub(super) params: [u16; crate::fx::PARAMS],
@@ -93,62 +91,6 @@ impl FxSettings {
             }
         }
     }
-}
-
-/// A block in a registration.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EffectReg {
-    effect: FxType,
-    return_level: u8,
-    /// Absent in a registration from before #236: the block's default.
-    #[serde(default)]
-    band_send: Option<u8>,
-    /// The block's parameters (#236); one absent is the type's own value.
-    #[serde(default)]
-    params: std::collections::BTreeMap<FxParam, u16>,
-    /// Whether it follows the style's type (#237); absent (before #237): it does.
-    #[serde(default)]
-    follow_style: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct EffectsReg {
-    reverb: EffectReg,
-    chorus: EffectReg,
-    variation: EffectReg,
-    /// The style's insertion effects on (#269); absent (before #269): on.
-    #[serde(default, rename = "insertsOn", skip_serializing_if = "Option::is_none")]
-    inserts_on: Option<bool>,
-}
-
-/// The Multi Pad send scales (#267), stored in the Registration's `multiPad` section
-/// (group Multi Pad), 0-127 %.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub(in crate::session) struct PadSendsReg {
-    reverb: u8,
-    chorus: u8,
-    variation: u8,
-}
-
-impl Control {
-    pub(in crate::session) fn pad_sends_capture(&self) -> PadSendsReg {
-        let [reverb, chorus, variation] = self.fx.pad;
-        PadSendsReg { reverb, chorus, variation }
-    }
-
-    pub(in crate::session) fn pad_sends_recall(&mut self, r: PadSendsReg) {
-        self.fx.pad = [r.reverb, r.chorus, r.variation].map(|v| v.min(127));
-        self.pump_fx();
-    }
-}
-
-pub(super) fn effects_capture(c: &Control, g: Groups) -> Option<serde_json::Value> {
-    c.effects_capture(g)
-}
-
-pub(super) fn effects_recall(c: &mut Control, v: &serde_json::Value, g: Groups) -> Result<(), String> {
-    c.effects_recall(v, g)
 }
 
 impl Control {
@@ -248,46 +190,6 @@ impl Control {
         }
     }
 
-    /// The Registration's `effects` section (group Style, as the Genos Data List files
-    /// the Reverb/Chorus/Variation type and return level).
-    pub(super) fn effects_capture(&self, g: Groups) -> Option<serde_json::Value> {
-        if !g.has(Group::Style) {
-            return None;
-        }
-        let blocks = FxBlock::ALL.map(|b| EffectReg {
-            effect: self.fx.effect[b.index()],
-            return_level: self.fx.returns[b.index()],
-            band_send: Some(self.fx.band[b.index()]),
-            params: FxParam::of_block(b.index()).map(|p| (p, self.fx.params[p.index()])).collect(),
-            follow_style: Some(self.fx.follow[b.index()]),
-        });
-        let [reverb, chorus, variation] = blocks;
-        serde_json::to_value(EffectsReg { reverb, chorus, variation, inserts_on: Some(self.fx.inserts_on) }).ok()
-    }
-
-    pub(super) fn effects_recall(&mut self, v: &serde_json::Value, g: Groups) -> Result<(), String> {
-        if !g.has(Group::Style) {
-            return Ok(());
-        }
-        let r: EffectsReg = serde_json::from_value(v.clone()).map_err(|e| format!("registration effects: {e}"))?;
-        self.fx.inserts_on = r.inserts_on.unwrap_or(true);
-        for (b, reg) in FxBlock::ALL.into_iter().zip([r.reverb, r.chorus, r.variation]) {
-            if b.types().contains(&reg.effect) {
-                self.fx.set_type(b, reg.effect);
-            }
-            self.fx.follow[b.index()] = reg.follow_style.unwrap_or(true);
-            for (p, v) in reg.params {
-                if p.spec().block == b.index() {
-                    self.fx.params[p.index()] = p.clamp(v);
-                }
-            }
-            self.fx.returns[b.index()] = reg.return_level.min(127);
-            self.fx.band[b.index()] = reg.band_send.unwrap_or(crate::fx::BAND_SEND_DEFAULT[b.index()]).min(127);
-        }
-        self.pump_fx();
-        Ok(())
-    }
-
     pub(super) fn effects_state(&self) -> EffectsState {
         let mut s = EffectsState::new(self.fx.effect, self.fx.returns, self.fx.band, self.fx.params);
         s.inserts_on = self.fx.inserts_on;
@@ -376,19 +278,16 @@ mod tests {
     }
 
     /// Each block's type and return level: in the state, on the audio thread's atomics,
-    /// refused when the type is another block's, and stored in a Registration Memory.
+    /// and refused when the type is another block's.
     #[test]
-    fn effect_types_and_returns_reach_the_bus_and_the_registration() {
-        use crate::api::{FxBlock, FxCmd, FxType, RegistrationCmd};
+    fn effect_types_and_returns_reach_the_bus() {
+        use crate::api::{FxBlock, FxCmd, FxType};
         let Some(p) = slow_walker() else { return };
-        let dir = std::env::temp_dir().join(format!("yahaha-fx-regist-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.offline_audio(None, 48_000).unwrap();
         let blocks = |s: &Session| s.state().effects.blocks.iter().map(|b| (b.effect, b.return_level)).collect::<Vec<_>>();
         assert_eq!(blocks(&s), vec![(FxType::Plate, 64), (FxType::Chorus, 64), (FxType::DottedEighth, 64)], "the style's Real Large Plate (#237)");
         assert_eq!(s.state().effects.blocks[0].types.len(), 4);
-        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
 
         s.send(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Plate }).unwrap();
         s.send(FxCmd::SetEffectType { block: FxBlock::Variation, effect: FxType::PingPong }).unwrap();
@@ -401,27 +300,14 @@ mod tests {
             let got = [fx.reverb_type.load(Relaxed), fx.variation_type.load(Relaxed), fx.variation_return.load(Relaxed)];
             assert_eq!(got, [crate::fx::ReverbType::Plate as u8, crate::fx::DelayType::PingPong as u8, 127]);
         }
-        // Registration: the bank keeps what was memorized.
-        s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
-        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(blocks(&s), vec![(FxType::Plate, 64), (FxType::Chorus, 64), (FxType::DottedEighth, 64)], "the style's Real Large Plate (#237)");
-        s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(blocks(&s), vec![(FxType::Plate, 64), (FxType::Chorus, 64), (FxType::PingPong, 127)]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// #236: the band send scales, in the state, on the audio thread's atomics and in a
-    /// Registration Memory; a bank from before them recalls the defaults.
+    /// #236: the band send scales, in the state and on the audio thread's atomics.
     #[test]
-    fn band_sends_reach_the_bus_and_the_registration() {
-        use crate::api::{FxBlock, FxCmd, RegistrationCmd};
-        use crate::registration::Groups;
+    fn band_sends_reach_the_bus() {
+        use crate::api::{FxBlock, FxCmd};
         let p = crate::session::testing::style_path();
-        let dir = std::env::temp_dir().join(format!("yahaha-fx-band-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.offline_audio(None, 48_000).unwrap();
         let band = |s: &Session| s.state().effects.blocks.iter().map(|b| b.band_send).collect::<Vec<_>>();
         let atomics = |s: &Session| {
@@ -430,41 +316,18 @@ mod tests {
         };
         assert_eq!(band(&s), vec![100, 0, 0], "reverb as written, no band chorus or delay");
         assert_eq!(atomics(&s), vec![100, 0, 0]);
-        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
         s.send(FxCmd::SetBandSend { block: FxBlock::Variation, level: 60 }).unwrap();
         s.send(FxCmd::SetBandSend { block: FxBlock::Reverb, level: 200 }).unwrap();
         assert_eq!(band(&s), vec![127, 0, 60]);
         assert_eq!(atomics(&s), vec![127, 0, 60]);
-        s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
-        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(band(&s), vec![100, 0, 0]);
-        s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(band(&s), vec![127, 0, 60]);
-        // A bank memorized before #236 has no band sends: the defaults.
-        let old = serde_json::json!({
-            "reverb": { "effect": "hall", "returnLevel": 64 },
-            "chorus": { "effect": "chorus", "returnLevel": 64 },
-            "variation": { "effect": "dottedEighth", "returnLevel": 64 },
-        });
-        s.inner.lock().effects_recall(&old, Groups::all()).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(band(&s), vec![100, 0, 0]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// #267: the Multi Pad send scales, in the state, on the audio thread's atomics and in
-    /// a Registration Memory's Multi Pad section (not recalled when the Multi Pad group is
-    /// frozen); a bank from before them leaves them as they are.
+    /// #267: the Multi Pad send scales, in the state and on the audio thread's atomics.
     #[test]
-    fn pad_sends_reach_the_bus_and_the_registration() {
-        use crate::api::{FxBlock, FxCmd, RegistrationCmd};
-        use crate::registration::Group;
+    fn pad_sends_reach_the_bus() {
+        use crate::api::{FxBlock, FxCmd};
         let p = crate::session::testing::style_path();
-        let dir = std::env::temp_dir().join(format!("yahaha-fx-pad-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.offline_audio(None, 48_000).unwrap();
         let pad = |s: &Session| s.state().effects.blocks.iter().map(|b| b.pad_send).collect::<Vec<_>>();
         let atomics = |s: &Session| {
@@ -473,39 +336,20 @@ mod tests {
         };
         assert_eq!(pad(&s), vec![100, 0, 0], "the pads' reverb as written, no chorus or delay");
         assert_eq!(atomics(&s), vec![100, 0, 0]);
-        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
         s.send(FxCmd::SetPadSend { block: FxBlock::Chorus, level: 80 }).unwrap();
         s.send(FxCmd::SetPadSend { block: FxBlock::Reverb, level: 200 }).unwrap();
         assert_eq!(pad(&s), vec![127, 80, 0]);
         assert_eq!(atomics(&s), vec![127, 80, 0]);
         assert_eq!(s.state().effects.blocks.iter().map(|b| b.band_send).collect::<Vec<_>>(), vec![100, 0, 0], "the band's are its own");
-        s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
-        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(pad(&s), vec![100, 0, 0]);
-        s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(pad(&s), vec![127, 80, 0]);
-        assert_eq!(atomics(&s), vec![127, 80, 0]);
-        // Multi Pad frozen: a recall leaves them.
-        s.send(RegistrationCmd::SetFreezeGroup { group: Group::MultiPad, on: true }).unwrap();
-        s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
-        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(pad(&s), vec![127, 80, 0], "frozen");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #236: the effect parameters: set in their range, refused on another block, back
-    /// to the type's own values on a type change, on the audio thread's atomics, and in a
-    /// Registration Memory.
+    /// to the type's own values on a type change, and on the audio thread's atomics.
     #[test]
-    fn effect_parameters_reach_the_bus_and_the_registration() {
-        use crate::api::{FxBlock, FxCmd, FxParam, FxType, RegistrationCmd};
+    fn effect_parameters_reach_the_bus() {
+        use crate::api::{FxBlock, FxCmd, FxParam, FxType};
         let Some(p) = slow_walker() else { return };
-        let dir = std::env::temp_dir().join(format!("yahaha-fx-params-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let s = Session::offline(Options { paths: vec![p], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+        let s = Session::offline(Options { paths: vec![p], ..Options::default() }).unwrap();
         s.offline_audio(None, 48_000).unwrap();
         let reverb = |s: &Session| s.state().effects.blocks[0].params.iter().map(|p| (p.value, p.display.clone())).collect::<Vec<_>>();
         let atomic = |s: &Session, p: FxParam| s.inner.lock().synth.as_ref().unwrap().control.fx.params[p.index()].load(Relaxed);
@@ -515,14 +359,12 @@ mod tests {
         let st = s.state();
         let time = &st.effects.blocks[0].params[0];
         assert_eq!((time.param, time.min, time.max, time.default, time.name.as_str()), (FxParam::ReverbTime, 3, 100, 18, "Time"));
-        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
 
         s.send(FxCmd::SetEffectParam { block: FxBlock::Reverb, param: FxParam::ReverbTime, value: 500 }).unwrap();
         s.send(FxCmd::SetEffectParam { block: FxBlock::Reverb, param: FxParam::PreDelay, value: 120 }).unwrap();
         assert!(s.send(FxCmd::SetEffectParam { block: FxBlock::Chorus, param: FxParam::ReverbTime, value: 10 }).is_err(), "not the chorus's");
         assert_eq!(reverb(&s)[..2], [(100, "10.0 s".to_string()), (120, "120 ms".to_string())]);
         assert_eq!((atomic(&s, FxParam::ReverbTime), atomic(&s, FxParam::PreDelay)), (100, 120));
-        s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
 
         // A type change: the Room's own values.
         s.send(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Room }).unwrap();
@@ -532,14 +374,6 @@ mod tests {
         s.send(FxCmd::SetEffectParam { block: FxBlock::Reverb, param: FxParam::ReverbTone, value: 30 }).unwrap();
         s.send(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Room }).unwrap();
         assert_eq!(reverb(&s)[2].0, 30);
-
-        s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(reverb(&s).iter().map(|p| p.0).collect::<Vec<_>>(), vec![100, 120, 90]);
-        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-        s.advance(1_000_000_000);
-        assert_eq!(reverb(&s), hall);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #236: the delay's parameters: a type sets the note value and the ping-pong switch,
@@ -600,7 +434,7 @@ mod tests {
     /// show in the state, go off together, and another style brings its own.
     #[test]
     fn the_styles_inserts_reach_the_bus() {
-        use crate::api::{FxCmd, InsertEffect, LibraryCmd, RegistrationCmd};
+        use crate::api::{FxCmd, InsertEffect, LibraryCmd};
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
         let mut files: Vec<_> = std::fs::read_dir(dir.join("T5Style")).into_iter().flatten().flatten().map(|e| e.path()).collect();
         files.sort();
@@ -657,14 +491,12 @@ mod tests {
         assert!(s.state().effects.rotary_fast);
         assert!(s.inner.lock().synth.as_ref().unwrap().control.fx.rotary_fast.load(Relaxed));
         s.send(FxCmd::SetRotaryFast { on: false }).unwrap();
-        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
         // Off: every part dry.
         s.send(FxCmd::SetInsertsOn { on: false }).unwrap();
         assert!(atomics(&s).iter().all(|&k| k == 0));
         assert!(!s.state().effects.inserts_on);
-        // Registration: on again.
-        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-        s.advance(1_000_000_000);
+        // On again.
+        s.send(FxCmd::SetInsertsOn { on: true }).unwrap();
         assert!(s.state().effects.inserts_on);
         assert_eq!(atomics(&s), a);
         // A style with none: every part dry, and the player's amount gone with the style.
@@ -720,20 +552,17 @@ mod tests {
 
     /// #237: a style's own effect types. Loading it sets them (and the delay's time and
     /// feedback from its SysEx); another style sets its own; a type the player picks
-    /// stays through style changes until the block follows the style again; Registration
-    /// keeps whether a block follows.
+    /// stays through style changes until the block follows the style again.
     #[test]
     fn the_styles_own_effect_types() {
-        use crate::api::{FxBlock, FxCmd, FxType, LibraryCmd, RegistrationCmd};
+        use crate::api::{FxBlock, FxCmd, FxType, LibraryCmd};
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style");
         let (disco, dancehall) = (dir.join("DiscoTeens.T161.prs"), dir.join("Dancehall.T152.prs"));
         if !disco.exists() || !dancehall.exists() {
             eprintln!("corpus missing; skipping");
             return;
         }
-        let data = std::env::temp_dir().join(format!("yahaha-fx-style-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&data);
-        let s = Session::offline(Options { paths: vec![disco.clone(), dancehall.clone()], data_dir: Some(data.clone()), ..Options::default() }).unwrap();
+        let s = Session::offline(Options { paths: vec![disco.clone(), dancehall.clone()], ..Options::default() }).unwrap();
         s.offline_audio(None, 48_000).unwrap();
         let types = |s: &Session| s.state().effects.blocks.iter().map(|b| b.effect).collect::<Vec<_>>();
         let load = |s: &Session, p: &Path| {
@@ -761,21 +590,10 @@ mod tests {
         // The player's reverb stays through a style change; the other blocks follow.
         s.send(FxCmd::SetEffectType { block: FxBlock::Reverb, effect: FxType::Hall }).unwrap();
         assert!(!s.state().effects.blocks[0].follow_style);
-        s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
         load(&s, &disco);
         assert_eq!(types(&s), vec![FxType::Hall, FxType::Chorus, FxType::PingPong]);
         // Following the style again takes its type at once.
         s.send(FxCmd::SetFollowStyle { block: FxBlock::Reverb, on: true }).unwrap();
         assert_eq!(types(&s)[0], FxType::Plate);
-
-        // Registration: the memory's own choice (not following) comes back with its style.
-        s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-        s.advance(1_000_000_000);
-        s.advance(1_000_000_000);
-        let st = s.state();
-        assert!(st.style.name.starts_with("Dancehall"), "{}", st.style.name);
-        assert_eq!((st.effects.blocks[0].effect, st.effects.blocks[0].follow_style), (FxType::Hall, false));
-        assert_eq!(types(&s)[1..], [FxType::Flanger, FxType::PingPong]);
-        let _ = std::fs::remove_dir_all(&data);
     }
 }

@@ -1,21 +1,25 @@
-//! Parameter Lock through an offline session: locked groups survive Registration, OTS and
-//! Playlist recalls; the lock state is a setup setting (kept across sessions, not in banks).
+//! Parameter Lock through an offline session: locked groups survive rack and OTS recalls;
+//! the lock state is a setup setting (kept across sessions, not in racks).
 
-use crate::api::{ChordCmd, LockItem, OtsCmd, ParamLockCmd, ParamLockState, PlaylistCmd, RegistrationCmd};
+use crate::api::{ChordCmd, LockItem, OtsCmd, ParamLockCmd, ParamLockState};
 use crate::fingering::Fingering;
 use crate::session::testing;
 use crate::session::{Options, Session};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const MS: u64 = 1_000_000;
 
-fn session(test: &str) -> (Session, PathBuf) {
+fn session_in(dir: &Path) -> Session {
     let style = testing::style_path();
+    let s = Session::offline(Options { paths: vec![style], data_dir: Some(dir.to_path_buf()), ..Options::default() }).unwrap();
+    s.finish_indexing();
+    s
+}
+
+fn session(test: &str) -> (Session, PathBuf) {
     let dir = std::env::temp_dir().join(format!("yahaha-plock-{test}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let s = Session::offline(Options { paths: vec![style], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
-    s.finish_indexing();
-    (s, dir)
+    (session_in(&dir), dir)
 }
 
 /// Split, fingering, Upper, and an item outside every lock group (Keyboard transpose).
@@ -37,13 +41,11 @@ fn set_panel(s: &Session, split: u8, fingering: Fingering, upper: bool, transpos
 }
 
 #[test]
-fn locked_groups_survive_registration_ots_and_playlist_recalls() {
+fn locked_groups_survive_rack_and_ots_recalls() {
     let (s, dir) = session("recalls");
-    // Button 1 stores split 60, Fingered, Upper, transpose +2; it goes in a playlist.
+    // The rack has split 60 and keyboard transpose +2.
     set_panel(&s, 60, Fingering::Fingered, true, 2);
-    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
-    s.send(RegistrationCmd::SaveRegistBank { name: Some("Gig".into()), overwrite: false }).unwrap();
-    s.send(PlaylistCmd::AddCurrentBank).unwrap();
+    let rack = s.capture_rack("Gig");
 
     // The player's own panel, locked.
     let mine = (50, Fingering::SingleFinger, false, 0);
@@ -52,9 +54,8 @@ fn locked_groups_survive_registration_ots_and_playlist_recalls() {
     lock(&s, LockItem::FingeringType, true);
     assert_eq!(s.state().param_locks, ParamLockState { split_point: true, fingering_type: true });
 
-    // Registration: the locked groups stay; the rest (transpose) is recalled.
-    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-    s.advance(10 * MS);
+    // A rack: the locked split stays; the rest (transpose) is applied.
+    assert_eq!(s.apply_rack(&rack), Vec::<String>::new());
     assert_eq!(panel(&s), (50, Fingering::SingleFinger, false, 2));
 
     // OTS: sets no lock-group item at all.
@@ -63,47 +64,45 @@ fn locked_groups_survive_registration_ots_and_playlist_recalls() {
     s.advance(10 * MS);
     assert_eq!(panel(&s), mine);
 
-    // Playlist: its record recalls the same button, through the same check.
-    s.send(PlaylistCmd::StepPlaylist { delta: 1 }).unwrap();
-    s.advance(10 * MS);
-    assert_eq!(s.state().registration.selected, Some(0), "the record recalled the button");
-    assert_eq!(panel(&s), (50, Fingering::SingleFinger, false, 2));
-
     // The panel still changes them.
     s.send(ChordCmd::SetSplit { note: 55 }).unwrap();
     assert_eq!(s.state().chord.split, 55);
 
-    // Unlocking one group lets the next recall set it, and only it.
+    // Unlocking the split lets the next rack set it.
     lock(&s, LockItem::SplitPoint, false);
-    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-    s.advance(10 * MS);
+    s.apply_rack(&rack);
     assert_eq!(panel(&s), (60, Fingering::SingleFinger, false, 2));
-    lock(&s, LockItem::FingeringType, false);
-    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-    s.advance(10 * MS);
-    assert_eq!(panel(&s), (60, Fingering::Fingered, true, 2));
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
-fn locks_are_a_setup_setting_not_part_of_a_bank() {
+fn locks_are_a_setup_setting_kept_across_sessions() {
     let (s, dir) = session("setup");
     lock(&s, LockItem::FingeringType, true);
-    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
-    s.send(RegistrationCmd::SaveRegistBank { name: Some("A".into()), overwrite: false }).unwrap();
-    let bank = std::fs::read_to_string(dir.join("Registration/A.regist.json")).unwrap();
-    assert!(!bank.contains("paramLock"), "{bank}");
-    // A new bank keeps them.
-    s.send(RegistrationCmd::NewRegistBank).unwrap();
-    assert!(s.state().param_locks.fingering_type);
     drop(s);
-    // So does the next session (the Genos's Setup/Backup), with Sequence On/Off beside it.
-    let style = testing::style_path();
-    let s = Session::offline(Options { paths: vec![style], data_dir: Some(dir.clone()), ..Options::default() }).unwrap();
+    let s = session_in(&dir);
     assert_eq!(s.state().param_locks, ParamLockState { split_point: false, fingering_type: true });
-    s.send(RegistrationCmd::SetRegistSequenceOn { on: true }).unwrap();
-    let setup: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("Registration/setup.json")).unwrap()).unwrap();
-    assert_eq!(setup["paramLocks"]["fingeringType"], true, "{setup}");
-    assert_eq!(setup["sequenceOn"], true, "{setup}");
+    let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("param-locks.json")).unwrap()).unwrap();
+    assert_eq!(saved["fingeringType"], true, "{saved}");
+    assert!(!dir.join("Registration").exists(), "nothing goes in the old Registration folder");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Locks set before racks were in the Registration folder's `setup.json`: they still apply,
+/// that file is left as it was, and a change is saved in the new file.
+#[test]
+fn locks_from_the_old_registration_setup_file_still_apply() {
+    let dir = std::env::temp_dir().join(format!("yahaha-plock-old-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("Registration")).unwrap();
+    let old = r#"{"sequenceOn":true,"paramLocks":{"splitPoint":true}}"#;
+    std::fs::write(dir.join("Registration/setup.json"), old).unwrap();
+    let s = session_in(&dir);
+    assert_eq!(s.state().param_locks, ParamLockState { split_point: true, fingering_type: false });
+    lock(&s, LockItem::SplitPoint, false);
+    drop(s);
+    assert_eq!(std::fs::read_to_string(dir.join("Registration/setup.json")).unwrap(), old, "the old file is untouched");
+    let s = session_in(&dir);
+    assert_eq!(s.state().param_locks, ParamLockState::default(), "the new file wins");
     let _ = std::fs::remove_dir_all(dir);
 }

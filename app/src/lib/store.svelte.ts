@@ -155,7 +155,7 @@ function storedKeyRange(): KeyRange | null {
   }
 }
 
-/** A Sound Browser pick for something other than a keyboard part. */
+/** A sound picked for a program map rule (`SoundPicker`). */
 export interface SoundPick {
   /** "Piano family", "Drum rule". */
   title: string
@@ -189,11 +189,8 @@ class UiStore {
   looper = $state(false)
   multipad = $state(false)
   harmony = $state(false)
-  sound = $state(false)
-  /** The Sound Browser (#117), for this keyboard part (0-3); null: closed. */
-  soundBrowser = $state<number | null>(null)
-  /** The Sound Browser picking for something else (a program map rule, #117): what for,
-   * the patch it names now, and where the pick goes. Null: not picking. */
+  /** The sound picker for a program map rule (Library › Style map, #117): what for, the
+   * patch it names now, and where the pick goes. Null: not picking. */
   soundPick = $state.raw<SoundPick | null>(null)
   theme = $state<Theme>(storedTheme())
   /** The keyboard strip's size; null: match the connected Launchkey (49 or 61). */
@@ -207,9 +204,9 @@ class UiStore {
   }
 
   /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'rack' | 'mixer' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony' | 'sound') {
+  toggleDrawer(d: 'rack' | 'mixer' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony') {
     const open = !this[d]
-    this.rack = this.mixer = this.settings = this.charts = this.looper = this.multipad = this.harmony = this.sound = false
+    this.rack = this.mixer = this.settings = this.charts = this.looper = this.multipad = this.harmony = false
     this[d] = open
   }
 
@@ -245,10 +242,6 @@ class UiStore {
       this.soundPick = null
       return true
     }
-    if (this.soundBrowser !== null) {
-      this.soundBrowser = null
-      return true
-    }
     if (this.browser) return !(this.browser = false)
     if (this.settings) return !(this.settings = false)
     if (this.rack) return !(this.rack = false)
@@ -257,7 +250,6 @@ class UiStore {
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)
     if (this.harmony) return !(this.harmony = false)
-    if (this.sound) return !(this.sound = false)
     // Library is a page, not an overlay: Esc goes back to Stage once nothing is open over it.
     if (this.view === 'library') {
       this.view = 'stage'

@@ -2,10 +2,10 @@
 //! clock), as `live::Input` runs it and `Leds` lights it.
 
 use super::Control;
-use crate::api::{ns_to_ms, AppCmd, ChordCmd, ClockState, HarmonyArpCmd, LooperCmd, MixerCmd, Neighbour, PadsCmd, PartsCmd, PluginCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
+use crate::api::{ns_to_ms, AppCmd, ChordCmd, ClockState, HarmonyArpCmd, LooperCmd, MixerCmd, Neighbour, PadsCmd, PartsCmd, PluginCmd, RackCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
 use crate::launchkey::{self, Action, Panel};
 use crate::library::Library;
-use crate::parts::{self, FaderPage};
+use crate::parts::{self, FaderPage, FaderRoute};
 use std::sync::atomic::Ordering::Relaxed;
 
 impl Control {
@@ -106,12 +106,28 @@ impl Control {
         push("masterButton".into(), *launchkey::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
+        // Panel faders 1-4 in the Volume layer follow the live rack's controller map.
         let s = &self.snap;
+        let knobs_now = self.knobs_now();
         let mut faders: Vec<SurfaceFader> = (0..8u8)
             .map(|i| {
                 let p = i as usize;
                 let position = known(kp.fader_hw[p].load(Relaxed));
+                let volume_layer = layer == crate::parts::FaderLayer::Volume;
                 match fader_page {
+                    FaderPage::Panel if p < parts::COUNT && volume_layer && kp.rack_fader(p) != FaderRoute::Own => {
+                        if kp.rack_fader(p) == FaderRoute::Off {
+                            return SurfaceFader { position, ..SurfaceFader::default() };
+                        }
+                        let f = crate::knobs::rack_function(&self.rack_controls.faders[p]);
+                        SurfaceFader {
+                            label: f.short().to_uppercase(),
+                            value: self.knobs.read(f, &knobs_now).level,
+                            waiting: false,
+                            position,
+                            set: Some(AppCmd::Rack(RackCmd::MoveRackFader { fader: i, volume: 0 })),
+                        }
+                    }
                     FaderPage::Panel if p < parts::COUNT => SurfaceFader {
                         label: launchkey::PART_LABELS[p].to_string(),
                         value: Some(kp.volume(p)),

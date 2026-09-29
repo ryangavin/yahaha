@@ -48,7 +48,6 @@ use sections::Change;
 pub use change_rules::{ChangeRule, ChangeRules, StopAcmp, FIXED_BASS_PROGRAM, FIXED_PAD_PROGRAM};
 pub use looper::{LoopState, LooperSnap};
 pub use mixer::{Takeover, HW_UNKNOWN};
-pub use transport::StyleControls;
 pub use multipad::{PadCmd, PadsSnap, SynchroStop, PAD_PPQ};
 pub use part_state::Parts;
 use prepared::PKind;

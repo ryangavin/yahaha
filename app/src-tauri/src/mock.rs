@@ -15,6 +15,8 @@ mod quick;
 mod racks;
 #[path = "mock_sound.rs"]
 mod sound;
+#[path = "mock_style_racks.rs"]
+mod style_racks;
 #[path = "mock_sounds.rs"]
 mod sounds;
 
@@ -70,7 +72,7 @@ fn live_rack_view(s: &AppState) -> serde_json::Value {
             serde_json::json!([p.on, p.program, p.volume, p.octave, p.pan, p.reverb, p.chorus, p.variation, p.patch, plugin, p.sound, p.sound_edited])
         })
         .collect();
-    serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp])
+    serde_json::json!([parts, s.chord.split, s.chord.transpose_keyboard, s.harmony_arp, s.live_rack.controls])
 }
 
 const INTROS: [&str; 3] = ["Intro A", "Intro B", "Intro C"];
@@ -190,6 +192,8 @@ pub struct MockSession {
     unison_held: bool,
     /// Quick Racks (mock_quick.rs).
     quick: quick::MockQuick,
+    /// Style racks: OTS buttons that load a user rack, per style (mock_style_racks.rs).
+    style_racks: style_racks::MockStyleRacks,
     /// The Chord Looper, as the engine runs it (mock_looper.rs).
     looper: MockLooper,
     /// Multi Pads (mock_multipad.rs).
@@ -343,7 +347,7 @@ impl MockSession {
                 part_solo: None,
             },
             pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: Page::ALL.len() as u8, pads: vec![], connected: true, palette_leds: false },
-            ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::MainChange },
+            ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::MainChange, racks: vec![], racks_read_only: false },
             library: LibraryStatus {
                 revision: 1,
                 count: library.entries.len(),
@@ -395,8 +399,6 @@ impl MockSession {
             controllers: ControllersState::of(&Controllers::new()),
             message: None,
             style_change: StyleChangeState::default(),
-            registration: RegistrationState::default(),
-            playlist: PlaylistState::default(),
             looper: mock_looper::empty(),
             metronome: MetronomeState { on: false, volume: 90, bell: true, audible: true },
             plugins: mock_plugins(),
@@ -447,6 +449,7 @@ impl MockSession {
             fade_left: 0.0,
             unison_held: false,
             quick: Default::default(),
+            style_racks: Default::default(),
             looper: MockLooper::default(),
             pads: multipad::MockPads::default(),
             controllers: Controllers::new(),
@@ -774,6 +777,8 @@ impl MockSession {
                 }
                 d
             },
+            harmony_arp: s.harmony_arp.on,
+            split: s.chord.split,
         }
     }
 
@@ -823,7 +828,6 @@ impl MockSession {
         self.step_fade(ms);
         self.pads.beats(&mut self.state.multi_pad, ms / 60000.0 * self.state.transport.tempo);
         self.sound.advance(ms, self.state.transport.running);
-        self.sounds.advance(ms, self.state.transport.running);
         if !self.state.transport.running {
             return;
         }
@@ -1072,7 +1076,17 @@ impl MockSession {
         self.sound.part_voice(part);
     }
 
+    /// OTS Link recalls OTS `n`: a style rack switches without the guard.
     fn recall_ots(&mut self, n: usize) {
+        self.recall_ots_as(n, true)
+    }
+
+    /// Recall OTS `n`, or load the rack of the user's chosen for it (mock_style_racks.rs):
+    /// `unattended` switches without the guard (the session keeps a Recovered rack).
+    fn recall_ots_as(&mut self, n: usize, unattended: bool) {
+        if let Some(id) = self.style_rack_for(n) {
+            return self.recall_style_rack(n, id, unattended);
+        }
         // An OTS recall turns [ACMP] on.
         self.state.transport.acmp = true;
         let panel = self.state.mixer.fader_page == FaderPage::Panel;
@@ -1286,6 +1300,7 @@ impl MockSession {
         st.home = crate::mock_home::home(st);
         st.pads.pads = pads_for(st, st.pads.page);
         self.quick.fill(st, &self.racks.entries());
+        self.style_racks.fill(st, &self.racks.entries());
         self.anchor_clocks();
         self.state.surface = self.surface();
     }
@@ -1413,11 +1428,26 @@ impl MockSession {
         push("masterButton".into(), *lk::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
 
         // The faders: the parts they control on this page, and where they physically are.
+        // Panel faders 1-4 in the Volume layer follow the live rack's controller map.
+        let routes = yahaha::knobs::fader_routes(&st.live_rack.controls);
+        let knobs_now = self.knobs_now();
         let mut faders: Vec<SurfaceFader> = (0..8u8)
             .map(|i| {
                 let p = i as usize;
                 let position = Some(self.hw_faders[p]);
+                let remapped = layer == yahaha::parts::FaderLayer::Volume && p < parts::COUNT && routes[p] != yahaha::parts::FaderRoute::Own;
                 match fader_page {
+                    FaderPage::Panel if remapped && routes[p] == yahaha::parts::FaderRoute::Off => SurfaceFader { position, ..SurfaceFader::default() },
+                    FaderPage::Panel if remapped => {
+                        let f = yahaha::knobs::rack_function(&st.live_rack.controls.faders[p]);
+                        SurfaceFader {
+                            label: f.short().to_uppercase(),
+                            value: self.knobs.read(f, &knobs_now).level,
+                            waiting: false,
+                            position,
+                            set: Some(AppCmd::Rack(RackCmd::MoveRackFader { fader: i, volume: 0 })),
+                        }
+                    }
                     FaderPage::Panel if p < parts::COUNT => SurfaceFader {
                         label: lk::PART_LABELS[p].to_string(),
                         value: Some(st.keyboard_parts[p].volume),
@@ -1925,9 +1955,11 @@ impl MockSession {
             }
             AppCmd::Ots(OtsCmd::RecallOts { index }) => {
                 if (index as usize) < self.state.ots.settings.len() {
-                    self.recall_ots(index as usize);
+                    self.recall_ots_as(index as usize, false);
                 }
             }
+            AppCmd::Ots(OtsCmd::SetOtsRack { index, id }) => self.set_ots_rack(index, Some(id)),
+            AppCmd::Ots(OtsCmd::ClearOtsRack { index }) => self.set_ots_rack(index, None),
             AppCmd::Ots(OtsCmd::SetOtsLink { on }) => self.state.ots.link = on,
             AppCmd::Ots(OtsCmd::ToggleOtsLink) => self.state.ots.link = !self.state.ots.link,
             AppCmd::Ots(OtsCmd::SetOtsLinkTiming { timing }) => self.state.ots.link_timing = timing,
@@ -2085,6 +2117,7 @@ impl MockSession {
             AppCmd::Rack(c) => {
                 self.rack_cmd(c.clone());
                 self.quick_after_rack_cmd(&c);
+                self.style_racks_after_rack_cmd(&c);
             }
             AppCmd::Fx(FxCmd::SetFollowStyle { block, on }) => self.state.effects.blocks[block.index()].follow_style = on,
             AppCmd::Fx(FxCmd::SetBandSend { block, level }) => self.state.effects.blocks[block.index()].band_send = level.min(127),
@@ -2129,8 +2162,6 @@ impl MockSession {
                 self.state.dynamics = c.apply(now).into();
             }
             AppCmd::QuickRacks(c) => self.quick_rack_cmd(c),
-            // Off the wire (Quick Racks replaced them): the app can't send these.
-            AppCmd::Registration(_) | AppCmd::Playlist(_) => self.message("Registrations are gone: Quick Racks replace them", true),
             AppCmd::MultiPad(c) => {
                 let running = self.state.transport.running;
                 if let Some(e) = self.pads.cmd(&mut self.state.multi_pad, c, running) {
@@ -2732,6 +2763,36 @@ mod tests {
         assert!(m.state.keyboard_parts[0].plugin.is_none(), "OTS");
     }
 
+    /// The controller map, as the session does it: `setRackControl` edits it (modified),
+    /// the Rack knob page and the Panel faders follow it, and it is saved with the rack.
+    #[test]
+    fn the_controller_map_drives_the_rack_page_and_faders() {
+        let mut m = MockSession::new();
+        m.send(KnobsCmd::SetKnobPage { page: yahaha::knobs::KnobPage::Rack });
+        assert_eq!(m.state.knobs.knobs[4].short, "HarmVol", "the default map is the Parts page");
+        m.send(RackCmd::SetRackControl { control: RackControl::Knob, index: 4, target: ControlTarget::PartPan { part: 1 } });
+        assert!(m.state.live_rack.modified);
+        assert_eq!(m.state.knobs.knobs[4].short, "PanR2");
+        let pan = m.state.keyboard_parts[1].pan;
+        m.send(KnobsCmd::TurnKnob { knob: 4, delta: -1 });
+        assert_eq!(m.state.keyboard_parts[1].pan, pan - 2);
+        m.send(RackCmd::SetRackControl { control: RackControl::Fader, index: 2, target: ControlTarget::SplitPoint });
+        let f = &m.state.surface.faders[2];
+        assert_eq!((f.label.as_str(), f.set.clone()), ("SPLIT", Some(AppCmd::Rack(RackCmd::MoveRackFader { fader: 2, volume: 0 }))));
+        m.send(RackCmd::MoveRackFader { fader: 2, volume: 127 });
+        assert_eq!(m.state.chord.split, 96);
+        m.send(RackCmd::SetRackControl { control: RackControl::Fader, index: 0, target: ControlTarget::Tempo });
+        assert_eq!(m.state.live_rack.controls.faders[0], ControlTarget::PartLevel { part: 0 }, "no tempo on a fader");
+        let map = m.state.live_rack.controls.clone();
+        m.send(RackCmd::SaveRackAs { name: "Mapped".into(), sound_names: Default::default() });
+        let id = m.state.live_rack.id.clone().unwrap();
+        m.send(RackCmd::NewRack { discard: true });
+        assert_eq!(m.state.live_rack.controls, ControlMap::default());
+        m.send(RackCmd::LoadRack { id, discard: false });
+        assert_eq!(m.state.live_rack.controls, map);
+        assert_eq!(m.state.knobs.knobs[4].short, "PanR2");
+    }
+
     /// The rack commands (docs/racks.md, "Saving"), as the session does them: save as, the
     /// unsaved-changes guard, load, rename, duplicate, delete (never the loaded rack).
     #[test]
@@ -2775,6 +2836,29 @@ mod tests {
         let copy = m.state.racks[0].id.clone();
         m.send(RackCmd::DeleteRack { id: copy });
         assert_eq!(m.state.racks.len(), 1);
+    }
+
+    /// Style racks (docs/racks.md "Styles and OTS"): an OTS button loads a rack of the
+    /// user's for this style; "Style's own" and deleting the rack put it back.
+    #[test]
+    fn style_racks_load_a_rack_for_an_ots() {
+        let mut m = MockSession::new();
+        assert!(m.state.ots.settings.len() >= 2);
+        assert_eq!(m.state.ots.racks, vec![OtsRack::default(); m.state.ots.settings.len().min(4)]);
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        let id = m.state.live_rack.id.clone().unwrap();
+        m.send(RackCmd::NewRack { discard: false });
+        m.send(OtsCmd::SetOtsRack { index: 1, id: id.clone() });
+        assert_eq!(m.state.ots.racks[1], OtsRack { rack: Some(id.clone()), name: "Ballad".into(), missing: false });
+        m.send(OtsCmd::RecallOts { index: 1 });
+        assert_eq!((m.state.live_rack.id.as_deref(), m.state.ots.applied, m.state.keyboard_parts[0].volume), (Some(id.as_str()), 2, 30));
+        m.send(OtsCmd::ClearOtsRack { index: 1 });
+        assert_eq!(m.state.ots.racks[1], OtsRack::default());
+        m.send(OtsCmd::SetOtsRack { index: 1, id: id.clone() });
+        m.send(RackCmd::NewRack { discard: true });
+        m.send(RackCmd::DeleteRack { id });
+        assert_eq!(m.state.ots.racks[1], OtsRack::default(), "deleting the rack gives OTS 2 back to the style");
     }
 
     /// New and missing plugins (docs/racks.md): a new plugin stops being new once opened or
@@ -2824,13 +2908,6 @@ mod tests {
         let cat = m.sounds();
         assert_eq!(cat.recents[0], "au:aumu dls  appl");
         assert!(cat.entries.iter().any(|e| e.id == "au:aumu dls  appl" && e.favourite && e.recent));
-        m.send(TransportCmd::Stop);
-        m.advance(10.0);
-        assert!(!m.state.transport.running);
-        m.send(SoundsCmd::AuditionSound { id: "sf:GeneralUser-GS.sf2:128:0".into() });
-        assert_eq!(m.state.sounds.auditioning.as_deref(), Some("sf:GeneralUser-GS.sf2:128:0"));
-        m.advance(3100.0);
-        assert_eq!(m.state.sounds.auditioning, None);
     }
 
     /// The Instruments tab, as mock-sounds.ts: a summary per font, and Add to my sounds

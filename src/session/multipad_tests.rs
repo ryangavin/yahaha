@@ -242,11 +242,5 @@ fn the_multi_pad_volume_scales_the_pad_channels() {
     assert_eq!((st.mixer.multi_pad_volume, st.mixer.multi_pad_volume_waiting), (127, false));
     assert!(s.take_output().contains(&[0xB4, 7, 127]));
     assert_eq!(st.surface.faders[5].label, "M.PAD");
-    // A Registration memorizes it with the Multi Pad group, and recalls it.
-    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
-    s.send(MixerCmd::SetMultiPadVolume { volume: 20 }).unwrap();
-    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-    s.advance(10 * MS);
-    assert_eq!(s.state().mixer.multi_pad_volume, 127);
     let _ = std::fs::remove_dir_all(dir);
 }

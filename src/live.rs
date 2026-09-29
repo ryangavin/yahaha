@@ -19,7 +19,7 @@ use crate::harmony::{self, HarmonySettings};
 use crate::launchkey::{self, Action, Control, Page, Touch};
 use crate::looper::ChordSeq;
 use crate::midi::{for_each_message, InputHandler};
-use crate::parts::{self, FaderLayer, FaderPage, Parts};
+use crate::parts::{self, FaderLayer, FaderPage, FaderRoute, Parts};
 use crate::rt::{self, Histogram, PacketSink, Wakeup};
 use crate::theory::{Chord, Recognizer, CANCEL, ONE_PLUS_EIGHT, ONE_PLUS_FIVE};
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -64,9 +64,6 @@ pub enum Cmd {
     StyleSettings(StyleSettings),
     /// The chord-settle window, in ms (`Engine::set_chord_settle`).
     ChordSettle(u32),
-    /// Set the Style controls (section, Sync Start/Stop, Stop ACMP, Style part on/off) to
-    /// given states: a Registration recall.
-    StyleControls(crate::engine::StyleControls),
     /// Chord Looper REC/STOP (`true`) or ON/OFF (`false`).
     Looper(bool),
     /// Solo a Style part (0-7), or end the solo.
@@ -951,6 +948,14 @@ impl Input {
                                 self.signal = true;
                             }
                         }
+                        // Faders 1-4 follow the live rack's controller map (docs/racks.md):
+                        // their own part's level stays here (below, with soft takeover);
+                        // anything else the control side runs as its command.
+                        FaderPage::Panel if f < parts::COUNT && parts.rack_fader(f) != FaderRoute::Own => {
+                            if parts.rack_fader(f) == FaderRoute::Control {
+                                self.act(Action::RackFader(f as u8, v));
+                            }
+                        }
                         // The engine thread sends the new volume as the part's CC7. Faders
                         // 5-6 (Style and Multi Pad level) are levels in every layer.
                         FaderPage::Panel => {
@@ -1609,7 +1614,6 @@ fn apply(engine: &mut Engine, shared: &Shared, cmd: Cmd, now: u64, out: &mut Out
         Cmd::Chart(s) => engine.set_chart_settings(s, now),
         Cmd::StyleSettings(s) => engine.set_style_settings(s),
         Cmd::ChordSettle(ms) => engine.set_chord_settle(ms as u64 * 1_000_000),
-        Cmd::StyleControls(c) => engine.set_style_controls(c, now, out),
         Cmd::Looper(true) => engine.looper_rec(),
         Cmd::Looper(false) => engine.looper_on_off(now),
         Cmd::StyleSolo(p) => engine.set_style_solo(p, out),

@@ -12,7 +12,6 @@
 //! isn't installed is silent (not on its GM voice) and keeps the rack's reference, so the
 //! plugin plays it again once it is back (session/plugins.rs, `mark_missing`).
 
-use super::part_sound::OnFail;
 use super::{Control, Session};
 use crate::api::{ChordCmd, LockItem, PartsCmd};
 use crate::engine::Transpose;
@@ -136,7 +135,7 @@ impl Control {
         if let Err(e) = self.set_transpose(Transpose::new(r.transpose, self.transpose.master)) {
             problems.push(e.to_string());
         }
-        self.rack_controls = r.controls.clone();
+        self.set_rack_controls(r.controls.clone());
         problems
     }
 
@@ -168,7 +167,7 @@ impl Control {
                 match (patch, part.edited_state.as_deref()) {
                     // An edited plugin sound: the plugin with the edit, still named as the sound.
                     (Some((PatchSource::Plugin { component_id, .. }, name, tag)), Some(state)) => {
-                        self.recall_part_plugin(p, &component_id, &name, Some(state), Some(&tag), OnFail::Keep).map(|_| ())
+                        self.recall_part_plugin(p, &component_id, &name, Some(state), Some(&tag)).map(|_| ())
                     }
                     (Some((_, name, _)), _) => {
                         self.clear_part_tab_plugin(p);
@@ -181,7 +180,7 @@ impl Control {
                 }
             }
             SoundRef::Plugin { component } => {
-                self.recall_part_plugin(p, component, "", part.edited_state.as_deref(), None, OnFail::Keep).map(|_| ())
+                self.recall_part_plugin(p, component, "", part.edited_state.as_deref(), None).map(|_| ())
             }
         }
     }

@@ -954,11 +954,6 @@ impl Control {
         &self.sound.lib.patches
     }
 
-    /// What is being auditioned: a patch id, a catalog id, or "preset".
-    pub(super) fn sound_audition(&self) -> Option<&str> {
-        self.sound.audition.as_ref().map(|a| a.label.as_str())
-    }
-
     /// The patch last created, duplicated or saved.
     pub(super) fn sound_last_added(&self) -> Option<&str> {
         self.sound.last_added.as_deref()

@@ -999,7 +999,30 @@
     ],
     "applied": 0,
     "link": false,
-    "linkTiming": "mainChange"
+    "linkTiming": "mainChange",
+    "racks": [
+      {
+        "rack": null,
+        "name": "",
+        "missing": false
+      },
+      {
+        "rack": "3f2a9c1e",
+        "name": "Ballad Pad",
+        "missing": false
+      },
+      {
+        "rack": null,
+        "name": "",
+        "missing": false
+      },
+      {
+        "rack": null,
+        "name": "",
+        "missing": false
+      }
+    ],
+    "racksReadOnly": false
   },
   "library": {
     "revision": 3,
@@ -1973,8 +1996,7 @@
   "sounds": {
     "revision": 1,
     "count": 0,
-    "scanning": false,
-    "auditioning": null
+    "scanning": false
   },
   "dynamics": {
     "control": true,
@@ -2263,7 +2285,6 @@
       "beatsPerBar": 4,
       "fraction": 0.0
     },
-    "snapshot": null,
     "ots": null,
     "bandSends": []
   },
@@ -2272,6 +2293,7 @@
     "id": null,
     "modified": false,
     "controls": {
+      "version": 1,
       "faders": [
         {
           "kind": "partLevel",
@@ -2308,16 +2330,16 @@
           "part": 3
         },
         {
-          "kind": "none"
+          "kind": "harmonyVolume"
+        },
+        {
+          "kind": "metronomeVolume"
         },
         {
           "kind": "none"
         },
         {
-          "kind": "none"
-        },
-        {
-          "kind": "none"
+          "kind": "tempo"
         }
       ]
     },

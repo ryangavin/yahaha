@@ -44,18 +44,10 @@ pub fn home(st: &AppState) -> HomeState {
         }
         _ => 0.0,
     };
-    let r = &st.registration;
-    let snapshot = r.selected.and_then(|i| {
-        let b = r.buttons.get(i as usize).filter(|b| b.stored)?;
-        let label = yahaha::registration::snapshot_label(i as usize);
-        let name = if b.name.is_empty() { b.style.clone().unwrap_or_else(|| format!("Snapshot {label}")) } else { b.name.clone() };
-        Some(HomeSnapshot { index: i, label, name, bank: r.bank.name.clone() })
-    });
     let ots = st.ots.applied.checked_sub(1).and_then(|i| st.ots.settings.get(i as usize).map(|s| HomeOts { index: i, name: s.name.clone() }));
     HomeState {
         mains,
         progress: HomeProgress { running: t.running, bar: t.bar, beat: t.beat, bars: t.section_bars, beats_per_bar: t.beats_per_bar, fraction },
-        snapshot,
         ots,
         band_sends: st.effects.blocks.iter().map(|b| HomeSend { block: b.block, name: b.name.clone(), effect_name: b.effect_name.clone(), level: b.band_send }).collect(),
     }

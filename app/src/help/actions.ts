@@ -93,6 +93,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setOtsLink':
     case 'toggleOtsLink': return 'ots.link'
     case 'setOtsLinkTiming': return 'settings.ots_link_timing'
+    case 'setOtsRack':
+    case 'clearOtsRack': return 'ots.rack'
     case 'setTempoChange':
     case 'toggleStyleTempoLock':
     case 'toggleStyleTempoHold': return 'settings.tempo_change'
@@ -238,8 +240,6 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'exportSoundPreset': return 'sound.export_preset'
     // The Sound Browser (#117).
     case 'setSoundFavourite': return 'sounds.favourite'
-    case 'auditionSound': return 'sounds.audition'
-    case 'stopSoundAudition': return 'sounds.audition_stop'
     case 'replacePartSound':
     case 'assignSound': return 'sounds.row'
     case 'setSoundCategory': return 'sound.category'
@@ -279,6 +279,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'saveRackAs': return 'rack.save_as'
     case 'revertRack': return 'rack.revert'
     case 'dismissRackPrompt': return 'rack.keep_editing'
+    case 'setRackControl': return 'rack.map_target'
+    case 'moveRackFader': return 'launchkey.fader_rack'
     case 'newRack':
     case 'loadRack':
     case 'renameRack':

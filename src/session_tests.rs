@@ -140,9 +140,7 @@ fn app_state_round_trips_through_json() {
     assert!(st.transport.running);
     let j = serde_json::to_string_pretty(&*st).unwrap();
     let back: AppState = serde_json::from_str(&j).unwrap();
-    // Registration Memory and the Playlist are off the wire (Quick Racks replaced them).
-    let want = AppState { registration: Default::default(), playlist: Default::default(), ..(*st).clone() };
-    assert_eq!(back, want);
+    assert_eq!(back, *st);
     // Every field is there, camelCase.
     for k in ["\"keyboardParts\"", "\"styleParts\"", "\"lamps\"", "\"faderPage\"", "\"syncStopAvailable\"", "\"transposeKeyboard\""] {
         assert!(j.contains(k), "{k}");
@@ -545,7 +543,7 @@ fn launchkey_pads_are_commands() {
     s.midi_in(Port::Pads, &[0xBF, 21, 61]);
     assert_eq!(s.state().dynamics.level, 121);
     s.midi_in(Port::Pads, &[0xB0, 52, 127]);
-    assert_eq!(s.state().knobs.page_name, "Parts");
+    assert_eq!(s.state().knobs.page_name, "Rack");
 }
 
 /// Style faders move the Style parts (soft takeover); a software move makes the fader
@@ -568,10 +566,10 @@ fn style_faders_and_software_volume() {
 }
 
 /// #268: a Style part's own send: out on the MIDI port at once, in the state (and on the
-/// audio thread's atomics), in a Registration Memory, and Reset hands it back to the style.
+/// audio thread's atomics), and Reset hands it back to the style.
 #[test]
 fn a_style_parts_own_sends() {
-    use crate::api::{PartSend, RegistrationCmd};
+    use crate::api::PartSend;
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
     let style = s.state().mixer.style_parts[3].clone();
     assert!(style.sends_set.is_empty());
@@ -583,19 +581,12 @@ fn a_style_parts_own_sends() {
     let p = &st.mixer.style_parts[3];
     assert_eq!((p.reverb, p.chorus, p.variation, p.sends_set.clone()), (style.reverb, 127, style.variation, vec![PartSend::Chorus]));
     assert_eq!(st.mixer.style_parts[2].sends_set, vec![]);
-    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
     // Reset: the style's value goes out.
     s.send(MixerCmd::ResetStylePartSends { part: None }).unwrap();
     s.advance(1_000_000);
     assert!(s.take_output().contains(&[0xBB, 93, style.chorus]));
     assert!(s.state().mixer.style_parts.iter().all(|p| p.sends_set.is_empty()));
-    // Registration brings the part's own chorus back.
-    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-    for _ in 0..3 {
-        s.advance(1_000_000_000);
-    }
-    let p = s.state().mixer.style_parts[3].clone();
-    assert_eq!((p.chorus, p.sends_set), (127, vec![PartSend::Chorus]));
+    s.send(MixerCmd::SetStylePartSend { part: 3, send: PartSend::Chorus, value: 127 }).unwrap();
     // One part's reset leaves the others.
     s.send(MixerCmd::SetStylePartSend { part: 5, send: PartSend::Reverb, value: 10 }).unwrap();
     s.send(MixerCmd::ResetStylePartSends { part: Some(3) }).unwrap();
@@ -1882,55 +1873,6 @@ fn chord_looper_records_loops_and_keeps_memories() {
     s.send(LooperCmd::NewLooperBank).unwrap();
     assert!(s.state().looper.memories.iter().all(|m| m.name.is_none()));
     assert!(s.send(LooperCmd::StoreLooperMemory { index: 9 }).is_ok(), "index wraps, the sequence is still there");
-}
-
-/// #201: a Registration Memory keeps the Chord Looper (group Chord Looper, DL p.82): the
-/// memory selected with its sequence, and ON/OFF. A recall puts the memory back even when
-/// the looper's memories were cleared, and arms the loop; one stored with the loop off
-/// stops it. Freeze Chord Looper leaves it alone.
-#[test]
-fn registration_stores_the_chord_looper() {
-    use crate::registration::Group;
-    let Some(s) = offline("SlowWalker.T552.sty") else { return };
-    let bar = bar_ns(&s);
-    s.send(LooperCmd::LooperRec).unwrap();
-    keys(&s, true, &[36, 40, 43]); // C, starts the band and the recording
-    s.advance(bar);
-    keys(&s, false, &[36, 40, 43]);
-    keys(&s, true, &[33, 36, 40]); // Am
-    s.advance(bar / 2);
-    s.send(LooperCmd::LooperOnOff).unwrap();
-    s.advance(bar);
-    assert_eq!(s.state().looper.mode, LooperMode::Looping);
-    s.send(LooperCmd::StoreLooperMemory { index: 3 }).unwrap();
-    // Registration 1: memory 4, looping. Registration 2: the loop off.
-    s.send(RegistrationCmd::MemorizeRegist { index: 0 }).unwrap();
-    s.send(LooperCmd::LooperOnOff).unwrap();
-    assert_eq!(s.state().looper.mode, LooperMode::Off);
-    s.send(RegistrationCmd::MemorizeRegist { index: 1 }).unwrap();
-    // The looper's memories go (a later session, say).
-    s.send(LooperCmd::NewLooperBank).unwrap();
-    assert!(s.state().looper.memories.iter().all(|m| m.name.is_none()));
-    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-    s.advance(bar / 8);
-    let st = s.state();
-    assert_eq!(st.looper.memory, Some(3));
-    assert_eq!(st.looper.memories[3].name.as_deref(), Some("CLD_001"));
-    let chords: Vec<_> = st.looper.memories[3].chords.iter().map(|c| c.chord.as_str()).collect();
-    assert_eq!(chords, ["C", "Am"]);
-    assert!(matches!(st.looper.mode, LooperMode::LoopArmed | LooperMode::Looping), "{:?}", st.looper.mode);
-    s.advance(bar);
-    assert_eq!(s.state().looper.mode, LooperMode::Looping);
-    // Registration 2 stops it.
-    s.send(RegistrationCmd::RecallRegist { index: 1 }).unwrap();
-    s.advance(bar / 8);
-    assert_eq!(s.state().looper.mode, LooperMode::Off);
-    // Freeze Chord Looper: Registration 1 leaves the looper alone.
-    s.send(RegistrationCmd::SetFreezeGroup { group: Group::ChordLooper, on: true }).unwrap();
-    s.send(RegistrationCmd::SetFreeze { on: true }).unwrap();
-    s.send(RegistrationCmd::RecallRegist { index: 0 }).unwrap();
-    s.advance(bar);
-    assert_eq!(s.state().looper.mode, LooperMode::Off);
 }
 
 /// #201: Chord Looper banks are files. Save As names one; every memory change saves itself

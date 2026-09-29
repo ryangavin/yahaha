@@ -77,14 +77,6 @@ describe('sound catalog (#117)', () => {
     expect(m.state.keyboardParts[0].plugin, 'OTS').toBeUndefined()
   })
 
-  it('auditions a sound while the band is stopped', () => {
-    const m = new MockSession({ manual: true })
-    m.send({ type: 'auditionSound', id: 'sf:GeneralUser-GS.sf2:128:0' })
-    expect(m.state.sounds.auditioning).toBe('sf:GeneralUser-GS.sf2:128:0')
-    m.advance(3100)
-    expect(m.state.sounds.auditioning).toBe(null)
-  })
-
   it('program map rules take catalog ids: a preset or plugin becomes a patch once', () => {
     const m = new MockSession({ manual: true })
     const n = m.state.soundLibrary.patches.length

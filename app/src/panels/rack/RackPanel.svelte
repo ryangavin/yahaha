@@ -8,11 +8,12 @@
   │ YOUR HANDS                                                                    │
   │ Split − F#2 +   Harmony/Arp [Duet ▾] (on)   Transpose − 0 +                   │
   │ Manual Bass  Left Hold                                                        │
-  │ ▸ Controller map   (faders 1–4, knobs 1–8: what each does for this rack)      │
+  │ ▸ Controller map   (faders 1–4, knobs 1–8: a select each, setRackControl)     │
   │ KEYBOARD PARTS                                                                │
   │ four RackSlots: R1, R2, R3, L                                                 │
   │ ONE TOUCH SETTINGS · <style>                                                  │
-  │ OTS Link · timing · OTS 1–4 cards                                             │
+  │ OTS Link · timing · OTS 1–4 cards, each with its rack select                  │
+  │   (Style's own / one of your racks: `setOtsRack`, `clearOtsRack`)             │
   │ AS WRITTEN FOR (the band's voices per channel)                                │
   └───────────────────────────────────────────────────────────────────────────────┘
 
@@ -21,14 +22,14 @@
   setArpPattern, setHarmonyArpOn, toggleManualBass, toggleLeftHold, recallOts,
   toggleOtsLink and the part commands in RackSlot), and the rack commands: Save rack
   (`saveRack`), Save as… (a name form, `saveRackAs`), Revert (`revertRack`, only when
-  modified). `liveRack.prompt` shows inline under the head: `soundNames` as a name field
+  modified), the Controller map's selects (`setRackControl`). `liveRack.prompt` shows inline under the head: `soundNames` as a name field
   per edited part, resent with `soundNames`; `unsavedChanges` as Save first (`saveRack`;
   the engine makes the held switch once saved), Discard and switch (the switch with `discard`) and Keep editing
   (`dismissRackPrompt`).
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
-  import type { RackSwitch } from '../../lib/api/types'
+  import type { RackControl, RackSwitch } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -36,7 +37,7 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import { PART_SHORT, linkedMain, otsLine, otsTip } from '../parts/parts'
   import { instrumentName, playingId } from '../sounds/model'
-  import { rackName, signed, soundBadge, targetLabel } from './rack'
+  import { rackName, signed, soundBadge, targetKey, targetLabel, targetOptions } from './rack'
   import RackSlot from './RackSlot.svelte'
 
   let { docked = false }: { docked?: boolean } = $props()
@@ -55,6 +56,17 @@
   const panelPage = $derived(s.mixer.faderPage === 'panel')
 
   let showMap = $state(false)
+
+  // ── Controller map (the wireframe's `mapTable`): a select per fader 1–4 and knob 1–8 ──
+  const mapRows = $derived([
+    ...rack.controls.faders.map((target, index) => ({ control: 'fader' as const, index, target, name: `Fader ${index + 1}` })),
+    ...rack.controls.knobs.map((target, index) => ({ control: 'knob' as const, index, target, name: `Knob ${index + 1}` })),
+  ])
+
+  function setTarget(control: RackControl, index: number, key: string) {
+    const o = targetOptions(control).find((x) => x.key === key)
+    if (o) app.send({ type: 'setRackControl', control, index, target: o.target })
+  }
 
   // ── Saving (the rack commands, docs/app-api.md `liveRack.prompt`) ─────────────
   const PART_NAMES = ['Right 1', 'Right 2', 'Right 3', 'Left']
@@ -162,6 +174,16 @@
     app.send({ type: 'recallOts', index: i })
     recalled++
   }
+
+  /** OTS `i`'s rack of yours for this style, when one is chosen and still there. */
+  const styleRack = (i: number) => {
+    const r = ots.racks[i]
+    return r && r.rack !== null && !r.missing ? r : null
+  }
+  /** The OTS rack select: '' is the style's own. */
+  function pickOtsRack(i: number, id: string) {
+    app.send(id ? { type: 'setOtsRack', index: i, id } : { type: 'clearOtsRack', index: i })
+  }
 </script>
 
 {#snippet body()}
@@ -256,14 +278,30 @@
       </div>
       <div class="row">
         <button type="button" class="disc" aria-expanded={showMap} use:tip={'rack.map'} onclick={() => (showMap = !showMap)}>{showMap ? '▾' : '▸'} Controller map</button>
-        <span class="note">What the Launchkey faders and knobs do on the Rack knob page</span>
+        <span class="note">What the Launchkey faders and knobs do while this rack is loaded</span>
       </div>
       {#if showMap}
         <table class="map">
           <thead><tr><th>Launchkey</th><th>Controls</th></tr></thead>
           <tbody>
-            {#each rack.controls.faders as t, i (i)}<tr><td>Fader {i + 1}</td><td>{targetLabel(t)}</td></tr>{/each}
-            {#each rack.controls.knobs as t, i (i)}<tr><td>Knob {i + 1}</td><td>{targetLabel(t)}</td></tr>{/each}
+            {#each mapRows as row (row.name)}
+              {@const opts = targetOptions(row.control)}
+              {@const key = targetKey(row.target)}
+              <tr>
+                <td>{row.name}</td>
+                <td>
+                  <select
+                    aria-label="{row.name} target"
+                    use:tip={'rack.map_target'}
+                    value={key}
+                    onchange={(e) => setTarget(row.control, row.index, e.currentTarget.value)}
+                  >
+                    {#if !opts.some((o) => o.key === key)}<option value={key} disabled>{targetLabel(row.target)}</option>{/if}
+                    {#each opts as o (o.key)}<option value={o.key}>{o.label}</option>{/each}
+                  </select>
+                </td>
+              </tr>
+            {/each}
           </tbody>
         </table>
       {/if}
@@ -306,34 +344,59 @@
         {#each [0, 1, 2, 3] as i (i)}
           {@const o = ots.settings[i]}
           {@const applied = ots.applied === i + 1}
-          <button
-            type="button"
-            class="card mat-raised"
-            class:applied
-            class:missing={!o}
-            class:linked={ots.link && s.transport.main === i}
-            aria-pressed={applied}
-            aria-disabled={!o}
-            use:tip={otsTip(i)}
-            onclick={() => o && recall(i)}
-          >
-            <span class="chead">
-              <span class="lamp" aria-hidden="true"></span>
-              <span class="cname">{o?.name ?? `OTS ${i + 1}`}</span>
-              <span class="badge">Style</span>
-              {#if applied}<span class="tag">last recalled</span>{/if}
-              {#if ots.link}<span class="main">{linkedMain(i)}</span>{/if}
-            </span>
-            {#if o}
-              <span class="clines">
-                {#each o.parts as op, j (j)}
-                  <span class="cline" class:off={!op.on}><b>{PART_SHORT[j]}</b><span class="ctext">{op.on ? otsLine(op) : `off · ${op.voiceName}`}</span></span>
-                {/each}
+          {@const sr = styleRack(i)}
+          {@const mine = sr ? s.racks.find((r) => r.id === sr.rack) : undefined}
+          <div class="otsw">
+            <button
+              type="button"
+              class="card mat-raised"
+              class:applied
+              class:missing={!o}
+              class:linked={ots.link && s.transport.main === i}
+              aria-pressed={applied}
+              aria-disabled={!o}
+              use:tip={otsTip(i)}
+              onclick={() => o && recall(i)}
+            >
+              <span class="chead">
+                <span class="lamp" aria-hidden="true"></span>
+                <span class="cname">{o?.name ?? `OTS ${i + 1}`}</span>
+                <span class="badge" class:mine={!!mine}>{mine ? 'Mine' : 'Style'}</span>
+                {#if applied}<span class="tag">last recalled</span>{/if}
+                {#if ots.link}<span class="main">{linkedMain(i)}</span>{/if}
               </span>
-            {:else}
-              <span class="none">Not in this style</span>
+              {#if o && mine}
+                <span class="clines">
+                  <span class="rackname">{mine.name}</span>
+                  {#each mine.parts as p, j (j)}
+                    <span class="cline" class:off={!mine.on[j]}><b>{PART_SHORT[j]}</b><span class="ctext">{mine.on[j] ? p : `off · ${p}`}</span></span>
+                  {/each}
+                </span>
+              {:else if o}
+                <span class="clines">
+                  {#if ots.racks[i]?.missing}<span class="gone">⚠ The rack chosen is gone: the style's own plays</span>{/if}
+                  {#each o.parts as op, j (j)}
+                    <span class="cline" class:off={!op.on}><b>{PART_SHORT[j]}</b><span class="ctext">{op.on ? otsLine(op) : `off · ${op.voiceName}`}</span></span>
+                  {/each}
+                </span>
+              {:else}
+                <span class="none">Not in this style</span>
+              {/if}
+            </button>
+            {#if o}
+              <select
+                class="otsrack"
+                aria-label="OTS {i + 1} rack"
+                value={sr?.rack ?? ''}
+                disabled={ots.racksReadOnly}
+                use:tip={'ots.rack'}
+                onchange={(e) => pickOtsRack(i, e.currentTarget.value)}
+              >
+                <option value="">Style's own</option>
+                {#each s.racks as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
+              </select>
             {/if}
-          </button>
+          </div>
         {/each}
       </div>
       <p class="note">Not in the rack: the style, tempo and Multi Pad bank.</p>
@@ -658,6 +721,32 @@
   .none {
     font-size: var(--fs-small);
     color: var(--muted);
+  }
+  .otsw {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+  .otsw .card {
+    flex: 1 0 auto;
+  }
+  .otsrack {
+    flex: none;
+    max-width: none;
+    min-width: 0;
+    min-height: 1.8rem;
+    font-size: 0.78rem;
+  }
+  .rackname {
+    font-family: var(--font-display);
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gone {
+    color: var(--danger);
   }
 
   /* ── As written for ── */

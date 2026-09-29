@@ -15,6 +15,7 @@ pub(super) struct MockRack {
     names: Vec<String>,
     split: u8,
     transpose: i8,
+    controls: ControlMap,
 }
 
 #[derive(Clone, Debug)]
@@ -130,7 +131,28 @@ impl MockSession {
                 self.state.live_rack.prompt = None;
                 self.racks.held = None;
             }
+            RackCmd::SetRackControl { control, index, target } => {
+                let mut m = self.state.live_rack.controls.clone();
+                match m.set(control, index, target) {
+                    Ok(()) => self.set_rack_controls(m),
+                    Err(e) => self.message(e, true),
+                }
+            }
+            RackCmd::MoveRackFader { fader, volume } => {
+                let Some(t) = self.state.live_rack.controls.faders.get(fader as usize) else {
+                    return self.message(format!("no fader {}", fader as usize + 1), true);
+                };
+                if let Some(cmd) = yahaha::knobs::fader_command(t, volume, self.state.harmony_arp.on) {
+                    self.cmd(cmd);
+                }
+            }
         }
+    }
+
+    /// The live rack's controller map is now `m`: the Rack knob page follows it.
+    fn set_rack_controls(&mut self, m: ControlMap) {
+        self.knobs.set_rack(&m);
+        self.state.live_rack.controls = m;
     }
 
     fn switch_rack(&mut self, rack: Option<MockRack>, discard: bool) {
@@ -168,7 +190,9 @@ impl MockSession {
         self.state.chord.split = rack.as_ref().map_or(54, |r| r.split);
         self.state.chord.transpose_keyboard = rack.as_ref().map_or(0, |r| r.transpose);
         let name = rack.as_ref().map_or_else(|| NEW_NAME.to_string(), |r| r.name.clone());
-        self.state.live_rack = LiveRackState { name: name.clone(), id: rack.map(|r| r.id), modified: false, controls: Default::default(), prompt: None };
+        let controls = rack.as_ref().map(|r| r.controls.clone()).unwrap_or_default();
+        self.knobs.set_rack(&controls);
+        self.state.live_rack = LiveRackState { name: name.clone(), id: rack.map(|r| r.id), modified: false, controls, prompt: None };
         self.racks.clean = true;
         self.message(format!("Loaded {name}"), false);
     }
@@ -260,6 +284,7 @@ impl MockSession {
             names: s.keyboard_parts.iter().map(|k| k.sound.as_ref().map_or_else(|| k.voice_name.clone(), |t| t.name.clone())).collect(),
             split: s.chord.split,
             transpose: s.chord.transpose_keyboard,
+            controls: s.live_rack.controls.clone(),
         };
         self.racks.racks.retain(|r| r.id != id);
         self.racks.racks.push(rack);

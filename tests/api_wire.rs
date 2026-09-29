@@ -124,6 +124,8 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setSectionTempo","on":false}"#,
     // One Touch Settings and styles
     r#"{"type":"recallOts","index":3}"#,
+    r#"{"type":"setOtsRack","index":1,"id":"3f2a9c1e"}"#,
+    r#"{"type":"clearOtsRack","index":1}"#,
     r#"{"type":"setOtsLink","on":true}"#,
     r#"{"type":"toggleOtsLink"}"#,
     r#"{"type":"setOtsLinkTiming","timing":"mainChange"}"#,
@@ -251,8 +253,6 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setParamLock","item":"fingeringType","on":false}"#,
     // Sound catalog
     r#"{"type":"setSoundFavourite","id":"sf:GeneralUser-GS.sf2:0:0","on":true}"#,
-    r#"{"type":"auditionSound","id":"au:aumu Xf2X XFER"}"#,
-    r#"{"type":"stopSoundAudition"}"#,
     r#"{"type":"assignSound","part":0,"id":"saved:warm-pad"}"#,
     r#"{"type":"replacePartSound","part":1,"id":"saved:warm-pad"}"#,
     r#"{"type":"setSoundCategory","id":"au:aumu Xf2X XFER","category":"pad"}"#,
@@ -272,7 +272,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setAccentMode","mode":"fill"}"#,
     r#"{"type":"setAccentSource","source":"both"}"#,
     // Knob Assign pages (#197)
-    r#"{"type":"setKnobPage","page":"parts"}"#,
+    r#"{"type":"setKnobPage","page":"rack"}"#,
     r#"{"type":"stepKnobPage","delta":-1}"#,
     r#"{"type":"turnKnob","knob":3,"delta":-2}"#,
     r#"{"type":"resetKnob","knob":3}"#,
@@ -302,6 +302,10 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"duplicateRack","id":"r5f3a2c1d-0"}"#,
     r#"{"type":"deleteRack","id":"r5f3a2c1d-0"}"#,
     r#"{"type":"dismissRackPrompt"}"#,
+    r#"{"type":"setRackControl","control":"knob","index":4,"target":{"kind":"partPan","part":2}}"#,
+    r#"{"type":"setRackControl","control":"fader","index":0,"target":{"kind":"splitPoint"}}"#,
+    r#"{"type":"setRackControl","control":"knob","index":7,"target":{"kind":"none"}}"#,
+    r#"{"type":"moveRackFader","fader":1,"volume":90}"#,
     // Quick Racks
     r#"{"type":"pressQuickRack","slot":0}"#,
     r#"{"type":"pressQuickRack","slot":7,"discard":true}"#,
