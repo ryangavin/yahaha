@@ -130,6 +130,7 @@ impl Control {
                 self.fx.insert_amount[part as usize] = Some(amount.min(127));
             }
             FxCmd::SetRotaryFast { on } => self.fx.rotary_fast = on,
+            FxCmd::ToggleRotaryFast => self.fx.rotary_fast = !self.fx.rotary_fast,
             // Taken above.
             FxCmd::SetMasterCompressorOn { .. }
             | FxCmd::SetMasterCompressorPreset { .. }
@@ -505,6 +506,11 @@ mod tests {
         assert!(s.state().effects.rotary_fast);
         assert!(s.inner.lock().synth.as_ref().unwrap().control.fx.rotary_fast.load(Relaxed));
         s.send(FxCmd::SetRotaryFast { on: false }).unwrap();
+        s.send(FxCmd::ToggleRotaryFast).unwrap();
+        assert!(s.state().effects.rotary_fast, "toggled to fast");
+        assert!(s.inner.lock().synth.as_ref().unwrap().control.fx.rotary_fast.load(Relaxed));
+        s.send(FxCmd::ToggleRotaryFast).unwrap();
+        assert!(!s.state().effects.rotary_fast, "and back to slow");
         // Off: every part dry.
         s.send(FxCmd::SetInsertsOn { on: false }).unwrap();
         assert!(atomics(&s).iter().all(|&k| k == 0));
@@ -610,5 +616,28 @@ mod tests {
         // Following the style again takes its type at once.
         s.send(FxCmd::SetFollowStyle { block: FxBlock::Reverb, on: true }).unwrap();
         assert_eq!(types(&s)[0], FxType::Plate);
+    }
+
+    /// Organ Rotary Slow/Fast (RM p.140) is an assignable switch: software (a button, a
+    /// Toggle pedal) flips it, a Hold A pedal keeps it fast while down.
+    #[test]
+    fn rotary_fast_is_assignable() {
+        use crate::api::ControllersCmd;
+        use crate::controllers::Function;
+        use crate::session::Port;
+        let s = crate::session::testing::session();
+        let fast = |s: &Session| s.state().effects.rotary_fast;
+        s.send(ControllersCmd::TriggerFunction { function: Function::RotaryFast }).unwrap();
+        assert!(fast(&s), "a press: fast");
+        s.send(ControllersCmd::TriggerFunction { function: Function::RotaryFast }).unwrap();
+        assert!(!fast(&s), "again: slow");
+        let pedal = ControllersCmd::SetPedal { pedal: 1, cc: Some(66), function: Function::RotaryFast, control_type: Default::default(), reverse: false, range: Default::default() };
+        s.send(pedal).unwrap();
+        s.midi_in(Port::Keys, &[0xB0, 66, 127]);
+        s.advance(1_000_000);
+        assert!(fast(&s), "Hold A: fast while down");
+        s.midi_in(Port::Keys, &[0xB0, 66, 0]);
+        s.advance(1_000_000);
+        assert!(!fast(&s), "and slow when let go");
     }
 }

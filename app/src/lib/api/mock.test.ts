@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { MockSession, mockOtsEq, mockOtsInsert, noteName, transposeChord } from './mock'
 import { FLAT_EQ } from './types'
+import { functionCmd, functionInfo, functionSet } from './assignable'
 
 /** Milliseconds per bar at the mock's current tempo. */
 const bar = (m: MockSession) => (60000 / m.state.transport.tempo) * m.state.transport.beatsPerBar
@@ -459,5 +460,91 @@ describe('mock knobs (#197)', () => {
     const ret = m.state.effects.blocks[2].returnLevel
     m.send({ type: 'turnKnob', knob: 7, delta: -1 })
     expect(m.state.effects.blocks[2].returnLevel).toBe(ret - 2)
+  })
+
+  it('the Organ Rotary Slow/Fast function flips the rotary speed; a Hold pedal sets it', () => {
+    expect(functionInfo('rotaryFast')).toMatchObject({ name: 'Organ Rotary Slow/Fast', category: 'voice', kind: 'switch', available: true })
+    expect(functionCmd('rotaryFast', { fingering: 'fingered' })).toEqual({ type: 'toggleRotaryFast' })
+    expect(functionSet('rotaryFast', true)).toEqual({ type: 'setRotaryFast', on: true })
+    const m = new MockSession({ manual: true })
+    expect(m.state.effects.rotaryFast).toBe(false)
+    m.send({ type: 'toggleRotaryFast' })
+    expect(m.state.effects.rotaryFast).toBe(true)
+    m.send({ type: 'triggerFunction', function: 'rotaryFast' })
+    expect(m.state.effects.rotaryFast).toBe(false)
+  })
+
+  it('strip targets on the Rack knob page and the faders', () => {
+    const m = new MockSession({ manual: true })
+    // Right 2's insert 2 a distortion, on; one added send (send 4), Right 1 at 30 to it.
+    m.send({ type: 'setStripInsertKind', strip: 1, slot: 1, kind: 'distortion' })
+    m.send({ type: 'setStripInsertOn', strip: 1, slot: 1, on: true })
+    m.send({ type: 'setStripInsertSetting', strip: 1, slot: 1, setting: 1, value: 40 })
+    m.send({ type: 'addSend', kind: 'room' })
+    m.send({ type: 'setStripSend', strip: 0, send: 3, level: 30 })
+    const targets = [
+      { kind: 'partInsertSetting', part: 1, slot: 1, setting: 1 },
+      { kind: 'partInsertOn', part: 1, slot: 1 },
+      { kind: 'partSend', part: 0, send: 3 },
+      { kind: 'rotaryFast' },
+      { kind: 'partInsertSetting', part: 3, slot: 0, setting: 0 },
+      { kind: 'partSend', part: 0, send: 5 },
+      { kind: 'partDelay', part: 2 },
+      { kind: 'partSend', part: 1, send: 1 },
+    ] as const
+    targets.forEach((target, index) => m.send({ type: 'setRackControl', control: 'knob', index, target }))
+    m.send({ type: 'setKnobPage', page: 'rack' })
+    const k = () => m.state.knobs.knobs
+    expect(k().map((x) => [x.function, x.short])).toEqual([
+      ['insertSetting', 'R2 I2.2'], ['insertOn', 'R2 Ins2'], ['partSend', 'R1 Snd4'], ['rotaryFast', 'Rotary'],
+      ['insertSetting', 'L I1.1'], ['partSend', 'R1 Snd6'], ['partDelay', 'DlyR3'], ['partChorus', 'ChoR2'],
+    ])
+    expect(k()[0]).toMatchObject({ name: 'Right 2 Insert 2 Setting 2', value: 'Tone 40', level: 40 })
+    expect(k()[4]).toMatchObject({ value: '---', level: null })
+    expect(k()[5]).toMatchObject({ name: 'Right 1 Send 6', value: '---', level: null })
+    const insert = () => m.state.keyboardParts[1].strip.inserts[1]
+    // An insert setting: 2 a step for a 0-127 setting, reset to its kind's default.
+    m.send({ type: 'turnKnob', knob: 0, delta: 2 })
+    expect(insert().settings[1].value).toBe(44)
+    m.send({ type: 'resetKnob', knob: 0 })
+    expect(insert().settings[1].value).toBe(64)
+    // The slot's switch: stepped, left off; reset off.
+    m.send({ type: 'turnKnob', knob: 1, delta: -3 })
+    expect(insert().on).toBe(false)
+    m.send({ type: 'turnKnob', knob: 1, delta: 3 })
+    expect(insert().on).toBe(true)
+    m.send({ type: 'resetKnob', knob: 1 })
+    expect(insert().on).toBe(false)
+    // Send 4, there; send 6, not.
+    m.send({ type: 'turnKnob', knob: 2, delta: 1 })
+    expect(m.state.keyboardParts[0].strip.sends[3]).toBe(32)
+    m.state.message = null
+    m.send({ type: 'turnKnob', knob: 5, delta: 1 })
+    expect(m.state.message).toBeNull()
+    // The rotary: right fast, left slow.
+    m.send({ type: 'turnKnob', knob: 3, delta: 3 })
+    expect(m.state.effects.rotaryFast).toBe(true)
+    expect(k()[3]).toMatchObject({ value: 'Fast', level: 127 })
+    m.send({ type: 'resetKnob', knob: 3 })
+    expect(m.state.effects.rotaryFast).toBe(false)
+    // The delay send is the Variation send; send 2 the chorus send.
+    m.send({ type: 'turnKnob', knob: 6, delta: 1 })
+    expect(m.state.keyboardParts[2].variation).toBe(2)
+
+    // Faders: a setting across its range, a switch on from 64, a send 4-6 while it's there.
+    const fader = (target: (typeof targets)[number], volume: number) => {
+      m.send({ type: 'setRackControl', control: 'fader', index: 0, target })
+      m.send({ type: 'moveRackFader', fader: 0, volume })
+    }
+    fader(targets[0], 127)
+    expect(insert().settings[1].value).toBe(127)
+    fader(targets[1], 100)
+    expect(insert().on).toBe(true)
+    fader(targets[2], 77)
+    expect(m.state.keyboardParts[0].strip.sends[3]).toBe(77)
+    fader(targets[3], 127)
+    expect(m.state.effects.rotaryFast).toBe(true)
+    fader(targets[3], 10)
+    expect(m.state.effects.rotaryFast).toBe(false)
   })
 })

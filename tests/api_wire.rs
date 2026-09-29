@@ -293,6 +293,7 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartInsertOn","part":3,"on":false}"#,
     r#"{"type":"setPartInsertAmount","part":3,"amount":100}"#,
     r#"{"type":"setRotaryFast","on":true}"#,
+    r#"{"type":"toggleRotaryFast"}"#,
     r#"{"type":"setMasterCompressorOn","on":true}"#,
     r#"{"type":"setMasterCompressorPreset","preset":"punchy"}"#,
     r#"{"type":"setMasterCompressorParam","param":"output","value":-3}"#,
@@ -314,6 +315,9 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setSendReturn","send":3,"level":80}"#,
     r#"{"type":"setRackSendOverride","send":1,"on":true}"#,
     r#"{"type":"removeSend","send":3}"#,
+    r#"{"type":"setStripTone","strip":0,"control":"cutoff","value":80}"#,
+    r#"{"type":"setStripMono","strip":1,"on":true}"#,
+    r#"{"type":"setStripPortamento","strip":2,"on":true,"time":40}"#,
     r#"{"type":"newRack"}"#,
     r#"{"type":"newRack","discard":true}"#,
     r#"{"type":"loadRack","id":"r5f3a2c1d-0"}"#,
@@ -456,7 +460,7 @@ fn strip_examples_are_accepted() {
             n += 1;
         }
     }
-    assert_eq!(n, 14, "one of each strip command");
+    assert_eq!(n, 17, "one of each strip command");
 }
 
 #[test]

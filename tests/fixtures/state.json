@@ -405,7 +405,22 @@
           0,
           0,
           0
-        ]
+        ],
+        "tone": {
+          "cutoff": 64,
+          "resonance": 64,
+          "attack": 64,
+          "decay": 64,
+          "release": 64,
+          "vibratoRate": 64,
+          "vibratoDepth": 64,
+          "vibratoDelay": 64
+        },
+        "mono": false,
+        "portamento": {
+          "on": false,
+          "time": 0
+        }
       },
       "patch": null
     },
@@ -475,7 +490,22 @@
           0,
           0,
           0
-        ]
+        ],
+        "tone": {
+          "cutoff": 64,
+          "resonance": 64,
+          "attack": 64,
+          "decay": 64,
+          "release": 64,
+          "vibratoRate": 64,
+          "vibratoDepth": 64,
+          "vibratoDelay": 64
+        },
+        "mono": false,
+        "portamento": {
+          "on": false,
+          "time": 0
+        }
       },
       "patch": null
     },
@@ -545,7 +575,22 @@
           0,
           0,
           0
-        ]
+        ],
+        "tone": {
+          "cutoff": 64,
+          "resonance": 64,
+          "attack": 64,
+          "decay": 64,
+          "release": 64,
+          "vibratoRate": 64,
+          "vibratoDepth": 64,
+          "vibratoDelay": 64
+        },
+        "mono": false,
+        "portamento": {
+          "on": false,
+          "time": 0
+        }
       },
       "patch": null
     },
@@ -615,7 +660,22 @@
           0,
           0,
           0
-        ]
+        ],
+        "tone": {
+          "cutoff": 64,
+          "resonance": 64,
+          "attack": 64,
+          "decay": 64,
+          "release": 64,
+          "vibratoRate": 64,
+          "vibratoDepth": 64,
+          "vibratoDelay": 64
+        },
+        "mono": false,
+        "portamento": {
+          "on": false,
+          "time": 0
+        }
       },
       "patch": null
     }
@@ -683,7 +743,22 @@
             0,
             0,
             0
-          ]
+          ],
+          "tone": {
+            "cutoff": 64,
+            "resonance": 64,
+            "attack": 64,
+            "decay": 64,
+            "release": 64,
+            "vibratoRate": 64,
+            "vibratoDepth": 64,
+            "vibratoDelay": 64
+          },
+          "mono": false,
+          "portamento": {
+            "on": false,
+            "time": 0
+          }
         }
       },
       {
@@ -743,7 +818,22 @@
             0,
             0,
             0
-          ]
+          ],
+          "tone": {
+            "cutoff": 64,
+            "resonance": 64,
+            "attack": 64,
+            "decay": 64,
+            "release": 64,
+            "vibratoRate": 64,
+            "vibratoDepth": 64,
+            "vibratoDelay": 64
+          },
+          "mono": false,
+          "portamento": {
+            "on": false,
+            "time": 0
+          }
         }
       },
       {
@@ -803,7 +893,22 @@
             0,
             0,
             0
-          ]
+          ],
+          "tone": {
+            "cutoff": 64,
+            "resonance": 64,
+            "attack": 64,
+            "decay": 64,
+            "release": 64,
+            "vibratoRate": 64,
+            "vibratoDepth": 64,
+            "vibratoDelay": 64
+          },
+          "mono": false,
+          "portamento": {
+            "on": false,
+            "time": 0
+          }
         }
       },
       {
@@ -888,7 +993,22 @@
             0,
             0,
             0
-          ]
+          ],
+          "tone": {
+            "cutoff": 64,
+            "resonance": 64,
+            "attack": 64,
+            "decay": 64,
+            "release": 64,
+            "vibratoRate": 64,
+            "vibratoDepth": 64,
+            "vibratoDelay": 64
+          },
+          "mono": false,
+          "portamento": {
+            "on": false,
+            "time": 0
+          }
         }
       },
       {
@@ -942,7 +1062,22 @@
             0,
             0,
             0
-          ]
+          ],
+          "tone": {
+            "cutoff": 64,
+            "resonance": 64,
+            "attack": 64,
+            "decay": 64,
+            "release": 64,
+            "vibratoRate": 64,
+            "vibratoDepth": 64,
+            "vibratoDelay": 64
+          },
+          "mono": false,
+          "portamento": {
+            "on": false,
+            "time": 0
+          }
         }
       },
       {
@@ -1002,7 +1137,22 @@
             0,
             0,
             0
-          ]
+          ],
+          "tone": {
+            "cutoff": 64,
+            "resonance": 64,
+            "attack": 64,
+            "decay": 64,
+            "release": 64,
+            "vibratoRate": 64,
+            "vibratoDepth": 64,
+            "vibratoDelay": 64
+          },
+          "mono": false,
+          "portamento": {
+            "on": false,
+            "time": 0
+          }
         }
       },
       {
@@ -1062,7 +1212,22 @@
             0,
             0,
             0
-          ]
+          ],
+          "tone": {
+            "cutoff": 64,
+            "resonance": 64,
+            "attack": 64,
+            "decay": 64,
+            "release": 64,
+            "vibratoRate": 64,
+            "vibratoDepth": 64,
+            "vibratoDelay": 64
+          },
+          "mono": false,
+          "portamento": {
+            "on": false,
+            "time": 0
+          }
         }
       },
       {
@@ -1122,7 +1287,22 @@
             0,
             0,
             0
-          ]
+          ],
+          "tone": {
+            "cutoff": 64,
+            "resonance": 64,
+            "attack": 64,
+            "decay": 64,
+            "release": 64,
+            "vibratoRate": 64,
+            "vibratoDepth": 64,
+            "vibratoDelay": 64
+          },
+          "mono": false,
+          "portamento": {
+            "on": false,
+            "time": 0
+          }
         }
       }
     ],
