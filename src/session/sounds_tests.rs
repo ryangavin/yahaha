@@ -167,7 +167,7 @@ fn a_preset_auditions_and_an_unknown_plugin_is_refused() {
 fn the_catalog_check_never_reads_plugin_states() {
     use crate::patches::Patch;
     let data = folder("big-state");
-    let Some(s) = offline(&data) else { return };
+    let s = offline(&data);
     let big = |fill: char| "A".repeat(16 << 20) + &fill.to_string();
     let sound = Patch {
         id: "big".into(),

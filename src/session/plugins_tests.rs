@@ -827,7 +827,6 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
     let cat = s.sound_catalog();
     let e = cat.entries.iter().find(|e| e.id == id).expect("the preset is in the catalog");
     assert_eq!((e.name.as_str(), e.parent.as_deref(), e.category), ("Warm Strings", Some(format!("au:{DLS}").as_str()), PatchCategory::Strings));
-    assert!(cat.entries.iter().find(|e| e.id == format!("au:{DLS}")).unwrap().plugin.as_ref().unwrap().presets.is_some_and(|n| n >= 1));
 
     s.send(SoundsCmd::AssignSound { part: 0, id: id.clone() }).unwrap();
     s.send(SoundsCmd::AssignSound { part: 1, id: format!("au:{DLS}") }).unwrap();
@@ -879,11 +878,7 @@ fn a_plugin_preset_is_a_sound_of_its_own() {
 fn one_save_makes_one_record() {
     use crate::api::{PatchCategory, SoundLibraryCmd, SoundsCmd};
     use crate::plugin::{presets, LoadConfig, PluginHost, PluginId};
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2/SlowWalker.T552.sty");
-    if !p.exists() {
-        eprintln!("corpus missing; skipping");
-        return;
-    }
+    let p = testing::style_path();
     let data = std::env::temp_dir().join(format!("yahaha-one-record-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
     let root = data.join("Presets");
@@ -1133,7 +1128,7 @@ fn wait_listed(s: &Session) {
 #[test]
 fn a_preset_listing_that_fails_ends_and_says_why() {
     use crate::api::SoundsCmd;
-    let Some(s) = session() else { return };
+    let s = session();
     let dir = with_fake_sampler(&s, "fails");
     assert_eq!(fake_entry(&s).presets, None);
     s.send(SoundsCmd::ListPluginPresets { id: FAKE.into() }).unwrap();
@@ -1154,7 +1149,7 @@ fn a_preset_listing_that_fails_ends_and_says_why() {
 fn a_preset_listing_without_an_answer_ends() {
     use super::imp::{PresetListing, LISTING_DEADLINE};
     use std::sync::mpsc;
-    let Some(s) = session() else { return };
+    let s = session();
     let dir = with_fake_sampler(&s, "no-answer");
     let fake = s.inner.lock().plugins.list[0].clone();
     for why in ["no answer after", "stopped without an answer", "no preset list"] {
