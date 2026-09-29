@@ -113,6 +113,27 @@ describe('Rack panel: the head', () => {
     expect(tipped('rack.save_as_name')).toBeNull()
   })
 
+  it('Save as… stays open on a taken name: the error shows inline and the name is kept', async () => {
+    const { session } = setup()
+    await savedAndChanged(session)
+    await fireEvent.click(tipped('rack.save_as'))
+    const input = tipped('rack.save_as_name') as HTMLInputElement
+    await fireEvent.input(input, { target: { value: 'Ballad' } })
+    await fireEvent.click(tipped('rack.save_as_commit'))
+    session.advance(16)
+    flushSync()
+    expect(session.state.racks.map((r) => r.name)).toEqual(['Ballad'])
+    expect((tipped('rack.save_as_name') as HTMLInputElement).value).toBe('Ballad')
+    expect(document.querySelector('#rack-saveas-error')!.textContent).toContain('there is a rack called Ballad already')
+    // A free name then saves and closes the form.
+    await fireEvent.input(tipped('rack.save_as_name'), { target: { value: 'Ballad 2' } })
+    await fireEvent.click(tipped('rack.save_as_commit'))
+    session.advance(16)
+    flushSync()
+    expect(session.state.racks.map((r) => r.name)).toEqual(['Ballad', 'Ballad 2'])
+    expect(tipped('rack.save_as_name')).toBeNull()
+  })
+
   it('edited presets: a name field per part, prefilled, and the save is sent again with the names', async () => {
     const { session } = setup(false)
     session.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
@@ -132,6 +153,10 @@ describe('Rack panel: the head', () => {
     expect(document.querySelector('.form.names')!.textContent).toContain('Right 1 sound')
     expect(input.value).toBe(suggested)
     await fireEvent.input(input, { target: { value: 'My Keys' } })
+    // A state snapshot (a new prompt object, same prompt) arrives while typing: the name stays.
+    session.advance(16)
+    flushSync()
+    expect(input.value).toBe('My Keys')
     await fireEvent.click(tipped('rack.save_names'))
     session.advance(1000)
     flushSync()
@@ -175,6 +200,43 @@ describe('Rack panel: the head', () => {
     session.advance(16)
     flushSync()
     expect(session.state.liveRack).toMatchObject({ name: 'Ballad', id, modified: false, prompt: null })
+    expect(session.state.keyboardParts[0].volume).toBe(99)
+  })
+
+  it('Save first: the engine makes the switch, once; the panel sends only the save', async () => {
+    const { session } = setup()
+    await savedAndChanged(session)
+    session.send({ type: 'newRack' })
+    session.advance(16)
+    flushSync()
+    const sent: AppCmd[] = []
+    const orig = session.send.bind(session)
+    session.send = (c) => (sent.push(c), orig(c))
+    await fireEvent.click(tipped('rack.save_first'))
+    for (let i = 0; i < 4; i++) {
+      session.advance(16)
+      flushSync()
+    }
+    expect(sent).toEqual([{ type: 'saveRack' }])
+    expect(session.state.liveRack).toMatchObject({ name: 'New rack', id: null, modified: false, prompt: null })
+  })
+
+  it('a Save first whose save fails does not switch later', async () => {
+    const { session } = setup()
+    await savedAndChanged(session)
+    // Save as… a taken name while the unsaved-changes prompt is up: refused.
+    session.send({ type: 'newRack' })
+    session.send({ type: 'saveRackAs', name: 'Ballad' })
+    session.advance(16)
+    flushSync()
+    expect(session.state.liveRack).toMatchObject({ name: 'Ballad', modified: true })
+    // A later save saves, and stays on Ballad.
+    await fireEvent.click(tipped('rack.save'))
+    session.advance(16)
+    flushSync()
+    session.advance(16)
+    flushSync()
+    expect(session.state.liveRack).toMatchObject({ name: 'Ballad', modified: false, prompt: null })
     expect(session.state.keyboardParts[0].volume).toBe(99)
   })
 })

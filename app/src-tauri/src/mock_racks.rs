@@ -36,6 +36,8 @@ pub(super) struct MockRacks {
     seq: u32,
     /// A rack was just loaded or saved: the next `bump` takes what plays as unmodified.
     pub(super) clean: bool,
+    /// "Save first": the switch the unsaved-changes prompt held, made once the save is done.
+    held: Option<RackSwitch>,
 }
 
 const NEW_NAME: &str = "New rack";
@@ -86,8 +88,8 @@ impl MockSession {
                 Some(r) => self.switch_rack(Some(r), discard),
                 None => self.message(format!("no rack {id}"), true),
             },
-            RackCmd::SaveRack { sound_names } => self.save_rack(None, &sound_names),
-            RackCmd::SaveRackAs { name, sound_names } => self.save_rack(Some(name), &sound_names),
+            RackCmd::SaveRack { sound_names } => self.save_rack_holding(None, &sound_names),
+            RackCmd::SaveRackAs { name, sound_names } => self.save_rack_holding(Some(name), &sound_names),
             RackCmd::RevertRack => match self.state.live_rack.id.clone().and_then(|id| self.racks.find(&id).cloned()) {
                 Some(r) => self.enter_rack(Some(r)),
                 None => self.message(format!("{} has no saved rack to go back to", self.state.live_rack.name), true),
@@ -124,7 +126,10 @@ impl MockSession {
                 }
                 self.racks.racks.retain(|r| r.id != id);
             }
-            RackCmd::DismissRackPrompt => self.state.live_rack.prompt = None,
+            RackCmd::DismissRackPrompt => {
+                self.state.live_rack.prompt = None;
+                self.racks.held = None;
+            }
         }
     }
 
@@ -142,6 +147,7 @@ impl MockSession {
 
     /// The live rack becomes `rack` (None: a new one), unmodified.
     fn enter_rack(&mut self, rack: Option<MockRack>) {
+        self.racks.held = None;
         for p in 0..4 {
             let mix = rack.as_ref().map(|r| r.parts[p].clone()).unwrap_or(RackPartMix {
                 on: p == 0,
@@ -167,16 +173,39 @@ impl MockSession {
         self.message(format!("Loaded {name}"), false);
     }
 
-    fn save_rack(&mut self, save_as: Option<String>, names: &std::collections::BTreeMap<u8, String>) {
+    /// A save, with "Save first" as the session does it: sent while the unsaved-changes
+    /// prompt is up, the switch waits for the save and is made once saved; a failed save
+    /// drops it.
+    fn save_rack_holding(&mut self, save_as: Option<String>, names: &std::collections::BTreeMap<u8, String>) {
+        if let Some(RackPrompt::UnsavedChanges { then }) = self.state.live_rack.prompt.take() {
+            self.racks.held = Some(then);
+        }
+        match self.save_rack(save_as, names) {
+            Saved::Done => match self.racks.held.take() {
+                Some(RackSwitch::New) => self.switch_rack(None, false),
+                Some(RackSwitch::Load { id, .. }) => match self.racks.find(&id).cloned() {
+                    Some(r) => self.switch_rack(Some(r), false),
+                    None => self.message(format!("no rack {id}"), true),
+                },
+                None => {}
+            },
+            Saved::AskedNames => {}
+            Saved::Failed => self.racks.held = None,
+        }
+    }
+
+    fn save_rack(&mut self, save_as: Option<String>, names: &std::collections::BTreeMap<u8, String>) -> Saved {
         let own = self.state.live_rack.id.clone().and_then(|id| self.racks.find(&id).map(|r| (r.id.clone(), r.name.clone())));
         let (id, name) = match (&save_as, own) {
             (Some(n), _) => {
                 let n = n.trim().to_string();
                 if n.is_empty() {
-                    return self.message("a rack needs a name", true);
+                    self.message("a rack needs a name", true);
+                    return Saved::Failed;
                 }
                 if self.racks.taken(&n) {
-                    return self.message(format!("there is a rack called {n} already"), true);
+                    self.message(format!("there is a rack called {n} already"), true);
+                    return Saved::Failed;
                 }
                 (self.racks.new_id(), n)
             }
@@ -204,7 +233,7 @@ impl MockSession {
         }
         if !ask.is_empty() {
             self.state.live_rack.prompt = Some(RackPrompt::SoundNames { parts: ask, save_as: save_as.map(|_| name) });
-            return;
+            return Saved::AskedNames;
         }
         for c in saves {
             self.cmd(c.into());
@@ -238,5 +267,13 @@ impl MockSession {
         self.state.live_rack = LiveRackState { name: name.clone(), id: Some(id), modified: false, controls, prompt: None };
         self.racks.clean = true;
         self.message(format!("Saved {name}"), false);
+        Saved::Done
     }
+}
+
+/// How a mock save went.
+enum Saved {
+    Done,
+    AskedNames,
+    Failed,
 }

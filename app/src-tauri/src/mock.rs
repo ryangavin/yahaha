@@ -2774,6 +2774,19 @@ mod tests {
         assert_eq!(m.state.keyboard_parts[0].volume, 30);
         assert!(!m.state.live_rack.modified);
 
+        // Save first: a failed save drops the held switch; a good one makes it.
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 40 });
+        m.send(RackCmd::NewRack { discard: false });
+        m.send(RackCmd::SaveRackAs { name: "Ballad".into(), sound_names: Default::default() });
+        m.send(RackCmd::SaveRack { sound_names: Default::default() });
+        assert_eq!(m.state.live_rack.name, "Ballad", "no switch after a failed save");
+        m.send(PartsCmd::SetPartVolume { part: 0, volume: 30 });
+        m.send(RackCmd::NewRack { discard: false });
+        m.send(RackCmd::SaveRack { sound_names: Default::default() });
+        assert_eq!(m.state.live_rack.name, "New rack", "switched once saved");
+        m.send(RackCmd::LoadRack { id: id.clone(), discard: false });
+        assert_eq!(m.state.keyboard_parts[0].volume, 30);
+
         m.send(RackCmd::DuplicateRack { id: id.clone() });
         m.send(RackCmd::RenameRack { id: id.clone(), name: "Slow".into() });
         assert_eq!(m.state.racks.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["Ballad copy", "Slow"]);

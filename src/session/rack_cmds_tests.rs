@@ -145,6 +145,24 @@ fn switching_with_unsaved_changes_asks_unless_discarding() {
     assert_eq!(volume(&s, 0), 30);
     assert_eq!(live(&s), LiveRackState { name: "Ballad".into(), id: Some(ballad.clone()), modified: false, controls: ControlMap::default(), prompt: None });
 
+    // Save first from the prompt: the engine makes the held switch once saved.
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 60 }).unwrap();
+    assert_eq!(s.send(RackCmd::NewRack { discard: false }), Err(CmdError::UnsavedChanges));
+    s.send(RackCmd::SaveRack { sound_names: BTreeMap::new() }).unwrap();
+    assert_eq!(live(&s).name, NEW_NAME, "switched after the save");
+    s.send(RackCmd::LoadRack { id: ballad.clone(), discard: false }).unwrap();
+    assert_eq!(volume(&s, 0), 60, "saved first");
+
+    // A Save first whose save fails drops the switch: a later save doesn't switch.
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 40 }).unwrap();
+    assert_eq!(s.send(RackCmd::NewRack { discard: false }), Err(CmdError::UnsavedChanges));
+    assert!(save_as(&s, "Ballad").is_err(), "the name is taken");
+    s.send(RackCmd::SaveRack { sound_names: BTreeMap::new() }).unwrap();
+    assert_eq!(live(&s).name, "Ballad", "no switch");
+    s.send(RackCmd::LoadRack { id: ballad.clone(), discard: true }).unwrap();
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 30 }).unwrap();
+    s.send(RackCmd::SaveRack { sound_names: BTreeMap::new() }).unwrap();
+
     // Save first, then switch: no question.
     s.send(PartsCmd::SetPartVolume { part: 0, volume: 50 }).unwrap();
     s.send(RackCmd::SaveRack { sound_names: BTreeMap::new() }).unwrap();

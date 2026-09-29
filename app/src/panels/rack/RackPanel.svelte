@@ -22,8 +22,8 @@
   toggleOtsLink and the part commands in RackSlot), and the rack commands: Save rack
   (`saveRack`), Save as… (a name form, `saveRackAs`), Revert (`revertRack`, only when
   modified). `liveRack.prompt` shows inline under the head: `soundNames` as a name field
-  per edited part, resent with `soundNames`; `unsavedChanges` as Save first (`saveRack`,
-  then the switch), Discard and switch (the switch with `discard`) and Keep editing
+  per edited part, resent with `soundNames`; `unsavedChanges` as Save first (`saveRack`;
+  the engine makes the held switch once saved), Discard and switch (the switch with `discard`) and Keep editing
   (`dismissRackPrompt`).
 -->
 <script lang="ts">
@@ -61,26 +61,42 @@
   const prompt = $derived(rack.prompt)
   /** The Save as… form's rack name; null while the form is closed. */
   let saveAsName = $state<string | null>(null)
+  /** The Save as… form's error from the engine (a name taken), shown under the name. */
+  let saveAsError = $state<string | null>(null)
+  /** A Save as… sent and not yet answered: the name, the rack id and message seq before it. */
+  let saveAsSent = $state<{ name: string; id: string | null; seq: number } | null>(null)
   /** The names typed for a soundNames prompt, by part. */
   let soundNames = $state<Record<number, string>>({})
-  /** Save first: the switch to send once the save has gone through. */
-  let afterSave = $state<RackSwitch | null>(null)
   const canSave = $derived(rack.modified || rack.id === null)
 
-  // A new soundNames prompt starts from each preset's own name.
+  // A new soundNames prompt starts from each preset's own name. Keyed on the prompt's
+  // content, not its object: every state snapshot is a new object, and names being typed
+  // must survive them.
+  const soundNamesKey = $derived(prompt?.kind === 'soundNames' ? JSON.stringify([prompt.saveAs, prompt.parts]) : '')
   $effect(() => {
-    const p = prompt
+    const key = soundNamesKey
     untrack(() => {
-      soundNames = p?.kind === 'soundNames' ? Object.fromEntries(p.parts.map((x) => [x.part, x.suggested])) : {}
+      const p = prompt
+      soundNames = key && p?.kind === 'soundNames' ? Object.fromEntries(p.parts.map((x) => [x.part, x.suggested])) : {}
     })
   })
-  // Save first: once saved (unmodified, nothing asked), make the switch.
+  // Save as…: the form stays open until the engine answers. Saved (a new rack id under
+  // that name) closes it; a refusal (the name is taken) shows inline and keeps the name;
+  // a sound-names prompt carries the name on, so the form gives way to it.
   $effect(() => {
-    const pending = afterSave
-    if (!pending || rack.prompt || rack.modified) return
+    const sent = saveAsSent
+    if (!sent) return
+    const m = s.message
+    const r = rack
     untrack(() => {
-      afterSave = null
-      sendSwitch(pending, false)
+      if (r.prompt?.kind === 'soundNames') {
+        closeSaveAs()
+      } else if (m && m.error && m.seq !== sent.seq) {
+        saveAsError = m.text
+        saveAsSent = null
+      } else if (r.id !== null && r.id !== sent.id && r.name === sent.name) {
+        closeSaveAs()
+      }
     })
   })
 
@@ -99,8 +115,14 @@
     e.preventDefault()
     const name = saveAsName?.trim()
     if (!name) return
+    saveAsError = null
+    saveAsSent = { name, id: rack.id, seq: s.message?.seq ?? -1 }
     app.send({ type: 'saveRackAs', name })
+  }
+  function closeSaveAs() {
     saveAsName = null
+    saveAsError = null
+    saveAsSent = null
   }
   function submitSoundNames(e: SubmitEvent) {
     e.preventDefault()
@@ -109,12 +131,12 @@
     if (Object.values(names).some((n) => !n)) return
     app.send(prompt.saveAs === null ? { type: 'saveRack', soundNames: names } : { type: 'saveRackAs', name: prompt.saveAs, soundNames: names })
   }
-  function saveFirst(to: RackSwitch) {
-    afterSave = to
+  /** Save first: the engine holds the switch and makes it once the save is done (and
+   * drops it if the save fails), so the panel only saves. */
+  function saveFirst() {
     app.send({ type: 'saveRack' })
   }
   function keepEditing() {
-    afterSave = null
     app.send({ type: 'dismissRackPrompt' })
   }
 
@@ -152,7 +174,7 @@
       {#if rack.modified}<span class="dot">● modified</span>{/if}
       <span class="grow"></span>
       <button type="button" class="mini mat-raised" class:primary={canSave} aria-disabled={!canSave} use:tip={'rack.save'} onclick={saveRack}>Save rack</button>
-      <button type="button" class="mini mat-raised" aria-expanded={saveAsName !== null} use:tip={'rack.save_as'} onclick={() => (saveAsName = saveAsName === null ? (rack.id === null ? rackName(rack) : `${rack.name} copy`) : null)}>Save as…</button>
+      <button type="button" class="mini mat-raised" aria-expanded={saveAsName !== null} use:tip={'rack.save_as'} onclick={() => (saveAsName === null ? (saveAsName = rack.id === null ? rackName(rack) : `${rack.name} copy`) : closeSaveAs())}>Save as…</button>
       {#if rack.modified && rack.id !== null}<button type="button" class="mini mat-raised" use:tip={'rack.revert'} onclick={() => app.send({ type: 'revertRack' })}>Revert</button>{/if}
     </div>
 
@@ -160,7 +182,7 @@
       <div class="form unsaved" role="alert">
         <span>The rack has unsaved changes{prompt.then.kind === 'load' ? `: save them before loading ${prompt.then.name}?` : ': save them before starting a new rack?'}</span>
         <div class="row">
-          <button type="button" class="mini mat-raised primary" use:tip={'rack.save_first'} onclick={() => prompt.kind === 'unsavedChanges' && saveFirst(prompt.then)}>Save first</button>
+          <button type="button" class="mini mat-raised primary" use:tip={'rack.save_first'} onclick={saveFirst}>Save first</button>
           <button type="button" class="mini mat-raised" use:tip={'rack.discard_switch'} onclick={() => prompt.kind === 'unsavedChanges' && sendSwitch(prompt.then, true)}>Discard and switch</button>
           <button type="button" class="mini mat-raised" use:tip={'rack.keep_editing'} onclick={keepEditing}>Keep editing</button>
         </div>
@@ -184,11 +206,12 @@
       <form class="form saveas" onsubmit={submitSaveAs}>
         <div class="row">
           <label for="rack-saveas" class="k">Rack name</label>
-          <input id="rack-saveas" bind:value={saveAsName} placeholder="e.g. Sunday Gospel" use:focusName use:tip={'rack.save_as_name'} />
+          <input id="rack-saveas" bind:value={saveAsName} placeholder="e.g. Sunday Gospel" aria-invalid={saveAsError !== null} aria-describedby={saveAsError ? 'rack-saveas-error' : undefined} use:focusName use:tip={'rack.save_as_name'} />
         </div>
+        {#if saveAsError}<p id="rack-saveas-error" class="error" role="alert">{saveAsError}</p>{/if}
         <div class="row">
           <button type="submit" class="mini mat-raised primary" aria-disabled={!saveAsName.trim()} use:tip={'rack.save_as_commit'}>Save rack</button>
-          <button type="button" class="mini mat-raised" use:tip={'rack.cancel_save'} onclick={() => (saveAsName = null)}>Cancel</button>
+          <button type="button" class="mini mat-raised" use:tip={'rack.cancel_save'} onclick={closeSaveAs}>Cancel</button>
         </div>
       </form>
     {/if}
@@ -472,6 +495,10 @@
     max-width: 16rem;
     min-height: 1.9rem;
     font: inherit;
+  }
+  .form .error {
+    margin: 0;
+    color: var(--danger);
   }
   .mini[aria-disabled='true'] {
     opacity: 0.45;

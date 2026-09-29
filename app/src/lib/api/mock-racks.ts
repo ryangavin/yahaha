@@ -29,6 +29,8 @@ const DEFAULT_PROGRAMS = [0, 48, 61, 48]
 export class MockRacks {
   private racks: MockRack[] = []
   private seq = 0
+  /** "Save first": the switch to make once the save is done. */
+  private held: RackSwitch | null = null
 
   handles(cmd: AppCmd): cmd is RackCmd {
     return RACK_TYPES.has(cmd.type)
@@ -61,13 +63,23 @@ export class MockRacks {
       }
       case 'saveRack':
       case 'saveRackAs': {
+        // "Save first": the switch the unsaved-changes prompt held waits for this save and
+        // is made once saved, as the session does; a failed save drops it.
+        if (live.prompt?.kind === 'unsavedChanges') {
+          this.held = live.prompt.then
+          live.prompt = null
+        }
+        const failSave = (text: string) => {
+          this.held = null
+          fail(text)
+        }
         let name: string
         let id: string
         const own = live.id ? find(live.id) : undefined
         if (cmd.type === 'saveRackAs') {
           name = cmd.name.trim()
-          if (!name) return fail('a rack needs a name')
-          if (taken(name)) return fail(`there is a rack called ${name} already`)
+          if (!name) return failSave('a rack needs a name')
+          if (taken(name)) return failSave(`there is a rack called ${name} already`)
           id = this.newId()
         } else if (own) {
           ;({ name, id } = own)
@@ -96,6 +108,9 @@ export class MockRacks {
         Object.assign(live, { name, id, modified: false, prompt: null })
         ctx.clean()
         ctx.message(`Saved ${name}`)
+        const then = this.held
+        this.held = null
+        if (then) this.cmd(then.kind === 'load' ? { type: 'loadRack', id: then.id } : { type: 'newRack' }, ctx)
         return
       }
       case 'revertRack': {
@@ -130,12 +145,14 @@ export class MockRacks {
       }
       case 'dismissRackPrompt':
         live.prompt = null
+        this.held = null
         return
     }
   }
 
   /** The live rack becomes `rack` (null: a new one), unmodified. */
   private enter(rack: MockRack | null, ctx: RackCtx) {
+    this.held = null
     const st = ctx.state
     st.keyboardParts.forEach((p, part) => {
       const r = rack?.parts[part]

@@ -1261,7 +1261,9 @@ plugin states included. `{ name, id, modified, controls, prompt }`.
   or saved.
   - `{ "kind": "unsavedChanges", "then": { "kind": "load", "id", "name" } }` (or
     `"then": { "kind": "new" }`): `loadRack` / `newRack` with unsaved changes. The app
-    offers Save first (`saveRack`, then the switch), Discard and switch (the switch with
+    offers Save first (`saveRack` or `saveRackAs` while this prompt is up: the engine holds
+    the switch and makes it once the save is done, through a `soundNames` prompt if one
+    comes; a save that fails drops it, so the app never sends the switch itself), Discard and switch (the switch with
     `discard: true`) and Keep editing (`dismissRackPrompt`).
   - `{ "kind": "soundNames", "parts": [{ "part", "suggested" }], "saveAs" }`: `saveRack`
     (`saveAs` null) or `saveRackAs` (`saveAs` the rack's name) found edited presets that
