@@ -690,6 +690,7 @@ mod tests {
     /// An OTS recall sets each part's pan, reverb and chorus as its OTS track does (#198):
     /// over the corpus, the CC10/91/93 that `send_fx` sends after `apply_ots` are the last
     /// ones each part's channel carries in the raw OTSc track, and nothing else.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn ots_recalls_pan_and_sends_across_the_corpus() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2");
@@ -740,6 +741,7 @@ mod tests {
     /// An OTS recall sends each part's voice settings (#238): over the corpus, `send_tone`
     /// after `apply_ots` sends exactly the `TONE_CC` controllers each OTS part sets, on the
     /// part's channel, and its XG part parameters as SysEx for that channel's XG part.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn ots_recalls_voice_settings_across_the_corpus() {
         let (mut settings, mut ccs, mut sysex) = (0, 0, 0);

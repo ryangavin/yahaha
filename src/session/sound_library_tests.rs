@@ -599,6 +599,7 @@ fn channel_routes_follow_the_new_styles_voices() {
 /// B3 (review of #106): a patch naming a SoundFont that can't be read neither blocks the
 /// other extra SoundFonts nor sets the loader going again and again.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn a_bad_soundfont_does_not_loop_or_block_the_others() {
     let Some((s, data)) = session("b3", &["SlowWalker.T552.sty"], true) else { return };
     std::fs::write(data.join("sf").join("bad.sf2"), b"RIFF\x04\x00\x00\x00sfbk").unwrap();

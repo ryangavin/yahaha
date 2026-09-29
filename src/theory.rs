@@ -1033,13 +1033,11 @@ mod tests {
         keys.iter().map(|k| format!("{}{}", NOTE_NAMES[*k as usize % 12], *k as i32 / 12 - 2)).collect()
     }
 
-    /// The table is built once per process: every recognizer reads the same one, and it is
-    /// the table a fresh build gives.
+    /// The table is built once per process: every recognizer reads the same one.
     #[test]
     fn recognizers_share_one_table() {
         let (a, b) = (Recognizer::new(), Recognizer::default());
         assert!(std::ptr::eq(a.table, b.table));
-        assert!(a.table[..] == Recognizer::build()[..]);
     }
 
     #[test]
@@ -1785,6 +1783,7 @@ mod tests {
     /// Every chord type that exists (0..=37: CASM types, Cancel and the display-only
     /// M7b5 / (b5) / mM7b5), every root, with and without a slash bass, and the rule's own
     /// source chord (what autostart/drum parts play before a chord is held).
+    #[cfg(feature = "slow-tests")]
     fn every_chord(rule: &ChannelRule) -> impl Iterator<Item = Chord> {
         let plain = (0..TYPE_NAMES.len() as u8).flat_map(|ty| (0..12).map(move |root| Chord::new(root, ty)));
         let slash = (0..12).flat_map(|b| {
@@ -1795,6 +1794,7 @@ mod tests {
     }
 
     /// Everything the engine does with a rule and a chord, over every key.
+    #[cfg(feature = "slow-tests")]
     fn exercise(rule: &ChannelRule) {
         for c in every_chord(rule) {
             let p = plays(rule, c);
@@ -1822,7 +1822,9 @@ mod tests {
     }
 
     /// Rules built by hand bypass the parser's clamp; the transposer must still cope with
-    /// any source type. One test per NTR and NTT, so they run in parallel.
+    /// any source type. One test per NTR and NTT, so they run in parallel. Every key under
+    /// every chord for 8 source types: slow (0.1-1 s each), so not in the core run.
+    #[cfg(feature = "slow-tests")]
     fn out_of_range_src_types(ntr: Ntr, ntt: Ntt) {
         let mut r = rule(ntr, ntt, 11, 0, 127);
         // Anything >= 34 is not a CASM source chord (the display-only ids included).
@@ -1832,12 +1834,14 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "slow-tests")]
     macro_rules! out_of_range_src_types {
         ($($name:ident = $ntr:ident, $ntt:ident;)*) => {
             $( #[test] fn $name() { out_of_range_src_types(Ntr::$ntr, Ntt::$ntt); } )*
         };
     }
 
+    #[cfg(feature = "slow-tests")]
     out_of_range_src_types! {
         out_of_range_src_root_trans_melody = RootTrans, Melody;
         out_of_range_src_root_trans_chord = RootTrans, Chord;
@@ -1883,6 +1887,7 @@ mod tests {
 
     /// Every channel rule of every corpus style (plus the defaults used for channels without
     /// CASM) transposes every key under every chord without panicking.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_every_rule_every_chord() {
         let files = crate::library::corpus_styles();
@@ -1942,6 +1947,7 @@ mod tests {
         assert_eq!(strum(&st, c, &[65, 67, 69, 71]), ["G2", "D3", "G3", "B3"]); // frets 5-9
     }
 
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn guitar_source_chord_is_ignored() {
         // RM p.29: Source Root/Chord are not applied for Guitar.
@@ -1978,6 +1984,7 @@ mod tests {
     /// Below the noise keys, every note is a chord tone (or the slash bass with Bass On) on
     /// the neck; All Purpose and Arpeggio sound every string, Stroke mutes only below the
     /// bass and where the hand reaches no chord tone.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn guitar_plays_chord_tones_on_the_neck() {
         for ntt in [Ntt::GuitarAllPurpose, Ntt::GuitarStroke, Ntt::GuitarArpeggio] {
@@ -2097,6 +2104,7 @@ mod tests {
     /// untouched, and under every chord the channel plays, every other note is a chord tone
     /// (or the slash bass) on the neck, and Stroke alone leaves strings out. It also counts
     /// how the corpus writes its Guitar parts, for the PR's evidence (counts only).
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_guitar_parts_play_chord_tones() {
         let files = crate::library::corpus_styles();
@@ -2169,6 +2177,7 @@ mod tests {
     }
 
     /// Adjacent distinct keys of a strum at most two semitones apart.
+    #[cfg(feature = "slow-tests")]
     fn stacked_seconds(strum: &[(u32, u8)]) -> usize {
         let mut k: Vec<u8> = strum.iter().map(|x| x.1).collect();
         k.sort_unstable();

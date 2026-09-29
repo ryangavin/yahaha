@@ -40,7 +40,7 @@
 //! ([`PartInsert`]); a part played by a plugin gets its insert in the plugin rack.
 //!
 //! [`FxBus`] allocates everything in [`FxBus::new`]; [`FxBus::process_add`] never
-//! allocates, locks or blocks (`tests/synth_no_alloc.rs`). A block with no input whose
+//! allocates, locks or blocks (`tests/it/synth_no_alloc.rs`). A block with no input whose
 //! output has died away is skipped, so an idle bus costs next to nothing.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, Ordering::Relaxed};
@@ -388,6 +388,7 @@ mod tests {
     /// Each reverb type rings on after its input stops, for about its decay time, and
     /// then dies away; every type sits at a similar level, and the two sides differ
     /// (a stereo image, not two copies).
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn every_reverb_type_rings_and_dies_away() {
         let mut levels = Vec::new();
@@ -425,6 +426,7 @@ mod tests {
 
     /// No input: the bus adds nothing and does no work. The return level scales the wet
     /// signal (0 = off).
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn silence_stays_silent_and_the_return_scales_the_wet() {
         let ctl = FxControl::new();

@@ -274,6 +274,7 @@ mod tests {
 
     /// #236: every note value, triplets and dotted ones, at the tempo; with sync off, the
     /// free time in ms, whatever the tempo.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn the_time_is_a_note_value_or_free() {
         for (i, (beats, name)) in NOTES.iter().enumerate() {

@@ -2,9 +2,9 @@
 //! thread, the engine thread's Echo, arpeggio and Strum, and randomized play that must
 //! never leave a note sounding.
 
-use crate::api::{ArpQuantize, ArpVelocityMode, ChordCmd, HarmonyArpCmd, HarmonyAssign, HarmonySpeed, LibraryCmd, PartsCmd, SystemCmd, TransportCmd};
+use crate::api::{HarmonyArpCmd, HarmonySpeed, LibraryCmd, PartsCmd, SystemCmd};
 use crate::arp::library::PATTERNS;
-use crate::harmony::{HarmonyType, ALL_TYPES};
+use crate::harmony::HarmonyType;
 use crate::live::type_index;
 use crate::session::{Options, Port, Session};
 use std::path::{Path, PathBuf};
@@ -616,8 +616,10 @@ fn the_arpeggio_follows_a_style_change_to_another_resolution() {
 }
 
 /// A seeded random number generator (xorshift), for the randomized play.
+#[cfg(feature = "slow-tests")]
 struct Rng(u64);
 
+#[cfg(feature = "slow-tests")]
 impl Rng {
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
@@ -636,7 +638,10 @@ impl Rng {
 /// across resolutions, PANIC. Once every key is up and Hold and Keep Key On are off,
 /// nothing may be left sounding on the keyboard parts.
 #[test]
+#[cfg(feature = "slow-tests")]
 fn randomized_play_leaves_no_note_stuck() {
+    use crate::api::{ArpQuantize, ArpVelocityMode, ChordCmd, HarmonyAssign, TransportCmd};
+    use crate::harmony::ALL_TYPES;
     let Some(s) = session(&["SlowWalker.T552.sty", "TickingAway.T162.sty"]) else { return };
     let ids: Vec<usize> = s.library_list().entries.iter().map(|e| e.id).collect();
     let mut h = Heard::default();

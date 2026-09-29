@@ -587,7 +587,9 @@ fn unvalidated_patterns_do_not_panic_or_hang() {
     assert_eq!(check(&ev), 0);
 }
 
+#[cfg(feature = "slow-tests")]
 struct Rng(u32);
+#[cfg(feature = "slow-tests")]
 impl Rng {
     fn next(&mut self, n: u32) -> u32 {
         self.0 = xorshift(self.0);
@@ -595,6 +597,7 @@ impl Rng {
     }
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn fuzz_note_offs_always_balance() {
     for seed_ in 1..=40u32 {

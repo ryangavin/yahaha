@@ -1,34 +1,16 @@
 //! Multi Pads on the engine thread must not allocate or free: a bank swapped in and out,
 //! pads pressed, armed, stopped, played across a style change to another resolution and a
-//! tempo change, and Synchro Start / Stop. A counting global allocator (in this test binary
-//! only) checks `EngineLoop::step` through all of it.
+//! tempo change, and Synchro Start / Stop. The crate's counting allocator (`alloc_count`)
+//! checks `EngineLoop::step` through all of it.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::alloc_count::{count_here, counts};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use yahaha::engine::{Button, Engine, PadCmd, Prepared, SynchroStop, Transpose, PAD_PPQ};
 use yahaha::live::{self, Cmd, EngineLoop, Out, PadBank, Shared};
 use yahaha::multipad::{file::parse, synthetic, MultiPadPlayer, PadState};
 use yahaha::rt::{PacketSink, Target};
 use yahaha::sff::Style;
-
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static FREES: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        FREES.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
 
 fn prep(name: &str) -> Option<Box<Prepared>> {
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/MOX_v2").join(name);
@@ -54,7 +36,8 @@ fn multi_pads_do_not_allocate_on_the_engine_thread() {
     let chord = yahaha::parse_chord("F").unwrap();
     l.step(1);
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let on = count_here();
+    let (allocs, frees) = counts();
     let mut now = 1_000;
     let run = |l: &mut EngineLoop, now: &mut u64, until: u64| {
         while *now < until {
@@ -98,8 +81,9 @@ fn multi_pads_do_not_allocate_on_the_engine_thread() {
     ch.ui_tx.push(Cmd::Panic).ok().unwrap();
     ch.pad_tx.push(PadBank { player: None, tag: 3 }).ok().unwrap();
     l.step(now + 1);
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "allocations on the engine thread");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "frees on the engine thread");
+    assert_eq!(counts().0 - allocs, 0, "allocations on the engine thread");
+    assert_eq!(counts().1 - frees, 0, "frees on the engine thread");
+    drop(on);
 
     let snaps: Vec<_> = std::iter::from_fn(|| ch.snap_rx.pop().ok()).collect();
     assert!(snaps.iter().any(|s| s.multipad.states[2] == PadState::Armed));

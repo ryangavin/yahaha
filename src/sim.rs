@@ -606,6 +606,7 @@ mod tests {
 
     /// Every style under every chord type, including 1+8, Cancel and the display-only
     /// Data List types, which must play exactly like the CASM type they map to.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_every_chord_type() {
         use crate::theory::{casm_type, CANCEL, TYPE_NAMES};
@@ -646,6 +647,7 @@ mod tests {
 
     /// Chord Cancel is the no-chord state: every part except rhythm (and CASM autostart
     /// channels) goes quiet at once, and the band comes back on the next chord.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn chord_cancel_leaves_only_rhythm() {
         use crate::theory::{is_drum_part, CANCEL};
@@ -690,6 +692,7 @@ mod tests {
     }
 
     /// Notes sounding once everything at time `t` has been sent, as sorted (channel, key).
+    #[cfg(feature = "slow-tests")]
     fn held_at(rec: &Recorder, t: u64) -> Vec<(u8, u8)> {
         rec.sounding_at(t)
     }
@@ -699,6 +702,7 @@ mod tests {
     /// sound as if it had come exactly on the beat. (A note with less of it left than it
     /// has missed is not started, as it would be a blip, so keys the on-beat run strikes or
     /// releases within as long again are not compared.)
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn late_chord_after_no_chord_keeps_the_downbeat() {
         use crate::theory::CANCEL;
@@ -770,6 +774,7 @@ mod tests {
     }
 
     /// Channels whose every rule is a Guitar (other parts may retrigger a unison).
+    #[cfg(feature = "slow-tests")]
     fn guitar_channels(style: &Style) -> Vec<u8> {
         use crate::sff::Ntr;
         let rules: Vec<_> = style.casm.iter().flat_map(|s| &s.rules).collect();
@@ -785,6 +790,7 @@ mod tests {
     /// re-parted, so every corpus Guitar part rings the strings of that strum it rings
     /// when the chord lands on the beat. (Strings of earlier strums follow their
     /// retrigger rule in both cases.)
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_late_chord_restores_guitar_strings() {
         let mut styles = 0;
@@ -818,6 +824,7 @@ mod tests {
     /// 7#9) and through chord changes that re-pitch ringing strings, no Guitar part of any
     /// corpus style re-strikes a key another of its strings is ringing, and no two of its
     /// strings sound on one key.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_guitar_strikes_each_pitch_once() {
         let mut styles = 0;
@@ -863,6 +870,7 @@ mod tests {
     /// Bypass) play only the root for 1+8, and only root, 5th, 2nd and 4th for 1+5 (Guitar
     /// noise keys, which are not pitches, aside). The CASM chord-mute routing in the corpus
     /// always gives the bass something to play.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_one_plus_eight_and_one_plus_five() {
         use crate::sff::Ntt;
@@ -946,6 +954,7 @@ mod tests {
     /// Every style: play through intro, mains, fills, break, chord changes and ending.
     /// Afterwards the engine must be stopped with no sounding notes, and every note-on
     /// must have a matching note-off.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_full_performance_no_stuck_notes() {
         let files = corpus();
@@ -1027,6 +1036,7 @@ mod rtr {
     /// little after it (or, with `early`, all that long before the beat), over slash
     /// chords and, with `fold`, chords that fold voices together (1+8, 1+5; without it,
     /// major chords in their place).
+    #[cfg(feature = "slow-tests")]
     fn script(bar: u64, fold: bool, early: u64) -> (Vec<(u64, Step)>, Vec<u64>, u64) {
         let (one8, one5) = if fold { (30, 31) } else { (0, 0) };
         let chords = [Chord::new(0, 0), Chord::new(9, 10), Chord::new(7, one8), Chord::new(5, 2), Chord::new(2, one5),
@@ -1052,6 +1062,7 @@ mod rtr {
 
     /// A busy performance: a chord change every quarter bar, at an uneven moment, to any
     /// root and chord type (slash chords among them), through Main A-D, then Stop.
+    #[cfg(feature = "slow-tests")]
     fn busy_script(bar: u64, seed: u64) -> (Vec<(u64, Step)>, u64) {
         let mut x = seed;
         let mut rand = |n: u64| {
@@ -1076,6 +1087,7 @@ mod rtr {
     /// On the parts that follow chords, no note starts on a key its channel is already
     /// sounding (#46) and none lasts zero time (#49). On every part, no note is left
     /// sounding and no part is left bent. (Rhythm parts play as written, doubled hits too.)
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_chord_changes_leave_no_blips_or_doubled_keys() {
         let files = tests::corpus();
@@ -1145,6 +1157,7 @@ mod rtr {
     ///
     /// (Later on, the two runs may differ in which of two voices that met on one key kept
     /// sounding, and so in when it ends.)
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_pitch_shift_sounds_what_retrigger_would() {
         let files = tests::corpus();
@@ -1218,6 +1231,7 @@ mod rtr {
     /// again on the beat is left to end, not retriggered for a moment. Every note a chord
     /// change retriggers lasts at least `EARLY_CHORD_NS`. (A note it starts because its
     /// part comes in keeps at least as much of its written length as it has missed.)
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_early_chords_start_no_blips() {
         let files = tests::corpus();
@@ -1259,6 +1273,7 @@ mod rtr {
     /// Merengue's Main A at the bar line, with the bar length truncated to whole ns so the
     /// chord lands a fraction of a tick before the beat (review repro): ch12's notes that
     /// end on the beat used to be retriggered for 1 ns.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn chord_a_hair_before_the_beat_retriggers_nothing_that_ends_on_it() {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/T5Style/Merengue.T158.prs");
@@ -1285,6 +1300,7 @@ mod rtr {
     /// (review: TickingAway's bass slides a full octave down while shifted, and stopped at
     /// the end of the range). The part gets a wider range, up to 24, and never shifts by
     /// more than that range leaves over its patterns' widest bend; so no bend is clamped.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_pitch_shift_leaves_room_for_pattern_bends() {
         let files = tests::corpus();
@@ -2553,6 +2569,7 @@ mod mixer {
     /// Across the corpus, a section change never sends the program change of a voice the
     /// part already has, and sends SysEx only right after a program change it had to send
     /// (the part's XG parameters and the drum setup, which a program change resets).
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn corpus_section_changes_send_no_redundant_setup() {
         let files = super::tests::corpus();
@@ -2714,10 +2731,10 @@ mod mixer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "slow-tests"))]
 /// Retrigger Rule pitch shift under a chaotic live performance, checked through a model of
 /// the receiver (its RPN 0 bend range and pitch bend per channel), not the engine's own
-/// bookkeeping.
+/// bookkeeping. A corpus sweep: slow-tests only.
 mod rtr_chaos {
     use super::*;
     use crate::theory::is_drum_part;

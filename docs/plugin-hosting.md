@@ -25,7 +25,7 @@ Status:
 
 ```sh
 cargo test --profile test-fast --features plugins plugin                        # unit tests (Apple's DLSMusicDevice)
-cargo test --profile test-fast --features plugins --test plugin_rack_no_alloc   # the rack's audio path never allocates
+cargo test --profile test-fast --features plugins --test it plugin_rack_no_alloc   # the rack's audio path never allocates
 cargo build --release --features plugins
 ./target/release/yahaha plugin-test --list                  # installed instruments (cached scan)
 ./target/release/yahaha plugin-test "Serum 2" --bench       # load, state, CPU, swap latency; no audio device
@@ -86,7 +86,7 @@ is allocated there)
 - Audio thread, per callback: `begin_block()` (apply assigns / clears), `midi(m, offset) ->
   bool` for each message (true = a plugin slot took it; otherwise send it to rustysynth as
   now), `render_add(&mut l, &mut r)` (mixes every slot in, before master gain and the soft
-  clipper). None of these allocate or lock (`tests/plugin_rack_no_alloc.rs` counts).
+  clipper). None of these allocate or lock (`tests/it/plugin_rack_no_alloc.rs` counts).
 - Control thread: `assign(channel, instance, Swap { fade_frames, trim })`, `clear(channel,
   fade)`, `poll()` (events, and drops retired instances here), `poll_events()` /
   `take_retired()` (to keep a warm pool). Events: `Swapped { channel, latency }`,

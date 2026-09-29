@@ -92,6 +92,7 @@ fn scan_finds_dls_and_caches_it() {
 
 /// The player's "run in process" override is kept in the scan cache: a new host (the next
 /// launch) reads it back, and a rescan keeps it.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn the_in_process_override_is_cached_and_survives_a_rescan() {
     let dir = std::env::temp_dir().join(format!("yahaha-plugin-inproc-{}", std::process::id()));
@@ -135,6 +136,7 @@ fn midi_offsets_are_sample_accurate() {
     assert!((300..310).contains(&first), "note starts at frame {first}, asked for 300");
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn state_round_trips_and_preloads() {
     let mut inst = dls(512);
@@ -166,6 +168,7 @@ fn load_async_reports_progress_and_finishes() {
 /// Whoever drops a unit's last handle, it is disposed of on the `plugin-dispose` thread: an
 /// editor window closing on the main thread after its part moved on (the window's handle
 /// is the last one) never waits on the dispose (#104 PR 5).
+#[cfg(feature = "slow-tests")]
 #[test]
 fn the_last_handle_disposes_on_the_dispose_thread() {
     let log_len = || sys::DISPOSED.lock().unwrap().len();
@@ -197,6 +200,7 @@ fn the_last_handle_disposes_on_the_dispose_thread() {
     assert_eq!(disposed(raw, from), Some(true));
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn a_load_past_its_deadline_times_out_and_is_abandoned() {
     // No plugin hangs on demand; a zero deadline stands in for one that never returns.
@@ -218,6 +222,7 @@ fn unknown_plugins_fail_cleanly() {
     assert!(format!("{err:#}").contains("no instrument Audio Unit"), "{err:#}");
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn out_of_process_loading_works_for_v2_units() {
     // macOS 11+ can host any AU in the AUHostingService; this is the AUv3 path too.
@@ -356,6 +361,7 @@ fn slow_renders_are_counted_as_overruns() {
 /// A part's CC7 sent while the SoundFont still played it (before any plugin was assigned)
 /// sets the plugin's level too: the rack tracks it on unowned channels, while still leaving
 /// the message to the caller's synth.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn a_plugin_assigned_later_starts_at_the_parts_level() {
     let run = |cc7_before_assign: bool| {
@@ -416,6 +422,7 @@ fn pan_is_a_host_side_balance() {
 
 /// A second swap sent while the first is still crossfading waits for that fade to end,
 /// instead of cutting the outgoing instance off mid-fade.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn a_swap_during_a_crossfade_waits_for_it() {
     let (mut rack, mut ctl) = rack(64, RATE);
@@ -437,6 +444,7 @@ fn a_swap_during_a_crossfade_waits_for_it() {
 
 /// A command waiting for one channel's crossfade does not hold up another channel's
 /// (#104 review item 2): Right 2's assign, sent after Right 1's, lands at once.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn a_waiting_swap_does_not_hold_up_other_channels() {
     let (mut rack, mut ctl) = rack(64, RATE);
@@ -463,6 +471,7 @@ fn a_waiting_swap_does_not_hold_up_other_channels() {
 /// Two commands for a crossfading channel: the later one counts. A clear after an assign
 /// that was still waiting clears the channel, and the waiting instance goes back to the
 /// control side without playing.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn the_latest_waiting_command_for_a_channel_wins() {
     let (mut rack, mut ctl) = rack(64, RATE);
@@ -486,6 +495,7 @@ fn the_latest_waiting_command_for_a_channel_wins() {
 }
 
 /// The strongest autocorrelation lag (the pitch period, in samples) between `lo` and `hi`.
+#[cfg(feature = "slow-tests")]
 fn period(x: &[f32], lo: usize, hi: usize) -> usize {
     (lo..hi)
         .max_by(|&a, &b| {
@@ -498,6 +508,7 @@ fn period(x: &[f32], lo: usize, hi: usize) -> usize {
 /// A plugin assigned after the part's Pitch Bend Range (RPN 0) was set plays with that
 /// range: the rack replays RPN 0-2 into the incoming instance, as the SoundFont side's
 /// `Shadow` does for a new SoundFont (#105 review B1).
+#[cfg(feature = "slow-tests")]
 #[test]
 fn a_plugin_assigned_later_gets_the_parts_bend_range() {
     let run = |range_before_assign: bool| {
@@ -526,6 +537,7 @@ fn a_plugin_assigned_later_gets_the_parts_bend_range() {
 
 /// #247: the part's XG settings reach a plugin part in yahaha's terms. Its EQ plays on the
 /// plugin's output (flat: bit-identical), its velocity curve and mono on the notes it gets.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn a_plugin_part_plays_its_eq_velocity_curve_and_mono() {
     use crate::fx::part_eq::{EqCoeffs, PartEq};

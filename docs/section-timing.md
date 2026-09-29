@@ -19,7 +19,7 @@ and which parts are guesses because the manuals leave them open. Spec:
 | Commands | `live::Cmd::StyleSettings`; `Button::{Fade, SectionReset, Retrigger}` |
 | API | `src/api/style_settings.rs`, `TransportCmd::{ToggleFade, SectionReset, ToggleRetrigger}`, `TransportState::{fade, retrigger, ritardando}` |
 | Session | `src/session/style_settings.rs` (keeps the settings, sends the whole set) |
-| Tests | `src/engine/perform_tests.rs`, `tests/perform_no_alloc.rs`, `session_tests.rs` |
+| Tests | `src/engine/perform_tests.rs`, `tests/it/perform_no_alloc.rs`, `session_tests.rs` |
 
 ## Section Change Timing (#22)
 

@@ -1,14 +1,20 @@
 //! The style's channel setup (SInt) routed by each section's own channel rules (#64).
+//!
+//! The corpus sweeps here are slow, so they run only with the `slow-tests` feature.
 
 use super::*;
-use crate::engine::{id_of, slot_of, NUM_SLOTS};
+use crate::engine::slot_of;
+#[cfg(feature = "slow-tests")]
+use crate::engine::{id_of, NUM_SLOTS};
 
+#[cfg(feature = "slow-tests")]
 fn bar_ns(p: &Prepared) -> u64 {
     (60e9 / p.bpm * (p.tpb as f64 / p.ppq as f64)) as u64
 }
 
 /// A script that plays section slot `slot`: started into (an Intro, a Main), or reached
 /// from Main A (an Ending, a Fill, the Break) half a bar in.
+#[cfg(feature = "slow-tests")]
 fn reach(slot: usize, bar: u64) -> Vec<(u64, Step)> {
     let c = Step::Chord(Chord::new(0, 0));
     match id_of(slot) {
@@ -25,6 +31,7 @@ fn reach(slot: usize, bar: u64) -> Vec<(u64, Step)> {
 /// part (unless the section's pattern sets its own voice). Where a section routes another
 /// source channel to a part than Main A does, that is the other source's voice, not Main
 /// A's (the review of #59 counted 48 such cases in 5 styles).
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_sections_play_the_voices_they_route() {
     let files = tests::corpus();
@@ -84,6 +91,7 @@ fn corpus_sections_play_the_voices_they_route() {
 }
 
 /// When section slot `slot` plays under `script` (the first time): from, to.
+#[cfg(feature = "slow-tests")]
 fn section_span(style: &Style, script: &[(u64, Step)], slot: usize, end: u64) -> Option<(u64, u64)> {
     let (mut from, mut to) = (None, end);
     run_observed(Box::new(Prepared::new(style)), script, end, |e, now| {
@@ -115,6 +123,7 @@ fn one_setup_per_routing() {
 }
 
 /// The receiver's voice per channel after `out` (bank select + program change).
+#[cfg(feature = "slow-tests")]
 fn voices_after(out: &[(u64, Vec<u8>)]) -> [Option<(u8, u8, u8)>; 16] {
     let mut bank = [(0u8, 0u8); 16];
     let mut voice = [None; 16];
@@ -139,6 +148,7 @@ fn voices_after(out: &[(u64, Vec<u8>)]) -> [Option<(u8, u8, u8)>; 16] {
 /// Style part's expression is back to full, and after the swap the receiver has Main A's
 /// voices.
 /// Each channel's expression (CC11) after `out`: the last value sent, else full.
+#[cfg(feature = "slow-tests")]
 fn expression<'a>(out: impl Iterator<Item = &'a Vec<u8>>) -> [u8; 16] {
     let mut expr = [127u8; 16];
     for m in out {
@@ -149,6 +159,7 @@ fn expression<'a>(out: impl Iterator<Item = &'a Vec<u8>>) -> [u8; 16] {
     expr
 }
 
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
     let files = tests::corpus();
@@ -262,6 +273,7 @@ fn corpus_stopped_load_after_an_ending_sends_the_mains_setup() {
 /// each part plays in a section, its CC7 is the level the section's own routing of the
 /// setup gives it (a source channel rerouted to the part brings its level with its
 /// voice), unless the section's pattern sets its own CC7 on the part.
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_sections_play_the_levels_they_route() {
     let files = tests::corpus();

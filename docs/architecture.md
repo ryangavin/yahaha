@@ -56,8 +56,8 @@ Between the real-time threads and the control side there are only lock-free thin
 
 Anything that must be allocated (a style, a preview, a feature's tables) is built on the
 control side, sent in through a ring as a `Box`, and sent back out through another ring
-to be dropped there. `tests/engine_no_alloc.rs`, `tests/input_no_alloc.rs` and
-`tests/arp_no_alloc.rs` check the rule with a counting allocator.
+to be dropped there. `tests/it/engine_no_alloc.rs`, `tests/it/input_no_alloc.rs` and
+`tests/it/arp_no_alloc.rs` check the rule with a counting allocator.
 
 An **offline** session (`Session::offline`, `session/offline.rs`) has no threads: the engine
 runs on a virtual clock that `Session::advance` moves, and `Session::midi_in` plays the

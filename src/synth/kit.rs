@@ -723,15 +723,9 @@ mod tests {
     use super::*;
     use crate::synth::drum_setup::PARAMS;
 
-    /// The smallest SoundFont in the checkout's soundfonts/ (None: skip).
+    /// The smallest SoundFont in the checkout's soundfonts/ (None: skip), loaded once.
     fn font() -> Option<Arc<SoundFont>> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");
-        let f = crate::library::sound_font_files(&dir).into_iter().map(|f| dir.join(f)).min_by_key(|p| p.metadata().map(|m| m.len()).unwrap_or(u64::MAX));
-        let Some(f) = f else {
-            eprintln!("no SoundFont; skipping");
-            return None;
-        };
-        Some(crate::synth::font::open(&f).unwrap())
+        crate::synth::rack_tests::font()
     }
 
     /// Setup parameters: `(key, parameter, value)`.
@@ -771,6 +765,7 @@ mod tests {
     /// sets, which play with their settings in their generators; it holds that preset
     /// alone, and only the samples it plays. Prints the build's cost for each font (the
     /// PR's measurements).
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn a_kit_plays_its_preset_with_the_setup_baked_in() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("soundfonts");

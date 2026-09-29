@@ -1,29 +1,13 @@
 //! The plugin rack's audio-thread calls (`begin_block`, `midi`, `render_add`), including a
 //! swap, a crossfade and a clear, must not allocate on the host side (a fault only sets a
-//! flag and pushes an event; `plugin::tests` covers its behaviour). A counting
-//! global allocator (in this test binary only) checks it. What the plugin itself does in its
-//! render is its own business and does not go through Rust's allocator.
+//! flag and pushes an event; `plugin::tests` covers its behaviour). The crate's counting
+//! allocator (`alloc_count`, on the test's own thread, which plays the audio thread) checks
+//! it. What the plugin itself does in its render is its own business and does not go
+//! through Rust's allocator.
 #![cfg(feature = "plugins")]
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::alloc_count::counted;
 use yahaha::plugin::{LoadConfig, PluginHost, PluginId, PluginInstance, Swap, rack};
-
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
 
 fn dls() -> PluginInstance {
     PluginHost::new(None).load(&PluginId::DLS, LoadConfig { max_frames: 256, ..Default::default() }).unwrap()
@@ -35,15 +19,16 @@ fn rack_audio_path_does_not_allocate() {
     let (a, b) = (dls(), dls());
     let (mut l, mut r) = (vec![0f32; 256], vec![0f32; 256]);
     let mut run = |rack: &mut yahaha::plugin::PluginRack, msgs: &[[u8; 3]]| -> usize {
-        let before = ALLOCS.load(Ordering::Relaxed);
-        rack.begin_block();
-        for m in msgs {
-            rack.midi(*m, 17);
-        }
-        l.fill(0.0);
-        r.fill(0.0);
-        rack.render_add(&mut l, &mut r);
-        ALLOCS.load(Ordering::Relaxed) - before
+        counted(|| {
+            rack.begin_block();
+            for m in msgs {
+                rack.midi(*m, 17);
+            }
+            l.fill(0.0);
+            r.fill(0.0);
+            rack.render_add(&mut l, &mut r);
+        })
+        .0
     };
     ctl.assign(0, a, Swap::default()).ok().unwrap();
     assert_eq!(run(&mut rack, &[[0xB0, 7, 110], [0xB0, 1, 40], [0xE0, 0, 70], [0x90, 60, 100], [0x90, 64, 100]]), 0, "assign + notes");

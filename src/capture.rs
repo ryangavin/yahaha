@@ -1318,6 +1318,7 @@ mod tests {
     /// The kit file plays the script's keys on channel 1 after the lead-in, a 64th note ahead
     /// of their slot except the first, with a Section Control press for every button half a
     /// beat ahead of its slot.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn kit_midi_plays_the_script() {
         let Some(style) = corpus_style(KIT[0].file) else {
@@ -1363,6 +1364,12 @@ mod tests {
         assert!(pressed(2400), "slot beat 2 of bar 2: press at 2160, in beat 1");
         assert!(!pressed(2880), "slot beat 3 of bar 2: press at 2640, in beat 2");
         assert!(!pressed(3840), "slot on bar 3's downbeat: press at 3600, in bar 2's beat 4");
+    }
+
+    /// The kit file refuses a button that would press in a bar's first beat.
+    #[cfg(feature = "slow-tests")]
+    #[test]
+    fn kit_midi_refuses_first_beat_presses() {
         let Some(style) = corpus_style(KIT[0].file) else {
             return;
         };
@@ -1374,6 +1381,7 @@ mod tests {
     }
 
     /// How a fake recording differs from a perfect one.
+    #[cfg(feature = "slow-tests")]
     struct Fake {
         /// Random MIDI jitter on the style notes, up to this many ms either way.
         jitter_ms: f64,
@@ -1390,10 +1398,12 @@ mod tests {
         type1: bool,
     }
 
+    #[cfg(feature = "slow-tests")]
     const FAKE: Fake = Fake { jitter_ms: 4.0, speed: 1.0, rec_bpm: 120.0, kit_speed: 1.0, noodling: false, type1: false };
 
     /// A fake recording of a take: other ppq and clock, bar 1 somewhere in the file, MIDI
     /// jitter, chord messages, and the instrument's keyboard echo on channel 4.
+    #[cfg(feature = "slow-tests")]
     fn fake(take: &Take, f: &Fake, tweak: impl Fn(&mut PlayedNote)) -> Vec<u8> {
         let ppq = 480u16;
         let bar1 = 3.217;
@@ -1460,6 +1470,7 @@ mod tests {
         out
     }
 
+    #[cfg(feature = "slow-tests")]
     fn fake_recording(take: &Take, jitter_ms: f64, speed: f64, tweak: impl Fn(&mut PlayedNote)) -> Vec<u8> {
         fake(take, &Fake { jitter_ms, speed, ..FAKE }, tweak)
     }
@@ -1467,6 +1478,7 @@ mod tests {
     /// A recording of exactly what we play (jittered, shifted, another clock) imports with no
     /// differences, verifies, and its reference digest is our own. Every kit style in the
     /// corpus.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn import_round_trip() {
         for k in &KIT {
@@ -1494,6 +1506,7 @@ mod tests {
 
     /// A type 1 file with the tempo on its own track, at another tempo, with notes played
     /// before bar 1: those are ignored and said so, and the rest imports as before.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn import_type1_with_notes_before_bar_1() {
         let Some(style) = corpus_style(KIT[1].file) else {
@@ -1511,6 +1524,7 @@ mod tests {
     }
 
     /// A changed bass note shows up in its bar and part only; a wrong tempo fails verification.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn import_reports_differences() {
         let Some(style) = corpus_style(KIT[0].file) else {
@@ -1539,6 +1553,7 @@ mod tests {
     }
 
     /// A fake recording with its Chord Control messages taken out.
+    #[cfg(feature = "slow-tests")]
     fn without_chord_messages(rec: &[u8]) -> Vec<u8> {
         let per_q = 60.0 / FAKE.rec_bpm / 480.0;
         let ev: Vec<(u32, Vec<u8>)> = read_smf(rec)
@@ -1560,6 +1575,7 @@ mod tests {
     /// style's clock budget, a recording verifies. Off by twice the budget it does not, with
     /// or without chord messages, and the report says what helps: a kit made with
     /// `--clock-ppm` at the measured drift, which verifies again. Recording again does not.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn import_clock_drift_over_every_style() {
         let mut ran = false;
@@ -1611,6 +1627,7 @@ mod tests {
 
     /// `--clock-ppm` makes the kit file's tempo that much faster, to the microsecond the
     /// tempo meta event carries, and changes nothing else.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn kit_clock_correction_sets_the_tempo() {
         let Some(style) = corpus_style(KIT[0].file) else {
@@ -1629,6 +1646,7 @@ mod tests {
     }
 
     /// A section button the instrument did not take changes the drums: not verified.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn import_rejects_a_missed_section_change() {
         let Some(style) = corpus_style(KIT[0].file) else {
@@ -1644,6 +1662,7 @@ mod tests {
 
     /// `--golden` refuses an unverified recording unless forced, and writes the digest and a
     /// `.known` list naming the recording by file name only.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn write_reference_files() {
         let Some(style) = corpus_style(KIT[0].file) else {
@@ -1677,6 +1696,7 @@ mod tests {
 
     /// The reference digest depends on the notes and the script only: moving one of our
     /// section changes (as an M2 fix might) leaves it alone, while the golden listing changes.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn reference_digest_ignores_our_sections() {
         let Some(style) = corpus_style(KIT[0].file) else {
@@ -1698,6 +1718,7 @@ mod tests {
     /// after a start, `EARLY_CHORD_MS` before a start or end), so most kit styles have no
     /// such cells. Steps sent on the beat line (as the golden snapshots time them) are not
     /// safe at all.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn kit_timing_survives_jitter() {
         // The same sections, and the same notes (give or take the jitter) outside `skip`: a
@@ -1777,6 +1798,7 @@ mod tests {
     /// patterns leave some chords less room than that) imports verified, with no differing
     /// bars, and with the cells where it differs reported apart. The same take with a note
     /// changed outside those cells is still a difference.
+    #[cfg(feature = "slow-tests")]
     #[test]
     fn timing_sensitive_bars_accept_either_outcome() {
         let mut seen = false;

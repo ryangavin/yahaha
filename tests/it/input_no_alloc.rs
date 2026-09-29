@@ -1,56 +1,21 @@
 //! The MIDI input thread must not allocate or free: the keyboard-part note path
 //! (src/live/pipeline.rs: note in, transpose, processor, part routing and output) and the
-//! chord section's recognition run there for every key. A counting global allocator (in
-//! this test binary only) checks `Input::packet` through both hands, layered parts, a
-//! transpose, retriggers, pedals, wheels, the pedals' assignable functions and aftertouch.
+//! chord section's recognition run there for every key. The crate's counting allocator
+//! (`alloc_count`, on the test's own thread, which plays the input thread) checks
+//! `Input::packet` through both hands, layered parts, a transpose, retriggers, pedals,
+//! wheels, the pedals' assignable functions and aftertouch.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::alloc_count::{count_here, counts};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use yahaha::live::{FxConfig, FxMode, Input, Out, Shared};
 use yahaha::midi::InputHandler;
 use yahaha::rt::{PacketSink, Target};
 use yahaha::theory::Recognizer;
 
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static FREES: AtomicUsize = AtomicUsize::new(0);
-
-thread_local! {
-    /// Set on the thread playing the input thread: only its allocations are counted, so the
-    /// test harness reporting another test's result on its own thread never shows up here.
-    static INPUT_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-fn counted() -> bool {
-    INPUT_THREAD.try_with(|t| t.get()).unwrap_or(false)
-}
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        if counted() {
-            ALLOCS.fetch_add(1, Ordering::Relaxed);
-        }
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        if counted() {
-            FREES.fetch_add(1, Ordering::Relaxed);
-        }
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
-
-/// The tests take turns, and each counts only its own thread (see `INPUT_THREAD`).
-static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 #[test]
 fn keyboard_note_path_does_not_allocate() {
-    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
-    INPUT_THREAD.set(true);
+    let _on = count_here();
     let shared = Arc::new(Shared::new(54));
     for p in 0..3 {
         shared.parts.on[p].store(true, Ordering::Relaxed);
@@ -73,7 +38,7 @@ fn keyboard_note_path_does_not_allocate() {
     // With the performance view collecting (`perf`): packets and their latency.
     yahaha::perf::enable();
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     input.packet(1, yahaha::rt::host_now(), &[0x90, 62, 100, 0x80, 62, 0]);
     let (mut assigned, mut strikes, mut levels, mut holds, mut rack_faders, mut knobs) = (0, 0, 0, 0, 0, 0);
     for round in 0..50u8 {
@@ -156,8 +121,8 @@ fn keyboard_note_path_does_not_allocate() {
         input.end_of_list();
         ctl.reset(&mut |_| {});
     }
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "the input thread allocated");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "the input thread freed");
+    assert_eq!(counts().0 - allocs, 0, "the input thread allocated");
+    assert_eq!(counts().1 - frees, 0, "the input thread freed");
     assert!(assigned > 0, "OTS + went through the actions ring");
     assert!(strikes > 0, "chord-section strikes went to the engine");
     assert!(levels > 0, "the Dynamics Control pedal went to the engine");
@@ -170,8 +135,7 @@ fn keyboard_note_path_does_not_allocate() {
 /// the engine thread's ring), Multi Assign and the arpeggio, switched while keys are down.
 #[test]
 fn harmony_and_arpeggio_processor_does_not_allocate() {
-    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
-    INPUT_THREAD.set(true);
+    let _on = count_here();
     let shared = Arc::new(Shared::new(54));
     for p in 0..3 {
         shared.parts.on[p].store(true, Ordering::Relaxed);
@@ -192,7 +156,7 @@ fn harmony_and_arpeggio_processor_does_not_allocate() {
     input.packet(1, 0, &[0x90, 60, 100, 0x80, 60, 0]);
     input.end_of_list();
 
-    let (allocs, frees) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let (allocs, frees) = counts();
     for round in 0..4u8 {
         for &w in &configs {
             shared.kbd_fx.store(w, Ordering::Relaxed);
@@ -210,6 +174,6 @@ fn harmony_and_arpeggio_processor_does_not_allocate() {
         input.end_of_list();
         while fx_rx.pop().is_ok() {}
     }
-    assert_eq!(ALLOCS.load(Ordering::Relaxed) - allocs, 0, "the input thread allocated");
-    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0, "the input thread freed");
+    assert_eq!(counts().0 - allocs, 0, "the input thread allocated");
+    assert_eq!(counts().1 - frees, 0, "the input thread freed");
 }

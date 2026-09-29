@@ -9,7 +9,7 @@
 //!
 //! The rules the engine's own code keeps apply here too: deterministic (time is the `now`
 //! passed in, never the wall clock), and no allocation or freeing (the engine runs on the
-//! real-time thread; `tests/engine_no_alloc.rs` checks it). An `Engine` also plays style
+//! real-time thread; `tests/it/engine_no_alloc.rs` checks it). An `Engine` also plays style
 //! previews (`live::Audition`): hooks run there too.
 //!
 //! | Hook | When |

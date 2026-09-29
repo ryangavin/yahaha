@@ -206,6 +206,7 @@ fn synchro_restart_after_an_ending_has_main_a_levels() {
 
 /// Every corpus style, both Endings: Main A pressed in the Ending's last bar starts at
 /// the levels Main A starts at fresh (expression and the style's part levels).
+#[cfg(feature = "slow-tests")]
 #[test]
 fn corpus_main_after_an_ending_has_the_main_levels() {
     let mut paths = Vec::new();

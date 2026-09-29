@@ -58,7 +58,7 @@
 //!
 //! Nothing here allocates: the generators are fixed-size, built on the control side
 //! (`channels`) and rebuilt in place (library patterns are borrowed, so `set_pattern`
-//! frees nothing). `tests/engine_no_alloc.rs` covers it.
+//! frees nothing). `tests/it/engine_no_alloc.rs` covers it.
 
 use super::*;
 use crate::arp::{self, library::PATTERNS, Arp, ArpSink, Quantize, Velocity};

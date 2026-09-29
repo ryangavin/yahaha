@@ -305,7 +305,7 @@ fn the_racks_list_names_library_sounds() {
 }
 
 /// Saving edited plugin sounds with the rack, on DLSMusicDevice.
-#[cfg(feature = "plugins")]
+#[cfg(all(feature = "plugins", feature = "slow-tests"))]
 mod plugins {
     use super::*;
     use crate::patches::PatchSource;

@@ -3,50 +3,19 @@
 //! master fader, a SoundFont swap, and (feature `plugins`) a
 //! keyboard part going over to an Audio Unit instrument (Apple's DLSMusicDevice), playing
 //! it, crossfading to a second instance, and back to the SoundFont. SoundFont swaps while
-//! the control side is not taking old racks back must not free one either. A counting
-//! global allocator (in this test binary only) checks every `process` call, on the calling
-//! thread. What the plugin does inside its own render is its own business and does not go
-//! through Rust's allocator.
+//! the control side is not taking old racks back must not free one either. The crate's
+//! counting allocator (`alloc_count`) checks every `process` call, on the calling thread
+//! only and only inside `process`: plugin load threads and the dispose thread allocate and
+//! free on their own time. What the plugin does inside its own render is its own business
+//! and does not go through Rust's allocator.
 
-use std::alloc::{GlobalAlloc, Layout, System};
+use crate::alloc_count::counted;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use yahaha::fx::part_eq::PartEq;
 use yahaha::fx::{InsertEffect, PartInsert};
 use yahaha::parts::Parts;
 use yahaha::synth::{self, AudioCore, Rack, SynthControl};
-
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static FREES: AtomicUsize = AtomicUsize::new(0);
-
-thread_local! {
-    /// Count on this thread only, only inside `process`: plugin load threads and the
-    /// dispose thread allocate and free on their own time.
-    static COUNT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-fn counting() -> bool {
-    COUNT.try_with(|c| c.get()).unwrap_or(false)
-}
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        if counting() {
-            ALLOCS.fetch_add(1, Ordering::Relaxed);
-        }
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        if counting() {
-            FREES.fetch_add(1, Ordering::Relaxed);
-        }
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
-#[global_allocator]
-static A: Counting = Counting;
 
 /// The smallest SoundFont in the checkout's soundfonts/, if any.
 fn sound_font() -> Option<std::path::PathBuf> {
@@ -70,11 +39,7 @@ fn the_audio_callback_does_not_allocate() {
         for m in msgs {
             feed.push(*m).unwrap();
         }
-        let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
-        COUNT.with(|c| c.set(true));
-        core.process(&mut out);
-        COUNT.with(|c| c.set(false));
-        (ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f)
+        counted(|| core.process(&mut out))
     };
     let none = (0, 0);
     assert_eq!(run(&mut core, &mut feed, &[[0xC0, 0, 0], [0xB0, 7, 100], [0x90, 60, 100], [0x9A, 40, 100]]), none, "notes");
@@ -365,13 +330,12 @@ fn the_meters_do_not_allocate() {
     for m in [[0x90u8, 60, 100], [0x94, 64, 100], [0x9A, 40, 100]] {
         feed.push(m).unwrap();
     }
-    let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
+    let mut got = (0, 0);
     let mut seen = [0f32; 16];
     let mut seen_rms = [0f32; 16];
     for _ in 0..30 {
-        COUNT.with(|c| c.set(true));
-        core.process(&mut out);
-        COUNT.with(|c| c.set(false));
+        let (a, f) = counted(|| core.process(&mut out));
+        got = (got.0 + a, got.1 + f);
         let (peaks, _, _) = synth::take_meters(&ctl);
         let (rms, _) = synth::take_rms(&ctl);
         for ch in 0..16 {
@@ -379,7 +343,7 @@ fn the_meters_do_not_allocate() {
             seen_rms[ch] = seen_rms[ch].max(rms[ch]);
         }
     }
-    assert_eq!((ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f), (0, 0), "metering allocated");
+    assert_eq!(got, (0, 0), "metering allocated");
     if font.is_some() {
         for ch in [0, 4, 10] {
             assert!(seen[ch] > 0.0 && seen_rms[ch] > 0.0 && seen_rms[ch] <= seen[ch], "ch {}: peak {} rms {}", ch + 1, seen[ch], seen_rms[ch]);
@@ -407,13 +371,12 @@ fn track_cpu_is_measured_per_track_without_allocating() {
     }
     let mut window = synth::CpuWindow::default();
     window.read(&ctl.cpu);
-    let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
-    COUNT.with(|c| c.set(true));
-    for _ in 0..BUFFERS {
-        core.process(&mut out);
-    }
-    COUNT.with(|c| c.set(false));
-    assert_eq!((ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f), (0, 0), "timing the tracks allocated");
+    let got = counted(|| {
+        for _ in 0..BUFFERS {
+            core.process(&mut out);
+        }
+    });
+    assert_eq!(got, (0, 0), "timing the tracks allocated");
     assert_eq!(ctl.cpu.buffers.load(Ordering::Relaxed), BUFFERS);
     assert_eq!(ctl.cpu.budget_ns.load(Ordering::Relaxed), BUFFERS * 1_333_333, "64 frames at 48 kHz, each");
     let r = window.read(&ctl.cpu);
@@ -444,13 +407,12 @@ fn a_plugin_tracks_cpu_is_its_render() {
     ctl.routes.set(2, Source::Plugin);
     feed.push([0x92, 64, 100]).unwrap();
     let mut out = vec![0f32; 128];
-    let (a, f) = (ALLOCS.load(Ordering::Relaxed), FREES.load(Ordering::Relaxed));
-    COUNT.with(|c| c.set(true));
-    for _ in 0..20 {
-        core.process(&mut out);
-    }
-    COUNT.with(|c| c.set(false));
-    assert_eq!((ALLOCS.load(Ordering::Relaxed) - a, FREES.load(Ordering::Relaxed) - f), (0, 0), "timing the plugin's track allocated");
+    let got = counted(|| {
+        for _ in 0..20 {
+            core.process(&mut out);
+        }
+    });
+    assert_eq!(got, (0, 0), "timing the plugin's track allocated");
     let ns: Vec<u64> = ctl.cpu.track_ns.iter().map(|a| a.load(Ordering::Relaxed)).collect();
     assert!(ns[2] > 0, "the plugin's track took time: {ns:?}");
     assert!(ns.iter().enumerate().all(|(ch, &t)| ch == 2 || t == 0), "only its own: {ns:?}");
