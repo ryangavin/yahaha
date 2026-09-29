@@ -702,9 +702,10 @@
     min-width: 0;
   }
   .otsw .card {
-    flex: 1;
+    flex: 1 0 auto;
   }
   .otsrack {
+    flex: none;
     max-width: none;
     min-width: 0;
     min-height: 1.8rem;
