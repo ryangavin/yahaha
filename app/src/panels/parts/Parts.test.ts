@@ -22,7 +22,8 @@ afterEach(() => {
   cleanup()
   app.detach()
   mirror.panelFader = null
-  ui.soundBrowser = null
+  ui.view = 'stage'
+  ui.libraryPart = 0
 })
 
 const tipped = (key: string) => document.querySelector<HTMLElement>(`[data-tip="${key}"]`)!
@@ -54,9 +55,11 @@ describe('Keyboard parts drawer', () => {
     expect(session.state.keyboardParts[3].selected).toBe(true)
     await fireEvent.click(strip('Right 1').querySelector('[data-tip="part.octave_up"]')!)
     expect(session.state.keyboardParts[0].octave).toBe(1)
-    // The voice screen opens the Sound Browser for that part (#117).
+    // The voice screen opens Library › Sounds, loading into that part.
     await fireEvent.click(strip('Right 2').querySelector('[data-tip="part.voice"]')!)
-    expect(ui.soundBrowser).toBe(1)
+    expect(ui.view).toBe('library')
+    expect(ui.libraryTab).toBe('sounds')
+    expect(ui.libraryPart).toBe(1)
     // What the part plays shows on the screen, with where it comes from.
     session.send({ type: 'setPartPatch', part: 1, id: 'warm-rhodes' })
     flushSync()

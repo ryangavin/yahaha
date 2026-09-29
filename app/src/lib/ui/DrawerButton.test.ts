@@ -13,6 +13,9 @@ afterEach(() => {
   cleanup()
   ui.parts = ui.mixer = ui.sound = ui.multipad = ui.charts = ui.harmony = ui.looper = ui.settings = false
   ui.browser = false
+  ui.view = 'stage'
+  ui.libraryTab = 'sounds'
+  ui.libraryPart = 0
 })
 
 function setup() {
@@ -25,7 +28,6 @@ const btn = (sel: string) => document.querySelector<HTMLButtonElement>(sel)!
 describe('drawer buttons on the stage', () => {
   const PLACES = [
     ['drawer.parts', 'parts', '.faders'],
-    ['drawer.sound', 'sound', '.faders'],
     ['drawer.mixer', 'mixer', '.faders'],
     ['drawer.multipad', 'multipad', '.pagebar'],
     ['drawer.charts', 'charts', 'section[aria-label="Lead sheet"]'],
@@ -48,6 +50,20 @@ describe('drawer buttons on the stage', () => {
       expect(ui[drawer]).toBe(false)
     })
   }
+
+  it('drawer.library on the fader head opens Library on Sounds, loading into the selected part', async () => {
+    const session = new MockSession({ demo: true, manual: true })
+    render(App, { props: { session } })
+    session.send({ type: 'selectPart', part: 2 })
+    session.advance(16)
+    flushSync()
+    await fireEvent.click(btn('.faders .drawer-btn[data-tip="drawer.library"]'))
+    flushSync()
+    expect(ui.view).toBe('library')
+    expect(ui.libraryTab).toBe('sounds')
+    expect(ui.libraryPart).toBe(2)
+    expect(document.querySelector('.faders')).toBeNull()
+  })
 
   it('the style name on the display opens the style browser', async () => {
     setup()
