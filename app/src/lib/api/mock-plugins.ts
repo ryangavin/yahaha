@@ -4,7 +4,7 @@
 // made-up third-party synth that always fails to load, to show the error path, and one
 // the system refuses to host out of process, so it falls back to loading in process.
 
-import type { AppState, KeyboardPart, MissingPlugin, PluginCmd, PluginEntry, PluginsState, RackAttention } from './types'
+import type { AppState, KeyboardPart, Meters, MissingPlugin, PluginCmd, PluginEntry, PluginsState, RackAttention } from './types'
 
 const USES = { new: false, racks: 0, sounds: 0 }
 
@@ -39,6 +39,51 @@ export function initialPlugins(): PluginsState {
     list: MOCK_PLUGINS.map((p) => ({ ...p })),
     missing: MOCK_MISSING.map((p) => ({ ...p })),
     needsAttention: MOCK_ATTENTION.map((r) => ({ ...r, parts: [...r.parts] })),
+    instances: 0,
+  }
+}
+
+/** #407: plugin instances loaded, one per keyboard part playing one (the mock's Style
+ * parts play no plugins). */
+export function pluginInstances(st: AppState): number {
+  return st.keyboardParts.filter((k) => k.plugin?.status === 'playing').length
+}
+
+/** The mock's Style parts' SoundFont CPU while the band plays (Rhythm 1 … Phrase 2). */
+const STYLE_CPU = [0.021, 0.016, 0.011, 0.012, 0.01, 0.014, 0.008, 0.009]
+
+/**
+ * #340: the meters as the engine's would read (the mock has no audio: every level is 0),
+ * with a plausible CPU per track: a playing plugin's own `cpu`, a SoundFont keyboard part
+ * that is on a little, the Style parts more while the band plays (the drums most), the
+ * Multi Pads nothing. The worst buffer is a few times the average, more so at a small
+ * buffer. As the engine's (and the Rust dev mock's), a reading changes once a second.
+ */
+export function mockMeters(st: AppState, nowMs: number): Meters {
+  const frames = st.io.synth?.bufferFrames ?? 256
+  const rate = st.io.synth?.sampleRate || 48000
+  const second = Math.floor(nowMs / 1000)
+  const cpu = (ch: number): number => {
+    const wobble = 1 + 0.12 * Math.sin(second * 0.7 + ch * 1.3)
+    const k = st.keyboardParts.find((p) => p.channel === ch)
+    let base = 0
+    if (k) base = k.plugin ? (k.plugin.status === 'playing' ? k.plugin.cpu : 0) : k.on ? 0.012 : 0
+    else if (ch >= 9 && ch <= 16) base = st.transport.running && st.mixer.styleParts[ch - 9]?.on ? STYLE_CPU[ch - 9] : 0
+    return base * wobble
+  }
+  const peakOf = (avg: number) => avg * (1.6 + 128 / frames)
+  const channels = Array.from({ length: 16 }, (_, i) => {
+    const c = cpu(i + 1)
+    return { channel: i + 1, peak: 0, rms: 0, cpu: c, cpuPeak: peakOf(c) }
+  })
+  const total = channels.reduce((a, c) => a + c.cpu, 0)
+  return {
+    atMs: nowMs,
+    channels,
+    master: [0, 0],
+    masterRms: [0, 0],
+    clips: 0,
+    cpu: { total, peak: peakOf(total) * 0.8, bufferUs: (frames / rate) * 1e6 },
   }
 }
 

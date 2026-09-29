@@ -685,6 +685,50 @@ impl MockSession {
         st
     }
 
+    /// The meters (`Session::meters`). The mock has no audio: every level is 0, but each
+    /// track's CPU (#340) is a plausible one: a playing plugin's own `cpu`, a SoundFont
+    /// keyboard part that is on a little, the Style parts more while the band plays (the
+    /// drums most), the Multi Pads nothing. The worst buffer is a few times the average,
+    /// more so at a small buffer. As the engine's, a reading changes once a second.
+    pub fn meters(&self) -> Meters {
+        const STYLE: [f32; 8] = [0.021, 0.016, 0.011, 0.012, 0.010, 0.014, 0.008, 0.009];
+        let st = &self.state;
+        let frames = st.io.synth.as_ref().and_then(|s| s.buffer_frames).unwrap_or(256) as f32;
+        let rate = st.io.synth.as_ref().map_or(48_000, |s| s.sample_rate.max(1)) as f32;
+        let second = (self.now / 1000.0).floor();
+        let cpu = |ch: u8| -> f32 {
+            let wobble = 1.0 + 0.12 * (second * 0.7 + ch as f64 * 1.3).sin() as f32;
+            let base = if let Some(k) = st.keyboard_parts.iter().find(|k| k.channel == ch) {
+                match &k.plugin {
+                    Some(p) if p.status == PluginStatus::Playing => p.cpu,
+                    Some(_) => 0.0,
+                    None if k.on => 0.012,
+                    None => 0.0,
+                }
+            } else if (9..=16).contains(&ch) {
+                let p = (ch - 9) as usize;
+                if st.transport.running && st.mixer.style_parts.get(p).is_some_and(|s| s.on) { STYLE[p] } else { 0.0 }
+            } else {
+                0.0
+            };
+            base * wobble
+        };
+        let peak_of = |avg: f32| avg * (1.6 + 128.0 / frames);
+        let channels: Vec<ChannelMeter> = (1..=16u8)
+            .map(|ch| {
+                let c = cpu(ch);
+                ChannelMeter { channel: ch, peak: 0.0, rms: 0.0, cpu: c, cpu_peak: peak_of(c) }
+            })
+            .collect();
+        let total: f32 = channels.iter().map(|c| c.cpu).sum();
+        Meters {
+            at_ms: self.now,
+            cpu: CpuMeter { total, peak: peak_of(total) * 0.8, buffer_us: frames / rate * 1e6 },
+            channels,
+            ..Meters::default()
+        }
+    }
+
     /// Move the clock on by `ms` milliseconds; true if anything changed.
     pub fn advance(&mut self, ms: f64) -> bool {
         let before = self.state.clone();
@@ -1249,6 +1293,9 @@ impl MockSession {
     /// The fields the engine computes from the others: names, flags, pads and lamps.
     fn derive(&mut self) {
         self.looper.publish(&mut self.state.looper);
+        // Plugin instances loaded (#407): one per keyboard part playing one.
+        self.state.plugins.instances =
+            self.state.keyboard_parts.iter().filter(|k| k.plugin.as_ref().is_some_and(|p| p.status == PluginStatus::Playing)).count() as u32;
         self.state.knobs = self.knobs.state(&self.knobs_now());
         let st = &mut self.state;
         let c = &mut st.chord;
@@ -3651,5 +3698,7 @@ fn mock_plugins() -> PluginsState {
         missing: vec![MissingPlugin { id: "aumu Str1 Fake".into(), name: "String Deluxe".into(), manufacturer: "Fake Instruments".into(), racks: 1, sounds: 0 }],
         // The saved rack that plays it (Library › Racks, Needs attention).
         needs_attention: vec![RackAttention { id: "strings-night".into(), name: "Strings Night".into(), parts: vec![1] }],
+        // `derive` counts them.
+        instances: 0,
     }
 }

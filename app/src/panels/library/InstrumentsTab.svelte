@@ -81,6 +81,7 @@
 <div class="inst">
   <div class="bar">
     <span class="engraved">{plural(pluginTiles.length, 'plugin')} · {plural(fonts.length, 'SoundFont')}{plugins.missing.length ? ` · ${plugins.missing.length} missing` : ''}</span>
+    <span class="engraved instances" use:tip={'part.plugin_instances'}>{plural(plugins.instances ?? 0, 'instance')} loaded</span>
     {#if plugins.available}
       <HwButton tip="part.plugin_rescan" onclick={() => !plugins.scanning && app.send({ type: 'rescanPlugins' })}>{plugins.scanning ? 'Scanning…' : 'Rescan'}</HwButton>
     {/if}
@@ -169,6 +170,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.8rem;
+  }
+  .instances {
+    margin-right: auto;
   }
   .tiles {
     display: grid;
