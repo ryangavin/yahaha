@@ -100,7 +100,10 @@ describe('help footer', () => {
 
   it('describes the keyboard-focused control to screen readers, whatever the pointer is on', async () => {
     const { a, b } = setup()
-    a.focus() // jsdom: no :focus-visible support, so focus counts as keyboard focus
+    // jsdom's selector engine answers :focus-visible from event history it keeps across
+    // tests and files (isolate: false), so pin the answer: this focus is keyboard focus.
+    vi.spyOn(a, 'matches').mockImplementation((sel: string) => sel === ':focus-visible')
+    a.focus()
     await hover(b)
     flushSync()
     expect(a.getAttribute('aria-describedby')).toBe(TOOLTIP_ID)
