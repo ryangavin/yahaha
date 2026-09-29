@@ -26,6 +26,8 @@ test = true
 
 [features]
 default = ["tui"]
+# Tests gated with `#[cfg(feature = "slow-tests")]` are left out of the local core suite and run in CI.
+slow-tests = []
 # The terminal UI (ratatui, crossterm). Only the binary needs it.
 tui = ["dep:ratatui", "dep:crossterm"]
 # Plugin hosting (#35): Audio Unit instruments (src/plugin/, `yahaha plugin-test`). Off by
