@@ -2319,16 +2319,11 @@ impl MockSession {
             // Channel strips and sends, as the session's `strips_cmd`: what an older
             // command covers goes through it, and everything is kept in `strips`.
             AppCmd::Strips(c) => {
-                let legacy = c.legacy();
-                let covered = legacy.is_some();
-                if let Some(old) = legacy {
+                for old in c.legacy() {
                     self.cmd(old);
                 }
-                match self.strips.apply(&c) {
-                    // What the older command took, it decided.
-                    Err(_) if covered => {}
-                    Err(e) => self.message(e, true),
-                    Ok(()) => {}
+                if let Err(e) = self.strips.apply(&c) {
+                    self.message(e, true);
                 }
             }
             AppCmd::MultiPad(c) => {
