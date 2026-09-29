@@ -591,6 +591,38 @@ impl Control {
         false
     }
 
+    /// Tests: the first background job still in flight whose completion `pump` merges
+    /// (and rightly reports as a change), or None when there is none.
+    #[cfg(test)]
+    fn in_flight(&self) -> Option<&'static str> {
+        #[cfg(feature = "plugins")]
+        {
+            let p = &self.plugins;
+            if p.scan_rx.is_some() {
+                return Some("plugin scan");
+            }
+            if !p.state_reads.is_empty() || !p.probes.is_empty() || !p.listing.is_empty() || !p.preset_saves.is_empty() {
+                return Some("plugin reads, probes, listings or saves");
+            }
+        }
+        if self.busy() {
+            return Some("plugin load");
+        }
+        if self.scan_rx.is_some() {
+            return Some("style folder rescan");
+        }
+        if self.index_rx.is_some() && self.lib.pending() > 0 {
+            return Some("library indexer");
+        }
+        if self.sf_load.is_some() || self.sf_ready.is_some() || self.sound.is_loading() {
+            return Some("sound-font load");
+        }
+        if self.multipad.scanning() {
+            return Some("Multi Pad rescan");
+        }
+        None
+    }
+
     /// Everything that happens between commands: new snapshots, Launchkey actions, OTS
     /// Link, the LEDs, indexing. `now` is the clock the pad flashing follows. The steps
     /// run in this order; a feature that follows the engine (a snapshot) or a background
@@ -1257,19 +1289,20 @@ mod publish_tests {
         ctl.offline.as_ref().map_or(0, |o| o.now)
     }
 
-    /// Pumps and publishes until a pump reports nothing new. Background jobs (the
-    /// plugin scan, the library indexer, the sound-font load, a Multi Pad rescan)
-    /// may finish at any moment and rightly report a change; this waits them out,
-    /// and fails if the pump never goes quiet.
-    fn settle(s: &Session, ctl: &mut Control, now: u64, what: &str) {
+    /// Pumps and publishes until no background job whose completion the pump merges
+    /// (plugin scan and reads, plugin load, style rescan, library indexer, sound-font
+    /// load, Multi Pad rescan) is in flight; panics after ~5 s naming what is still busy.
+    /// After it returns the pump has no legitimate reason to report a change.
+    fn wait_idle(s: &Session, ctl: &mut Control, now: u64) {
         for _ in 0..2500 {
-            if !ctl.pump(now) {
+            ctl.pump(now);
+            s.inner.publish(ctl, now);
+            if ctl.in_flight().is_none() {
                 return;
             }
-            s.inner.publish(ctl, now);
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        panic!("{what}: the pump kept reporting changes for ~5 s");
+        panic!("still busy after ~5 s: {}", ctl.in_flight().unwrap_or("?"));
     }
 
     #[test]
@@ -1277,22 +1310,21 @@ mod publish_tests {
         let s = session();
         let mut ctl = s.inner.lock();
         let now = now_of(&ctl);
-        ctl.pump(now);
-        s.inner.publish(&mut ctl, now);
-        settle(&s, &mut ctl, now, "nothing new");
-        settle(&s, &mut ctl, now + 10_000_000, "time passing alone is no change");
+        wait_idle(&s, &mut ctl, now);
+        assert!(!ctl.pump(now), "nothing new");
+        assert!(!ctl.pump(now + 10_000_000), "time passing alone is no change");
         ctl.say("hello", false);
         assert!(ctl.pump(now), "a message");
         s.inner.publish(&mut ctl, now);
-        settle(&s, &mut ctl, now, "after the message");
+        assert!(!ctl.pump(now));
         ctl.shared.master_hw.store(64, Relaxed);
         assert!(ctl.pump(now), "the master fader moved");
         s.inner.publish(&mut ctl, now);
-        settle(&s, &mut ctl, now, "after the fader");
+        assert!(!ctl.pump(now));
         let _ = ctl.apply(TransportCmd::SetTempo { bpm: 90 }.into());
         assert!(ctl.pump(now), "a command");
         s.inner.publish(&mut ctl, now);
-        settle(&s, &mut ctl, now, "published: nothing left to rebuild");
+        assert!(!ctl.pump(now), "published: nothing left to rebuild");
     }
 
     #[test]
