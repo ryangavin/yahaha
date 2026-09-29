@@ -109,6 +109,8 @@ impl Control {
                         chorus: s.style_sends[p as usize][1],
                         variation: s.style_sends[p as usize][2],
                         sends_set: [PartSend::Reverb, PartSend::Chorus, PartSend::Variation].into_iter().filter(|b| s.style_send_own[p as usize][b.index() - crate::parts::REVERB] != crate::fx::SEND_STYLE).collect(),
+                        // Filled in by `Strips::fill` (session/strips.rs).
+                        strip: Default::default(),
                     }
                 })
                 .collect(),

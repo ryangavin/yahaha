@@ -108,6 +108,12 @@ pub struct KeyboardPart {
     /// Its insert slot (`setKeyboardInsertEffect`, `On`, `Amount`). Absent: off.
     #[serde(default)]
     pub insert: PartInsert,
+    /// Its channel strip (the mixer rework): EQ, compressor, two insert slots and its
+    /// level to each of the six sends. `eq`, `reverb`/`chorus`/`variation` and `insert`
+    /// above are the same settings the older way (strip `eq`, `sends[0..3]`,
+    /// `inserts[0]`); they stay until the mixer rework's UI replaces them.
+    #[serde(default)]
+    pub strip: super::StripState,
     /// The instrument plugin the part plays instead of its SoundFont voice (absent: the
     /// SoundFont voice). Its fader is the same CC7.
     #[serde(default, skip_serializing_if = "Option::is_none")]

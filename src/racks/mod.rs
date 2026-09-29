@@ -22,11 +22,12 @@ pub mod style_racks;
 #[cfg(test)]
 mod tests;
 
-pub use settings::{HarmonyArpReg, ToneReg};
+pub use settings::{HarmonyArpReg, StripReg, ToneReg};
 
 use crate::data_files::{file_name, file_stem, list_files, write_atomic};
 pub use crate::fx::part_eq::PartEq;
 pub use crate::fx::PartInsert;
+pub use crate::fx::{InsertSlot, InsertType, PartComp, SENDS, SendKind, SendSlot};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -63,13 +64,50 @@ pub struct Rack {
     /// What faders 1-4 and knobs 1-8 do on the Rack knob page.
     #[serde(default)]
     pub controls: ControlMap,
+    /// Send effects 4-6 and the rack's overrides of 1-3. Empty: none, and left out of
+    /// the file.
+    #[serde(default, skip_serializing_if = "RackSends::is_empty")]
+    pub sends: RackSends,
     /// Fields a newer build wrote: kept, and written back as they were.
     #[serde(flatten)]
     pub other: Map<String, Value>,
 }
 
-/// One keyboard part of a rack: what plays, and how it is mixed.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// The rack's send effects: send effects 1-3 are the style's (its reverb, chorus and
+/// delay buses) unless the rack overrides them; 4-6 are the rack's own.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RackSends {
+    /// Send effects 4-6, in order: at most [`ADDED_SENDS`] (extras in a file are dropped).
+    #[serde(deserialize_with = "added_sends")]
+    pub added: Vec<SendSlot>,
+    /// Send effects 1-3 as the rack sets them. None: the style's.
+    #[serde(rename = "override")]
+    pub override_: [Option<SendSlot>; STYLE_SENDS],
+}
+
+/// Send effects fed by the style's buses (1-3).
+pub const STYLE_SENDS: usize = 3;
+/// Send effects a rack adds (4-6).
+pub const ADDED_SENDS: usize = SENDS - STYLE_SENDS;
+
+impl RackSends {
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.override_.iter().all(Option::is_none)
+    }
+}
+
+/// Added send effects, at most [`ADDED_SENDS`]: extras are dropped.
+fn added_sends<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<SendSlot>, D::Error> {
+    let mut v = Vec::<SendSlot>::deserialize(d)?;
+    v.truncate(ADDED_SENDS);
+    Ok(v)
+}
+
+/// One keyboard part of a rack: what plays, and how it is mixed. Two parts are equal when
+/// their files would say the same: the strip's mirrors of the older fields are compared
+/// as [`RackPart::normalize`] makes them.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RackPart {
     pub on: bool,
@@ -110,9 +148,74 @@ pub struct RackPart {
     /// and such a slot is left out of the file.
     #[serde(default, skip_serializing_if = "PartInsert::is_default")]
     pub insert: PartInsert,
+    /// The channel strip (the mixer rework): compressor, inserts 1-2, sends 1-6. Sends
+    /// 1-3 and insert 1 mirror `reverb`, `chorus`, `variation` and `insert`, which win
+    /// ([`RackPart::normalize`]). Left out of the file when it says nothing more than
+    /// those.
+    #[serde(default, skip_serializing_if = "StripReg::is_default")]
+    pub strip: StripReg,
     /// Fields a newer build wrote: kept, and written back as they were.
     #[serde(flatten)]
     pub other: Map<String, Value>,
+}
+
+impl RackPart {
+    /// The strip with its mirrors of the older fields matching them: sends 1-3 are
+    /// `reverb`, `chorus` and `variation`; insert 1 is `insert` (its kind, on/off and
+    /// amount as the first value; its other values kept while the kind is the same). An
+    /// insert 1 that already reads as `insert` (an unknown kind as an off slot included)
+    /// is kept as it is.
+    fn mirrored_strip(&self) -> StripReg {
+        let mut s = self.strip.clone();
+        s.sends[..STYLE_SENDS].copy_from_slice(&[self.reverb, self.chorus, self.variation]);
+        if s.inserts[0].to_part_insert() != self.insert {
+            let old = InsertSlot::from_part_insert(self.insert);
+            let slot = &mut s.inserts[0];
+            if slot.kind != old.kind {
+                slot.set_kind(old.kind);
+            }
+            slot.on = old.on;
+            if !slot.kind.settings().is_empty() {
+                slot.values[0] = self.insert.amount as u16;
+            }
+        }
+        s
+    }
+
+    /// Make the strip's sends 1-3 and insert 1 match the older fields, which are the
+    /// source of truth for them.
+    pub fn normalize(&mut self) {
+        self.strip = self.mirrored_strip();
+    }
+
+    /// A normalized strip says nothing beyond the older fields: no compressor, insert 2
+    /// empty, sends 4-6 at zero, and insert 1 exactly what `insert` reads as.
+    fn strip_is_mirror_only(&self) -> bool {
+        let s = &self.strip;
+        s.comp.is_none()
+            && s.inserts[1].is_default()
+            && s.sends[STYLE_SENDS..].iter().all(|&v| v == 0)
+            && s.inserts[0] == InsertSlot::from_part_insert(self.insert)
+    }
+
+    /// As its file writes it: normalized, and a strip that says nothing more than the
+    /// older fields left out (so a rack saved before the strip is written back as it was).
+    fn for_file(&mut self) {
+        self.normalize();
+        if self.strip_is_mirror_only() {
+            self.strip = StripReg::default();
+        }
+    }
+}
+
+impl PartialEq for RackPart {
+    fn eq(&self, o: &RackPart) -> bool {
+        let RackPart { on, sound, edited_state, fallback_program, volume, pan, reverb, chorus, variation, octave, tone, bend_range, eq, insert, strip: _, other } = self;
+        // Tuples compare up to 12 fields: two of them.
+        (on, sound, edited_state, fallback_program, volume, pan, reverb, chorus) == (&o.on, &o.sound, &o.edited_state, &o.fallback_program, &o.volume, &o.pan, &o.reverb, &o.chorus)
+            && (variation, octave, tone, bend_range, eq, insert, other) == (&o.variation, &o.octave, &o.tone, &o.bend_range, &o.eq, &o.insert, &o.other)
+            && self.mirrored_strip() == o.mirrored_strip()
+    }
 }
 
 /// What a rack part plays, by reference: saving a sound changes every rack that uses it.
@@ -155,6 +258,17 @@ pub enum ControlTarget {
     MetronomeVolume,
     /// The tempo (knobs only: a fader has no tempo range).
     Tempo,
+    /// A keyboard part's insert slot `slot` (0-1) on or off.
+    PartInsertOn { part: u8, slot: u8 },
+    /// Setting `setting` (0-3) of a keyboard part's insert slot `slot` (0-1).
+    PartInsertSetting { part: u8, slot: u8, setting: u8 },
+    /// A keyboard part's send to send effect `send` (0-5; 0-2 are the reverb, chorus and
+    /// variation sends, as `PartReverb` / `PartChorus` / `PartDelay`).
+    PartSend { part: u8, send: u8 },
+    /// A keyboard part's delay send (CC94, the Variation block).
+    PartDelay { part: u8 },
+    /// The rotary speaker's speed: fast or slow.
+    RotaryFast,
     /// A target this build doesn't know (a newer build's), kept verbatim so it is written
     /// back unchanged. It does nothing here.
     #[serde(untagged)]
@@ -162,13 +276,21 @@ pub enum ControlTarget {
 }
 
 impl ControlTarget {
-    /// A target this build knows, with a part (if any) of 0-3.
+    /// A target this build knows, with a part (if any) of 0-3, an insert slot of 0-1, a
+    /// setting of 0-3 and a send of 0-5.
     pub fn is_known(&self) -> bool {
+        let part = |p: &u8| (*p as usize) < PARTS;
+        let slot = |s: &u8| (*s as usize) < crate::fx::INSERT_SLOTS;
         match self {
             ControlTarget::Unknown(_) => false,
-            ControlTarget::PartLevel { part } | ControlTarget::PartPan { part } | ControlTarget::PartReverb { part } | ControlTarget::PartChorus { part } => {
-                (*part as usize) < PARTS
-            }
+            ControlTarget::PartLevel { part: p }
+            | ControlTarget::PartPan { part: p }
+            | ControlTarget::PartReverb { part: p }
+            | ControlTarget::PartChorus { part: p }
+            | ControlTarget::PartDelay { part: p } => part(p),
+            ControlTarget::PartInsertOn { part: p, slot: s } => part(p) && slot(s),
+            ControlTarget::PartInsertSetting { part: p, slot: s, setting } => part(p) && slot(s) && (*setting as usize) < crate::fx::INSERT_VALUES,
+            ControlTarget::PartSend { part: p, send } => part(p) && (*send as usize) < SENDS,
             _ => true,
         }
     }
@@ -288,17 +410,26 @@ fn targets<'de, D: Deserializer<'de>, const N: usize>(d: D) -> Result<[ControlTa
 
 impl Rack {
     /// Read a rack file's text. A file of another format, or of a newer version than this
-    /// build knows, is refused.
+    /// build knows, is refused. Each part's strip is normalized ([`RackPart::normalize`]).
     pub fn from_json(text: &str) -> Result<Rack> {
         let v: Value = serde_json::from_str(text)?;
         check_header(&v)?;
         let mut r: Rack = serde_json::from_value(v)?;
         r.version = VERSION;
+        for p in &mut r.parts {
+            p.normalize();
+        }
         Ok(r)
     }
 
+    /// The file's text: each part's strip normalized, and left out when it says nothing
+    /// beyond the part's older fields.
     pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("a rack serializes")
+        let mut r = self.clone();
+        for p in &mut r.parts {
+            p.for_file();
+        }
+        serde_json::to_string_pretty(&r).expect("a rack serializes")
     }
 
     pub fn load(path: &Path) -> Result<Rack> {

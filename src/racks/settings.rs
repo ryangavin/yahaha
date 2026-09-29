@@ -1,7 +1,9 @@
 //! The settings a rack shares with Registration Memory, as both store them: a keyboard
-//! part's voice settings ([`ToneReg`]) and Keyboard Harmony/Arpeggio ([`HarmonyArpReg`]).
+//! part's voice settings ([`ToneReg`]) and Keyboard Harmony/Arpeggio ([`HarmonyArpReg`]);
+//! and a part's channel strip ([`StripReg`]).
 
 use crate::api::{ArpQuantize, ArpVelocityMode, HarmonyArpMode, HarmonyAssign, HarmonySpeed};
+use crate::fx::{INSERT_SLOTS, InsertSlot, PartComp, SENDS};
 use crate::parts;
 use serde::{Deserialize, Serialize};
 
@@ -71,6 +73,28 @@ impl ToneReg {
         t[parts::PORTAMENTO] = self.portamento;
         t[parts::PORTAMENTO_TIME] = self.portamento_time;
         t
+    }
+}
+
+/// A keyboard part's channel strip beyond its EQ (the mixer rework): its compressor, its
+/// two insert slots and its sends to the six send effects. Sends 1-3 and insert 1 mirror
+/// the part's older fields (`reverb`, `chorus`, `variation`, `insert`), which stay the
+/// source of truth for them (`RackPart::normalize`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StripReg {
+    /// None: no compressor saved (it plays off).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comp: Option<PartComp>,
+    pub inserts: [InsertSlot; INSERT_SLOTS],
+    /// Send levels (0-127) to send effects 1-6.
+    pub sends: [u8; SENDS],
+}
+
+impl StripReg {
+    /// Nothing set (a rack leaves such a strip out of its file).
+    pub fn is_default(&self) -> bool {
+        *self == StripReg::default()
     }
 }
 

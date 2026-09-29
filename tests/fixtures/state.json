@@ -367,6 +367,46 @@
         "on": false,
         "amount": 64
       },
+      "strip": {
+        "eq": {
+          "lowGain": 0,
+          "lowFreq": 80,
+          "highGain": 0,
+          "highFreq": 10000
+        },
+        "comp": {
+          "on": false,
+          "preset": "natural",
+          "threshold": -18,
+          "ratio": 25,
+          "attack": 10,
+          "release": 200,
+          "makeup": 3,
+          "edited": false
+        },
+        "inserts": [
+          {
+            "kind": "none",
+            "name": "None",
+            "on": false,
+            "settings": []
+          },
+          {
+            "kind": "none",
+            "name": "None",
+            "on": false,
+            "settings": []
+          }
+        ],
+        "sends": [
+          40,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
       "patch": null
     },
     {
@@ -396,6 +436,46 @@
         "effect": "distortion",
         "on": false,
         "amount": 64
+      },
+      "strip": {
+        "eq": {
+          "lowGain": 0,
+          "lowFreq": 80,
+          "highGain": 0,
+          "highFreq": 10000
+        },
+        "comp": {
+          "on": false,
+          "preset": "natural",
+          "threshold": -18,
+          "ratio": 25,
+          "attack": 10,
+          "release": 200,
+          "makeup": 3,
+          "edited": false
+        },
+        "inserts": [
+          {
+            "kind": "none",
+            "name": "None",
+            "on": false,
+            "settings": []
+          },
+          {
+            "kind": "none",
+            "name": "None",
+            "on": false,
+            "settings": []
+          }
+        ],
+        "sends": [
+          40,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
       },
       "patch": null
     },
@@ -427,6 +507,46 @@
         "on": false,
         "amount": 64
       },
+      "strip": {
+        "eq": {
+          "lowGain": 0,
+          "lowFreq": 80,
+          "highGain": 0,
+          "highFreq": 10000
+        },
+        "comp": {
+          "on": false,
+          "preset": "natural",
+          "threshold": -18,
+          "ratio": 25,
+          "attack": 10,
+          "release": 200,
+          "makeup": 3,
+          "edited": false
+        },
+        "inserts": [
+          {
+            "kind": "none",
+            "name": "None",
+            "on": false,
+            "settings": []
+          },
+          {
+            "kind": "none",
+            "name": "None",
+            "on": false,
+            "settings": []
+          }
+        ],
+        "sends": [
+          40,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
       "patch": null
     },
     {
@@ -457,6 +577,46 @@
         "on": false,
         "amount": 64
       },
+      "strip": {
+        "eq": {
+          "lowGain": 0,
+          "lowFreq": 80,
+          "highGain": 0,
+          "highFreq": 10000
+        },
+        "comp": {
+          "on": false,
+          "preset": "natural",
+          "threshold": -18,
+          "ratio": 25,
+          "attack": 10,
+          "release": 200,
+          "makeup": 3,
+          "edited": false
+        },
+        "inserts": [
+          {
+            "kind": "none",
+            "name": "None",
+            "on": false,
+            "settings": []
+          },
+          {
+            "kind": "none",
+            "name": "None",
+            "on": false,
+            "settings": []
+          }
+        ],
+        "sends": [
+          40,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
       "patch": null
     }
   ],
@@ -484,7 +644,47 @@
         "reverb": 40,
         "chorus": 0,
         "variation": 0,
-        "sendsSet": []
+        "sendsSet": [],
+        "strip": {
+          "eq": {
+            "lowGain": 0,
+            "lowFreq": 80,
+            "highGain": 0,
+            "highFreq": 10000
+          },
+          "comp": {
+            "on": false,
+            "preset": "natural",
+            "threshold": -18,
+            "ratio": 25,
+            "attack": 10,
+            "release": 200,
+            "makeup": 3,
+            "edited": false
+          },
+          "inserts": [
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            },
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            }
+          ],
+          "sends": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
       },
       {
         "name": "Rhythm 2",
@@ -504,7 +704,47 @@
         "reverb": 40,
         "chorus": 0,
         "variation": 0,
-        "sendsSet": []
+        "sendsSet": [],
+        "strip": {
+          "eq": {
+            "lowGain": 0,
+            "lowFreq": 80,
+            "highGain": 0,
+            "highFreq": 10000
+          },
+          "comp": {
+            "on": false,
+            "preset": "natural",
+            "threshold": -18,
+            "ratio": 25,
+            "attack": 10,
+            "release": 200,
+            "makeup": 3,
+            "edited": false
+          },
+          "inserts": [
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            },
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            }
+          ],
+          "sends": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
       },
       {
         "name": "Bass",
@@ -524,7 +764,47 @@
         "reverb": 40,
         "chorus": 0,
         "variation": 0,
-        "sendsSet": []
+        "sendsSet": [],
+        "strip": {
+          "eq": {
+            "lowGain": 0,
+            "lowFreq": 80,
+            "highGain": 0,
+            "highFreq": 10000
+          },
+          "comp": {
+            "on": false,
+            "preset": "natural",
+            "threshold": -18,
+            "ratio": 25,
+            "attack": 10,
+            "release": 200,
+            "makeup": 3,
+            "edited": false
+          },
+          "inserts": [
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            },
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            }
+          ],
+          "sends": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
       },
       {
         "name": "Chord 1",
@@ -544,7 +824,72 @@
         "reverb": 40,
         "chorus": 0,
         "variation": 0,
-        "sendsSet": []
+        "sendsSet": [],
+        "strip": {
+          "eq": {
+            "lowGain": 0,
+            "lowFreq": 80,
+            "highGain": 0,
+            "highFreq": 10000
+          },
+          "comp": {
+            "on": false,
+            "preset": "natural",
+            "threshold": -18,
+            "ratio": 25,
+            "attack": 10,
+            "release": 200,
+            "makeup": 3,
+            "edited": false
+          },
+          "inserts": [
+            {
+              "kind": "distortion",
+              "name": "Distortion",
+              "on": true,
+              "settings": [
+                {
+                  "name": "Drive",
+                  "value": 64,
+                  "min": 0,
+                  "max": 127,
+                  "default": 64,
+                  "display": "64"
+                },
+                {
+                  "name": "Tone",
+                  "value": 64,
+                  "min": 0,
+                  "max": 127,
+                  "default": 64,
+                  "display": "64"
+                },
+                {
+                  "name": "Output",
+                  "value": 100,
+                  "min": 0,
+                  "max": 127,
+                  "default": 100,
+                  "display": "100"
+                }
+              ]
+            },
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            }
+          ],
+          "sends": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
       },
       {
         "name": "Chord 2",
@@ -558,7 +903,47 @@
         "reverb": 40,
         "chorus": 0,
         "variation": 0,
-        "sendsSet": []
+        "sendsSet": [],
+        "strip": {
+          "eq": {
+            "lowGain": 0,
+            "lowFreq": 80,
+            "highGain": 0,
+            "highFreq": 10000
+          },
+          "comp": {
+            "on": false,
+            "preset": "natural",
+            "threshold": -18,
+            "ratio": 25,
+            "attack": 10,
+            "release": 200,
+            "makeup": 3,
+            "edited": false
+          },
+          "inserts": [
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            },
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            }
+          ],
+          "sends": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
       },
       {
         "name": "Pad",
@@ -578,7 +963,47 @@
         "reverb": 40,
         "chorus": 0,
         "variation": 0,
-        "sendsSet": []
+        "sendsSet": [],
+        "strip": {
+          "eq": {
+            "lowGain": 0,
+            "lowFreq": 80,
+            "highGain": 0,
+            "highFreq": 10000
+          },
+          "comp": {
+            "on": false,
+            "preset": "natural",
+            "threshold": -18,
+            "ratio": 25,
+            "attack": 10,
+            "release": 200,
+            "makeup": 3,
+            "edited": false
+          },
+          "inserts": [
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            },
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            }
+          ],
+          "sends": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
       },
       {
         "name": "Phrase 1",
@@ -598,7 +1023,47 @@
         "reverb": 40,
         "chorus": 0,
         "variation": 0,
-        "sendsSet": []
+        "sendsSet": [],
+        "strip": {
+          "eq": {
+            "lowGain": 0,
+            "lowFreq": 80,
+            "highGain": 0,
+            "highFreq": 10000
+          },
+          "comp": {
+            "on": false,
+            "preset": "natural",
+            "threshold": -18,
+            "ratio": 25,
+            "attack": 10,
+            "release": 200,
+            "makeup": 3,
+            "edited": false
+          },
+          "inserts": [
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            },
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            }
+          ],
+          "sends": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
       },
       {
         "name": "Phrase 2",
@@ -618,7 +1083,47 @@
         "reverb": 40,
         "chorus": 0,
         "variation": 0,
-        "sendsSet": []
+        "sendsSet": [],
+        "strip": {
+          "eq": {
+            "lowGain": 0,
+            "lowFreq": 80,
+            "highGain": 0,
+            "highFreq": 10000
+          },
+          "comp": {
+            "on": false,
+            "preset": "natural",
+            "threshold": -18,
+            "ratio": 25,
+            "attack": 10,
+            "release": 200,
+            "makeup": 3,
+            "edited": false
+          },
+          "inserts": [
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            },
+            {
+              "kind": "none",
+              "name": "None",
+              "on": false,
+              "settings": []
+            }
+          ],
+          "sends": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
       }
     ],
     "master": null,
@@ -2383,7 +2888,127 @@
         ],
         "edited": false
       }
-    }
+    },
+    "sends": [
+      {
+        "send": 0,
+        "kind": "hall",
+        "name": "Hall",
+        "params": [
+          {
+            "name": "Time",
+            "value": 24,
+            "min": 3,
+            "max": 100,
+            "default": 24,
+            "display": "2.4 s"
+          },
+          {
+            "name": "Pre-delay",
+            "value": 22,
+            "min": 0,
+            "max": 200,
+            "default": 22,
+            "display": "22 ms"
+          },
+          {
+            "name": "Tone",
+            "value": 45,
+            "min": 10,
+            "max": 200,
+            "default": 45,
+            "display": "4.5 kHz"
+          }
+        ],
+        "returnLevel": 64,
+        "fromStyle": true,
+        "setByRack": false
+      },
+      {
+        "send": 1,
+        "kind": "chorus",
+        "name": "Chorus",
+        "params": [
+          {
+            "name": "Rate",
+            "value": 55,
+            "min": 5,
+            "max": 500,
+            "default": 55,
+            "display": "0.55 Hz"
+          },
+          {
+            "name": "Depth",
+            "value": 22,
+            "min": 0,
+            "max": 50,
+            "default": 22,
+            "display": "2.2 ms"
+          }
+        ],
+        "returnLevel": 64,
+        "fromStyle": true,
+        "setByRack": false
+      },
+      {
+        "send": 2,
+        "kind": "dottedEighth",
+        "name": "Delay 1/8.",
+        "params": [
+          {
+            "name": "Tempo sync",
+            "value": 1,
+            "min": 0,
+            "max": 1,
+            "default": 1,
+            "display": "On"
+          },
+          {
+            "name": "Note",
+            "value": 4,
+            "min": 0,
+            "max": 7,
+            "default": 4,
+            "display": "1/8."
+          },
+          {
+            "name": "Time",
+            "value": 375,
+            "min": 10,
+            "max": 2000,
+            "default": 375,
+            "display": "375 ms"
+          },
+          {
+            "name": "Feedback",
+            "value": 38,
+            "min": 0,
+            "max": 90,
+            "default": 38,
+            "display": "38%"
+          },
+          {
+            "name": "Tone",
+            "value": 50,
+            "min": 10,
+            "max": 200,
+            "default": 50,
+            "display": "5.0 kHz"
+          },
+          {
+            "name": "Ping-pong",
+            "value": 0,
+            "min": 0,
+            "max": 1,
+            "default": 0,
+            "display": "Off"
+          }
+        ],
+        "returnLevel": 64,
+        "fromStyle": true,
+        "setByRack": false
+      }
+    ]
   },
   "home": {
     "mains": [],

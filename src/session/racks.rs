@@ -67,6 +67,7 @@ impl Control {
             harmony_arp: self.harmony_arp_reg(),
             transpose: self.transpose.keyboard,
             controls: self.rack_controls.clone(),
+            sends: Default::default(),
             other: Default::default(),
         }
     }
@@ -107,6 +108,7 @@ impl Control {
             bend_range: self.shared.controllers.bend_range(p),
             eq: kp.eq(p),
             insert: kp.insert(p),
+            strip: Default::default(),
             other: Default::default(),
         }
     }
