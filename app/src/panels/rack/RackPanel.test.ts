@@ -62,18 +62,120 @@ describe('Rack panel: the head', () => {
     expect(head()).not.toContain('modified')
   })
 
-  it('Save rack, Save as… and Revert are shown but do nothing until the rack commands exist', async () => {
-    const { session } = setup()
+  /** A live rack saved as `name`, then changed. */
+  async function savedAndChanged(session: MockSession, name = 'Ballad') {
     session.advance(16)
-    session.send({ type: 'setPartVolume', part: 0, volume: 12 })
+    session.send({ type: 'setPartVolume', part: 0, volume: 30 })
+    session.send({ type: 'saveRackAs', name })
+    session.advance(16)
+    session.send({ type: 'setPartVolume', part: 0, volume: 99 })
+    session.advance(16)
     flushSync()
+  }
+
+  it('Save rack saves over the rack; off when nothing changed; Revert only while modified', async () => {
+    const { session } = setup()
+    await savedAndChanged(session)
+    expect(head()).toContain('Mine')
+    expect(tipped('rack.save').getAttribute('aria-disabled')).toBe('false')
+    await fireEvent.click(tipped('rack.revert'))
+    session.advance(16)
+    flushSync()
+    expect(session.state.keyboardParts[0].volume).toBe(30)
+    expect(tipped('rack.revert')).toBeNull()
+    expect(tipped('rack.save').getAttribute('aria-disabled')).toBe('true')
     const sent = spy(session)
-    for (const k of ['rack.save', 'rack.save_as', 'rack.revert']) {
-      expect(tipped(k).getAttribute('aria-disabled'), k).toBe('true')
-      await fireEvent.click(tipped(k))
-    }
+    await fireEvent.click(tipped('rack.save'))
     expect(sent).toEqual([])
-    expect(session.state.liveRack.modified).toBe(true)
+    session.send({ type: 'setPartVolume', part: 0, volume: 50 })
+    session.advance(16)
+    flushSync()
+    await fireEvent.click(tipped('rack.save'))
+    session.advance(16)
+    flushSync()
+    expect(sent).toEqual(['setPartVolume', 'saveRack'])
+    expect(session.state.liveRack).toMatchObject({ name: 'Ballad', modified: false })
+    expect(session.state.racks).toHaveLength(1)
+  })
+
+  it('Save as… asks for a rack name and saves a new rack under it', async () => {
+    const { session } = setup()
+    await savedAndChanged(session)
+    await fireEvent.click(tipped('rack.save_as'))
+    const input = tipped('rack.save_as_name') as HTMLInputElement
+    expect(input.value).toBe('Ballad copy')
+    await fireEvent.input(input, { target: { value: 'Sunday Gospel' } })
+    await fireEvent.click(tipped('rack.save_as_commit'))
+    session.advance(16)
+    flushSync()
+    expect(session.state.racks.map((r) => r.name)).toEqual(['Ballad', 'Sunday Gospel'])
+    expect(head()).toContain('Sunday Gospel')
+    expect(tipped('rack.save_as_name')).toBeNull()
+  })
+
+  it('edited presets: a name field per part, prefilled, and the save is sent again with the names', async () => {
+    const { session } = setup(false)
+    session.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
+    session.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
+    session.advance(5000)
+    session.pluginWindow(0, 1)
+    flushSync()
+    const suggested = session.state.keyboardParts[0].sound?.name ?? session.state.keyboardParts[0].voiceName
+    const sent: AppCmd[] = []
+    const orig = session.send.bind(session)
+    session.send = (c) => (sent.push(c), orig(c))
+    await fireEvent.click(tipped('rack.save'))
+    session.advance(16)
+    flushSync()
+    expect(session.state.liveRack.prompt?.kind).toBe('soundNames')
+    const input = document.querySelector<HTMLInputElement>('#rack-sn-0')!
+    expect(document.querySelector('.form.names')!.textContent).toContain('Right 1 sound')
+    expect(input.value).toBe(suggested)
+    await fireEvent.input(input, { target: { value: 'My Keys' } })
+    await fireEvent.click(tipped('rack.save_names'))
+    session.advance(1000)
+    flushSync()
+    expect(sent.at(-1)).toEqual({ type: 'saveRack', soundNames: { 0: 'My Keys' } })
+    expect(session.state.liveRack).toMatchObject({ modified: false, prompt: null })
+    expect(document.querySelector('.form.names')).toBeNull()
+  })
+
+  it('unsaved changes: Keep editing, Discard and switch, and Save first then switch', async () => {
+    const { session } = setup()
+    await savedAndChanged(session)
+    // Whatever asks (Library › Racks, the hardware), the panel shows the prompt.
+    session.send({ type: 'newRack' })
+    session.advance(16)
+    flushSync()
+    expect(document.querySelector('.form.unsaved')!.textContent).toContain('unsaved changes')
+    await fireEvent.click(tipped('rack.keep_editing'))
+    session.advance(16)
+    flushSync()
+    expect(document.querySelector('.form.unsaved')).toBeNull()
+    expect(session.state.keyboardParts[0].volume).toBe(99)
+
+    session.send({ type: 'newRack' })
+    session.advance(16)
+    flushSync()
+    await fireEvent.click(tipped('rack.save_first'))
+    session.advance(16)
+    flushSync()
+    session.advance(16)
+    flushSync()
+    expect(session.state.racks.find((r) => r.name === 'Ballad')).toBeTruthy()
+    expect(session.state.liveRack).toMatchObject({ id: null, modified: false, prompt: null })
+
+    const id = session.state.racks[0].id
+    session.send({ type: 'setPartVolume', part: 0, volume: 7 })
+    session.send({ type: 'loadRack', id })
+    session.advance(16)
+    flushSync()
+    expect(document.querySelector('.form.unsaved')!.textContent).toContain('before loading Ballad')
+    await fireEvent.click(tipped('rack.discard_switch'))
+    session.advance(16)
+    flushSync()
+    expect(session.state.liveRack).toMatchObject({ name: 'Ballad', id, modified: false, prompt: null })
+    expect(session.state.keyboardParts[0].volume).toBe(99)
   })
 })
 
@@ -318,7 +420,7 @@ describe('Stage: sound names under the part faders', () => {
 
 describe('rack helpers', () => {
   it('word the rack, the sounds and the controller map', () => {
-    const live = { name: 'New rack', id: null, modified: false, controls: { faders: [], knobs: [] } }
+    const live = { name: 'New rack', id: null, modified: false, controls: { faders: [], knobs: [] }, prompt: null }
     expect(rackName(live)).toBe('Untitled rack')
     expect(rackName({ ...live, name: 'Restored' })).toBe('Restored')
     expect(rackName({ ...live, name: 'Ballad', id: 'r1' })).toBe('Ballad')

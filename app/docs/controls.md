@@ -238,9 +238,17 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Save rack** | Saves the rack over your own saved rack, with any edited sounds. Not in this build yet: it arrives with the rack commands. The live rack is autosaved meanwhile, so nothing is lost. | Registration Memory › Save | — | — |
-| **Save as…** | Saves the rack as a new rack of yours, under a name you give. Not in this build yet: it arrives with the rack commands. | — | — | — |
-| **Revert** | Puts the rack back as it was last loaded or saved, dropping the unsaved changes. Not in this build yet: it arrives with the rack commands. | — | — | — |
+| **Save rack** | Saves the rack over your own saved rack (a new rack has none yet: it becomes one of yours), with any edited sounds. Edited presets need a name first; you are asked here. Off when nothing changed. | Registration Memory › Save | — | — |
+| **Save as…** | Saves the rack as a new rack of yours, under a name you give. Opens a name field under the rack's name. | — | — | — |
+| **Rack name** | The new rack's name. It must differ from your other racks' names. | — | — | — |
+| **Save rack** | Saves the rack as a new rack under this name. It becomes the rack you are playing. | — | — | — |
+| **Cancel** | Closes the form without saving. The rack keeps its changes. | — | — | — |
+| **Sound name** | An edited factory, file or SoundFont preset is never overwritten: saving the rack saves it as a new sound of yours under this name. It starts from the preset's own name. | — | — | — |
+| **Save rack** | Saves the rack, with each edited preset as a new sound under the name you gave. | — | — | — |
+| **Save first** | Saves the rack's changes, then switches to the rack you asked for. | — | — | — |
+| **Discard and switch** | Drops the rack's unsaved changes and switches to the rack you asked for. | — | — | — |
+| **Keep editing** | Stays on this rack with its changes; nothing is switched. | — | — | — |
+| **Revert** | Puts the rack back as it was last loaded or saved, dropping the unsaved changes. Shown while a saved rack has changes. | — | — | — |
 | **Harmony / Arp type** | The Keyboard Harmony type or arpeggio pattern this rack plays, saved with the rack. The switch next to it turns Harmony/Arp on or off; the Harmony/Arp drawer has its settings. | Keyboard Harmony/Arpeggio type | — | — |
 | **Controller map** | Shows what Launchkey faders 1–4 and knobs 1–8 do while this rack is loaded, on the Rack knob page. It is saved with the rack. | — | — | — |
 | **Keyboard part** | Makes this part the one you edit: Voice −/+ and Library act on it, as the Launchkey's EDIT pads do. Clicking anywhere in the part does the same. | PART SELECT | — | Pad page 3 (OTS/Parts), bottom row, pads 5–8 (EDIT R1…L) |

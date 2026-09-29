@@ -19,11 +19,16 @@
   State: liveRack, keyboardParts, chord, harmonyArp, ots, mixer.styleParts, plugins,
   soundLibrary. Commands: all existing ones (moveSplit, stepTranspose, setHarmonyType,
   setArpPattern, setHarmonyArpOn, toggleManualBass, toggleLeftHold, recallOts,
-  toggleOtsLink and the part commands in RackSlot). Save rack, Save as… and Revert wait
-  for the rack commands (docs/racks.md, order of work item 5) and are shown disabled.
+  toggleOtsLink and the part commands in RackSlot), and the rack commands: Save rack
+  (`saveRack`), Save as… (a name form, `saveRackAs`), Revert (`revertRack`, only when
+  modified). `liveRack.prompt` shows inline under the head: `soundNames` as a name field
+  per edited part, resent with `soundNames`; `unsavedChanges` as Save first (`saveRack`,
+  then the switch), Discard and switch (the switch with `discard`) and Keep editing
+  (`dismissRackPrompt`).
 -->
 <script lang="ts">
   import { untrack } from 'svelte'
+  import type { RackSwitch } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -50,6 +55,68 @@
   const panelPage = $derived(s.mixer.faderPage === 'panel')
 
   let showMap = $state(false)
+
+  // ── Saving (the rack commands, docs/app-api.md `liveRack.prompt`) ─────────────
+  const PART_NAMES = ['Right 1', 'Right 2', 'Right 3', 'Left']
+  const prompt = $derived(rack.prompt)
+  /** The Save as… form's rack name; null while the form is closed. */
+  let saveAsName = $state<string | null>(null)
+  /** The names typed for a soundNames prompt, by part. */
+  let soundNames = $state<Record<number, string>>({})
+  /** Save first: the switch to send once the save has gone through. */
+  let afterSave = $state<RackSwitch | null>(null)
+  const canSave = $derived(rack.modified || rack.id === null)
+
+  // A new soundNames prompt starts from each preset's own name.
+  $effect(() => {
+    const p = prompt
+    untrack(() => {
+      soundNames = p?.kind === 'soundNames' ? Object.fromEntries(p.parts.map((x) => [x.part, x.suggested])) : {}
+    })
+  })
+  // Save first: once saved (unmodified, nothing asked), make the switch.
+  $effect(() => {
+    const pending = afterSave
+    if (!pending || rack.prompt || rack.modified) return
+    untrack(() => {
+      afterSave = null
+      sendSwitch(pending, false)
+    })
+  })
+
+  /** The form opens on a click and typing the name is next: focus it, without scrolling the drawer. */
+  function focusName(el: HTMLInputElement) {
+    el.focus({ preventScroll: true })
+    el.select()
+  }
+  function sendSwitch(to: RackSwitch, discard: boolean) {
+    app.send(to.kind === 'load' ? { type: 'loadRack', id: to.id, ...(discard ? { discard } : {}) } : { type: 'newRack', ...(discard ? { discard } : {}) })
+  }
+  function saveRack() {
+    if (canSave) app.send({ type: 'saveRack' })
+  }
+  function submitSaveAs(e: SubmitEvent) {
+    e.preventDefault()
+    const name = saveAsName?.trim()
+    if (!name) return
+    app.send({ type: 'saveRackAs', name })
+    saveAsName = null
+  }
+  function submitSoundNames(e: SubmitEvent) {
+    e.preventDefault()
+    if (prompt?.kind !== 'soundNames') return
+    const names = Object.fromEntries(prompt.parts.map((x) => [x.part, (soundNames[x.part] ?? '').trim()]))
+    if (Object.values(names).some((n) => !n)) return
+    app.send(prompt.saveAs === null ? { type: 'saveRack', soundNames: names } : { type: 'saveRackAs', name: prompt.saveAs, soundNames: names })
+  }
+  function saveFirst(to: RackSwitch) {
+    afterSave = to
+    app.send({ type: 'saveRack' })
+  }
+  function keepEditing() {
+    afterSave = null
+    app.send({ type: 'dismissRackPrompt' })
+  }
 
   /** The Harmony/Arp select's value: `h<index>` or `a<index>`. */
   const harmonyValue = $derived(h.mode === 'arpeggio' ? `a${h.arpPattern}` : `h${h.harmonyType}`)
@@ -84,10 +151,47 @@
       {#if rack.id !== null}<span class="badge mine">Mine</span>{/if}
       {#if rack.modified}<span class="dot">● modified</span>{/if}
       <span class="grow"></span>
-      <button type="button" class="mini mat-raised" aria-disabled="true" use:tip={'rack.save'}>Save rack</button>
-      <button type="button" class="mini mat-raised" aria-disabled="true" use:tip={'rack.save_as'}>Save as…</button>
-      {#if rack.modified}<button type="button" class="mini mat-raised" aria-disabled="true" use:tip={'rack.revert'}>Revert</button>{/if}
+      <button type="button" class="mini mat-raised" class:primary={canSave} aria-disabled={!canSave} use:tip={'rack.save'} onclick={saveRack}>Save rack</button>
+      <button type="button" class="mini mat-raised" aria-expanded={saveAsName !== null} use:tip={'rack.save_as'} onclick={() => (saveAsName = saveAsName === null ? (rack.id === null ? rackName(rack) : `${rack.name} copy`) : null)}>Save as…</button>
+      {#if rack.modified && rack.id !== null}<button type="button" class="mini mat-raised" use:tip={'rack.revert'} onclick={() => app.send({ type: 'revertRack' })}>Revert</button>{/if}
     </div>
+
+    {#if prompt?.kind === 'unsavedChanges'}
+      <div class="form unsaved" role="alert">
+        <span>The rack has unsaved changes{prompt.then.kind === 'load' ? `: save them before loading ${prompt.then.name}?` : ': save them before starting a new rack?'}</span>
+        <div class="row">
+          <button type="button" class="mini mat-raised primary" use:tip={'rack.save_first'} onclick={() => prompt.kind === 'unsavedChanges' && saveFirst(prompt.then)}>Save first</button>
+          <button type="button" class="mini mat-raised" use:tip={'rack.discard_switch'} onclick={() => prompt.kind === 'unsavedChanges' && sendSwitch(prompt.then, true)}>Discard and switch</button>
+          <button type="button" class="mini mat-raised" use:tip={'rack.keep_editing'} onclick={keepEditing}>Keep editing</button>
+        </div>
+      </div>
+    {:else if prompt?.kind === 'soundNames'}
+      <form class="form names" onsubmit={submitSoundNames}>
+        <span class="note">Edited presets are saved as new sounds of yours: name each one.</span>
+        {#each prompt.parts as x (x.part)}
+          <div class="row">
+            <label for="rack-sn-{x.part}" class="k">{PART_NAMES[x.part]} sound</label>
+            <input id="rack-sn-{x.part}" bind:value={soundNames[x.part]} placeholder={x.suggested} use:tip={'rack.sound_name'} />
+          </div>
+        {/each}
+        <div class="row">
+          <button type="submit" class="mini mat-raised primary" use:tip={'rack.save_names'}>Save rack</button>
+          <button type="button" class="mini mat-raised" use:tip={'rack.cancel_save'} onclick={keepEditing}>Cancel</button>
+        </div>
+      </form>
+    {/if}
+    {#if saveAsName !== null}
+      <form class="form saveas" onsubmit={submitSaveAs}>
+        <div class="row">
+          <label for="rack-saveas" class="k">Rack name</label>
+          <input id="rack-saveas" bind:value={saveAsName} placeholder="e.g. Sunday Gospel" use:focusName use:tip={'rack.save_as_name'} />
+        </div>
+        <div class="row">
+          <button type="submit" class="mini mat-raised primary" aria-disabled={!saveAsName.trim()} use:tip={'rack.save_as_commit'}>Save rack</button>
+          <button type="button" class="mini mat-raised" use:tip={'rack.cancel_save'} onclick={() => (saveAsName = null)}>Cancel</button>
+        </div>
+      </form>
+    {/if}
 
     <!-- Your hands ─────────────────────────────────────────────────────────────── -->
     <section aria-labelledby="rack-hands">
@@ -349,6 +453,25 @@
     font-size: 0.8rem;
     color: var(--ink);
     white-space: nowrap;
+  }
+  .mini.primary {
+    color: var(--accent);
+  }
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.6rem 0.7rem;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--seam));
+    font-size: var(--fs-small);
+  }
+  .form input {
+    flex: 1;
+    min-width: 8rem;
+    max-width: 16rem;
+    min-height: 1.9rem;
+    font: inherit;
   }
   .mini[aria-disabled='true'] {
     opacity: 0.45;
