@@ -25,8 +25,9 @@
 //! (CC10) is the rack's too: plugins disagree about CC10 as they do about CC7, so the
 //! rack keeps it from the plugin and applies it as a balance on the plugin's stereo
 //! output (centre = the plugin's own image, untouched). The effect sends (CC91/93/94)
-//! are kept from it too: the caller's shared effect bus plays them
-//! ([`PluginRack::render_add_sends`], #204).
+//! are kept from it too: the caller's shared effect bus plays them, with the strip's
+//! added sends 4-6 ([`PluginRack::render_add_sends`], #204): each slot's output after its
+//! gain and pan goes into all six send buses at the part's send gains.
 //!
 //! **XG part settings (#247).** A plugin gets channel messages only, so the part's XG
 //! multi part SysEx never reaches it; the rack plays what has a yahaha equivalent: the
@@ -34,9 +35,14 @@
 //! (a flat EQ is not run), and its mono/poly and velocity curve in front of the plugin
 //! (`PartVoice`).
 //!
-//! **Inserts (#269).** A part's insertion effect (a keyboard part's own slot, a Style
-//! part's style insert) runs on the plugin's output after the EQ, before its gain and pan
-//! (`PluginRack::set_insert`); an insert off is not run, and its time counts in the part's
+//! **The strip chain (#269 and the mixer rework).** The plugin's output runs through the
+//! part's whole channel strip, as a SoundFont part's stem does (`fx::strip`), before its
+//! gain and pan: EQ → compressor → insert 1 → insert 2. Insert 1 is the part's insertion
+//! effect (a keyboard part's own slot, a Style part's style insert;
+//! `PluginRack::set_insert`); the compressor and insert 2 come from the strip
+//! (`PluginRack::set_strip`). Every stage sees the part as if at full volume (level 1.0).
+//! A stage that is off and settled is not run, so a slot with no strip set renders
+//! bit-identically to one without these stages; the chain's time counts in the part's
 //! CPU (`last_render_ns`).
 //!
 //! **Swaps.** An assign takes effect at the next block boundary. The outgoing instance gets
@@ -67,9 +73,10 @@ use std::time::{Duration, Instant};
 
 use super::PartGain;
 use super::part_voice::PartVoice;
-use yahaha_fx::fx::BUSES;
+use yahaha_fx::fx::SENDS;
+use yahaha_fx::fx::part_comp::PartCompDsp;
 use yahaha_fx::fx::part_eq::{EqCoeffs, EqDsp};
-use yahaha_fx::fx::{Insert, InsertSettings};
+use yahaha_fx::fx::{Insert, InsertSettings, PartComp};
 use super::instance::{PluginInstance, RenderError};
 
 /// Slots: one per MIDI channel.
@@ -243,13 +250,19 @@ struct Slot {
     /// style insert), after the EQ, and what the control side asks of it this buffer.
     insert: Insert,
     insert_set: InsertSettings,
-    /// The insert's time in the last block rendered (ns; 0: it didn't run), counted in
-    /// the part's CPU with the plugin's (`last_render_ns`).
+    /// The strip's compressor (before insert 1) and insert 2 (after it), and what the
+    /// control side asks of them this buffer (`PluginRack::set_strip`).
+    comp: PartCompDsp,
+    comp_set: PartComp,
+    second: Insert,
+    second_set: InsertSettings,
+    /// The chain's time (compressor and both inserts) in the last block rendered (ns; 0:
+    /// none of them ran), counted in the part's CPU with the plugin's (`last_render_ns`).
     insert_ns: u64,
 }
 
 impl Slot {
-    /// A slot at `rate` Hz (allocates its insert: off the audio thread).
+    /// A slot at `rate` Hz (allocates its compressor and inserts: off the audio thread).
     fn new(rate: f32) -> Self {
         Slot {
             cur: None,
@@ -272,6 +285,10 @@ impl Slot {
             eq: EqDsp::new(),
             insert: Insert::new(rate.max(1.0)),
             insert_set: InsertSettings::NONE,
+            comp: PartCompDsp::new(rate.max(1.0)),
+            comp_set: PartComp::default(),
+            second: Insert::new(rate.max(1.0)),
+            second_set: InsertSettings::NONE,
             insert_ns: 0,
         }
     }
@@ -673,14 +690,24 @@ impl PluginRack {
     }
 
     /// A part's insertion effect for the next buffer (#269; a keyboard part's own slot or
-    /// a Style part's style insert): run on the plugin's output after its EQ, before its
-    /// gain and pan. Kind None: not run once it has faded out, and the output is as with
+    /// a Style part's style insert): insert 1, run on the plugin's output after its EQ and
+    /// compressor, before insert 2 and its gain and pan. Kind None: not run once it has faded out, and the output is as with
     /// no insert. RT-safe.
     pub fn set_insert(&mut self, channel: u8, s: InsertSettings) {
         self.slots[(channel & 0x0F) as usize].insert_set = s;
     }
 
-    /// The insert's time in `channel`'s last block (ns).
+    /// The rest of a part's strip for the next buffer: its compressor (after the EQ,
+    /// before insert 1) and insert 2 (after insert 1), both before its gain and pan.
+    /// Compressor off or kind None: not run once settled, and the output is as without
+    /// them. RT-safe.
+    pub fn set_strip(&mut self, channel: u8, comp: PartComp, second: InsertSettings) {
+        let slot = &mut self.slots[(channel & 0x0F) as usize];
+        slot.comp_set = comp;
+        slot.second_set = second;
+    }
+
+    /// The chain's time in `channel`'s last block (ns).
     #[cfg(test)]
     pub(super) fn insert_ns(&self, channel: u8) -> u64 {
         self.slots[(channel & 0x0F) as usize].insert_ns
@@ -693,13 +720,14 @@ impl PluginRack {
     }
 
     /// [`PluginRack::render_add`], and **add** each slot's output (after its gain and pan)
-    /// times its send gains into the effect bus's send buses (`sends.0`: bus b's left
-    /// side at `2 * b * frames`, its right at `(2 * b + 1) * frames`, `frames` =
-    /// `left.len()`; `sends.1`: each channel's gain into each bus, #204). RT-safe.
-    pub fn render_add_sends(&mut self, left: &mut [f32], right: &mut [f32], mut sends: Option<(&mut [f32], &[[f32; BUSES]; SLOTS])>) {
+    /// times its send gains into the six send buses (`sends.0`: send s's left side at
+    /// `2 * s * frames`, its right at `(2 * s + 1) * frames`, `frames` = `left.len()`;
+    /// `sends.1`: each channel's gain into each send, #204; a gain of 0 or less adds
+    /// nothing). A send buffer too short for six sends is ignored. RT-safe.
+    pub fn render_add_sends(&mut self, left: &mut [f32], right: &mut [f32], mut sends: Option<(&mut [f32], &[[f32; SENDS]; SLOTS])>) {
         let frames = left.len().min(right.len());
         if let Some((s, _)) = sends.as_ref()
-            && s.len() < 2 * BUSES * frames
+            && s.len() < 2 * SENDS * frames
         {
             sends = None;
         }
@@ -777,11 +805,15 @@ impl PluginRack {
         };
         // The part's EQ (#247) on that output, before its gain and pan (and so before the
         // meters and sends). Flat, it is not run, and the mix below is as before.
-        // Then its insert (#269), still before them; the effect sees the part at full
-        // volume, as it is before its gain. Off (and faded out), it is not run either.
+        // Then the rest of its strip, still before them: compressor, insert 1 (#269),
+        // insert 2. Each sees the part at full volume, as it is before its gain. Off (and
+        // settled), a stage is not run either.
         let live = cur_live || old_live;
+        let comp = slot.comp.active(&slot.comp_set) && live;
         let insert = slot.insert.active(slot.insert_set.kind) && live;
-        let eq = (slot.eq.active() && live) || insert;
+        let second = slot.second.active(slot.second_set.kind) && live;
+        let chain = comp || insert || second;
+        let eq = (slot.eq.active() && live) || chain;
         if eq {
             for i in 0..n {
                 let (a, b) = mix(i, l, r, l2, r2);
@@ -795,9 +827,17 @@ impl PluginRack {
             slot.eq.clear();
         }
         slot.insert_ns = 0;
-        if insert {
+        if chain {
             let t0 = yahaha_core::rt::host_now();
-            slot.insert.process(l, r, 1.0, &slot.insert_set);
+            if comp {
+                slot.comp.process(l, r, 1.0, &slot.comp_set);
+            }
+            if insert {
+                slot.insert.process(l, r, 1.0, &slot.insert_set);
+            }
+            if second {
+                slot.second.process(l, r, 1.0, &slot.second_set);
+            }
             slot.insert_ns = yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0));
         }
         let gain = slot.gain.ramp(n);
@@ -856,7 +896,7 @@ struct Send<'a> {
     frames: usize,
     /// The slice's first frame in the buffer.
     at: usize,
-    gains: [f32; BUSES],
+    gains: [f32; SENDS],
 }
 
 impl Send<'_> {
