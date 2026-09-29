@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MockSession, mockOtsEq, noteName, transposeChord } from './mock'
+import { MockSession, mockOtsEq, mockOtsInsert, noteName, transposeChord } from './mock'
 import { FLAT_EQ } from './types'
 
 /** Milliseconds per bar at the mock's current tempo. */
@@ -115,6 +115,22 @@ describe('mock session', () => {
     expect(m.state.keyboardParts[0].eq).toEqual(mockOtsEq(0, 0))
     m.state.ots.settings[0].parts.slice(1).forEach((o, j) => {
       expect(m.state.keyboardParts[j + 1].eq).toEqual(o.program !== null ? FLAT_EQ : mine)
+    })
+  })
+
+  it('the insert slot commands set it, and an OTS recall sets it as the engine does', () => {
+    const m = new MockSession({ manual: true })
+    for (let p = 0; p < 4; p++) {
+      m.send({ type: 'setKeyboardInsertEffect', part: p, effect: 'tremolo' })
+      m.send({ type: 'setKeyboardInsertOn', part: p, on: true })
+      m.send({ type: 'setKeyboardInsertAmount', part: p, amount: 200 })
+    }
+    const mine = { effect: 'tremolo', on: true, amount: 127 }
+    expect(m.state.keyboardParts[3].insert).toEqual(mine)
+    m.send({ type: 'recallOts', index: 0 })
+    expect(m.state.keyboardParts[0].insert).toEqual(mockOtsInsert(0, 0))
+    m.state.ots.settings[0].parts.slice(1).forEach((o, j) => {
+      expect(m.state.keyboardParts[j + 1].insert).toEqual(o.program !== null ? { ...mine, on: false } : mine)
     })
   })
 

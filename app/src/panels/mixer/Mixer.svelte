@@ -18,7 +18,9 @@
     Under them, the part's channel-strip EQ (#247, `setPartEq`): Low and High shelf gain
     (−12..+12 dB; 0 dB takes the band out of the signal) and each band's frequency, in the
     XG EQ frequency steps. yahaha plays it on the part's audio, SoundFont or plugin; it is
-    tone, not level. An OTS's XG part EQ sets it; a rack saves it.
+    tone, not level. An OTS's XG part EQ sets it; a rack saves it. Under the EQ, the part's
+    insert slot (`setKeyboardInsertEffect`, `On`, `Amount`): its effect, on/off and amount,
+    played on the part's audio, SoundFont or plugin. An OTS's insertion type sets it.
     Style strips have Reverb, Chorus and Delay (#268, `setStylePartSend`): they show the
     style's own sends until turned, then the part's own (marked •), which the engine sends in
     place of the style's through section and style changes. Double-click hands that part's
@@ -63,7 +65,7 @@
   import HSlider from '../settings/HSlider.svelte'
   import Strip from './Strip.svelte'
   import FxKnob from './FxKnob.svelte'
-  import { FADER_LAYERS, FLAT_EQ, type FaderLayer, type PartEq } from '../../lib/api/types'
+  import { FADER_LAYERS, FLAT_EQ, OFF_INSERT, type FaderLayer, type PartEq } from '../../lib/api/types'
   const LAYER_NAMES: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
   import { partVoice, pluginBadge, pluginTip, styleVoice } from './voice'
   import { CPU_POLL_MS, CPU_WARN, cpuOf, pct } from './cpu'
@@ -198,6 +200,12 @@
       onsend: (send: PartSend, v: number) => app.send({ type: 'setPartSend', part: i, send, value: v }),
     },
     eq: { value: p.eq ?? FLAT_EQ, onchange: (eq: PartEq) => app.send({ type: 'setPartEq', part: i, eq }) },
+    insert: {
+      value: p.insert ?? OFF_INSERT,
+      oneffect: (effect: InsertEffect) => app.send({ type: 'setKeyboardInsertEffect', part: i, effect }),
+      onon: (on: boolean) => app.send({ type: 'setKeyboardInsertOn', part: i, on }),
+      onamount: (amount: number) => app.send({ type: 'setKeyboardInsertAmount', part: i, amount }),
+    },
     lit: p.sounding,
     on: {
       led: ledAt(i),
@@ -497,7 +505,7 @@
     </p>
 
     <!-- The Panel strips' knob row holds the EQ under the sends (#247): taller, on every strip and the master, so the faders line up. -->
-    <div class="strips" id="mixer-strips" role="tabpanel" aria-labelledby="mixer-tab-{page}" style:--fx-h={page === 'panel' ? '6.9rem' : null}>
+    <div class="strips" id="mixer-strips" role="tabpanel" aria-labelledby="mixer-tab-{page}" style:--fx-h={page === 'panel' ? '10.2rem' : null}>
       {#if page === 'panel'}
         {#each parts as p, i (i)}
           <Strip {...panelStrip(p, i)} />

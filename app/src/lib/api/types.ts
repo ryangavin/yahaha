@@ -116,6 +116,9 @@ export type AppCmd =
   | { type: 'setPartPan'; part: number; pan: number }
   | { type: 'setPartSend'; part: number; send: PartSend; value: number }
   | { type: 'setPartEq'; part: number; eq: PartEq }
+  | { type: 'setKeyboardInsertEffect'; part: number; effect: InsertEffect }
+  | { type: 'setKeyboardInsertOn'; part: number; on: boolean }
+  | { type: 'setKeyboardInsertAmount'; part: number; amount: number }
   /** Solo a keyboard part 0–3 (only it sounds from the keys); null ends the solo. */
   | { type: 'setPartSolo'; part: number | null }
   // Mixer and Launchkey pages
@@ -716,6 +719,26 @@ export function clampEq(eq: PartEq): PartEq {
   return { lowGain: c(eq.lowGain, -12, 12), lowFreq: c(eq.lowFreq, 32, 2000), highGain: c(eq.highGain, -12, 12), highFreq: c(eq.highFreq, 500, 16000) }
 }
 
+/** A keyboard part's insert slot (Genos: Insertion Effect Type, On/Off, Depth): its effect,
+ *  whether it plays (off: the part as with no insert), and its amount 0–127. */
+export interface PartInsert {
+  effect: InsertEffect
+  on: boolean
+  amount: number
+}
+
+/** A slot before anything sets it: off, a distortion at the middle amount. */
+export const OFF_INSERT: PartInsert = { effect: 'distortion', on: false, amount: 64 }
+
+/** The effects an insert slot offers, in the kind select's order, with their names. */
+export const INSERT_EFFECTS: { effect: InsertEffect; name: string }[] = [
+  { effect: 'distortion', name: 'Distortion' },
+  { effect: 'compressor', name: 'Compressor' },
+  { effect: 'autoWah', name: 'Auto Wah' },
+  { effect: 'tremolo', name: 'Tremolo' },
+  { effect: 'rotary', name: 'Rotary' },
+]
+
 export interface KeyboardPart {
   /** "Right 1", "Right 2", "Right 3", "Left". */
   name: string
@@ -742,6 +765,8 @@ export interface KeyboardPart {
   variation: number
   /** Its channel-strip EQ (#247, `setPartEq`); flat until something sets it (an OTS's XG part EQ, a rack). */
   eq: PartEq
+  /** Its insert slot (`setKeyboardInsertEffect`, `On`, `Amount`); off until something sets it (an OTS's XG insertion type, a rack). */
+  insert: PartInsert
   /** Where its Launchkey fader (Panel page, faders 1–4) physically is; null until it moves. */
   fader: number | null
   /** The instrument plugin it plays instead of its SoundFont voice (absent: the SoundFont). */
