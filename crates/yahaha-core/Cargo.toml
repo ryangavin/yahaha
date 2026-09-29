@@ -1,0 +1,15 @@
+[package]
+name = "yahaha-core"
+version = "0.1.0"
+edition = "2024"
+description = "yahaha: the bottom layer (real-time helpers, MIDI, music theory, data tables) every other crate builds on"
+license = "MIT"
+repository = "https://github.com/satoramoto/yahaha"
+
+# The crate split (AGENTS.md, Layering): core depends on no other yahaha crate.
+
+[features]
+# Tests gated with `#[cfg(feature = "slow-tests")]` run in CI only (AGENTS.md).
+slow-tests = []
+
+[dependencies]

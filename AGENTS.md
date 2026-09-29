@@ -8,26 +8,28 @@ Each command must exit 0. Locally you run the core suite and the checks that cov
 
 **The core suite** is THE local check. Run it after any Rust change, or keep `bacon --headless core` running (see "Feedback loop"):
 
-- `cargo test --profile test-quick --features plugins --lib` on macOS, or `cargo test --profile test-quick --lib` on Linux.
+- `cargo test --workspace --exclude yahaha-app --profile test-quick --features plugins --lib` on macOS, or `cargo test --workspace --exclude yahaha-app --profile test-quick --lib` on Linux.
 
-It builds and runs the library's unit tests, with debug assertions and overflow checks on, and leaves out the slow tests: those marked `#[cfg(feature = "slow-tests")]` (corpus sweeps, long audio renders, plugin-hosting round trips, real-time waits), which aren't even compiled. It doesn't build the binary, the integration tests or the example either. On the 10-core Mac, warm, after a one-line edit in `src/session/mixer.rs`: 4.7 s to rebuild, then about 2 s to run. To run a single test, add its name. A new test that takes more than about 0.25 s goes behind `slow-tests`.
+`--workspace --exclude yahaha-app` covers the `yahaha` facade and every layer crate under `crates/` (see "Layering"), and leaves out the app shell, which has its own check below. `default-members = ["."]` keeps a plain `cargo build` or `cargo test` at the repo root on the facade alone, so without `--workspace` the layer crates' own tests don't run. With `--lib` it builds and runs each package's library tests. The commands below without `--workspace` (`--test it`, `--test api_wire`, `--no-default-features --lib`, the example) target the facade's own targets on purpose.
+
+It builds and runs the libraries' unit tests, with debug assertions and overflow checks on, and leaves out the slow tests: those marked `#[cfg(feature = "slow-tests")]` (corpus sweeps, long audio renders, plugin-hosting round trips, real-time waits), which aren't even compiled. It doesn't build the binary, the integration tests or the example either. On the 10-core Mac, warm, after a one-line edit in `src/session/mixer.rs`: 4.7 s to rebuild, then about 2 s to run. To run a single test, add its name. A new test that takes more than about 0.25 s goes behind `slow-tests`.
 
 **Also run** the ones that cover your change:
 
 - `cargo test --profile test-quick --features plugins --test it` (Linux: without `--features plugins`). The integration tests, most of them the no-allocation checks of the engine, audio and MIDI threads. Run them when you change code that runs on those threads. Add a test name to run one.
 - `cargo test --profile test-quick --test api_wire`. The app API's wire format. Run it when `src/api` changed.
-- The corpus tests. They need the git-ignored `corpus/` (see "Corpus"), so CI can't run them; they are behind `slow-tests` and run only here. When you change a module that has corpus tests, run them once for that module: `cargo test --profile test-quick --features plugins,slow-tests <module>` (for example `sff`, `capture`, `oracle`, `golden`, `session::style_change`, `fx::xg`, `engine::part_state`, `library`). Without the corpus they skip without failing, so a pass without it covers nothing.
+- The corpus tests. They need the git-ignored `corpus/` (see "Corpus"), so CI can't run them; they are behind `slow-tests` and run only here. When you change a module that has corpus tests, run them once for that module: `cargo test --workspace --exclude yahaha-app --profile test-quick --features plugins,slow-tests <module>` (for example `sff`, `capture`, `oracle`, `golden`, `session::style_change`, `fx::xg`, `engine::part_state`, `library`). Without the corpus they skip without failing, so a pass without it covers nothing.
 - `cargo test --profile test-quick` in `app/src-tauri`. The app shell's Rust tests; on macOS they run with plugins. Run them when `app/src-tauri`, `src/api` or `src/session` changed. The app shell is a member of the root workspace, so this reuses the dependency builds of the core suite.
 - In `app/`, after `npm ci` on a fresh checkout: `npm run check` and `npm run lint`, and `npx vitest run <file>...` for the web tests that cover your change. Run them when anything under `app/` changed. The whole web suite (`npm run verify`) runs in CI.
 - `cargo check --no-default-features --lib`. The library with no features. Run it when you change `#[cfg(feature = ...)]` code.
 - In bash, from the repo root: ``diff <(awk '/^## AppCmd/{f=1} /^### Result/{f=0} f && /^\| `/' docs/app-api.md | cut -d'|' -f2 | grep -o '`[^`]*`' | tr -d '`' | sort -u) <(awk '/^const EVERY_CMD/,/^\];/' tests/api_wire.rs | sed -n 's/^ *r#"{"type":"\([^"]*\)".*/\1/p' | sort -u)``. This checks that `EVERY_CMD` in `tests/api_wire.rs` names exactly the commands in the AppCmd tables of `docs/app-api.md`, and prints any difference. Run it when either file changed. CI runs it on every queued change, docs-only ones included (the `api-doc` job). No code or test compiles in or reads a committed file under `docs/`; keep it that way, so a docs-only change can't change what CI tests.
 - `cargo run --no-default-features --example api_doc_check -- docs/app-api.md`. This checks that every `{"type": ...}` JSON example in `docs/app-api.md`, and its example `AppState`, parses into the app API's Rust types (`AppCmd`, `Event`, `AppState`) and serializes back unchanged; it prints each mismatch and exits 1. The doc is read at run time from the path given, never compiled in. Run it when `docs/app-api.md` or the API types in `src/api` changed. CI runs it on every queued change, docs-only ones included (the `api-doc` job). Its own tests run with `cargo test`.
 
-**CI's merge queue** runs everything (`.github/workflows/ci.yml`): `cargo check --no-default-features --lib` and `cargo test --profile test-quick --features slow-tests` on Linux; `cargo test --profile test-quick --features plugins,slow-tests` on macOS (every target: the library, the binary, the integration tests and the example; slow tests included); `cargo check --all-targets` (Linux) and `cargo test --profile test-quick` (macOS) in `app/src-tauri`; `npm run verify` in `app/`; and the two API doc checks. CI has no corpus, so the corpus tests skip there.
+**CI's merge queue** runs everything (`.github/workflows/ci.yml`): `cargo check --no-default-features --lib` and `cargo test --workspace --exclude yahaha-app --profile test-quick --features slow-tests` on Linux; `cargo test --workspace --exclude yahaha-app --profile test-quick --features plugins,slow-tests` on macOS (every target of the facade and the layer crates: the libraries, the binary, the integration tests and the example; slow tests included); `cargo check --all-targets` (Linux) and `cargo test --profile test-quick` (macOS) in `app/src-tauri`; `npm run verify` in `app/`; and the two API doc checks. CI has no corpus, so the corpus tests skip there.
 
 ## Builds and concurrency
 
-- One Cargo workspace: the engine and the app shell (`app/src-tauri`) share `Cargo.lock` and the worktree's `target/`. Cargo at the repo root builds only the engine.
+- One Cargo workspace: the `yahaha` facade (the repo root), the layer crates (`crates/*`, see "Layering") and the app shell (`app/src-tauri`, package `yahaha-app`) share `Cargo.lock` and the worktree's `target/`. A plain cargo command at the repo root builds only the facade (`default-members`); `--workspace --exclude yahaha-app` adds the layer crates.
 - Each worktree keeps its own `target/`. Don't point worktrees at one shared target directory: cargo names our crate's build outputs the same in every checkout and decides freshness by file times, so a worktree can reuse another worktree's build of different source and test the wrong code (measured: after a build in one checkout, the other checkout's build reported nothing to do).
 - A new worktree's first core-suite build compiles our crate from scratch: 49 s on the 10-core Mac, using every core. Dependencies come from sccache when it's set up (`rustc-wrapper = "sccache"` in `~/.cargo/config.toml`). Warm, after an edit, a rebuild takes about 5 s and two worktrees rebuilding at once take 5.4 s each, against 4.7 s alone.
 - So when several lanes build Rust at once, start them one at a time: the next lane's first build begins once the previous lane's first build has finished. After that, they can edit and run the core suite side by side.
@@ -44,12 +46,14 @@ When an orchestrator splits work across agents, each lane owns its files and no 
 
 While editing, run [bacon](https://dystroy.org/bacon) headless in your worktree (`cargo install --locked bacon`). It re-runs its job on every source change and, after every run, rewrites `.bacon-result.json` (git-ignored). Start it as a background command, and stop it when you're done or before switching job.
 
-- `bacon --headless` runs the `check` job: `cargo check --all-targets --features plugins`. On Linux, use `bacon --headless check-portable`.
+Every job runs with `--workspace --exclude yahaha-app`: the facade and the layer crates, not the app shell.
+
+- `bacon --headless` runs the `check` job: `cargo check --workspace --exclude yahaha-app --all-targets --features plugins`. On Linux, use `bacon --headless check-portable`.
 - `bacon --headless core` runs the core suite on every change. On Linux, use `bacon --headless core-portable`.
-- `bacon --headless test -- <filter>` runs targeted tests under the `test-quick` profile. Add `--lib` before the filter for library tests only.
+- `bacon --headless test -- <filter>` runs targeted tests under the `test-quick` profile, in every package. Add `--lib` before the filter for library tests only.
 - `jq '{error_code, stats}' .bacon-result.json` shows the latest result. `error_code` is null when the command exited 0; `stats` counts errors, warnings and failed tests.
 - `jq -r '.lines[] | [.content.strings[].raw] | join("")' .bacon-result.json` lists each error, warning and failed test with its location.
-- `find src tests Cargo.toml -newer .bacon-result.json` prints nothing when the result covers your last edit. If it prints a file, the run hasn't finished yet; read the result once, later, rather than looping.
+- `find src tests crates Cargo.toml -newer .bacon-result.json` prints nothing when the result covers your last edit. If it prints a file, the run hasn't finished yet; read the result once, later, rather than looping.
 
 The jobs are in `bacon.toml`: `check`, `check-portable`, `core`, `core-portable`, `clippy` and `test`. bacon is only for fast feedback; the checks above and CI decide.
 
@@ -64,7 +68,7 @@ Reviewers flag only these, each with the file, the line and a one-line reason:
 - **Real-time safety:** no allocation, locks, panics or blocking I/O on the audio, engine or MIDI threads.
 - **Mixer:** a style feature is mapped onto one of yahaha's own mixer concepts (see "Engine rules"), not added as a new, hidden or duplicate level. Anything that changes how loud a part is shows on a control: that part's strip or the group control that scales it.
 - **Parity:** nothing is hardware-only. Every Launchkey function has an app control; every new control has a tooltip; every new command is in both mocks (TS and the Rust dev mock), in docs/app-api.md and in EVERY_CMD in tests/api_wire.rs.
-- **Layering:** no new upward imports (for example, sff or theory reaching into engine or session; synth reaching into session or plugin). Move shared types down instead.
+- **Layering:** no new upward imports in the order core → sff, fx → engine → synth → the `yahaha` facade (see "Layering"; for example, sff or theory reaching into engine or session; synth reaching into session). Move shared types down instead.
 - **Public repo:** no style data, soundfonts, manual text or real plugin state blobs committed.
 - **Bugs:** wrong logic, broken migrations of saved files, and tests that would pass without the code under test working.
 
@@ -104,7 +108,22 @@ rustysynth is an unmodified dependency from crates.io (`rustysynth = "1.3.6"`). 
 
 ## Layering
 
-No new upward imports between modules. A workspace split is planned: core → sff → dsp → engine → plugin, with the facade on top.
+No new upward imports between modules. The workspace is being split into layer crates under `crates/`, each depending only on the ones below it. The crates exist; their modules still live in the facade's `src/` and move in lane by lane:
+
+| Crate | Modules | Depends on |
+|---|---|---|
+| `yahaha-core` | `rt`, `route`, `style_types`, `theory`, `tone`, `voice_gm`, `parts_data`, `data_files`, `midi`, `click`, `arp`, `harmony`, `fingering`, `looper`, `ireal`, `megavoice` | nothing |
+| `yahaha-sff` | `sff`, `library` | core |
+| `yahaha-fx` | `fx` | core |
+| `yahaha-engine` | `engine`, `multipad`, `parts`, `controllers`, `launchkey`, `sim` | core, sff, fx |
+| `yahaha-synth` | `synth`, `patches`, `plugin`, `perf` (the `plugins` feature and the objc2 dependencies) | core, sff, fx, engine |
+| `yahaha` (the facade, the repo root) | `session`, `api`, `knobs`, `racks`, `live`, `capture`, `oracle`, `golden`, `recognizer_golden`, `bench`, `ui`, `main` | all of them |
+
+The DSP core (the synth) sits above the engine, not below it, because the synth uses `engine::Parts`; only fx sits below the engine. This replaces the earlier sketch (core → sff → dsp → engine → plugin).
+
+- **Extraction rule:** a module moves down into its crate only when nothing its production code imports lives above that crate. A test in it that needs a higher layer moves up to the facade (or into `tests/`) with the move.
+- **Paths keep working:** the facade's `src/lib.rs` re-exports each moved module (`pub use yahaha_core::theory;`), so `crate::theory::…` and `yahaha::theory::…` paths keep resolving.
+- Shared types already moved down for this: `Sink` lives in `midi` and `shift_key` in `theory` (the engine re-exports `shift_key`).
 
 ## Genos behaviour
 

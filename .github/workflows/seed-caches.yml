@@ -105,9 +105,9 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: cargo check --no-default-features --lib
 
-      - name: cargo test --profile test-quick --features slow-tests --no-run
+      - name: cargo test --workspace --exclude yahaha-app --profile test-quick --features slow-tests --no-run
         if: steps.cache.outputs.cache-hit != 'true'
-        run: cargo test --profile test-quick --features slow-tests --no-run
+        run: cargo test --workspace --exclude yahaha-app --profile test-quick --features slow-tests --no-run
 
   linux-app:
     if: >-
@@ -171,9 +171,9 @@ jobs:
           shared-key: macos-rust
           cache-on-failure: true
 
-      - name: cargo test --profile test-quick --features plugins,slow-tests --no-run
+      - name: cargo test --workspace --exclude yahaha-app --profile test-quick --features plugins,slow-tests --no-run
         if: steps.cache.outputs.cache-hit != 'true'
-        run: cargo test --profile test-quick --features plugins,slow-tests --no-run
+        run: cargo test --workspace --exclude yahaha-app --profile test-quick --features plugins,slow-tests --no-run
 
   macos-app:
     if: >-
