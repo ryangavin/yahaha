@@ -112,7 +112,7 @@ impl Control {
         // Panel faders 1-4 the part's pan or send, the Style faders the Style part's own
         // send (nothing in PAN); Panel faders 5-6 stay levels.
         let s = &self.snap;
-        let knobs_now = self.knobs_now();
+        let (knobs_now, strip_now) = (self.knobs_now(), self.strip_now());
         let mut faders: Vec<SurfaceFader> = (0..8u8)
             .map(|i| {
                 let p = i as usize;
@@ -151,7 +151,7 @@ impl Control {
                         let f = crate::knobs::rack_function(&self.rack_controls.faders[p]);
                         SurfaceFader {
                             label: f.short().to_uppercase(),
-                            value: self.knobs.read(f, &knobs_now).level,
+                            value: self.knobs.read_at(f, &knobs_now, &strip_now).level,
                             waiting: false,
                             position,
                             set: Some(AppCmd::Rack(RackCmd::MoveRackFader { fader: i, volume: 0 })),

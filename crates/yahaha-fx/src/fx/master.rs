@@ -550,24 +550,11 @@ impl CompDsp {
         }
         let (threshold, ratio, knee) = comp_curve(ctl.compression.load(Relaxed));
         let (attack, release) = comp_times(ctl.texture.load(Relaxed));
-        let coef = |ms: f32| (-1.0 / (ms.max(0.1) * 0.001 * self.sample_rate)).exp();
-        let (ka, kr) = (coef(attack), coef(release));
+        let (ka, kr) = (comp_coef(attack, self.sample_rate), comp_coef(release, self.sample_rate));
         let target = if on { db_gain(ctl.output.load(Relaxed).clamp(COMP_OUTPUT_DB.0, COMP_OUTPUT_DB.1) as f32) } else { 1.0 };
         let (m0, dm) = (self.makeup, (target - self.makeup) / n as f32);
-        for i in 0..n {
-            let (l, r) = (left[i], right[i]);
-            let want = if on {
-                let x = l.abs().max(r.abs()).max(1e-9);
-                curve_db(20.0 * x.log10(), threshold, ratio, knee)
-            } else {
-                0.0
-            };
-            let k = if want < self.gr_db { ka } else { kr };
-            self.gr_db = want + k * (self.gr_db - want);
-            let g = db_gain(self.gr_db) * (m0 + dm * (i + 1) as f32);
-            left[i] = l * g;
-            right[i] = r * g;
-        }
+        let core = CompCore { on, threshold, ratio, knee, ka, kr, detect: 1.0 };
+        core.run(&mut self.gr_db, &mut left[..n], &mut right[..n], |i| m0 + dm * (i + 1) as f32);
         self.makeup = target;
         if on {
             self.idle = false;
@@ -580,8 +567,57 @@ impl CompDsp {
     }
 }
 
+/// The compressor's per-sample core, shared by the Master Compressor ([`CompDsp`]) and a
+/// strip's (`part_comp::PartCompDsp`): a stereo-linked peak detector, the static curve
+/// (`curve_db`) and the gain change smoothed by the attack and release. Its callers keep
+/// their own make-up gain and idling.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CompCore {
+    /// Compressing (off: the gain change glides back to 0 dB).
+    pub on: bool,
+    /// dBFS.
+    pub threshold: f32,
+    pub ratio: f32,
+    /// Knee width, dB.
+    pub knee: f32,
+    /// Attack and release smoothing coefficients (`comp_coef`).
+    pub ka: f32,
+    pub kr: f32,
+    /// The detector's input scale: 1, or 1 / the part's level (so the part is compressed
+    /// as if at full volume).
+    pub detect: f32,
+}
+
+impl CompCore {
+    /// Run `left`/`right` (equal lengths) in place: `gr_db` is the gain change now (dB,
+    /// kept across buffers), `makeup(i)` the gain after it at sample `i`.
+    #[inline]
+    pub(super) fn run(&self, gr_db: &mut f32, left: &mut [f32], right: &mut [f32], makeup: impl Fn(usize) -> f32) {
+        for (i, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
+            let (lv, rv) = (*l, *r);
+            let want = if self.on {
+                let x = (lv.abs().max(rv.abs()) * self.detect).max(1e-9);
+                curve_db(20.0 * x.log10(), self.threshold, self.ratio, self.knee)
+            } else {
+                0.0
+            };
+            let k = if want < *gr_db { self.ka } else { self.kr };
+            *gr_db = want + k * (*gr_db - want);
+            let g = db_gain(*gr_db) * makeup(i);
+            *l = lv * g;
+            *r = rv * g;
+        }
+    }
+}
+
+/// A one-pole smoothing coefficient for a time of `ms` at `sample_rate`.
 #[inline]
-fn db_gain(db: f32) -> f32 {
+pub(super) fn comp_coef(ms: f32, sample_rate: f32) -> f32 {
+    (-1.0 / (ms.max(0.1) * 0.001 * sample_rate)).exp()
+}
+
+#[inline]
+pub(super) fn db_gain(db: f32) -> f32 {
     (db * (std::f32::consts::LN_10 / 20.0)).exp()
 }
 

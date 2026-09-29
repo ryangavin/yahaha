@@ -372,7 +372,7 @@ export function defaultStrip(): StripState {
   const empty = (): InsertSlotState => ({ kind: 'none', name: 'None', on: false, settings: [] })
   return {
     eq: { ...FLAT_EQ },
-    comp: { on: false, preset: 'natural', threshold: -18, ratio: 25, attack: 10, release: 200, makeup: 3, edited: false },
+    comp: { on: false, preset: 'natural', threshold: -18, ratio: 25, attack: 10, release: 200, makeup: 0, edited: false },
     inserts: [empty(), empty()],
     sends: [0, 0, 0, 0, 0, 0],
     tone: defaultTone(),
