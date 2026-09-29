@@ -15,13 +15,22 @@
       parameter (Tempo sync, Ping-pong) is a switch under them.
     - Band (#236, `setBandSend`) and Pads (#267, `setPadSend`): every Style part's, and every
       Multi Pad's, send to this block scaled, in percent.
+    - Rack (`setRackSendOverride`, send 1-3 = Reverb, Chorus, Delay): "Rack keeps type" lit,
+      the live rack keeps this send's type over the style's; while it does, a "Set by rack"
+      badge and a "Use style's" button (override off) show.
+  - Added sends 4-6 (`effects.sends[3..]`), a card each: the kind picker (`setSendKind`; a
+    kind this build doesn't list still shows by its name), the return (`setSendReturn`), a
+    knob per parameter by the state's own name, range and reading (`setSendParam`,
+    double-click for its default), and Remove (`removeSend`).
+  - Add send, while there are fewer than six: a kind picker (Hall to start) and Add
+    (`addSend`).
   - Inserts (#269): the style's insertion effects, each on one Style part, all on or off
     (`setInsertsOn`); each part's on/off (`setPartInsertOn`) and amount
     (`setPartInsertAmount`); the rotary's fast/slow switch (`setRotaryFast`).
   The Mixer keeps each strip's own send knobs and EQ, and opens this screen.
 -->
 <script lang="ts">
-  import type { EffectBlockState, FxBlock, FxCmd, FxParam, FxParamState, InsertEffect } from '../../lib/api/types'
+  import type { AppCmd, EffectBlockState, FxBlock, FxParam, FxParamState, InsertEffect, SendKind, SendState } from '../../lib/api/types'
   import type { TipKey } from '../../help/tooltips'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
@@ -29,6 +38,7 @@
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
   import FxKnob from '../mixer/FxKnob.svelte'
+  import { MAX_SENDS, returnText, SEND_KINDS, STYLE_SENDS } from './sendKinds'
 
   const fx = $derived(app.state.effects)
 
@@ -64,11 +74,18 @@
   const knobs = (b: EffectBlockState) => b.params.filter((p) => !isSwitch(p) && shown(b, p))
   const switches = (b: EffectBlockState) => b.params.filter(isSwitch)
 
-  /** A return level as the Genos shows it: 64 = 0 dB, 127 = +6 dB, 0 = off. */
-  const returnText = (v: number) => (v === 0 ? 'Off' : `${v >= 64 ? '+' : ''}${(20 * Math.log10(v / 64)).toFixed(1)} dB`)
   const percent = (v: number) => `${v}%`
 
-  const send = (cmd: FxCmd) => app.send(cmd)
+  const send = (cmd: AppCmd) => app.send(cmd)
+
+  /** Send 1-3 is the Reverb, Chorus, Delay block. */
+  const BLOCK_SEND: Record<FxBlock, number> = { reverb: 0, chorus: 1, variation: 2 }
+  const sends = $derived(fx.sends ?? [])
+  const blockSend = (b: EffectBlockState): SendState | undefined => sends.find((s) => s.send === BLOCK_SEND[b.block])
+  const added = $derived(sends.filter((s) => s.send >= STYLE_SENDS))
+  /** The kinds for an added send's picker, with its own kind first if this build doesn't list it. */
+  const kindsFor = (s: SendState) => (SEND_KINDS.some((k) => k.kind === s.kind) ? SEND_KINDS : [{ kind: s.kind, name: s.name }, ...SEND_KINDS])
+  let newKind = $state<SendKind>('hall')
 </script>
 
 <Overlay id="effects" title="Effects" closeTip="drawer.close" onclose={() => (ui.effects = false)}>
@@ -108,6 +125,24 @@
               Style: {b.styleEffect ? b.styleEffect.name + (b.styleEffect.effect ? '' : ' (no match)') : 'sets none'}
             </span>
           </div>
+
+          {#if blockSend(b)}
+            {@const st = blockSend(b)!}
+            <div class="rack" role="group" aria-label="{title(b)} rack">
+              <Toggle on={st.setByRack} tip="fx.send_rack_override" onclick={() => send({ type: 'setRackSendOverride', send: st.send, on: !st.setByRack })}
+                >Rack keeps type</Toggle
+              >
+              {#if st.setByRack}
+                <span class="badge">Set by rack: {st.name}</span>
+                <button
+                  type="button"
+                  class="chip mat-raised"
+                  use:tip={'fx.send_use_style'}
+                  onclick={() => send({ type: 'setRackSendOverride', send: st.send, on: false })}>Use style's</button
+                >
+              {/if}
+            </div>
+          {/if}
 
           <div class="types" role="group" aria-label="{title(b)} type">
             {#each b.types as t (t.effect)}
@@ -184,6 +219,78 @@
           </div>
         </section>
       {/each}
+
+      {#each added as s (s.send)}
+        {@const label = `Send ${s.send + 1}`}
+        <section class="card" aria-label={label} data-send={s.send}>
+          <header>
+            <h3>{label}</h3>
+            <button
+              type="button"
+              class="chip mat-raised"
+              aria-label="Remove {label}"
+              use:tip={'fx.send_remove'}
+              onclick={() => send({ type: 'removeSend', send: s.send })}>Remove</button
+            >
+          </header>
+
+          <div class="readout mat-screen" aria-live="polite">
+            <span class="name glow-text">{s.name}</span>
+            <span class="style-name">Saved with the rack</span>
+          </div>
+
+          <select
+            class="kind"
+            aria-label="{label} type"
+            value={s.kind}
+            use:tip={'fx.send_kind'}
+            onchange={(e) => send({ type: 'setSendKind', send: s.send, kind: e.currentTarget.value })}
+          >
+            {#each kindsFor(s) as k (k.kind)}
+              <option value={k.kind}>{k.name}</option>
+            {/each}
+          </select>
+
+          <div class="knobs">
+            <div class="ret">
+              <FxKnob
+                value={s.returnLevel}
+                tip="fx.send_return"
+                label="{label} return"
+                caption="Return"
+                reset={64}
+                format={returnText}
+                onchange={(v) => send({ type: 'setSendReturn', send: s.send, level: v })}
+              />
+            </div>
+            {#each s.params as p, i (i)}
+              <FxKnob
+                value={p.value}
+                min={p.min}
+                max={p.max}
+                tip="fx.send_param"
+                label="{label} {p.name}"
+                caption={p.name}
+                reset={p.default}
+                format={() => p.display}
+                onchange={(v) => send({ type: 'setSendParam', send: s.send, param: i, value: v })}
+              />
+            {/each}
+          </div>
+        </section>
+      {/each}
+
+      {#if sends.length > 0 && sends.length < MAX_SENDS}
+        <div class="card add-send" role="group" aria-label="Add send">
+          <h3>Add send</h3>
+          <select class="kind" aria-label="New send type" bind:value={newKind} use:tip={'fx.send_add_kind'}>
+            {#each SEND_KINDS as k (k.kind)}
+              <option value={k.kind}>{k.name}</option>
+            {/each}
+          </select>
+          <button type="button" class="chip mat-raised add" use:tip={'fx.send_add'} onclick={() => send({ type: 'addSend', kind: newKind })}>Add send</button>
+        </div>
+      {/if}
     </div>
 
     <section class="card inserts" aria-label="Style inserts">
@@ -324,6 +431,37 @@
     white-space: nowrap;
     font-size: 0.8rem;
     opacity: 0.75;
+  }
+  .rack {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.5rem;
+  }
+  .badge {
+    padding: 0.15em 0.55em;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    font-family: var(--font-display);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .kind {
+    min-width: 0;
+    min-height: 2rem;
+    font: inherit;
+    font-size: 0.92rem;
+  }
+  .add-send {
+    justify-content: center;
+  }
+  .add-send h3 {
+    font-size: 1.2rem;
+  }
+  .add {
+    justify-content: center;
   }
   .knobs {
     display: flex;
