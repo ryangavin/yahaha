@@ -411,7 +411,7 @@ impl MockSound {
     }
 
     /// The state, and the keyboard parts' patch and voice names.
-    pub fn derive(&self, st: &mut AppState, gm: &[String]) {
+    pub fn derive(&self, st: &mut AppState) {
         let key = st.style.path.rsplit('/').next().unwrap_or_default().to_string();
         let style = self.style_maps.get(&key);
         let name = |id: Option<&str>| id.and_then(|id| self.patches.iter().find(|p| p.id == id)).map(|p| p.name.clone());
@@ -441,31 +441,31 @@ impl MockSound {
             })
             .collect();
         let tag = |id: Option<&str>| id.and_then(|id| self.patches.iter().find(|p| p.id == id)).map(Patch::tag);
+        let lib = SoundLibrary { patches: self.patches.clone(), map: self.map.clone(), style_maps: self.style_maps.clone(), ..SoundLibrary::default() };
+        let auto = auto_fill();
+        let font_name = |f: &patches::FontPreset| presets(&f.file).into_iter().find(|p| p.bank == f.bank && p.program == f.program).map(|p| p.name);
         for (i, p) in st.keyboard_parts.iter_mut().enumerate() {
             p.patch = self.parts[i].clone();
-            // Now playing (O3): the plugin's sound, else its own or the map's patch.
-            (p.sound, p.sound_edited) = if p.plugin.is_some() {
-                let s = match &self.plugin_parts[i] {
-                    Some(id) => tag(Some(id)),
-                    None => self.plugin_sound[i].clone(),
-                };
-                let edited = self.knob[i] != self.saved_knob[i] && s.is_some();
-                (s, edited)
-            } else {
-                let own = self.parts[i].clone().filter(|_| !p.plays_bass);
-                (tag(own.as_deref().or(patches::resolve(&self.map, style, false, p.program).patch)), false)
+            // What actually sounds, named as the engine names it (`api::part_sound`).
+            let plugin_sound = match &self.plugin_parts[i] {
+                Some(id) => tag(Some(id)),
+                None => self.plugin_sound[i].clone(),
             };
-            if p.plays_bass {
-                continue;
-            }
-            let own = name(self.parts[i].as_deref());
-            let mapped = name(patches::resolve(&self.map, style, false, p.program).patch);
-            p.voice_name = own.or(mapped).unwrap_or_else(|| gm[p.program as usize].clone());
+            let of = PartSoundOf {
+                plugin: p.plugin.as_ref(),
+                plugin_sound: plugin_sound.as_ref(),
+                own: self.parts[i].as_deref().filter(|_| !p.plays_bass),
+                // Under Manual Bass, Left plays the mock style's Bass voice (Finger Bass).
+                program: if p.plays_bass { 33 } else { p.program },
+            };
+            let named = part_sound(&lib, style.map(|_| key.as_str()), &auto, of, &font_name);
+            p.sound_edited = p.plugin.is_some() && self.knob[i] != self.saved_knob[i] && plugin_sound.is_some();
+            p.sound = named.sound;
+            p.voice_name = named.voice_name;
         }
         let fonts = FONTS.map(String::from);
         // The GM map for the style playing, through the engine's own resolution.
-        let lib = SoundLibrary { patches: self.patches.clone(), map: self.map.clone(), style_maps: self.style_maps.clone(), ..SoundLibrary::default() };
-        let gm_map = patches::gm_map_rows(&lib, style.map(|_| key.as_str()), &auto_fill());
+        let gm_map = patches::gm_map_rows(&lib, style.map(|_| key.as_str()), &auto);
         st.sound_library = SoundLibraryState {
             patches: self
                 .patches

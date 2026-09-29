@@ -3,7 +3,12 @@ import { flushSync, tick } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
-import { allSoundIds, categoryCounts, instrumentName, instruments, playingId, visibleSounds } from './model'
+import fixture from '../../lib/api/mock-fixture.json'
+import { partSound, type PartSoundOf } from '../../lib/api/part-sound'
+import partSoundCases from '../../../../tests/fixtures/part_sound_cases.json'
+import type { FontPreset, GmMapRow, Patch, PluginOrigin } from '../../lib/api/sound-library'
+import type { PluginStatus } from '../../lib/api/types'
+import { allSoundIds, categoryCounts, instrumentName, instruments, nowPlaying, playingId, visibleSounds } from './model'
 import { fontLine } from './instruments'
 import { browserNav } from './nav.svelte'
 import SoundBrowser from './SoundBrowser.svelte'
@@ -67,7 +72,7 @@ describe('Sounds tab (#117, O6)', () => {
     expect(document.activeElement).toBe(input())
     const kp = s.state.keyboardParts[0]
     expect(active().querySelector('.mark')!.textContent).toBe('▶')
-    expect(activeEntry().id).toBe(playingId(kp, s.state.io.soundFontFile, s.state.soundLibrary.gmMap))
+    expect(activeEntry().id).toBe(playingId(kp, { patches: s.state.soundLibrary.patches, gmMap: s.state.soundLibrary.gmMap }))
   })
 
   it('All sounds is the map\'s resolved sounds and My Sounds, not every preset', async () => {
@@ -464,11 +469,96 @@ describe('sound browser model', () => {
 
   it('what a part plays, and its instrument', () => {
     const kp = { program: 0, patch: null, plugin: null, playsBass: false }
-    expect(playingId(kp, 'Main.sf2', gmMap)).toBe('sf:A.sf2:0:0')
-    expect(playingId({ ...kp, program: 5 }, 'Main.sf2', gmMap)).toBe('sf:Main.sf2:0:5')
-    expect(playingId({ ...kp, sound: { id: 'saved:x', name: 'X' } }, 'Main.sf2', gmMap)).toBe('saved:x')
+    expect(playingId(kp, ctx)).toBe('sf:A.sf2:0:0')
+    // Nothing covers program 5: no row plays (not a made-up main-font row).
+    expect(playingId({ ...kp, program: 5 }, ctx)).toBe(null)
+    expect(playingId({ ...kp, sound: { id: 'saved:x', name: 'X' } }, ctx)).toBe('saved:x')
     expect(instrumentName(kp, ctx, [], 'Main.sf2')).toBe('A')
     expect(instrumentName({ ...kp, sound: { id: 'saved:x', name: 'X' } }, ctx, [], 'Main.sf2')).toBe('B')
     expect(instrumentName({ ...kp, plugin: { id: 'p', name: 'Synth' } }, ctx, [], null)).toBe('Synth')
+    // A failed plugin plays the SoundFont voice.
+    expect(instrumentName({ ...kp, plugin: { id: 'p', name: 'Synth', status: 'failed' } }, ctx, [], null)).toBe('A')
+    expect(playingId({ ...kp, plugin: { id: 'p', name: 'Synth', status: 'failed', presetKey: 'f:1', preset: 'One' } }, ctx)).toBe('sf:A.sf2:0:0')
+    // The footer names a bare plugin once, a preset after its plugin.
+    const bare = { ...kp, plugin: { id: 'p', name: 'Synth' }, sound: { id: 'au:p', name: 'Synth' }, voiceName: 'Synth' }
+    expect(nowPlaying(bare, ctx, [], null)).toBe('Synth')
+    expect(nowPlaying({ ...bare, sound: { id: 'au:p#f:1', name: 'One' } }, ctx, [], null)).toBe('Synth · One')
+  })
+})
+
+describe('what a part plays, named (api::part_sound)', () => {
+  const SMP = 'aumu Smp7 Fake'
+  const defaults = { volume: null, pan: null, reverb: null, chorus: null, octave: 0 }
+  const plugin = (id: string, name: string, origin: PluginOrigin): Patch => ({ id, name, category: 'piano', tags: [], favourite: false, source: { kind: 'plugin', componentId: SMP, state: '', origin }, defaults })
+  const patches: Patch[] = [
+    { id: 'grand', name: 'Stage Grand', category: 'piano', tags: [], favourite: false, source: { kind: 'soundFont', file: 'A.sf2', bank: 0, program: 0 }, defaults },
+    plugin('warm', 'Warm Keys', { kind: 'factory', number: 3 }),
+    plugin('mine', 'My Keys', { kind: 'user' }),
+  ]
+  // As the engine's test: auto-fill on programs 0-9 ("A<n>"), program 1 → grand, 2 → mine.
+  const row = (program: number, sound: string | null, font: FontPreset | null): GmMapRow => ({ program, family: program >> 3, overrideRule: null, familyRule: null, resolved: { sound, layer: 'auto', fromStyle: false, font } })
+  const gmMap = Array.from({ length: 128 }, (_, p) => {
+    if (p === 1) return row(1, 'saved:grand', { file: 'A.sf2', bank: 0, program: 0 })
+    if (p === 2) return row(2, 'saved:mine', null)
+    return p < 10 ? row(p, `sf:A.sf2:0:${p}`, { file: 'A.sf2', bank: 0, program: p }) : row(p, null, null)
+  })
+  const names = { font: (f: FontPreset) => `A${f.program}`, gm: (p: number) => fixture.gm[p] }
+
+  // The engine's test reads the same table (tests/fixtures/part_sound_cases.json).
+  it.each(partSoundCases.cases)('$name', ({ of, want }) => {
+    const c = of as { plugin?: { status: string; preset: string[] | null }; pluginSound?: { id: string; name: string }; own?: string; program: number }
+    const input: PartSoundOf = {
+      plugin: c.plugin && { id: SMP, name: 'Sampler Deluxe', status: c.plugin.status as PluginStatus, presetKey: c.plugin.preset?.[0] ?? null, preset: c.plugin.preset?.[1] ?? null },
+      pluginSound: c.pluginSound,
+      own: c.own,
+      program: c.program,
+    }
+    const r = partSound(input, patches, gmMap, names)
+    expect([r.sound?.id ?? null, r.sound?.name ?? null, r.voiceName]).toEqual([want[0], want[1], want[2] ?? fixture.gm[c.program]])
+  })
+})
+
+describe('every part names what is playing (mock session)', () => {
+  it('a preset part is named by its preset and its row plays; elsewhere no row is active', async () => {
+    const s = await setup(0, onFactory)
+    const kp = s.state.keyboardParts[0]
+    expect([kp.sound?.id, kp.voiceName]).toEqual(['au:aumu Smp7 Fake#f:1', 'Sampler Deluxe · Bright Grand'])
+    await chip('Sampler Deluxe')
+    await refresh(s)
+    expect(activeEntry().id).toBe('au:aumu Smp7 Fake#f:1')
+    expect(active().querySelector('.mark')!.textContent).toBe('▶')
+    // A chip without the playing sound: no row is active, none plays.
+    await chip('DLS')
+    expect(rows().length).toBeGreaterThan(0)
+    expect(document.querySelector('[role="option"][aria-selected="true"]')).toBe(null)
+    expect(rows().filter((r) => r.querySelector('.mark')!.textContent === '▶')).toHaveLength(0)
+    // Typing a filter moves to its first match, so Enter plays it.
+    await filter('mine')
+    expect(active()).not.toBe(null)
+  })
+
+  it('renaming or deleting the sound a part plays renames the part', async () => {
+    const s = await setup(0, (m) => (onFactory(m), m.send({ type: 'saveSoundAs', part: 0, name: 'My Grand' })))
+    const id = s.state.keyboardParts[0].sound!.id.slice('saved:'.length)
+    const p = s.state.soundLibrary.patches.find((x) => x.id === id)!
+    s.send({ type: 'updatePatch', id, patch: { name: 'Renamed', category: p.category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults } })
+    flushSync()
+    expect([s.state.keyboardParts[0].sound?.name, s.state.keyboardParts[0].voiceName]).toEqual(['Renamed', 'Renamed'])
+    expect(foot()).toContain('Right 1 plays Sampler Deluxe · Renamed')
+    s.send({ type: 'deletePatch', id })
+    flushSync()
+    expect(s.state.keyboardParts[0].voiceName).not.toContain('Renamed')
+    expect(s.state.keyboardParts[0].sound?.id).not.toBe(`saved:${id}`)
+  })
+
+  it('a failed plugin is shown as failed, named by the SoundFont voice that plays', async () => {
+    const s = await setup(1, (m) => (m.send({ type: 'setPartPlugin', part: 1, id: 'aumu Mock Demo', state: null }), m.advance(5000)))
+    const kp = s.state.keyboardParts[1]
+    expect(kp.plugin?.status).toBe('failed')
+    expect(kp.voiceName).not.toContain('Broken Synth')
+    expect(kp.sound?.id).toMatch(/^(sf|saved):/)
+    expect(foot()).toContain(`Right 2 plays GeneralUser-GS · ${kp.voiceName}`)
+    expect(foot()).toMatch(/fail/i)
+    expect(activeEntry().id).toBe(kp.sound!.id)
   })
 })

@@ -1232,9 +1232,9 @@ impl MockSession {
                 Some(s) => s as usize == i,
                 None => p.on || p.plays_bass,
             };
-            p.voice_name = if p.plays_bass { "Finger Bass".into() } else { self.gm[p.program as usize].clone() };
         }
-        self.sound.derive(st, &self.gm);
+        // The parts' sounds and voice names.
+        self.sound.derive(st);
         self.sounds.derive(st);
         for (i, p) in st.mixer.style_parts.iter_mut().enumerate() {
             p.muted_by_manual_bass = i == 2 && mb;
@@ -2488,6 +2488,37 @@ mod tests {
         assert!(!m.state.keyboard_parts[0].sound_edited);
         m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("Mine 2".into()) });
         assert_eq!(m.state.keyboard_parts[0].sound.as_ref().map(|t| t.name.as_str()), Some("Mine 2"));
+    }
+
+    /// Every part names what actually sounds, as the engine does (`api::part_sound`): a
+    /// preset by its preset (its catalog row); a sound the user saved as the library names
+    /// it now; a failed plugin by the SoundFont voice that plays.
+    #[test]
+    fn a_part_names_what_actually_sounds() {
+        let mut m = MockSession::new();
+        let id = sounds::MOCK_PRESETS_ID;
+        m.send(SoundsCmd::ListPluginPresets { id: format!("au:{id}") });
+        m.send(PluginCmd::SetPartPluginPreset { part: 0, id: id.into(), preset: "f:1".into() });
+        let p0 = |m: &MockSession| m.state.keyboard_parts[0].clone();
+        assert_eq!((p0(&m).sound.map(|t| t.id), p0(&m).voice_name), (Some(format!("au:{id}#f:1")), "Sampler Deluxe · Bright Grand".to_string()));
+        // Renamed, then deleted: the part follows the library.
+        m.send(SoundLibraryCmd::SaveSoundAs { part: 0, name: Some("My Grand".into()) });
+        let saved = p0(&m).sound.unwrap().id;
+        let patch_id = saved.strip_prefix("saved:").unwrap().to_string();
+        let p = m.state.sound_library.patches.iter().find(|p| p.patch.id == patch_id).unwrap().patch.clone();
+        let fields = PatchFields { name: "Renamed".into(), category: p.category, tags: p.tags, favourite: p.favourite, source: p.source, defaults: p.defaults };
+        m.send(SoundLibraryCmd::UpdatePatch { id: patch_id.clone(), patch: fields });
+        assert_eq!((p0(&m).sound.map(|t| t.name), p0(&m).voice_name), (Some("Renamed".to_string()), "Renamed".to_string()));
+        m.send(SoundLibraryCmd::DeletePatch { id: patch_id });
+        assert_ne!(p0(&m).sound.map(|t| t.id), Some(saved));
+        assert!(!p0(&m).voice_name.contains("Renamed"));
+        // A plugin that failed: the SoundFont voice (the GM map's), not the plugin.
+        m.send(PluginCmd::SetPartPlugin { part: 1, id: "aumu Mock Demo".into(), state: None });
+        let p1 = m.state.keyboard_parts[1].clone();
+        assert_eq!(p1.plugin.map(|p| p.status), Some(PluginStatus::Failed));
+        let row = m.state.sound_library.gm_map.iter().find(|r| r.program == Some(p1.program)).unwrap().resolved.sound.clone();
+        assert_eq!(p1.sound.map(|t| t.id), row);
+        assert!(!p1.voice_name.contains("Broken Synth"));
     }
 
     /// One save makes one record (docs/racks.md): Save on a part playing a GM voice makes

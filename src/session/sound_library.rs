@@ -826,13 +826,23 @@ impl Control {
         }
     }
 
-    /// The Sound keyboard part `part` plays (O3), and whether its plugin's state was
-    /// edited: its plugin's sound, else its own patch or the one the map gives its voice.
-    pub(super) fn part_sound_tag(&self, part: usize) -> (Option<patches::SoundTag>, bool) {
-        if let Some((tag, edited)) = self.channel_sound(parts::CHANNEL[part]) {
-            return (tag, edited);
-        }
-        (self.part_plays(part).and_then(|id| self.sound.lib.patch(&id).map(Patch::tag)), false)
+    /// The Sound keyboard part `part` plays and its voice name (`api::part_sound`: what
+    /// actually sounds, named as the library names it now), and whether its plugin's state
+    /// was edited.
+    pub(super) fn part_sound_named(&self, part: usize) -> (crate::api::PartSound, bool) {
+        let ch = parts::CHANNEL[part];
+        let kp = &self.shared.parts;
+        let plays_bass = part == parts::LEFT && kp.manual_bass.load(Relaxed);
+        let plugin = self.channel_plugin_state(ch);
+        let (tag, edited) = self.channel_sound(ch).unwrap_or_default();
+        let of = crate::api::PartSoundOf {
+            plugin: plugin.as_ref(),
+            plugin_sound: tag.as_ref(),
+            own: self.sound.part_patch[part].as_deref().filter(|_| !plays_bass),
+            program: kp.channel_program(part),
+        };
+        let named = crate::api::part_sound(&self.sound.lib, Some(&self.sound.cur_key), &self.sound.auto, of, &|f| self.font_preset_name(f));
+        (named, edited)
     }
 
     /// A plugin voice's state is not its sound's (a recalled or restored edit): the stored
@@ -1414,10 +1424,9 @@ impl Control {
 
     // ----- state -----
 
-    /// A keyboard part's own patch and what its channel plays (for `KeyboardPart`).
-    pub(super) fn part_sound(&self, part: usize) -> (Option<String>, Option<String>) {
-        let name = self.part_plays(part).and_then(|id| self.sound.lib.patch(&id).map(|p| p.name.clone()));
-        (self.sound.part_patch[part].clone(), name)
+    /// A keyboard part's own patch id (for `KeyboardPart`).
+    pub(super) fn part_patch_id(&self, part: usize) -> Option<String> {
+        self.sound.part_patch[part].clone()
     }
 
     /// The patch keyboard part `part` plays: its own, else the one the map sends its GM
