@@ -36,7 +36,7 @@ Every PR gets one review, posted on the PR itself as line comments plus a verdic
 Reviewers flag only these, each with the file, the line and a one-line reason:
 
 - **Real-time safety:** no allocation, locks, panics or blocking I/O on the audio, engine or MIDI threads.
-- **Mixer:** a style feature is mapped onto one of yahaha's own mixer concepts (see "Engine rules"), not added as a new, hidden or duplicate level. Anything that changes how loud a part is shows on that part's strip.
+- **Mixer:** a style feature is mapped onto one of yahaha's own mixer concepts (see "Engine rules"), not added as a new, hidden or duplicate level. Anything that changes how loud a part is shows on a control: that part's strip or the group control that scales it.
 - **Parity:** nothing is hardware-only. Every Launchkey function has an app control; every new control has a tooltip; every new command is in both mocks (TS and the Rust dev mock), in docs/app-api.md and in EVERY_CMD in tests/api_wire.rs.
 - **Layering:** no new upward imports (for example, sff or theory reaching into engine or session; synth reaching into session or plugin). Move shared types down instead.
 - **Public repo:** no style data, soundfonts, manual text or real plugin state blobs committed.
@@ -66,7 +66,7 @@ It's git-ignored. In a worktree, symlink it: `ln -s "<main checkout>/corpus" cor
 
 No allocation, locks or panics on the engine, MIDI or audio threads.
 
-Mixer: support everything a style does, but map it onto yahaha's own concepts rather than adding a gain stage per feature. A part's level is its fader (its CC7) plus master. The Style volume, the Multi Pad volume and the Fade scale the CC7 that's sent, not the audio. A part's EQ is tone on its strip; it may boost as well as cut. Nothing changes a part's loudness without showing on its strip. Where a style feature has no mapping yet and adding one is small, extend our concept rather than drop or fake the feature (for example, a filter type our EQ lacks: add the filter type). A large gap goes in a follow-up issue, named in the PR body.
+Mixer: support everything a style does, but map it onto yahaha's own concepts rather than adding a gain stage per feature. A part's level is its fader (its CC7) plus master. The Style volume, the Multi Pad volume and the Fade scale the CC7 that's sent, not the audio. A part's EQ is tone on its strip; it may boost as well as cut. Nothing changes a part's loudness without showing on a control: its own strip, or the group control that scales it (the Style and Multi Pad volume faders, the Fade). Where a style feature has no mapping yet and adding one is small, extend our concept rather than drop or fake the feature (for example, a filter type our EQ lacks: add the filter type). A large gap goes in a follow-up issue, named in the PR body.
 
 ## Controls
 
