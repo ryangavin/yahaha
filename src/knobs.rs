@@ -177,7 +177,7 @@ pub struct InsertNow {
 
 /// The keyboard parts' channel strips as the knobs and faders read them (the strips of
 /// `api::Strips`), and the rotary speed. Default: nothing known, so an insert setting or a
-/// send 4-6 does nothing (the dev mock's, until it tracks them).
+/// send 4-6 does nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct StripNow {
     /// Each keyboard part's insert slots 1-2.
@@ -241,12 +241,6 @@ pub fn rack_function(t: &ControlTarget) -> KnobFn {
         ControlTarget::RotaryFast => KnobFn::RotaryFast,
         ControlTarget::None | ControlTarget::Unknown(_) => KnobFn::None,
     }
-}
-
-/// `fader_command_at` without the strips (the dev mock's, until it tracks them): an insert
-/// setting and a send 4-6 do nothing, and the rotary counts as slow.
-pub fn fader_command(t: &ControlTarget, v: u8, harmony_arp: bool) -> Option<AppCmd> {
-    fader_command_at(t, v, harmony_arp, &StripNow::default())
 }
 
 /// The command a fader at `v` (0-127) runs for controller map target `t`
@@ -557,11 +551,6 @@ impl Knobs {
         if self.page == KnobPage::Rack { self.rack[k] } else { self.page.functions()[k] }
     }
 
-    /// `turn_at` without the strips (the dev mock's, until it tracks them).
-    pub fn turn(&mut self, knob: u8, delta: i8, now: &Now) -> Option<AppCmd> {
-        self.turn_at(knob, delta, now, &StripNow::default())
-    }
-
     /// Knob `knob` (0-7) turned `delta` steps (positive: clockwise): the command that
     /// makes the change, or None when nothing changes.
     pub fn turn_at(&mut self, knob: u8, delta: i8, now: &Now, strips: &StripNow) -> Option<AppCmd> {
@@ -689,11 +678,6 @@ impl Knobs {
         Some(cmd)
     }
 
-    /// `reset_at` without the strips (the dev mock's, until it tracks them).
-    pub fn reset(&mut self, knob: u8, now: &Now) -> Option<AppCmd> {
-        self.reset_at(knob, now, &StripNow::default())
-    }
-
     /// Knob `knob` (0-7) put back to its default (a double-click in the app): the command
     /// that makes the change, or None when it is there already. Dynamics goes to max,
     /// sends dry, pan centre, returns unity, Tempo the style's, effect parameters and
@@ -772,11 +756,6 @@ impl Knobs {
         (n != 0).then_some(n.clamp(-6, 6) as i8)
     }
 
-    /// `state_at` without the strips (the dev mock's, until it tracks them).
-    pub fn state(&self, now: &Now) -> KnobsState {
-        self.state_at(now, &StripNow::default())
-    }
-
     /// The page and its knobs as the state shows them.
     pub fn state_at(&self, now: &Now, strips: &StripNow) -> KnobsState {
         let knobs = (0..8u8)
@@ -787,16 +766,6 @@ impl Knobs {
             .collect();
         let page = self.page;
         KnobsState { page, page_name: page.name().into(), page_number: page.index() as u8 + 1, page_count: KnobPage::ALL.len() as u8, knobs }
-    }
-
-    /// Knob `knob` as it reads now.
-    pub fn reading(&self, knob: u8, now: &Now) -> Reading {
-        self.read(self.function(knob), now)
-    }
-
-    /// `read_at` without the strips (the dev mock's, until it tracks them).
-    pub fn read(&self, f: KnobFn, now: &Now) -> Reading {
-        self.read_at(f, now, &StripNow::default())
     }
 
     /// Function `f` as it reads now (on a knob, or on a fader the controller map gives it).
@@ -916,22 +885,35 @@ mod tests {
         }
     }
 
+    // The knob calls with no strips known, for the tests that don't use them.
+    fn turn(k: &mut Knobs, knob: u8, delta: i8, now: &Now) -> Option<AppCmd> {
+        k.turn_at(knob, delta, now, &StripNow::default())
+    }
+
+    fn reset(k: &mut Knobs, knob: u8, now: &Now) -> Option<AppCmd> {
+        k.reset_at(knob, now, &StripNow::default())
+    }
+
+    fn reading(k: &Knobs, knob: u8, now: &Now) -> Reading {
+        k.read_at(k.function(knob), now, &StripNow::default())
+    }
+
     /// A double-click puts a knob back: Dynamics to max, sends dry, pan centre, effect
     /// parameters their type's own.
     #[test]
     fn a_reset_goes_to_the_default() {
         let mut k = Knobs::default();
-        assert_eq!(k.reset(0, &now()), Some(DynamicsCmd::SetDynamics { level: 127 }.into()));
-        assert_eq!(k.reset(0, &Now { dynamics: 127, ..now() }), None);
-        assert_eq!(k.reset(6, &now()), None);
-        assert_eq!(k.reset(7, &now()), Some(TransportCmd::ResetTempo.into()));
+        assert_eq!(reset(&mut k, 0, &now()), Some(DynamicsCmd::SetDynamics { level: 127 }.into()));
+        assert_eq!(reset(&mut k, 0, &Now { dynamics: 127, ..now() }), None);
+        assert_eq!(reset(&mut k, 6, &now()), None);
+        assert_eq!(reset(&mut k, 7, &now()), Some(TransportCmd::ResetTempo.into()));
         k.set_page(KnobPage::Pan);
-        assert_eq!(k.reset(1, &now()), Some(PartsCmd::SetPartPan { part: 1, pan: 64 }.into()));
+        assert_eq!(reset(&mut k, 1, &now()), Some(PartsCmd::SetPartPan { part: 1, pan: 64 }.into()));
         k.set_page(KnobPage::Reverb);
-        assert_eq!(k.reset(3, &now()), Some(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 0 }.into()));
+        assert_eq!(reset(&mut k, 3, &now()), Some(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 0 }.into()));
         let mut p = crate::fx::default_params();
         p[Param::ReverbTime.index()] = 90;
-        assert_eq!(k.reset(4, &Now { fx_params: p, ..now() }), Some(fx_param(Param::ReverbTime, crate::fx::default_params()[Param::ReverbTime.index()])));
+        assert_eq!(reset(&mut k, 4, &Now { fx_params: p, ..now() }), Some(fx_param(Param::ReverbTime, crate::fx::default_params()[Param::ReverbTime.index()])));
     }
 
     #[test]
@@ -976,17 +958,17 @@ mod tests {
     fn levels_move_from_the_value_in_effect() {
         let mut k = Knobs::default();
         let n = Now { dynamics: 100, ..now() };
-        assert_eq!(k.turn(0, 3, &n), Some(DynamicsCmd::SetDynamics { level: 106 }.into()));
-        assert_eq!(k.turn(0, -64, &n), Some(DynamicsCmd::SetDynamics { level: 0 }.into()));
-        assert_eq!(k.turn(7, -2, &now()), Some(TransportCmd::SetTempo { bpm: 118 }.into()));
-        assert_eq!(k.turn(7, 1, &Now { bpm: 500.0, ..now() }), Some(TransportCmd::SetTempo { bpm: 500 }.into()));
-        assert_eq!(k.turn(5, 1, &now()), Some(StyleSettingsCmd::SetSwing { amount: 2 }.into()), "knob 6 is Swing");
-        assert_eq!(k.turn(5, -1, &now()), None, "swing stops at 0");
-        assert_eq!(k.turn(6, 1, &now()), None, "knob 7 is unassigned on the Style page");
+        assert_eq!(turn(&mut k, 0, 3, &n), Some(DynamicsCmd::SetDynamics { level: 106 }.into()));
+        assert_eq!(turn(&mut k, 0, -64, &n), Some(DynamicsCmd::SetDynamics { level: 0 }.into()));
+        assert_eq!(turn(&mut k, 7, -2, &now()), Some(TransportCmd::SetTempo { bpm: 118 }.into()));
+        assert_eq!(turn(&mut k, 7, 1, &Now { bpm: 500.0, ..now() }), Some(TransportCmd::SetTempo { bpm: 500 }.into()));
+        assert_eq!(turn(&mut k, 5, 1, &now()), Some(StyleSettingsCmd::SetSwing { amount: 2 }.into()), "knob 6 is Swing");
+        assert_eq!(turn(&mut k, 5, -1, &now()), None, "swing stops at 0");
+        assert_eq!(turn(&mut k, 6, 1, &now()), None, "knob 7 is unassigned on the Style page");
         k.set_page(KnobPage::Rack);
-        assert_eq!(k.turn(1, -1, &now()), Some(PartsCmd::SetPartVolume { part: 1, volume: 88 }.into()));
-        assert_eq!(k.turn(4, 1, &now()), Some(HarmonyArpCmd::SetHarmonyVolume { volume: 102 }.into()));
-        assert_eq!(k.turn(5, 1, &now()), Some(MetronomeCmd::SetMetronomeVolume { volume: 66 }.into()));
+        assert_eq!(turn(&mut k, 1, -1, &now()), Some(PartsCmd::SetPartVolume { part: 1, volume: 88 }.into()));
+        assert_eq!(turn(&mut k, 4, 1, &now()), Some(HarmonyArpCmd::SetHarmonyVolume { volume: 102 }.into()));
+        assert_eq!(turn(&mut k, 5, 1, &now()), Some(MetronomeCmd::SetMetronomeVolume { volume: 66 }.into()));
     }
 
     /// The Rack page with the default controller map is the Parts page it replaced: part
@@ -1000,8 +982,8 @@ mod tests {
         assert_eq!(std::array::from_fn::<_, 8, _>(|i| k.function(i as u8)), parts);
         let shorts: Vec<_> = (0..8).map(|i| k.function(i).short()).collect();
         assert_eq!(shorts, ["Right1", "Right2", "Right3", "Left", "HarmVol", "MetroVol", "---", "Tempo"]);
-        assert_eq!(k.turn(7, 1, &now()), Some(TransportCmd::SetTempo { bpm: 121 }.into()));
-        assert_eq!(k.turn(6, 1, &now()), None);
+        assert_eq!(turn(&mut k, 7, 1, &now()), Some(TransportCmd::SetTempo { bpm: 121 }.into()));
+        assert_eq!(turn(&mut k, 6, 1, &now()), None);
     }
 
     /// A knob on the Rack page does what the controller map says: its command, its name,
@@ -1016,17 +998,17 @@ mod tests {
         let mut k = Knobs::default();
         k.set_page(KnobPage::Rack);
         k.set_rack(&m);
-        assert_eq!(k.turn(0, 1, &now()), Some(PartsCmd::SetPartPan { part: 2, pan: 102 }.into()));
+        assert_eq!(turn(&mut k, 0, 1, &now()), Some(PartsCmd::SetPartPan { part: 2, pan: 102 }.into()));
         assert_eq!((k.function(0).short(), k.function(1).short(), k.function(2).short(), k.function(3).short()), ("PanR3", "HarmArp", "Split", "---"));
-        assert_eq!(k.turn(1, 2, &now()), None, "stepped");
-        assert_eq!(k.turn(1, 1, &now()), Some(HarmonyArpCmd::ToggleHarmonyArp.into()), "right: on");
-        assert_eq!(k.turn(1, 3, &Now { harmony_arp: true, ..now() }), None, "already on");
-        assert_eq!(k.reading(1, &Now { harmony_arp: true, ..now() }).value, "On");
-        assert_eq!(k.turn(2, -2, &now()), Some(ChordCmd::SetSplit { note: 52 }.into()));
-        assert_eq!(k.turn(2, -1, &Now { split: SPLIT_MIN, ..now() }), None);
-        assert_eq!(k.reading(2, &now()), Reading { value: "F#2".into(), level: Some(52) });
-        assert_eq!(k.reset(2, &Now { split: 60, ..now() }), Some(ChordCmd::SetSplit { note: DEFAULT_SPLIT }.into()));
-        assert_eq!(k.turn(3, 5, &now()), None, "a target this build doesn't know does nothing");
+        assert_eq!(turn(&mut k, 1, 2, &now()), None, "stepped");
+        assert_eq!(turn(&mut k, 1, 1, &now()), Some(HarmonyArpCmd::ToggleHarmonyArp.into()), "right: on");
+        assert_eq!(turn(&mut k, 1, 3, &Now { harmony_arp: true, ..now() }), None, "already on");
+        assert_eq!(reading(&k, 1, &Now { harmony_arp: true, ..now() }).value, "On");
+        assert_eq!(turn(&mut k, 2, -2, &now()), Some(ChordCmd::SetSplit { note: 52 }.into()));
+        assert_eq!(turn(&mut k, 2, -1, &Now { split: SPLIT_MIN, ..now() }), None);
+        assert_eq!(reading(&k, 2, &now()), Reading { value: "F#2".into(), level: Some(52) });
+        assert_eq!(reset(&mut k, 2, &Now { split: 60, ..now() }), Some(ChordCmd::SetSplit { note: DEFAULT_SPLIT }.into()));
+        assert_eq!(turn(&mut k, 3, 5, &now()), None, "a target this build doesn't know does nothing");
         // Other pages don't change.
         k.set_page(KnobPage::Pan);
         assert_eq!(k.function(0), KnobFn::PartPan(0));
@@ -1072,7 +1054,13 @@ mod tests {
         );
         assert_eq!(k.turn_at(0, -127, &now(), &st), Some(StripCmd::SetStripInsertSetting { strip: 1, slot: 1, setting: 1, value: spec.min }.into()));
         assert_eq!(k.read_at(k.function(0), &now(), &st).value, format!("{} {}", spec.short, spec.display(40)));
-        assert_eq!(k.reset_at(0, &now(), &st), (spec.default != 40).then(|| StripCmd::SetStripInsertSetting { strip: 1, slot: 1, setting: 1, value: spec.default }.into()));
+        // The strip's Tone is at 40, not its default (64): a reset sends the default.
+        assert_ne!(spec.default, 40, "the test needs a setting away from its default");
+        assert_eq!(k.reset_at(0, &now(), &st), Some(StripCmd::SetStripInsertSetting { strip: 1, slot: 1, setting: 1, value: spec.default }.into()));
+        // At its default already: nothing to send.
+        let mut at_default = st;
+        at_default.inserts[1][1].values[1] = spec.default;
+        assert_eq!(k.reset_at(0, &now(), &at_default), None);
         assert_eq!((k.function(0).id(), k.function(0).short(), k.function(0).name()), ("insertSetting", "R2 I2.2", "Right 2 Insert 2 Setting 2"));
         // An empty slot has no settings: nothing to turn.
         assert_eq!(k.turn_at(4, 3, &now(), &st), None);
@@ -1122,29 +1110,29 @@ mod tests {
     #[test]
     fn retrigger_knobs_step() {
         let mut k = Knobs::default();
-        assert_eq!(k.turn(1, 1, &now()), None);
-        assert_eq!(k.turn(1, 1, &now()), None);
-        assert_eq!(k.turn(1, 1, &now()), Some(StyleSettingsCmd::StepRetriggerRate { delta: 1 }.into()), "right: shorter");
-        assert_eq!(k.turn(1, 2, &now()), None);
-        assert_eq!(k.turn(1, -1, &now()), None, "turning back starts again");
-        assert_eq!(k.turn(1, -2, &now()), Some(StyleSettingsCmd::StepRetriggerRate { delta: -1 }.into()));
-        assert_eq!(k.turn(1, 7, &now()), Some(StyleSettingsCmd::StepRetriggerRate { delta: 2 }.into()));
+        assert_eq!(turn(&mut k, 1, 1, &now()), None);
+        assert_eq!(turn(&mut k, 1, 1, &now()), None);
+        assert_eq!(turn(&mut k, 1, 1, &now()), Some(StyleSettingsCmd::StepRetriggerRate { delta: 1 }.into()), "right: shorter");
+        assert_eq!(turn(&mut k, 1, 2, &now()), None);
+        assert_eq!(turn(&mut k, 1, -1, &now()), None, "turning back starts again");
+        assert_eq!(turn(&mut k, 1, -2, &now()), Some(StyleSettingsCmd::StepRetriggerRate { delta: -1 }.into()));
+        assert_eq!(turn(&mut k, 1, 7, &now()), Some(StyleSettingsCmd::StepRetriggerRate { delta: 2 }.into()));
         // On/Off: right turns it on, and further right leaves it on.
-        assert_eq!(k.turn(2, 3, &now()), Some(TransportCmd::ToggleRetrigger.into()));
-        assert_eq!(k.turn(2, 3, &Now { retrigger: true, ..now() }), None);
-        assert_eq!(k.turn(2, -3, &Now { retrigger: true, ..now() }), Some(TransportCmd::ToggleRetrigger.into()));
+        assert_eq!(turn(&mut k, 2, 3, &now()), Some(TransportCmd::ToggleRetrigger.into()));
+        assert_eq!(turn(&mut k, 2, 3, &Now { retrigger: true, ..now() }), None);
+        assert_eq!(turn(&mut k, 2, -3, &Now { retrigger: true, ..now() }), Some(TransportCmd::ToggleRetrigger.into()));
     }
 
     /// Track Mute A/B start fully right (every part on) and turn parts off going left.
     #[test]
     fn track_mute_knobs() {
         let mut k = Knobs::default();
-        assert_eq!(k.reading(3, &now()).value, "All");
-        assert_eq!(k.turn(3, 1, &now()), None, "already fully right");
-        assert_eq!(k.turn(3, -4, &now()), Some(MixerCmd::StyleTrackMute { order: TrackMuteOrder::A, value: 111 }.into()));
-        assert_eq!(k.turn(4, -40, &now()), Some(MixerCmd::StyleTrackMute { order: TrackMuteOrder::B, value: 0 }.into()));
-        assert_eq!(k.reading(4, &now()), Reading { value: "1 of 8".into(), level: Some(0) });
-        assert_eq!(k.reading(3, &now()).level, Some(111));
+        assert_eq!(reading(&k, 3, &now()).value, "All");
+        assert_eq!(turn(&mut k, 3, 1, &now()), None, "already fully right");
+        assert_eq!(turn(&mut k, 3, -4, &now()), Some(MixerCmd::StyleTrackMute { order: TrackMuteOrder::A, value: 111 }.into()));
+        assert_eq!(turn(&mut k, 4, -40, &now()), Some(MixerCmd::StyleTrackMute { order: TrackMuteOrder::B, value: 0 }.into()));
+        assert_eq!(reading(&k, 4, &now()), Reading { value: "1 of 8".into(), level: Some(0) });
+        assert_eq!(reading(&k, 3, &now()).level, Some(111));
     }
 
     /// Pan and the effect sends, on the Pan and Effects pages (#198's per-part controls).
@@ -1152,29 +1140,29 @@ mod tests {
     fn pan_and_effect_knobs() {
         let mut k = Knobs::default();
         k.set_page(KnobPage::Pan);
-        assert_eq!(k.turn(1, -3, &now()), Some(PartsCmd::SetPartPan { part: 1, pan: 24 }.into()));
-        assert_eq!(k.reading(0, &now()), Reading { value: "C".into(), level: Some(64) });
-        assert_eq!(k.reading(1, &now()).value, "L34");
-        assert_eq!(k.reading(2, &now()).value, "R36");
+        assert_eq!(turn(&mut k, 1, -3, &now()), Some(PartsCmd::SetPartPan { part: 1, pan: 24 }.into()));
+        assert_eq!(reading(&k, 0, &now()), Reading { value: "C".into(), level: Some(64) });
+        assert_eq!(reading(&k, 1, &now()).value, "L34");
+        assert_eq!(reading(&k, 2, &now()).value, "R36");
         assert_eq!(k.function(7), KnobFn::Tempo);
         // Knobs 5-7: the effect bus's return levels (#204).
-        assert_eq!(k.turn(4, -2, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 60 }.into()));
-        assert_eq!(k.turn(6, 1, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Variation, level: 2 }.into()));
-        assert_eq!(k.reading(5, &now()), Reading { value: "40".into(), level: Some(40) });
+        assert_eq!(turn(&mut k, 4, -2, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 60 }.into()));
+        assert_eq!(turn(&mut k, 6, 1, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Variation, level: 2 }.into()));
+        assert_eq!(reading(&k, 5, &now()), Reading { value: "40".into(), level: Some(40) });
         assert_eq!((k.function(4).short(), k.function(6).name()), ("RevRtn", "Delay Return"));
         k.set_page(KnobPage::Reverb);
-        assert_eq!(k.turn(3, 1, &now()), Some(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 127 }.into()));
-        assert_eq!(k.reading(0, &now()), Reading { value: "40".into(), level: Some(40) });
-        assert_eq!(k.turn(7, -2, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 60 }.into()));
+        assert_eq!(turn(&mut k, 3, 1, &now()), Some(PartsCmd::SetPartSend { part: 3, send: PartSend::Reverb, value: 127 }.into()));
+        assert_eq!(reading(&k, 0, &now()), Reading { value: "40".into(), level: Some(40) });
+        assert_eq!(turn(&mut k, 7, -2, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Reverb, level: 60 }.into()));
         k.set_page(KnobPage::Chorus);
-        assert_eq!(k.turn(1, 2, &now()), Some(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 14 }.into()));
-        assert_eq!(k.reading(3, &now()), Reading { value: "5".into(), level: Some(5) });
-        assert_eq!(k.reading(7, &now()), Reading { value: "40".into(), level: Some(40) });
+        assert_eq!(turn(&mut k, 1, 2, &now()), Some(PartsCmd::SetPartSend { part: 1, send: PartSend::Chorus, value: 14 }.into()));
+        assert_eq!(reading(&k, 3, &now()), Reading { value: "5".into(), level: Some(5) });
+        assert_eq!(reading(&k, 7, &now()), Reading { value: "40".into(), level: Some(40) });
         k.set_page(KnobPage::Delay);
-        assert_eq!(k.turn(0, 1, &now()), Some(PartsCmd::SetPartSend { part: 0, send: PartSend::Variation, value: 2 }.into()));
-        assert_eq!(k.reading(0, &now()), Reading { value: "0".into(), level: Some(0) });
+        assert_eq!(turn(&mut k, 0, 1, &now()), Some(PartsCmd::SetPartSend { part: 0, send: PartSend::Variation, value: 2 }.into()));
+        assert_eq!(reading(&k, 0, &now()), Reading { value: "0".into(), level: Some(0) });
         assert_eq!((k.function(2).short(), k.function(3).name()), ("DlyR3", "Left Delay"));
-        assert_eq!(k.turn(7, 1, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Variation, level: 2 }.into()));
+        assert_eq!(turn(&mut k, 7, 1, &now()), Some(FxCmd::SetEffectReturn { block: FxBlock::Variation, level: 2 }.into()));
         assert_eq!(pan_text(0), "L64");
         assert_eq!(pan_text(127), "R63");
     }
@@ -1182,12 +1170,12 @@ mod tests {
     #[test]
     fn readings() {
         let k = Knobs::default();
-        assert_eq!(k.reading(0, &now()), Reading { value: "64".into(), level: Some(64) });
-        assert_eq!(k.reading(1, &now()), Reading { value: "1/8".into(), level: Some(76) });
-        assert_eq!(k.reading(2, &now()).value, "Off");
-        assert_eq!(k.reading(5, &Now { swing: 50, ..now() }), Reading { value: "50%".into(), level: Some(63) });
-        assert_eq!(k.reading(6, &now()), Reading { value: String::new(), level: None });
-        assert_eq!(k.reading(7, &Now { bpm: 97.6, ..now() }).value, "98 BPM");
+        assert_eq!(reading(&k, 0, &now()), Reading { value: "64".into(), level: Some(64) });
+        assert_eq!(reading(&k, 1, &now()), Reading { value: "1/8".into(), level: Some(76) });
+        assert_eq!(reading(&k, 2, &now()).value, "Off");
+        assert_eq!(reading(&k, 5, &Now { swing: 50, ..now() }), Reading { value: "50%".into(), level: Some(63) });
+        assert_eq!(reading(&k, 6, &now()), Reading { value: String::new(), level: None });
+        assert_eq!(reading(&k, 7, &Now { bpm: 97.6, ..now() }).value, "98 BPM");
     }
 
     /// #236: the effect pages turn the effect parameters in their own steps; the delay
@@ -1198,32 +1186,32 @@ mod tests {
         let mut k = Knobs::default();
         let set = |block, param, value| Some(AppCmd::from(FxCmd::SetEffectParam { block, param, value }));
         k.set_page(KnobPage::Reverb);
-        assert_eq!(k.turn(4, 1, &now()), set(FxBlock::Reverb, FxParam::ReverbTime, 25));
-        assert_eq!(k.turn(5, -20, &now()), set(FxBlock::Reverb, FxParam::PreDelay, 0));
-        assert_eq!(k.reading(4, &now()), Reading { value: "2.4 s".into(), level: Some(27) });
+        assert_eq!(turn(&mut k, 4, 1, &now()), set(FxBlock::Reverb, FxParam::ReverbTime, 25));
+        assert_eq!(turn(&mut k, 5, -20, &now()), set(FxBlock::Reverb, FxParam::PreDelay, 0));
+        assert_eq!(reading(&k, 4, &now()), Reading { value: "2.4 s".into(), level: Some(27) });
         assert_eq!((k.function(4).short(), k.function(4).name(), k.function(6).short()), ("RevTime", "Reverb Time", "RevTone"));
         // At an end nothing changes.
         let mut p = crate::fx::default_params();
         p[FxParam::ReverbTime.index()] = 100;
-        assert_eq!(k.turn(4, 1, &Now { fx_params: p, ..now() }), None);
+        assert_eq!(turn(&mut k, 4, 1, &Now { fx_params: p, ..now() }), None);
         k.set_page(KnobPage::Chorus);
-        assert_eq!(k.turn(4, -1, &now()), set(FxBlock::Chorus, FxParam::ChorusRate, 53));
-        assert_eq!(k.turn(5, 1, &now()), set(FxBlock::Chorus, FxParam::ChorusDepth, 23));
-        assert_eq!(k.turn(6, 1, &now()), None, "no chorus feedback: unassigned");
+        assert_eq!(turn(&mut k, 4, -1, &now()), set(FxBlock::Chorus, FxParam::ChorusRate, 53));
+        assert_eq!(turn(&mut k, 5, 1, &now()), set(FxBlock::Chorus, FxParam::ChorusDepth, 23));
+        assert_eq!(turn(&mut k, 6, 1, &now()), None, "no chorus feedback: unassigned");
         k.set_page(KnobPage::Delay);
-        assert_eq!(k.turn(5, 3, &now()), set(FxBlock::Variation, FxParam::DelayFeedback, 44));
-        assert_eq!(k.reading(5, &now()).value, "38%");
+        assert_eq!(turn(&mut k, 5, 3, &now()), set(FxBlock::Variation, FxParam::DelayFeedback, 44));
+        assert_eq!(reading(&k, 5, &now()).value, "38%");
         assert_eq!(k.function(6).short(), "DlyTone");
         // Delay time: the note value, a step every 3 knob steps (1/8. -> 1/4).
         assert_eq!(k.function(4).short(), "DlyTime");
-        assert_eq!(k.reading(4, &now()).value, "1/8.");
-        assert_eq!(k.turn(4, 2, &now()), None);
-        assert_eq!(k.turn(4, 1, &now()), set(FxBlock::Variation, FxParam::DelayNote, 5));
+        assert_eq!(reading(&k, 4, &now()).value, "1/8.");
+        assert_eq!(turn(&mut k, 4, 2, &now()), None);
+        assert_eq!(turn(&mut k, 4, 1, &now()), set(FxBlock::Variation, FxParam::DelayNote, 5));
         // With tempo sync off: ms, 10 a step.
         let mut p = crate::fx::default_params();
         p[FxParam::DelaySync.index()] = 0;
         let free = Now { fx_params: p, ..now() };
-        assert_eq!(k.reading(4, &free).value, "375 ms");
-        assert_eq!(k.turn(4, -2, &free), set(FxBlock::Variation, FxParam::DelayTime, 355));
+        assert_eq!(reading(&k, 4, &free).value, "375 ms");
+        assert_eq!(turn(&mut k, 4, -2, &free), set(FxBlock::Variation, FxParam::DelayTime, 355));
     }
 }

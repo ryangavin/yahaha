@@ -2347,6 +2347,10 @@ impl MockSession {
             // Channel strips and sends, as the session's `strips_cmd`: what an older
             // command covers goes through it, and everything is kept in `strips`.
             AppCmd::Strips(c) => {
+                // A command the strips refuse changes nothing: the older ones don't run.
+                if let Err(e) = self.strips.check(&c) {
+                    return self.message(e, true);
+                }
                 for old in c.legacy() {
                     self.cmd(old);
                 }
@@ -2742,6 +2746,19 @@ mod tests {
         // A refused one says why.
         m.send(StripCmd::RemoveSend { send: 1 });
         assert!(m.state.message.as_ref().is_some_and(|x| x.error), "{:?}", m.state.message);
+    }
+
+    /// A refused setting on an empty keyboard insert 1 changes nothing, as in the session:
+    /// the older amount command doesn't run, so the slot stays empty.
+    #[test]
+    fn a_setting_on_an_empty_insert_is_refused() {
+        let mut m = MockSession::new();
+        let before = m.state_now().keyboard_parts[0].insert;
+        m.send(StripCmd::SetStripInsertSetting { strip: 0, slot: 0, setting: 0, value: 10 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error), "{:?}", m.state.message);
+        let st = m.state_now();
+        assert_eq!(st.keyboard_parts[0].strip.inserts[0].kind, InsertType::None);
+        assert_eq!(st.keyboard_parts[0].insert, before, "the older slot is untouched");
     }
 
     fn bar_ms(m: &MockSession) -> f64 {

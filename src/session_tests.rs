@@ -766,6 +766,7 @@ fn launchkey_hardware_matches_its_commands() {
             (TRACK_RIGHT_CC, false, AppCmd::Library(LibraryCmd::StepStyle { delta: 1 })),
             (PAD_UP_CC, true, AppCmd::Parts(PartsCmd::TogglePart { part: 3 })),
             (crate::launchkey::KNOB_DOWN_CC, true, AppCmd::Transport(TransportCmd::ToggleAcmp)),
+            (crate::launchkey::KNOB_UP_CC, true, AppCmd::Fx(crate::api::FxCmd::ToggleRotaryFast)),
             (PAD_DOWN_CC, true, AppCmd::Ots(OtsCmd::ToggleOtsLink)),
             (PAD_UP_CC, false, AppCmd::Pads(PadsCmd::CyclePadPage { delta: -1 })),
             (PAD_DOWN_CC, false, AppCmd::Pads(PadsCmd::CyclePadPage { delta: 1 })),
