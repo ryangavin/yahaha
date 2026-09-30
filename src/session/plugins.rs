@@ -1551,13 +1551,6 @@ impl Control {
         Ok(())
     }
 
-    /// The selected part's plugin stopped working or failed to load: the Launchkey's reload
-    /// button (Panel fader button 6) lights.
-    pub(super) fn selected_plugin_fault(&self) -> bool {
-        let ch = parts::CHANNEL[self.shared.parts.selected() & 3];
-        self.channel_plugin_state(ch).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed))
-    }
-
     /// Load part `part`'s plugin again with its saved voice (id and preset), if it stopped
     /// working or failed to load. `reloadPartPlugin`.
     fn reload_part_plugin(&mut self, part: usize) -> Result<(), String> {

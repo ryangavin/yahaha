@@ -16,7 +16,7 @@ const C_TAP: Rgb = [100, 100, 100]
 const C_STOPSYNC: Rgb = [0, 110, 110]
 const C_RUN: Rgb = [0, 127, 0]
 const C_IDLE: Rgb = [127, 0, 0]
-export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, chordSetup: [0, 100, 127], otsParts: [127, 0, 70], quickRacks: [127, 60, 0], multiPads: [127, 127, 0] }
+export const PAGE_RGB: Record<PadPage, Rgb> = { sections: C_TAP, racks: [127, 60, 0], chord: [0, 100, 127], multiPads: [127, 127, 0], setup: [127, 0, 70] }
 
 type Look = { rgb: Rgb; level: Level; anim: Anim }
 const look = (rgb: Rgb, level: Level, anim: Anim = 'solid'): Look => ({ rgb, level, anim })
@@ -59,20 +59,24 @@ function sectionPads(s: AppState): Pad[] {
   ]
 }
 
-/** A page 2/3 pad in the page's colour: bright when on, dim when off, dark when unavailable. */
+/** A pad in the page's colour: bright when on, dim when off, dark when unavailable. */
 function pagePad(page: PadPage, note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean): Pad {
   return pad(note, label, key, action, look(PAGE_RGB[page], !available ? 'off' : on ? 'bright' : 'dim'))
 }
 
 const FINGERING_LABELS = ['SINGLE', 'FINGERED', 'ON BASS', 'MULTI', 'AI FING', 'FULL KBD', 'AI FULL']
 
+/** A pad that does nothing on its page: dark. */
+const darkPad = (page: PadPage, note: number) => pagePad(page, note, '', '', null, false, false)
+
+/** Page Chord (launchkey/pages/chord.rs): the mid-song chord switches on the bottom row;
+ * the top row dark. */
 function chordPads(s: AppState): Pad[] {
   const p = (note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean) =>
-    pagePad('chordSetup', note, label, key, action, available, on)
+    pagePad('chord', note, label, key, action, available, on)
   const c = s.chord
   return [
-    ...FINGERINGS.map((f, i) => p(96 + i, FINGERING_LABELS[i], 'pad', { type: 'setFingering', fingering: f.id }, true, c.fingering === f.id)),
-    p(103, 'UPPER', 'd', { type: 'toggleUpper' }, true, c.upper),
+    ...Array.from({ length: 8 }, (_, i) => darkPad('chord', 96 + i)),
     p(112, 'MAN BASS', 'D', { type: 'toggleManualBass' }, c.upper, c.manualBass),
     p(113, 'STOP ACMP', 'h', { type: 'toggleStopAcmp' }, true, s.transport.stopAcmp),
     p(114, 'SPLIT -', '[', { type: 'moveSplit', delta: -1 }, true, false),
@@ -84,29 +88,34 @@ function chordPads(s: AppState): Pad[] {
   ]
 }
 
-function otsPads(s: AppState): Pad[] {
+/** Page Setup (launchkey/pages/setup.rs): the set-and-forget switches, each saved in
+ * settings. Fingering types 1–7 and Upper on the top row; OTS Link and the Stop ACMP mode
+ * on the bottom row, the rest dark. */
+function setupPads(s: AppState): Pad[] {
   const p = (note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean) =>
-    pagePad('otsParts', note, label, key, action, available, on)
-  const n = s.ots.settings.length
+    pagePad('setup', note, label, key, action, available, on)
+  const c = s.chord
+  const mode = s.transport.stopAcmpMode
   return [
-    ...[0, 1, 2, 3].map((i) => p(96 + i, `OTS ${i + 1}`, `⇧${i + 1}`, { type: 'recallOts', index: i }, i < n, s.ots.applied === i + 1)),
-    p(100, 'OTS LINK', 'F10', { type: 'toggleOtsLink' }, true, s.ots.link),
-    p(101, 'FADE', 'F', { type: 'toggleFade' }, true, s.transport.fade !== 'off'),
-    p(102, 'VOICE -', '9', { type: 'stepVoice', delta: -1 }, true, false),
-    p(103, 'VOICE +', '0', { type: 'stepVoice', delta: 1 }, true, false),
-    ...['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT'].map((l, i) => p(112 + i, l, ['5', '6', '7', '8/l'][i], { type: 'togglePart', part: i }, true, s.keyboardParts[i].on)),
-    ...['EDIT R1', 'EDIT R2', 'EDIT R3', 'EDIT L'].map((l, i) => p(116 + i, l, `F${i + 1}`, { type: 'selectPart', part: i }, true, s.keyboardParts[i].selected)),
+    ...FINGERINGS.map((f, i) => p(96 + i, FINGERING_LABELS[i], 'pad', { type: 'setFingering', fingering: f.id }, true, c.fingering === f.id)),
+    p(103, 'UPPER', 'd', { type: 'toggleUpper' }, true, c.upper),
+    p(112, 'OTS LINK', 'F10', { type: 'toggleOtsLink' }, true, s.ots.link),
+    p(113, 'ACMP STYLE', 'pad', { type: 'setStopAcmp', mode: 'style' }, true, mode === 'style'),
+    p(114, 'ACMP FIXED', 'pad', { type: 'setStopAcmp', mode: 'fixed' }, true, mode === 'fixed'),
+    ...[115, 116, 117, 118, 119].map((n) => darkPad('setup', n)),
   ]
 }
 
 const QUICK_KEYS = ['⇧Q', '⇧W', '⇧E', '⇧R', '⇧T', '⇧Y', '⇧U', '⇧I']
 
-/** Page 4 (src/launchkey.rs `quick_looks`): Quick Racks 1–8 of the bank on view on the top
- * row; Bank −/+, Store and Rack −/+ on the bottom row, the bank-file and Freeze pads dark. */
-function quickPads(s: AppState): Pad[] {
+/** Page Racks (`racks_looks`, launchkey/pages/racks.rs): Quick Racks 1–8 of the bank on
+ * view on the top row; OTS 1–4, Bank −/+ and Store on the bottom row, the last pad dark.
+ * Hold Sound shows it from any page. */
+function racksPads(s: AppState): Pad[] {
   const q = s.quickRacks
   const p = (note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean) =>
-    pagePad('quickRacks', note, label, key, action, available, on)
+    pagePad('racks', note, label, key, action, available, on)
+  const n = s.ots.settings.length
   const button = (i: number): Pad => {
     const b = q.buttons[i]
     const stored = !!b?.rack
@@ -117,20 +126,15 @@ function quickPads(s: AppState): Pad[] {
         : look(QUICK_STORED, stored ? 'bright' : 'off')
     return pad(96 + i, `QUICK ${i + 1}`, QUICK_KEYS[i], { type: 'pressQuickRack', slot: i }, l)
   }
-  const any = q.buttons.some((b) => !!b.rack)
-  const dark = (note: number) => p(note, '', '', null, false, false)
   return [
     ...Array.from({ length: 8 }, (_, i) => button(i)),
-    p(112, 'BANK -', '⇧O', { type: 'stepQuickRackBank', delta: -1 }, q.bank > 0, false),
-    p(113, 'BANK +', '⇧P', { type: 'stepQuickRackBank', delta: 1 }, q.bank < QUICK_BANKS - 1, false),
-    dark(114),
-    dark(115),
+    ...[0, 1, 2, 3].map((i) => p(112 + i, `OTS ${i + 1}`, `⇧${i + 1}`, { type: 'recallOts', index: i }, i < n, s.ots.applied === i + 1)),
+    p(116, 'BANK -', '⇧O', { type: 'stepQuickRackBank', delta: -1 }, q.bank > 0, false),
+    p(117, 'BANK +', '⇧P', { type: 'stepQuickRackBank', delta: 1 }, q.bank < QUICK_BANKS - 1, false),
     q.store
-      ? pad(116, 'STORE', 'F5', { type: 'toggleQuickRackStore' }, look(QUICK_LOADED, 'bright', 'flash'))
-      : p(116, 'STORE', 'F5', { type: 'toggleQuickRackStore' }, true, false),
-    dark(117),
-    p(118, 'RACK -', 'F7', { type: 'stepQuickRack', delta: -1 }, any, false),
-    p(119, 'RACK +', 'F8', { type: 'stepQuickRack', delta: 1 }, any, false),
+      ? pad(118, 'STORE', 'F5', { type: 'toggleQuickRackStore' }, look(QUICK_LOADED, 'bright', 'flash'))
+      : p(118, 'STORE', 'F5', { type: 'toggleQuickRackStore' }, true, false),
+    darkPad('racks', 119),
   ]
 }
 
@@ -173,8 +177,8 @@ function multiPadPads(s: AppState): Pad[] {
 /** The 16 pads of a page, top row then bottom row. */
 export function padsFor(s: AppState, page: PadPage): Pad[] {
   if (page === 'multiPads') return multiPadPads(s)
-  if (page === 'quickRacks') return quickPads(s)
-  if (page === 'chordSetup') return chordPads(s)
-  if (page === 'otsParts') return otsPads(s)
+  if (page === 'racks') return racksPads(s)
+  if (page === 'chord') return chordPads(s)
+  if (page === 'setup') return setupPads(s)
   return sectionPads(s)
 }

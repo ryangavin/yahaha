@@ -2,7 +2,11 @@
 //! as the state shows them.
 
 use super::{Control, SynthThread};
-use crate::api::{unmapped_text, CmdError, EngineStats, IoState, MidiSource, SettingsCmd, SynthState};
+use crate::api::{unmapped_text, ChordCmd, CmdError, EngineStats, IoState, MidiSource, OtsCmd, SettingsCmd, SettingsState, StopAcmpMode, SynthState};
+use crate::engine::Button;
+use crate::fingering::Fingering;
+use crate::launchkey::{Page, PageOrder};
+use std::path::PathBuf;
 use crate::library;
 use crate::live::{self, Cmd, MAX_KEY_SOURCES};
 use crate::midi;
@@ -368,5 +372,118 @@ impl Control {
             sound_font_file: self.synth.as_ref().and(self.sf_file.clone()),
             sound_font_loading: self.sf_load.is_some() || self.sf_ready.is_some(),
         }
+    }
+}
+
+/// The settings' file in the data folder (docs/eyes-free.md): the pad page order and the
+/// Setup pad page's switches, saved whenever they change and restored at start.
+const SETTINGS_FILE: &str = "settings.json";
+
+/// What `settings.json` holds. A missing field (or file) keeps the session's default, so
+/// a data folder from before a setting loads as it always did.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Saved {
+    /// Pad pages 2-5 in order (`setPadPageOrder`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) pad_pages: Option<Vec<Page>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) fingering: Option<crate::fingering::Fingering>,
+    /// Chord Detection Area Upper (false: Lower).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) upper: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) ots_link: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) stop_acmp_mode: Option<StopAcmpMode>,
+}
+
+/// `settings.json` and what was last saved to it.
+#[derive(Default)]
+pub(super) struct SettingsFile {
+    /// None: not saved (sessions without a data folder).
+    path: Option<PathBuf>,
+    saved: Saved,
+    /// There was no file (or it couldn't be read): nothing is written until a setting
+    /// changes from the defaults it starts with.
+    fresh: bool,
+    /// The Stop ACMP mode restored at start, until the engine's snapshot shows it (the
+    /// engine applies it on its next wake): meanwhile the snapshot's Off is not a change.
+    pending_stop_acmp: Option<StopAcmpMode>,
+}
+
+impl SettingsFile {
+    /// The settings saved in `data_dir` (none when there is no file or it can't be read).
+    pub(super) fn load(data_dir: Option<&Path>) -> SettingsFile {
+        let Some(dir) = data_dir else { return SettingsFile::default() };
+        let path = dir.join(SETTINGS_FILE);
+        let saved = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str::<Saved>(&t).ok());
+        SettingsFile { path: Some(path), fresh: saved.is_none(), saved: saved.unwrap_or_default(), pending_stop_acmp: None }
+    }
+}
+
+impl Control {
+    /// Put the saved settings into effect (at start).
+    pub(super) fn restore_settings(&mut self) {
+        let s = self.settings.saved.clone();
+        if let Some(order) = s.pad_pages.as_deref().and_then(PageOrder::new) {
+            self.shared.page_order.store(order.to_bits(), Relaxed);
+        }
+        if let Some(fingering) = s.fingering {
+            let _ = self.chord_cmd(ChordCmd::SetFingering { fingering });
+        }
+        if let Some(on) = s.upper {
+            let _ = self.chord_cmd(ChordCmd::SetUpper { on });
+        }
+        if let Some(on) = s.ots_link {
+            let _ = self.ots_cmd(OtsCmd::SetOtsLink { on });
+        }
+        if let Some(mode) = s.stop_acmp_mode
+            && mode != StopAcmpMode::from(self.snap.stop_acmp_mode)
+            && self.engine_cmd(Cmd::Button(Button::SetStopAcmp(mode.into()))).is_ok()
+        {
+            self.settings.pending_stop_acmp = Some(mode);
+        }
+        if self.settings.fresh {
+            self.settings.saved = self.settings_now();
+        }
+    }
+
+    /// The settings as they are now.
+    fn settings_now(&mut self) -> Saved {
+        let snap_mode = StopAcmpMode::from(self.snap.stop_acmp_mode);
+        let f = &mut self.settings;
+        if f.pending_stop_acmp == Some(snap_mode) {
+            f.pending_stop_acmp = None;
+        }
+        Saved {
+            pad_pages: Some(self.shared.page_order().movable().collect()),
+            fingering: Some(Fingering::from_u8(self.shared.fingering.load(Relaxed))),
+            upper: Some(self.shared.upper.load(Relaxed)),
+            ots_link: Some(self.shared.parts.ots_link.load(Relaxed)),
+            stop_acmp_mode: Some(f.pending_stop_acmp.unwrap_or(snap_mode)),
+        }
+    }
+
+    /// Save the settings when they changed, however they were changed (the app, a
+    /// Launchkey pad, a rack).
+    pub(super) fn pump_settings(&mut self) {
+        let now = self.settings_now();
+        let Some(path) = &self.settings.path else { return };
+        if now == self.settings.saved {
+            return;
+        }
+        let r = serde_json::to_string_pretty(&now).map_err(anyhow::Error::from).and_then(|j| crate::data_files::write_atomic(path, &j));
+        // Saved or not, don't try again until the next change: a failing disk would
+        // otherwise be written (and reported) on every pump.
+        self.settings.saved = now;
+        if let Err(e) = r {
+            self.say(format!("saving the settings: {e:#}"), true);
+        }
+    }
+
+    /// The saved settings as the state shows them.
+    pub(super) fn settings_state(&self) -> SettingsState {
+        SettingsState { pad_pages: self.shared.page_order().movable().collect() }
     }
 }

@@ -15,8 +15,15 @@ export type Fingering =
   | 'singleFinger' | 'multiFinger' | 'fingered' | 'fingeredOnBass'
   | 'aiFingered' | 'fullKeyboard' | 'aiFullKeyboard'
 
-/** The Launchkey pad pages, switched with Pad Bank ▲/▼. */
-export type PadPage = 'sections' | 'chordSetup' | 'otsParts' | 'quickRacks' | 'multiPads'
+/** The Launchkey pad pages, switched with Pad Bank ▲/▼. Sections is always page 1; the
+ * order of the others is the player's (`settings.padPages`, `setPadPageOrder`). */
+export type PadPage = 'sections' | 'racks' | 'chord' | 'multiPads' | 'setup'
+
+/** A held control's layer (docs/eyes-free.md): `sound` while Panel fader button 6 (Sound)
+ * is held, the pads acting and lighting as the Racks page from any page; `swap` while a
+ * Panel part button is held and a knob turned: knob 1 steps `part`'s sound by number,
+ * knobs 2-8 are its mix. */
+export type Layer = { type: 'none' } | { type: 'sound' } | { type: 'swap'; part: number }
 
 /** What the Launchkey faders control, like the Genos Mixer's Panel and Style tabs. */
 export type FaderPage = 'panel' | 'style'
@@ -111,6 +118,10 @@ export type AppCmd =
   | { type: 'selectPart'; part: number }
   | { type: 'setPartVoice'; part: number; program: number }
   | { type: 'stepVoice'; delta: number }
+  /** Step keyboard part `part`'s (0-3) sound by `step` sound numbers
+   * (`soundLibrary.patches[].number`), live, keeping its mix, as `replacePartSound` does.
+   * Swap mode: hold the part's Panel fader button and turn knob 1. */
+  | { type: 'swapSound'; part: number; step: number }
   | { type: 'setPartVolume'; part: number; volume: number }
   | { type: 'setPartOctave'; part: number; octave: number }
   | { type: 'setPartPan'; part: number; pan: number }
@@ -127,8 +138,17 @@ export type AppCmd =
   /** What the faders move across the parts: CC7, or pan / reverb / chorus / delay sends. */
   | { type: 'setFaderLayer'; layer: FaderLayer }
   | { type: 'stepFaderLayer'; delta: number }
+  /** The Launchkey pad page. A page left out of the page order (`setPadPageOrder`) is
+   * refused. */
   | { type: 'setPadPage'; page: PadPage }
+  /** Step the pad page by `delta` through the page order, wrapping (the terminal's Tab /
+   * Shift+Tab). */
   | { type: 'cyclePadPage'; delta: number }
+  /** The order of pad pages 2-5 (Settings › Launchkey): Pad Bank ▲/▼ and Tab walk
+   * Sections, then `pages`. A page left out can't be paged to (hold Sound still shows
+   * Racks). Refused if `pages` names Sections, names a page twice, or has more than
+   * four. Saved in `settings.json`; on a page left out, the pads go to Sections. */
+  | { type: 'setPadPageOrder'; pages: PadPage[] }
   | { type: 'setMasterVolume'; volume: number }
   // One Touch Settings
   | { type: 'recallOts'; index: number }
@@ -393,6 +413,9 @@ export type QuickRackCmd =
   | { type: 'stepQuickRackBank'; delta: number }
   /** Store: arm (or disarm) it for the next button press. Disarming lets a waiting button go. */
   | { type: 'toggleQuickRackStore' }
+  /** Store the live rack on button `slot` (0-7) of the bank on view, overwriting what is
+   * there, as Store then the button does (hold Sound + tap a Racks pad). */
+  | { type: 'storeRack'; slot: number }
   /** Empty button `slot` of bank `bank` (0 = A). */
   | { type: 'clearQuickRack'; bank: number; slot: number }
   /** Previous/next rack in the bank on view: the stored button before/after the lit one
@@ -1130,10 +1153,13 @@ export interface MetronomeState {
 
 export interface PadsState {
   page: PadPage
-  /** "Sections", "Chord/Setup", "OTS/Parts". */
+  /** "Sections", "Racks", "Chord", "Multi Pads", "Setup". */
   pageName: string
+  /** 1-based position of `page` in the page order, and how many pages it has. */
   pageNumber: number
   pageCount: number
+  /** The page order Pad Bank ▲/▼ walk: Sections, then `settings.padPages`. */
+  pages: { page: PadPage; name: string }[]
   /** This page's 16 pads: the top row, then the bottom row. */
   pads: Pad[]
   connected: boolean
@@ -1326,6 +1352,8 @@ export interface Neighbour {
 export interface SurfaceState {
   /** Shift is held on the Launchkey. */
   shift: boolean
+  /** A held control has turned the pads or knobs into another surface (see `Layer`). */
+  layer: Layer
   /** Pad Bank ▲/▼, Track ◀/▶, Play, Stop, Scene/Function, the 8 fader buttons, master button. */
   controls: SurfaceControl[]
   /** Faders 1–8 and master, for the active fader page. */
@@ -1558,6 +1586,15 @@ export interface AppState {
   racks: RackEntry[]
   /** Quick Racks: the bank on view, its eight buttons, Store. */
   quickRacks: QuickRacksState
+  /** The settings saved in `settings.json`. Besides these it keeps the Setup pad page's
+   * switches, which the state shows where they act: `chord.fingering`, `chord.upper`,
+   * `ots.link` and `transport.stopAcmpMode`. */
+  settings: SettingsState
+}
+
+export interface SettingsState {
+  /** The order of pad pages 2-5 (`setPadPageOrder`); Sections is always page 1. */
+  padPages: PadPage[]
 }
 
 /** Quick Racks, as the bar and pad page 4 show them. */
@@ -1978,11 +2015,14 @@ export const FINGERINGS: { id: Fingering; name: string; short: string }[] = [
 
 export const PAD_PAGES: { id: PadPage; name: string }[] = [
   { id: 'sections', name: 'Sections' },
-  { id: 'chordSetup', name: 'Chord/Setup' },
-  { id: 'otsParts', name: 'OTS/Parts' },
-  { id: 'quickRacks', name: 'Quick Racks' },
+  { id: 'racks', name: 'Racks' },
+  { id: 'chord', name: 'Chord' },
   { id: 'multiPads', name: 'Multi Pads' },
+  { id: 'setup', name: 'Setup' },
 ]
+
+/** The default order of pad pages 2-5 (`settings.padPages`). */
+export const DEFAULT_PAD_PAGES: PadPage[] = ['racks', 'chord', 'multiPads', 'setup']
 
 /** Section names as the engine reports them. */
 export const INTROS = ['Intro A', 'Intro B', 'Intro C']

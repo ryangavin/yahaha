@@ -167,9 +167,10 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | Command | Fields | Does |
 |---|---|---|
 | `setPartOn` / `togglePart` | `part` 0–3, `on` | Turns a part on or off. Left is refused while Manual Bass is in effect, with a `Failed` error and a message. |
-| `selectPart` | `part` | The part that `stepVoice` and the Launchkey voice pads edit. |
+| `selectPart` | `part` | The part that `stepVoice` edits. |
 | `setPartVoice` | `part`, `program` 0–127 | GM program. Selecting a voice replaces the part's voice: a plugin picked for the part (`setPartPlugin`) ends and is no longer saved, and its library patch goes (with a plugin that patch plays). |
 | `stepVoice` | `delta` | Previous or next voice for the selected part. Like `setPartVoice`, it ends a plugin picked for the part. |
+| `swapSound` | `part` 0–3, `step` | Swap mode (docs/eyes-free.md): steps keyboard part `part`'s sound by `step` sound numbers (`soundLibrary.patches[].number`), live, keeping the part's mix, as `replacePartSound` does. On the Launchkey: hold the part's Panel fader button (1–4) and turn knob 1; knobs 2–8 are the part's mix while held (`surface.layer`), and releasing commits. Refused (`Failed`) for a part outside 0–3. Not built yet: it checks `part` and changes nothing (the swap-mode lane fills it in). Example: `{"type":"swapSound","part":0,"step":1}`. |
 | `setPartVolume` | `part`, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach it before it takes over. |
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
 | `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
@@ -187,8 +188,9 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setFaderPage` / `toggleFaderPage` | `page`: `panel` \| `style` | What the Launchkey faders control. |
 | `setFaderLayer` | `layer`: `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | The fader layer (the mixer's VOL · PAN · REV · CHO · DLY): what the faders move across the parts. Volume: each part's CC7 (as always). A send layer: Panel faders 1–4 move Right 1–3 and Left's pan / CC91 / CC93 / CC94 (as `setPartPan` / `setPartSend`, with soft takeover); Style faders 1–8 move the Style parts' reverb / chorus / delay sends (as `setStylePartSend`, with soft takeover; the Style parts have no pan, so PAN leaves them alone). Faders 5–6 on the Panel page stay the Style and Multi Pad levels, and the master fader stays the master. On the Launchkey, **Shift + the master fader's button** steps the layer; the button alone still switches the page. |
 | `stepFaderLayer` | `delta` | The next/previous fader layer, wrapping (VOL → PAN → REV → CHO → DLY → VOL). |
-| `setPadPage` | `page`: `sections` \| `chordSetup` \| `otsParts` \| `quickRacks` \| `multiPads` | The Launchkey pad page (`registration`, page 4's old name, is still read as `quickRacks`). |
-| `cyclePadPage` | `delta` | Steps the pad page, wrapping. |
+| `setPadPage` | `page`: `sections` \| `racks` \| `chord` \| `multiPads` \| `setup` | The Launchkey pad page (see [`pads`](#pads)). Refused (`Failed`, with a message) for a page left out of the page order (`setPadPageOrder`). The old names are still read: `otsParts`, `quickRacks` and `registration` as `racks`, `chordSetup` as `chord`. |
+| `cyclePadPage` | `delta` | Steps the pad page through the page order (`pads.pages`), wrapping. |
+| `setPadPageOrder` | `pages`: Page[] | The order of pad pages 2–5 (Settings › Launchkey), for example `{"type":"setPadPageOrder","pages":["racks","chord","multiPads","setup"]}` (the default). Sections is always page 1; Pad Bank ▲/▼ (which stop at either end) and `cyclePadPage` walk Sections, then `pages`. A page left out can't be paged to, but holding Sound still shows the Racks pads. On a page left out, the pads go to Sections. Refused (`Failed`) if `pages` names `sections`, names a page twice, or has more than four; nothing changes. Saved in `settings.json` (`settings.padPages`). |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
 | `setSynthMuted` / `toggleSynthMute` | `on` | Mutes the synth audio. |
 | `setAudioOutput` | `first` | Stereo pair by its left channel, 0-based (0 = outputs 1/2). |
@@ -209,7 +211,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 
 | Command | Fields | Does |
 |---|---|---|
-| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts: voice, on/off, volume, octave, and the pan and reverb/chorus sends the OTS sets (CC10/91/93; one it does not set is left as it is). A part the OTS gives a voice ends a plugin picked for it, as `setPartVoice` does. Ignored if the style has no such OTS. When `setOtsRack` gave this OTS one of the user's racks (for the loaded style), that rack loads instead, as `loadRack` does: with unsaved changes it fails with `unsavedChanges` and `liveRack.prompt` asks, and the OTS counts as recalled (`ots.applied`) once the prompt's switch is made. From the Launchkey (pad page 3), a pedal or OTS Link, which have no dialog, unsaved changes are kept as a "Recovered: <name>" rack and the switch goes ahead. A rack that is gone falls back to the style's own OTS. Either way it turns Sync Start on. |
+| `recallOts` | `index` 0–3 | Recalls OTS 1–4 into the keyboard parts: voice, on/off, volume, octave, and the pan and reverb/chorus sends the OTS sets (CC10/91/93; one it does not set is left as it is). A part the OTS gives a voice ends a plugin picked for it, as `setPartVoice` does. Ignored if the style has no such OTS. When `setOtsRack` gave this OTS one of the user's racks (for the loaded style), that rack loads instead, as `loadRack` does: with unsaved changes it fails with `unsavedChanges` and `liveRack.prompt` asks, and the OTS counts as recalled (`ots.applied`) once the prompt's switch is made. From the Launchkey (the Racks pad page), a pedal or OTS Link, which have no dialog, unsaved changes are kept as a "Recovered: <name>" rack and the switch goes ahead. A rack that is gone falls back to the style's own OTS. Either way it turns Sync Start on. |
 | `setOtsRack` | `index` 0–3, `id` | For the loaded style, OTS `index` loads the user's rack `id` instead of the style's own (docs/racks.md "Styles and OTS"; `ots.racks`). Kept by the style's file name in `<data>/style-racks.json`; the style file isn't touched. Loading a style never loads a rack by itself: only OTS Link, which is off by default. Fails for an OTS the style lacks, a rack that doesn't exist, or while `ots.racksReadOnly`. Deleting a rack (`deleteRack`) gives every OTS that loaded it back to its style. |
 | `clearOtsRack` | `index` 0–3 | For the loaded style, OTS `index` is the style's own again ("Style's own"). |
 | `setOtsLink` / `toggleOtsLink` | `on` | OTS Link: Main A–D recall OTS 1–4, and so does a style change. |
@@ -331,7 +333,7 @@ with the `plugins` feature (the desktop app has it) and the built-in synth
 | `savePartPluginState` | `part` 0–3 | Stores the plugin's current preset (what its editor changed) with the part, so it is kept across restarts. Send it when the editor window closes. The state is read on a thread of its own and lands a moment later; a failed read shows in `message`. |
 | `rescanPlugins` | | Scans the installed instruments again, ignoring the cache (`plugins.scanning` meanwhile). After it (and after the start-up scan), plugins found for the first time are `new`, plugins seen before that are gone are in `plugins.missing`, keyboard parts whose plugin is gone go silent, and parts whose plugin is back play it again with the state they kept (docs/racks.md, "Plugins coming and going"). |
 | `markPluginSeen` | `id` | The player opened plugin `id` (Library › Instruments): it is no longer `new` (kept in `<data>/known-plugins.json`). Playing it on any part does the same. Fails for a plugin that isn't installed. |
-| `reloadPartPlugin` | `part` 0–3 or null | Loads the part's plugin again with its saved preset after it stopped working (`muted`) or failed to load (`failed`); null is the part selected for editing. Fails when the part has no plugin, or it is playing or still loading. The TUI's `s` and the Launchkey's Panel fader button 6 send it; that button is red while the selected part's plugin needs it. |
+| `reloadPartPlugin` | `part` 0–3 or null | Loads the part's plugin again with its saved preset after it stopped working (`muted`) or failed to load (`failed`); null is the part selected for editing. Fails when the part has no plugin, or it is playing or still loading. The TUI's `s` sends it; the Launchkey has no button for it (Panel fader button 6 is Sound). |
 | `setPluginInProcess` | `id`, `inProcess` | Runs plugin `id` in yahaha's process (`true`) or in its own (`false`, the default for third-party plugins). In process saves the IPC cost per render for the lightest plugins, but a crash in the plugin takes yahaha down. Kept in the scan cache (across rescans and plugin updates) and shown as `plugins.list[i].inProcess`. It applies from the plugin's next load; a part playing it now keeps running where it is (the message line says so). Fails for an unknown id, or for an AUv3 that only runs out of process (`canRunInProcess` false). |
 
 The plugin's editor window is not a command: it opens on the app's main thread. The
@@ -709,8 +711,8 @@ sound saved), and the switch goes ahead. If that rack can't be written, nothing 
 The one-press rack buttons (docs/racks.md): banks A–H of eight, each one of the user's
 racks (by `id`, so a rename keeps it) or empty, kept in `<data>/quick-racks.json` (format
 `yahaha.quick-racks`, version 1, written atomically; a file from a newer yahaha, or one that
-can't be read, is never saved over and leaves Quick Racks read-only). The bar, Launchkey
-pad page 4 and the pedals play them; the state is [`quickRacks`](#quickracks). `slot` is
+can't be read, is never saved over and leaves Quick Racks read-only). The bar, the
+Launchkey's Racks pad page and the pedals play them; the state is [`quickRacks`](#quickracks). `slot` is
 a button of the bank on view, 0–7.
 
 | Command | Fields | What it does |
@@ -718,13 +720,14 @@ a button of the bank on view, 0–7.
 | `pressQuickRack` | `slot`, `discard`? | Not armed: loads the button's rack as `loadRack` does, with the same guard (`{"kind":"unsavedChanges"}` and `liveRack.prompt`; `discard: true` switches anyway). Armed (`toggleQuickRackStore`): stores the live rack on the button and disarms. A live rack with unsaved changes, or never saved, isn't stored yet: `quickRacks.storeWaiting` holds the button until `saveRack` / `saveRackAs` succeeds, which stores the saved rack there. Fails for an empty button, or one whose rack is gone. Slots 8 and 9 run on into the next bank's 1 and 2 (the `regist9`/`regist10` pedal functions). |
 | `stepQuickRackBank` | `delta` | Bank −/+: views the previous/next bank. It stops at A and at H. |
 | `toggleQuickRackStore` | | Store: arms or disarms it for the next press. Disarming lets a waiting button go. |
+| `storeRack` | `slot` 0–7 | Stores the live rack on button `slot` of the bank on view, overwriting what is there: Store, then that button, in one command (`pressQuickRack` while armed, with the same wait for a save). On the Launchkey it is to be hold Sound (Panel fader button 6) and tap a Racks pad in the top row (the Racks lane builds that; until then a tap there under Sound loads, as on the Racks page). Refused (`Failed`) for a slot outside 0–7. Example: `{"type":"storeRack","slot":0}`. |
 | `clearQuickRack` | `bank` 0–7, `slot` 0–7 | Empties a button. |
 | `stepQuickRack` | `delta`, `discard`? | Previous/next rack in the bank on view: the stored button before/after the lit one (from none, + the first and − the last; it stops at either end), loaded as `pressQuickRack` loads. Fails when the bank has no racks. |
 
 `deleteRack` empties every button naming that rack; `dismissRackPrompt`, or loading
 another rack, lets a waiting button go.
 
-From the Launchkey (pad page 4, Shift + Track ◀ ▶), the pedals (`regist1`–`regist10`,
+From the Launchkey (the Racks pad page, Shift + Track ◀ ▶), the pedals (`regist1`–`regist10`,
 `registNext`/`registPrev`, `registMemory`, `snapshotBankNext`/`snapshotBankPrev`) and the
 terminal keys, which have no dialog, a press with unsaved changes switches anyway and keeps
 them as a `Recovered: <name>` rack (as `Session::load_rack_from_hardware`), and Store needs
@@ -758,7 +761,11 @@ The session owns the Launchkey, so it works the same whichever client is running
   before.
 - Some controls stay on the MIDI thread for real-time reasons: the faders (soft takeover
   against session-internal atomics), Pad Bank ▲/▼ and the fader-page button. A pad
-  pressed straight after a page change must already read the new page. A Panel fader 1–4
+  pressed straight after a page change must already read the new page. Pad Bank ▲/▼
+  walk the page order (`settings.padPages`). The holds are read there too: Sound (fader
+  button 6, either fader page) and a Panel fader button 1–4 held while a knob turns
+  (swap mode) set `surface.layer`; a Panel fader button 1–4 toggles its part on release
+  when no knob turned. A Panel fader 1–4
   that the live rack's controller map gives another target than its own part's level
   becomes `moveRackFader` (Volume layer; none does nothing); the map reaches the MIDI
   thread as a fixed table, updated when it changes.
@@ -917,11 +924,37 @@ control's meaning, and every LED as the hardware shows it.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `page` | `sections` \| `chordSetup` \| `otsParts` \| `quickRacks` \| `multiPads` | The current Launchkey pad page. Page 4, Quick Racks: top row Quick Racks 1–8 of the bank on view (red: the loaded rack, blue: a rack, dark: empty; all flashing while Store is armed); bottom row Bank −, Bank +, two dark pads, Store, a dark pad, Rack −, Rack + (`stepQuickRack`). |
-| `pageName`, `pageNumber` (1-based), `pageCount` | | For example `Chord/Setup`, 2, 3. |
+| `page` | `sections` \| `racks` \| `chord` \| `multiPads` \| `setup` | The current Launchkey pad page (the pages are below). |
+| `pageName` | string | `Sections`, `Racks`, `Chord`, `Multi Pads` or `Setup`. |
+| `pageNumber`, `pageCount` | number | `page`'s 1-based position in the page order, and how many pages the order has: for example 3 and 5 for Chord in the default order. |
+| `pages` | object[] | The page order Pad Bank ▲/▼ and `cyclePadPage` walk: `{ page, name }` for Sections, then each page of `settings.padPages`. |
 | `pads` | Pad[16] | This page: the top row (notes 96–103), then the bottom row (112–119). |
 | `connected` | bool | A Launchkey DAW port is connected. It is set once, at start: see the limitation below. |
 | `paletteLeds` | bool | The session runs the LEDs in Novation palette mode (`setPaletteLeds`, `--palette-leds`). The pads then carry `palette`. |
+
+#### The pad pages
+Page 1, Sections, is fixed; the order of the other four is the player's
+(`setPadPageOrder`, default Racks, Chord, Multi Pads, Setup). Top row notes 96–103, bottom
+row 112–119.
+- **Sections** (white): Intro 1–3, Sync Start, Ending 1–3, Auto Fill; Main A–D, Break,
+  Tap, Sync Stop, Start/Stop.
+- **Racks** (orange): top row Quick Racks 1–8 of the bank on view (red: the loaded rack,
+  blue: a rack, dark: empty; all flashing while Store is armed). Bottom row OTS 1–4
+  (`recallOts`; dark past the style's OTS count, bright for the one recalled), Bank −,
+  Bank +, Store (flashing red while armed), a dark pad. Rack −/+ (`stepQuickRack`) are
+  Shift + Track ◀ ▶.
+- **Chord** (cyan): the top row is dark; the bottom row Manual Bass, Stop ACMP, Split −,
+  Split +, Keyboard Transpose −, +, Transpose reset, Retrigger.
+- **Multi Pads** (yellow): the four Multi Pads and their bank controls (`multiPad`).
+- **Setup** (pink): the set-and-forget switches, each saved in `settings.json`. Top row
+  the fingering types 1–7 (`setFingering`) and Upper (`toggleUpper`); bottom row OTS
+  Link, Stop ACMP mode Style and Fixed (`setStopAcmp`, bright while in effect), then five
+  dark pads.
+
+**Hold Sound** (Panel fader button 6, on either fader page): while it is held the pads act
+and light as the Racks page, whatever page is on view (`surface.layer` is `sound`).
+`page` stays the page on view. (To come with the Racks lane: a tap on a top-row pad while
+Sound is held stores the live rack there, `storeRack`.)
 
 #### Pad
 | Field | Type | Meaning |
@@ -1009,6 +1042,7 @@ The Launchkey beyond the pads.
 | Field | Type | Meaning |
 |---|---|---|
 | `shift` | bool | The Shift button is held. Show the controls' Shift layer (`shiftLabel`, `shiftAction`) while it is. The pads have no Shift layer: the firmware keeps Shift + pad for itself. |
+| `layer` | Layer | A held control has turned the pads or knobs into another surface (docs/eyes-free.md). An object with `type`: `none` (nothing held); `sound` (Panel fader button 6, Sound, is held on either fader page: the pads act and light as the Racks page, from any page); `swap`, with `part` 0–3 (a Panel fader button 1–4 is held and a knob was turned: knob 1 steps that part's sound by number, `swapSound`; knobs 2–8 are its mix; releasing commits). A hold with no knob turned is a tap: the part toggles on release. |
 | `controls` | SurfaceControl[17] | Every button, in this order: `padBankUp`, `padBankDown`, `trackPrev`, `trackNext`, `play`, `stop`, `scene` (right of the top pad row), `function` (right of the bottom row), `faderButton1`…`faderButton8` (under the faders), `masterButton` (under the master fader). |
 | `faders` | SurfaceFader[9] | Faders 1–8 on the active fader page, then the master fader. |
 | `trackPrev`, `trackNext` | Neighbour? | Where Track ◀ / ▶ (and `stepStyle`) go: `{ id, name, path }` of the previous and next style in library order, skipping files known not to load. Null when there is nowhere to go. |
@@ -1019,21 +1053,22 @@ The Launchkey beyond the pads.
 |---|---|---|
 | `id` | string | See above. |
 | `cc` | number | Its CC on the DAW port, channel 1. |
-| `label` | string | What it does now, for example `PAGE ▼`, `RIGHT 2`, `PAD` (mutes the Style's Pad part), or `PANEL` (the master fader button: the faders are on the Panel page, and pressing switches). Empty when it does nothing. |
-| `action` | AppCmd? | What pressing it sends. `send(action)` does exactly what the hardware button does. Null when it does nothing, for example Pad Bank ▲ on the first page, Track with one style, or fader buttons 5–8 on the Panel page. |
-| `shiftLabel`, `shiftAction` | string, AppCmd? | What it does with Shift held. Most buttons do the same as without Shift, and there these equal `label`/`action`. The ones that differ: Pad Bank ▲ = `LEFT` (Left on/off), Pad Bank ▼ = `OTS LINK`, Panel fader buttons 1–4 = `EDIT R1`… (select the part). |
+| `label` | string | What it does now, for example `PAGE ▼`, `RIGHT 2`, `SOUND` (fader button 6: hold Sound), or `PANEL` (the master fader button: the faders are on the Panel page, and pressing switches). Empty when it does nothing. |
+| `action` | AppCmd? | What pressing it sends. `send(action)` does exactly what the hardware button does. Null when it does nothing, for example Pad Bank ▲ on the first page of the order, Track with one style, or an unused fader button. Fader button 6 on either fader page is `SOUND` with no action: it is a hold (see `layer`), which the app shows by switching to the Racks page (`setPadPage`). |
+| `shiftLabel`, `shiftAction` | string, AppCmd? | What it does with Shift held. Most buttons do the same as without Shift, and there these equal `label`/`action`. The ones that differ: Pad Bank ▲ = `LEFT` (Left on/off), Pad Bank ▼ = `OTS LINK`, Panel fader buttons 1–4 = `EDIT R1`… (select the part), Style fader button 6 = `PAD` (mutes the Style's Pad part: `toggleStylePart` 5). |
 | `rgb`, `level`, `anim` | | Its light, as a pad's. `anim` is always `solid`: buttons don't flash. |
 | `colour` | number? | The palette index yahaha sends it. Buttons have no RGB mode, so `rgb` is a close match to that colour. Null for Play, Stop, Scene and Function: yahaha doesn't drive those LEDs, they show the Launchkey's own default, and they are reported `off`. |
 
 Which button LEDs are lit, and in what colour:
-- **Pad Bank ▲/▼:** lit in the page's colour (white, cyan, pink) where there is a page to
-  go to.
+- **Pad Bank ▲/▼:** lit in the page's colour (Sections white, Racks orange, Chord cyan,
+  Multi Pads yellow, Setup pink) where the page order has a page to go to.
 - **Track ◀/▶:** white when the library has another style.
 - **Fader buttons on the Panel page:** the fader layer's colour (`mixer.faderLayer`: VOL
   blue, PAN yellow, REV cyan, CHO pink, DLY white), bright when the part sounds and dim
   when it is off. Fader buttons 5–8 keep their own colours.
-- **Fader buttons on the Style page:** green in every layer, bright when the part plays and
-  dim when it is muted or muted by Manual Bass.
+- **Fader button 6 (Sound), on both pages:** dim white, bright white while it is held.
+- **Other fader buttons on the Style page:** green in every layer, bright when the part
+  plays and dim when it is muted or muted by Manual Bass.
 - **Master button:** the page's colour (on the Panel page, the layer's), bright.
 
 #### SurfaceFader
@@ -1239,7 +1274,7 @@ The sound library (docs/sound-library.md).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `available` (false: it plays the SoundFont fallback) and `note` (why, e.g. "needs plugin hosting (#91)"). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "hasState", "origin"? }` (the Audio Unit's id, as #91 writes it, and whether the library holds its state). The state itself (base64, MBs for a sampler) stays in the library and is never in the state. A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset has no state (`hasState` false) until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound (or a plugin sound with exactly the preset's settings, such as the one saved with an `.aupreset` by Save as…), adding it once. A patch has no mix settings (docs/racks.md). |
+| `patches` | PatchInfo[] | In the user's order: `id`, `name`, `category`, `tags`, `favourite`, `source`, `available` (false: it plays the SoundFont fallback), `note` (why, e.g. "needs plugin hosting (#91)") and `number` (its sound number, from 1: what swap mode, `swapSound`, dials, and what the Launchkey display and the Library show; stable while the library is unchanged; for now the library's order, so `patches[i].number` is i + 1). `source` is `{ "kind": "soundFont", "file", "bank", "program" }` (bank 128 = drum kits) or `{ "kind": "plugin", "componentId", "hasState", "origin"? }` (the Audio Unit's id, as #91 writes it, and whether the library holds its state). The state itself (base64, MBs for a sampler) stays in the library and is never in the state. A plugin source is the one kind of plugin sound (docs/sound-browser.md): `origin` (absent = made in yahaha) is `{ "kind": "factory", "number" }` or `{ "kind": "file", "path" }` (an `.aupreset`). A factory preset has no state (`hasState` false) until it first plays, when it is captured. A rule command naming a plugin preset id (`au:<id>#f:<n>` or `#u:<path>`) uses that preset's one library sound (or a plugin sound with exactly the preset's settings, such as the one saved with an `.aupreset` by Save as…), adding it once. A patch has no mix settings (docs/racks.md). |
 | `categories` | object[] | The Genos voice categories in display order: `id` (`piano`, `ePiano`, `organ`, `guitar`, `bass`, `strings`, `brass`, `saxWoodwind`, `synthLead`, `pad`, `choir`, `drumsPerc`, `sfx`) and `label`. |
 | `families` | string[16] | The GM family names; family `i` is programs 8i … 8i+7. |
 | `map` | ProgramMap | The global map: `families` (16 patch ids or null), `overrides` (`{ program, patch, volume? }`, by program) and `drums` (a patch id or null). Each rule may have a level: `familyVolumes` (16 levels or null, absent when none has one), an override's `volume`, and `drumsVolume` (absent: none). A rule's level (CC7, 0–127) is what a Style part that resolves by the rule takes when the style sets no level of its own (the mixer shows it); a library of format 2 or older had it on the sound, and it moved onto every rule naming the sound. |
@@ -1414,7 +1449,7 @@ is read at start, after each rack command, after each plugin scan, and within 2 
 change on disk. A rack that can't be read is not listed.
 
 ### `quickRacks`
-[Quick Racks](#quick-racks), as the bar and pad page 4 show them.
+[Quick Racks](#quick-racks), as the bar and the Racks pad page show them.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -1423,6 +1458,17 @@ change on disk. A rack that can't be read is not listed.
 | `store` | bool | Store is armed: the next press stores the live rack. |
 | `storeWaiting` | 0–7? | A button of the bank on view waiting for the live rack to be saved before it is stored there. |
 | `readOnly` | bool | Quick Racks can't be changed: no data folder, or the file is from a newer yahaha (or can't be read). |
+
+### `settings`
+The settings kept in `<data>/settings.json` and restored at start.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `padPages` | Page[] | The order of pad pages 2–5 (`setPadPageOrder`); Sections is always page 1. Default `["racks", "chord", "multiPads", "setup"]`. |
+
+The same file keeps the Setup pad page's switches, which the state shows where they act:
+the fingering type and Chord Detection Area (`chord.fingering`, `chord.upper`), OTS Link
+(`ots.link`) and the Stop ACMP mode (`transport.stopAcmpMode`).
 
 ### `message`
 `{ seq, text, error }` or null. It holds the last notice or error, for example a style
@@ -1804,7 +1850,14 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "page": "sections",
     "pageName": "Sections",
     "pageNumber": 1,
-    "pageCount": 4,
+    "pageCount": 5,
+    "pages": [
+      { "page": "sections", "name": "Sections" },
+      { "page": "racks", "name": "Racks" },
+      { "page": "chord", "name": "Chord" },
+      { "page": "multiPads", "name": "Multi Pads" },
+      { "page": "setup", "name": "Setup" }
+    ],
     "pads": [
       {
         "note": 112,
@@ -1851,6 +1904,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
   "library": { "revision": 3, "count": 35, "position": 23, "pending": 0, "roots": ["/Users/me/Styles/MOX_v2"], "scanning": false },
   "surface": {
     "shift": false,
+    "layer": { "type": "none" },
     "controls": [
       {
         "id": "padBankUp",
@@ -1868,7 +1922,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "id": "padBankDown",
         "cc": 107,
         "label": "PAGE ▼",
-        "action": { "type": "setPadPage", "page": "chordSetup" },
+        "action": { "type": "setPadPage", "page": "racks" },
         "shiftLabel": "OTS LINK",
         "shiftAction": { "type": "toggleOtsLink" },
         "rgb": [127, 127, 127],
@@ -1899,6 +1953,18 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "level": "bright",
         "anim": "solid",
         "colour": 45
+      },
+      {
+        "id": "faderButton6",
+        "cc": 42,
+        "label": "SOUND",
+        "action": null,
+        "shiftLabel": "",
+        "shiftAction": null,
+        "rgb": [127, 127, 127],
+        "level": "dim",
+        "anim": "solid",
+        "colour": 1
       },
       {
         "id": "masterButton",
@@ -2123,7 +2189,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "favourite": true,
         "source": { "kind": "soundFont", "file": "GeneralUser-GS.sf2", "bank": 0, "program": 33 },
         "available": true,
-        "note": null
+        "note": null,
+        "number": 1
       },
       {
         "id": "keys",
@@ -2133,7 +2200,8 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "favourite": false,
         "source": { "kind": "plugin", "componentId": "aumu dls  appl", "hasState": false },
         "available": false,
-        "note": "needs plugin hosting (#91)"
+        "note": "needs plugin hosting (#91)",
+        "number": 2
       }
     ],
     "categories": [{ "id": "piano", "label": "Piano" }, { "id": "bass", "label": "Bass" }],
@@ -2298,6 +2366,7 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
     "storeWaiting": null,
     "readOnly": false
   },
+  "settings": { "padPages": ["racks", "chord", "multiPads", "setup"] },
   "message": null
 }
 ```

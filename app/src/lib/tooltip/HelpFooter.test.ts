@@ -132,14 +132,14 @@ describe('help footer', () => {
 })
 
 describe('lastControl', () => {
-  function state(page?: 'chordSetup') {
+  function state(page?: 'racks') {
     const s = new MockSession({ manual: true })
     if (page) s.send({ type: 'setPadPage', page })
     return s.state
   }
 
   it('names a pad by number and page, with what it does now', () => {
-    const s = state('chordSetup')
+    const s = state('racks')
     const pad = s.pads.pads.find((p) => p.note === 101)!
     const d = lastControl(pack(0x90, 101, 127), s)!
     expect(d.where).toBe('PAD 6 (page 2)')

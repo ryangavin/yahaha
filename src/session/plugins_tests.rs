@@ -674,21 +674,18 @@ fn set_plugin_in_process_shows_in_the_list() {
 }
 
 /// `reloadPartPlugin` loads a failed (or stopped) plugin again with its kept state, for the
-/// selected part when no part is given; the Launchkey's reload button lights while the
-/// selected part's plugin needs it. A part without a plugin, or one playing, is refused.
+/// selected part when no part is given (the app's reload; it has no Launchkey button since
+/// fader button 6 became Sound). A part without a plugin, or one playing, is refused.
 #[test]
 fn reload_part_plugin_retries_a_failed_plugin() {
     use crate::api::PartsCmd;
     let s = session();
     s.offline_audio(None, 48_000).unwrap();
-    let fault = |s: &Session| s.inner.lock().selected_plugin_fault();
     assert!(s.send(PluginCmd::ReloadPartPlugin { part: None }).is_err(), "Right 1 plays its SoundFont");
     // Right 2: a state the plugin rejects, so the load fails.
     s.send(PluginCmd::SetPartPlugin { part: 1, id: DLS.into(), state: Some("anVuaw==".into()) }).unwrap();
     assert_eq!(wait_playing(&s, 1), PluginStatus::Failed);
-    assert!(!fault(&s), "Right 1 is selected");
     s.send(PartsCmd::SelectPart { part: 1 }).unwrap();
-    assert!(fault(&s), "the button lights for the selected part");
     s.send(PluginCmd::ReloadPartPlugin { part: None }).unwrap();
     // `send` pumps, so the reload may have failed again already.
     assert!(matches!(s.state().keyboard_parts[1].plugin.as_ref().unwrap().status, PluginStatus::Loading | PluginStatus::Failed));
@@ -699,8 +696,6 @@ fn reload_part_plugin_retries_a_failed_plugin() {
     s.send(PluginCmd::SetPartPlugin { part: 0, id: DLS.into(), state: None }).unwrap();
     assert_eq!(wait_playing(&s, 0), PluginStatus::Playing);
     assert!(s.send(PluginCmd::ReloadPartPlugin { part: Some(0) }).is_err());
-    s.send(PartsCmd::SelectPart { part: 0 }).unwrap();
-    assert!(!fault(&s));
 }
 
 /// The Sound Browser (#117): a SoundFont sound assigned to a part that plays a plugin

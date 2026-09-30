@@ -193,6 +193,7 @@ fn value_of(cmd: &AppCmd, level: Level, st: &AppState) -> String {
             QuickRackCmd::PressQuickRack { .. } | QuickRackCmd::StepQuickRack { .. } => st.live_rack.name.clone(),
             QuickRackCmd::StepQuickRackBank { .. } => format!("Bank {}", crate::racks::quick::bank_letter(st.quick_racks.bank as usize)),
             QuickRackCmd::ToggleQuickRackStore => on(st.quick_racks.store),
+            QuickRackCmd::StoreRack { .. } => st.live_rack.name.clone(),
             QuickRackCmd::ClearQuickRack { .. } => "Cleared".into(),
         },
         AppCmd::Looper(LooperCmd::LooperOnOff | LooperCmd::LooperRec) => match st.looper.mode {
@@ -265,8 +266,8 @@ mod tests {
         let t = shown(&s).unwrap();
         assert_eq!((t.0.as_str(), t.1.as_str()), ("Faders: Panel", "RIGHT 2"));
         assert!(t.2.starts_with(&v.to_string()), "{t:?}");
-        // A fader button: Right 3 on.
-        s.midi_in(Port::Pads, &[0xB0, 39, 127]);
+        // A fader button: Right 3 on (a tap: it acts on the release).
+        s.midi_in(Port::Pads, &[0xB0, 39, 127, 0xB0, 39, 0]);
         assert_eq!(shown(&s), text("Fader buttons", "RIGHT 3", "On"));
         // The encoder page button.
         s.midi_in(Port::Pads, &[0xB0, launchkey::KNOB_DOWN_CC, 127]);
@@ -275,11 +276,13 @@ mod tests {
         s.midi_in(Port::Pads, &[0xB0, launchkey::SHIFT_CC, 127, 0xB0, launchkey::KNOB_UP_CC, 127, 0xB0, launchkey::SHIFT_CC, 0]);
         assert_eq!(shown(&s), text("Buttons", "ROTARY", "Fast"));
         assert_eq!(s.state().knobs.page_name, "Rack", "the page stays");
-        // A pad page button, then a Chord/Setup pad.
+        // A pad page button, then a Setup pad (the last page).
         s.midi_in(Port::Pads, &[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        assert_eq!(shown(&s), text("Buttons", "PAGE ▼", "Chord/Setup"));
+        assert_eq!(shown(&s), text("Buttons", "PAGE ▼", "Racks"));
+        s.midi_in(Port::Pads, &[0xB0, launchkey::PAD_UP_CC, 127]);
+        s.send(crate::api::PadsCmd::SetPadPage { page: launchkey::Page::Setup }).unwrap();
         s.midi_in(Port::Pads, &[0x90, 103, 100]);
-        assert_eq!(shown(&s), text("Pads: Chord/Setup", "UPPER", "Upper"));
+        assert_eq!(shown(&s), text("Pads: Setup", "UPPER", "Upper"));
         // Fader button 8 on the Panel page: the Chord Looper; Shift: REC/STOP.
         s.midi_in(Port::Pads, &[0xB0, 44, 127]);
         assert_eq!(shown(&s).map(|t| t.1), Some("LOOPER".into()));

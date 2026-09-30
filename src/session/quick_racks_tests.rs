@@ -272,21 +272,20 @@ fn the_file_comes_back_and_a_newer_one_is_never_saved_over() {
 fn page_4_pads_send_the_quick_racks_commands() {
     let d = dir("pads");
     let s = session(&d);
-    s.send(PadsCmd::SetPadPage { page: Page::QuickRacks }).unwrap();
+    s.send(PadsCmd::SetPadPage { page: Page::Racks }).unwrap();
     let st = s.state();
-    assert_eq!(st.pads.page_name, "Quick Racks");
+    assert_eq!(st.pads.page_name, "Racks");
     let action = |note: u8| st.pads.pads.iter().find(|p| p.note == note).and_then(|p| p.action.clone());
     for i in 0..8u8 {
         assert_eq!(action(96 + i), Some(QuickRackCmd::PressQuickRack { slot: i, discard: false }.into()));
     }
-    assert_eq!(action(112), Some(QuickRackCmd::StepQuickRackBank { delta: -1 }.into()));
-    assert_eq!(action(113), Some(QuickRackCmd::StepQuickRackBank { delta: 1 }.into()));
-    assert_eq!(action(116), Some(QuickRackCmd::ToggleQuickRackStore.into()));
-    assert_eq!(action(118), Some(QuickRackCmd::StepQuickRack { delta: -1, discard: false }.into()));
-    assert_eq!(action(119), Some(QuickRackCmd::StepQuickRack { delta: 1, discard: false }.into()));
-    for n in [114, 115, 117] {
-        assert_eq!(action(n), None, "pad {n} is dark");
+    for i in 0..4u8 {
+        assert_eq!(action(112 + i), Some(crate::api::OtsCmd::RecallOts { index: i }.into()));
     }
+    assert_eq!(action(116), Some(QuickRackCmd::StepQuickRackBank { delta: -1 }.into()));
+    assert_eq!(action(117), Some(QuickRackCmd::StepQuickRackBank { delta: 1 }.into()));
+    assert_eq!(action(118), Some(QuickRackCmd::ToggleQuickRackStore.into()));
+    assert_eq!(action(119), None, "pad 119 is spare");
     // The lamps follow the buttons: stored blue, loaded red.
     rack_on(&s, "Ballad", 60, 0);
     rack_on(&s, "Loud", 20, 1);
@@ -299,6 +298,54 @@ fn page_4_pads_send_the_quick_racks_commands() {
     // Shift + Track ▶: the next Quick Rack.
     let track = st.surface.controls.iter().find(|c| c.id == "trackNext").unwrap();
     assert_eq!((track.shift_label.as_str(), track.shift_action.clone()), ("RACK ▶", Some(QuickRackCmd::StepQuickRack { delta: 1, discard: false }.into())));
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// `storeRack` stores the live rack on a button of the bank on view in one command,
+/// overwriting what is there, as Store then the button does; a slot past 8 is refused.
+#[test]
+fn store_rack_overwrites_a_button_in_one_command() {
+    let d = dir("store-rack");
+    let s = session(&d);
+    let ballad = rack_on(&s, "Ballad", 60, 0);
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 20 }).unwrap();
+    s.send(RackCmd::SaveRackAs { name: "Loud".into(), sound_names: BTreeMap::new() }).unwrap();
+    let loud = rack_id(&s, "Loud");
+    s.send(QuickRackCmd::StoreRack { slot: 0 }).unwrap();
+    let q = quick_state(&s);
+    assert_eq!(q.buttons[0].rack.as_deref(), Some(loud.as_str()), "overwritten");
+    assert_ne!(Some(ballad), q.buttons[0].rack);
+    assert!(!q.store, "Store is not left armed");
+    s.send(QuickRackCmd::StoreRack { slot: 3 }).unwrap();
+    assert_eq!(quick_state(&s).buttons[3].rack.as_deref(), Some(loud.as_str()), "an empty button too");
+    assert!(s.send(QuickRackCmd::StoreRack { slot: 8 }).is_err());
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Hold Sound (Panel fader button 6): the state's layer says so, and the pads show and do
+/// what the Racks page does, from any page; let go, they are the page's again.
+#[test]
+fn holding_sound_shows_the_racks_page() {
+    use crate::session::Port;
+    let d = dir("sound-hold");
+    let s = session(&d);
+    let sound = launchkey::FADER_BTN_CC.start() + launchkey::SOUND_FADER_BTN;
+    let b = s.state().surface.controls.iter().find(|c| c.cc == sound).cloned().unwrap();
+    assert_eq!((b.label.as_str(), b.action), ("SOUND", None), "a hold: no command");
+    assert_eq!(s.state().surface.layer, launchkey::Layer::None);
+    s.midi_in(Port::Pads, &[0xB0, sound, 127]);
+    let st = s.state();
+    assert_eq!(st.surface.layer, launchkey::Layer::Sound);
+    assert_eq!(st.pads.page, Page::Sections, "the page stays");
+    let action = |note: u8| st.pads.pads.iter().find(|p| p.note == note).and_then(|p| p.action.clone());
+    assert_eq!(action(96), Some(QuickRackCmd::PressQuickRack { slot: 0, discard: false }.into()));
+    assert_eq!(action(112), Some(OtsCmd::RecallOts { index: 0 }.into()));
+    s.midi_in(Port::Pads, &[0xB0, sound, 0]);
+    let st = s.state();
+    assert_eq!(st.surface.layer, launchkey::Layer::None);
+    assert_eq!(st.pads.pads[0].label, "INTRO 1");
     drop(s);
     let _ = std::fs::remove_dir_all(&d);
 }

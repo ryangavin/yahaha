@@ -78,8 +78,15 @@ function sf(id: string, name: string, bank: number, program: number, extra: Part
     source: { kind: 'soundFont', file: SF2, bank, program },
     available: true,
     note: null,
+    number: 0,
     ...extra,
   }
+}
+
+/** Sound numbers, 1-based: for now the library's order (patches[i].number == i + 1; lane A
+ * of docs/eyes-free.md puts the favourites first). */
+function number(patches: PatchInfo[]) {
+  patches.forEach((p, i) => (p.number = i + 1))
 }
 
 /** A small curated library, as a player might have built it. */
@@ -112,6 +119,7 @@ export function initialSoundLibrary(): SoundLibraryState {
     { program: 5, patch: 'warm-rhodes', volume: 96 },
   ]
   map.drums = 'studio-kit'
+  number(patches)
   return {
     patches,
     categories: (Object.keys(CATEGORY_LABELS) as PatchCategory[]).map((id) => ({ id, label: CATEGORY_LABELS[id] })),
@@ -147,6 +155,7 @@ function info(id: string, f: PatchFields): PatchInfo {
     // The desktop app builds with plugin hosting (#91): a plugin patch plays itself.
     available: !missing,
     note: missing ? `${(f.source as { file: string }).file} is not in the SoundFont folder` : null,
+    number: 0,
   }
 }
 
@@ -477,6 +486,7 @@ export class MockSoundLibrary {
    * keyboard parts' patch and voice names. */
   derive(st: AppState) {
     const sl = st.soundLibrary
+    number(sl.patches)
     sl.styleKey = st.style.path.split('/').pop() ?? ''
     const style = this.styleMaps.get(sl.styleKey) ?? null
     sl.styleMap = style ? structuredClone(style) : emptyMap()

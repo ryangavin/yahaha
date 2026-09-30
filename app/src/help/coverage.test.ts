@@ -73,8 +73,10 @@ function storeRack(s: MockSession, slot: number, name: string) {
 const STATES: [string, Setup][] = [
   ['main screen, playing (demo)', () => {}],
   ['stopped, Sync Start armed', (s) => s.send({ type: 'toggleSyncStart' })],
-  ['pad page 2', (s) => s.send({ type: 'setPadPage', page: 'chordSetup' })],
-  ['pad page 3', (s) => s.send({ type: 'setPadPage', page: 'otsParts' })],
+  ['pad page 2 (Racks)', (s) => s.send({ type: 'setPadPage', page: 'racks' })],
+  ['pad page 3 (Chord)', (s) => s.send({ type: 'setPadPage', page: 'chord' })],
+  ['pad page 4 (Multi Pads)', (s) => s.send({ type: 'setPadPage', page: 'multiPads' })],
+  ['pad page 5 (Setup)', (s) => s.send({ type: 'setPadPage', page: 'setup' })],
   ['fader page Style', (s) => s.send({ type: 'toggleFaderPage' })],
   ['Upper + Manual Bass', (s) => s.send({ type: 'toggleUpper' })],
   ['help mode (expanded help footer)', () => (tips.help = true)],
@@ -180,9 +182,8 @@ const STATES: [string, Setup][] = [
   ['charts drawer, nothing imported', () => (ui.charts = true)],
   ['charts drawer, a playlist, chart mode playing', (s) => ((ui.charts = true), s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
   ['chart in the lead-sheet band', (s) => (s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
-  ['pad page 4 (Quick Racks)', (s) => s.send({ type: 'setPadPage', page: 'quickRacks' })],
   ['Quick Racks Store armed', (s) => s.send({ type: 'toggleQuickRackStore' })],
-  ['Quick Racks: a stored button (clear), pad page 4', (s) => (storeRack(s, 0, 'Ballad'), s.send({ type: 'setPadPage', page: 'quickRacks' }))],
+  ['Quick Racks: a stored button (clear), pad page 2', (s) => (storeRack(s, 0, 'Ballad'), s.send({ type: 'setPadPage', page: 'racks' }))],
   ['Quick Racks bar: Store waiting for a never-saved rack', (s) => (s.send({ type: 'toggleQuickRackStore' }), s.send({ type: 'pressQuickRack', slot: 2 }))],
   ['Quick Racks bar: Store waiting for a saved rack\'s changes', (s) => (
     storeRack(s, 0, 'Ballad'),

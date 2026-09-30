@@ -90,8 +90,11 @@ fn all_cmds() -> Vec<AppCmd> {
         AppCmd::Parts(PartsCmd::SetPartOctave { part: 1, octave: -1 }),
         AppCmd::Mixer(MixerCmd::SetFaderPage { page: FaderPage::Style }),
         AppCmd::Mixer(MixerCmd::ToggleFaderPage),
-        AppCmd::Pads(PadsCmd::SetPadPage { page: Page::OtsParts }),
+        AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Racks }),
         AppCmd::Pads(PadsCmd::CyclePadPage { delta: 1 }),
+        AppCmd::Pads(PadsCmd::SetPadPageOrder { pages: vec![Page::Setup, Page::Racks] }),
+        AppCmd::Parts(PartsCmd::SwapSound { part: 1, step: -3 }),
+        AppCmd::QuickRacks(crate::api::QuickRackCmd::StoreRack { slot: 2 }),
         AppCmd::Mixer(MixerCmd::SetMasterVolume { volume: 110 }),
         AppCmd::Ots(OtsCmd::RecallOts { index: 3 }),
         AppCmd::Ots(OtsCmd::SetOtsLink { on: true }),
@@ -143,7 +146,7 @@ fn commands_serialize_as_tagged_camel_case() {
     assert_eq!(j(AppCmd::Transport(TransportCmd::StartStop)), r#"{"type":"startStop"}"#);
     assert_eq!(j(AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 2, volume: 90 })), r#"{"type":"setStylePartVolume","part":2,"volume":90}"#);
     assert_eq!(j(AppCmd::Chord(ChordCmd::SetFingering { fingering: Fingering::FingeredOnBass })), r#"{"type":"setFingering","fingering":"fingeredOnBass"}"#);
-    assert_eq!(j(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })), r#"{"type":"setPadPage","page":"chordSetup"}"#);
+    assert_eq!(j(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Chord })), r#"{"type":"setPadPage","page":"chord"}"#);
     let e = serde_json::to_string(&Event::StateChanged { version: 3 }).unwrap();
     assert_eq!(e, r#"{"type":"stateChanged","version":3}"#);
 }
@@ -332,14 +335,91 @@ fn keyboard_parts_mixer_and_pages() {
     assert!(s.send(MixerCmd::SetMasterVolume { volume: 90 }).is_err());
 
     assert_eq!(st.pads.page, Page::Sections);
-    s.send(PadsCmd::CyclePadPage { delta: -3 }).unwrap();
+    s.send(PadsCmd::CyclePadPage { delta: -4 }).unwrap();
     let st = s.state();
-    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::OtsParts, 3, 5));
+    assert_eq!((st.pads.page, st.pads.page_number, st.pads.page_count), (Page::Racks, 2, 5));
     assert_eq!(st.pads.pads.len(), 16);
-    assert_eq!(st.pads.pads[0].label, "OTS 1");
-    assert_eq!(st.pads.pads[0].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
-    s.send(PadsCmd::SetPadPage { page: Page::ChordSetup }).unwrap();
+    assert_eq!(st.pads.pads[8].label, "OTS 1");
+    assert_eq!(st.pads.pads[8].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
+    s.send(PadsCmd::SetPadPage { page: Page::Setup }).unwrap();
     assert_eq!(s.state().pads.pads[1].action, Some(AppCmd::Chord(ChordCmd::SetFingering { fingering: Fingering::Fingered })));
+}
+
+/// The pad page order (docs/eyes-free.md): Sections first, then the player's order, which
+/// Tab, Pad Bank and the state follow; a page left out can't be paged to; bad orders are
+/// refused; the order is saved in `settings.json` and a new session starts with it.
+#[test]
+fn pad_page_order_is_the_players_and_saved() {
+    use crate::launchkey::{PAD_DOWN_CC, PAD_UP_CC};
+    let data = crate::session::testing::data_dir("pad-page-order");
+    let opts = || Options { paths: vec![crate::session::testing::style_path()], data_dir: Some(data.clone()), ..Options::default() };
+    let s = Session::offline(opts()).unwrap();
+    let st = s.state();
+    let names: Vec<_> = st.pads.pages.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["Sections", "Racks", "Chord", "Multi Pads", "Setup"], "the default order");
+    assert_eq!(st.settings.pad_pages, [Page::Racks, Page::Chord, Page::MultiPads, Page::Setup]);
+
+    // Setup and Racks only: Chord and Multi Pads are left out.
+    s.send(PadsCmd::SetPadPage { page: Page::Chord }).unwrap();
+    s.send(PadsCmd::SetPadPageOrder { pages: vec![Page::Setup, Page::Racks] }).unwrap();
+    let st = s.state();
+    assert_eq!(st.pads.page, Page::Sections, "the page on view was left out");
+    assert_eq!((st.pads.page_number, st.pads.page_count), (1, 3));
+    assert_eq!(st.settings.pad_pages, [Page::Setup, Page::Racks]);
+    s.midi_in(Port::Pads, &[0xB0, PAD_DOWN_CC, 127]);
+    assert_eq!(s.state().pads.page, Page::Setup, "Pad Bank ▼ walks the order");
+    s.midi_in(Port::Pads, &[0xB0, PAD_DOWN_CC, 127]);
+    s.midi_in(Port::Pads, &[0xB0, PAD_DOWN_CC, 127]);
+    let st = s.state();
+    assert_eq!((st.pads.page, st.pads.page_number), (Page::Racks, 3), "and stops at the last");
+    let down = st.surface.controls.iter().find(|c| c.cc == PAD_DOWN_CC).unwrap();
+    assert_eq!(down.action, None, "nowhere further down");
+    let up = st.surface.controls.iter().find(|c| c.cc == PAD_UP_CC).unwrap();
+    assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Setup })));
+    s.send(PadsCmd::CyclePadPage { delta: 1 }).unwrap();
+    assert_eq!(s.state().pads.page, Page::Sections, "Tab wraps");
+    assert!(s.send(PadsCmd::SetPadPage { page: Page::MultiPads }).is_err(), "left out");
+    for bad in [vec![Page::Sections], vec![Page::Racks, Page::Racks], vec![Page::Racks, Page::Chord, Page::MultiPads, Page::Setup, Page::Racks]] {
+        assert!(s.send(PadsCmd::SetPadPageOrder { pages: bad.clone() }).is_err(), "{bad:?}");
+    }
+    assert_eq!(s.state().settings.pad_pages, [Page::Setup, Page::Racks], "a refused order changes nothing");
+    drop(s);
+
+    let s = Session::offline(opts()).unwrap();
+    assert_eq!(s.state().settings.pad_pages, [Page::Setup, Page::Racks], "restored at start");
+    s.send(PadsCmd::CyclePadPage { delta: 1 }).unwrap();
+    assert_eq!(s.state().pads.page, Page::Setup);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// The Setup page's switches are saved settings (docs/eyes-free.md): fingering type,
+/// Upper/Lower, OTS Link and Stop ACMP come back in a new session, however they were set.
+#[test]
+fn setup_switches_are_saved_settings() {
+    use crate::api::StopAcmpMode;
+    let data = crate::session::testing::data_dir("setup-switches");
+    let opts = || Options { paths: vec![crate::session::testing::style_path()], data_dir: Some(data.clone()), ..Options::default() };
+    let s = Session::offline(opts()).unwrap();
+    let st = s.state();
+    assert_eq!((st.chord.fingering, st.chord.upper, st.ots.link, st.transport.stop_acmp_mode), (Fingering::FingeredOnBass, false, false, StopAcmpMode::Off));
+    // From the Setup pads, as the Launchkey sends them.
+    s.send(PadsCmd::SetPadPage { page: Page::Setup }).unwrap();
+    for note in [96, 103, 112, 114] {
+        s.midi_in(Port::Pads, &[0x90, note, 100]);
+    }
+    s.advance(10 * MS);
+    let st = s.state();
+    assert_eq!((st.chord.fingering, st.chord.upper, st.ots.link, st.transport.stop_acmp_mode), (Fingering::SingleFinger, true, true, StopAcmpMode::Fixed));
+    drop(s);
+
+    let s = Session::offline(opts()).unwrap();
+    s.advance(10 * MS);
+    let st = s.state();
+    assert_eq!((st.chord.fingering, st.chord.upper, st.ots.link, st.transport.stop_acmp_mode), (Fingering::SingleFinger, true, true, StopAcmpMode::Fixed), "restored");
+    // A restored Stop ACMP not yet in the engine's snapshot is not saved over.
+    let saved = std::fs::read_to_string(data.join("settings.json")).unwrap();
+    assert!(saved.contains("\"stopAcmpMode\": \"fixed\""), "{saved}");
+    let _ = std::fs::remove_dir_all(&data);
 }
 
 /// Pan and the reverb/chorus sends (#198): the part's CC10/91/93 on its own channel, to
@@ -521,24 +601,26 @@ fn library_style_loading() {
 #[test]
 fn launchkey_pads_are_commands() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
-    // Pad Bank ▼: page 2; pad 97 = Fingered.
-    s.midi_in(Port::Pads, &[0xB0, PAD_DOWN_CC, 127]);
-    assert_eq!(s.state().pads.page, Page::ChordSetup);
-    s.midi_in(Port::Pads, &[0x90, 97, 100]);
-    assert_eq!(s.state().chord.fingering, Fingering::Fingered);
-    // Pad 103 = Upper; 114 = Split -.
-    s.midi_in(Port::Pads, &[0x90, 103, 100, 0x90, 114, 100]);
+    // Pad Bank ▼ twice: page 3, Chord; pad 114 = Split -.
+    s.midi_in(Port::Pads, &[0xB0, PAD_DOWN_CC, 127, 0xB0, PAD_DOWN_CC, 127]);
+    assert_eq!(s.state().pads.page, Page::Chord);
+    s.midi_in(Port::Pads, &[0x90, 114, 100]);
+    assert_eq!(s.state().chord.split, 53);
+    // Page 5, Setup: pad 97 = Fingered, 103 = Upper.
+    s.midi_in(Port::Pads, &[0xB0, PAD_DOWN_CC, 127, 0xB0, PAD_DOWN_CC, 127]);
+    assert_eq!(s.state().pads.page, Page::Setup);
+    s.midi_in(Port::Pads, &[0x90, 97, 100, 0x90, 103, 100]);
     let st = s.state();
+    assert_eq!(st.chord.fingering, Fingering::Fingered);
     assert!(st.chord.upper);
-    assert_eq!(st.chord.split, 53);
-    // Page 3: pad 113 = Right 2 on; Shift + ▼ = OTS Link.
-    s.midi_in(Port::Pads, &[0xB0, PAD_DOWN_CC, 127]);
-    s.midi_in(Port::Pads, &[0x90, 113, 100]);
-    assert!(s.state().keyboard_parts[1].on);
+    // Shift + ▼ = OTS Link.
     s.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 127, 0xB0, PAD_DOWN_CC, 127, 0xB0, SHIFT_CC, 0]);
     assert!(s.state().ots.link);
-    // Fader buttons on the Panel page: part on/off; Shift + button selects.
+    // Fader buttons on the Panel page: part on/off on a tap (press and release); Shift +
+    // button selects.
     s.midi_in(Port::Pads, &[0xB0, 39, 127]);
+    assert!(!s.state().keyboard_parts[2].on, "not on the press: it may become a hold");
+    s.midi_in(Port::Pads, &[0xB0, 39, 0]);
     assert!(s.state().keyboard_parts[2].on);
     s.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 127, 0xB0, 38, 127, 0xB0, SHIFT_CC, 0]);
     assert!(s.state().keyboard_parts[1].selected);
@@ -756,7 +838,7 @@ fn launchkey_hardware_matches_its_commands() {
                 pair(setup, format!("{page:?} pad {} {:?}", pad.note, pad.action), &prep, &[&[0x90, pad.note, 100]], pad.action);
             }
         }
-        let page2 = |s: &Session| s.send(PadsCmd::SetPadPage { page: Page::ChordSetup }).unwrap();
+        let page2 = |s: &Session| s.send(PadsCmd::SetPadPage { page: Page::Chord }).unwrap();
         for (cc, shift, cmd) in [
             (PLAY_CC, false, AppCmd::Transport(TransportCmd::StartStop)),
             (STOP_CC, false, AppCmd::Transport(TransportCmd::Stop)),
@@ -784,15 +866,19 @@ fn launchkey_hardware_matches_its_commands() {
                         (0..=3, FaderPage::Panel, true) => Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })),
                         (0..=3, FaderPage::Panel, false) => Some(AppCmd::Parts(PartsCmd::TogglePart { part: i })),
                         (4, FaderPage::Panel, _) => Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)),
-                        (5, FaderPage::Panel, _) => Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })),
+                        // Sound: a hold, pressed and let go here (the layer comes and goes);
+                        // on the Style page Shift + it mutes the sixth Style part.
+                        (5, FaderPage::Style, true) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 })),
+                        (5, _, _) => None,
                         (6, FaderPage::Panel, _) => Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)),
                         (7, FaderPage::Panel, false) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperOnOff)),
                         (7, FaderPage::Panel, true) => Some(AppCmd::Looper(crate::api::LooperCmd::LooperRec)),
                         (_, FaderPage::Panel, _) => None,
                         (_, FaderPage::Style, _) => Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })),
                     };
-                    let btn = [0xB0, 37 + i, 127];
-                    let hw: Vec<&[u8]> = if shift { vec![&[0xB0, SHIFT_CC, 127], &btn, &[0xB0, SHIFT_CC, 0]] } else { vec![&btn] };
+                    // Pressed and released: a part button acts on its release (a tap).
+                    let (btn, up) = ([0xB0, 37 + i, 127], [0xB0, 37 + i, 0]);
+                    let hw: Vec<&[u8]> = if shift { vec![&[0xB0, SHIFT_CC, 127], &btn, &up, &[0xB0, SHIFT_CC, 0]] } else { vec![&btn, &up] };
                     let prep = move |s: &Session| s.send(MixerCmd::SetFaderPage { page: fp }).unwrap();
                     pair(setup, format!("fader button {i} shift {shift} {fp:?}"), &prep, &hw, cmd);
                 }
@@ -869,13 +955,14 @@ fn acmp_off_rhythm_only_any_key_and_ots_turns_it_on() {
 #[test]
 fn cycle_pad_page_takes_any_delta() {
     let Some(s) = offline("SlowWalker.T552.sty") else { return };
-    s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
+    // The default order: Sections, Racks, Chord, Multi Pads, Setup.
+    s.send(PadsCmd::SetPadPage { page: Page::Chord }).unwrap();
     s.send(PadsCmd::CyclePadPage { delta: 127 }).unwrap(); // 2 + 127 = 129 = 4 mod 5
-    assert_eq!(s.state().pads.page, Page::MultiPads);
+    assert_eq!(s.state().pads.page, Page::Setup);
     s.send(PadsCmd::CyclePadPage { delta: -128 }).unwrap(); // 4 - 128 = -124 = 1 mod 5
-    assert_eq!(s.state().pads.page, Page::ChordSetup);
+    assert_eq!(s.state().pads.page, Page::Racks);
     s.send(PadsCmd::CyclePadPage { delta: -2 }).unwrap();
-    assert_eq!(s.state().pads.page, Page::MultiPads);
+    assert_eq!(s.state().pads.page, Page::Setup);
 }
 
 /// While the library indexes, `library_list()` is labelled with the revision its entries
@@ -980,13 +1067,22 @@ fn launchkey_buttons_are_what_the_state_says() {
                     let cmd = if shift { b.shift_action.clone() } else { b.action.clone() };
                     let (a, c) = (mk(page, fp), mk(page, fp));
                     let press = [0xB0, b.cc, 127];
+                    // A fader button is pressed and let go: a part button acts on its
+                    // release (a tap), and Sound is a hold.
+                    let fader_button = crate::launchkey::FADER_BTN_CC.contains(&b.cc);
                     if shift {
                         a.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 127]);
                         assert!(a.state().surface.shift);
                         a.midi_in(Port::Pads, &press);
+                        if fader_button {
+                            a.midi_in(Port::Pads, &[0xB0, b.cc, 0]);
+                        }
                         a.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 0]);
                     } else {
                         a.midi_in(Port::Pads, &press);
+                        if fader_button {
+                            a.midi_in(Port::Pads, &[0xB0, b.cc, 0]);
+                        }
                     }
                     if let Some(cmd) = cmd {
                         let _ = c.send(cmd);
@@ -1012,7 +1108,7 @@ fn launchkey_button_descriptions() {
     assert_eq!((up.action, up.label.as_str(), up.level, up.colour), (None, "", Level::Off, Some(0)), "first page: nowhere up");
     assert_eq!((up.shift_label.as_str(), up.shift_action), ("LEFT", Some(AppCmd::Parts(PartsCmd::TogglePart { part: 3 }))));
     let down = b(&s, "padBankDown");
-    assert_eq!(down.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })));
+    assert_eq!(down.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Racks })));
     assert_eq!((down.colour, down.level), (Some(3), Level::Bright), "white on page 1");
     assert_eq!(down.shift_action, Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)));
     // One style: the Track buttons go nowhere and are dark.
@@ -1035,16 +1131,19 @@ fn launchkey_button_descriptions() {
     assert_eq!((b(&s, "faderButton1").level, b(&s, "faderButton1").rgb), (Level::Bright, [127, 0, 70]));
     assert_eq!((b(&s, "faderButton2").level, b(&s, "masterButton").rgb), (Level::Dim, [127, 0, 70]));
     s.send(crate::api::MixerCmd::SetFaderLayer { layer: crate::parts::FaderLayer::Volume }).unwrap();
-    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 reloads
-    // the selected part's plugin (dark while there is nothing to reload); 7 is Left Hold;
-    // 8 is the Chord Looper (ON/OFF, Shift: REC/STOP; dark with nothing recorded).
+    // Button 5: HARMONY/ARPEGGIO, dim purple while off, bright while on. Button 6 is Sound,
+    // a hold (no command; dim white, bright while held); 7 is Left Hold; 8 is the Chord
+    // Looper (ON/OFF, Shift: REC/STOP; dark with nothing recorded).
     let f5 = b(&s, "faderButton5");
     assert_eq!((f5.label.as_str(), f5.action, f5.level), ("HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), Level::Dim));
     s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
     assert_eq!((b(&s, "faderButton5").level, b(&s, "faderButton5").rgb), (Level::Bright, [90, 0, 127]));
     s.send(HarmonyArpCmd::ToggleHarmonyArp).unwrap();
     let f6 = b(&s, "faderButton6");
-    assert_eq!((f6.label.as_str(), f6.action, f6.level), ("PLUGIN", Some(AppCmd::Plugins(crate::api::PluginCmd::ReloadPartPlugin { part: None })), Level::Off));
+    assert_eq!((f6.label.as_str(), f6.action, f6.level), ("SOUND", None, Level::Dim));
+    s.midi_in(Port::Pads, &[0xB0, f6.cc, 127]);
+    assert_eq!(b(&s, "faderButton6").level, Level::Bright, "held");
+    s.midi_in(Port::Pads, &[0xB0, f6.cc, 0]);
     let f7 = b(&s, "faderButton7");
     assert_eq!((f7.label.as_str(), f7.action, f7.level), ("L HOLD", Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)), Level::Dim));
     s.send(ChordCmd::ToggleLeftHold).unwrap();
@@ -1053,12 +1152,16 @@ fn launchkey_button_descriptions() {
     let f8 = b(&s, "faderButton8");
     assert_eq!((f8.label.as_str(), f8.action, f8.shift_action, f8.level), ("LOOPER", Some(AppCmd::Looper(LooperCmd::LooperOnOff)), Some(AppCmd::Looper(LooperCmd::LooperRec)), Level::Off));
     assert_eq!(b(&s, "masterButton").label, "PANEL");
-    // Style page: the Style parts' mutes, green.
+    // Style page: the Style parts' mutes, green; button 6 stays Sound (Shift: the sixth
+    // part's mute).
     s.send(MixerCmd::ToggleFaderPage).unwrap();
     s.send(MixerCmd::ToggleStylePart { part: 5 }).unwrap();
     let f6 = b(&s, "faderButton6");
-    assert_eq!((f6.label.as_str(), f6.action), ("PAD", Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 }))));
-    assert_eq!(f6.level, Level::Dim, "muted");
+    assert_eq!((f6.label.as_str(), f6.action), ("SOUND", None));
+    assert_eq!((f6.shift_label.as_str(), f6.shift_action), ("PAD", Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 }))));
+    assert_eq!((f6.level, f6.rgb), (Level::Dim, [127, 127, 127]), "Sound's own light");
+    let f5 = b(&s, "faderButton5");
+    assert_eq!((f5.label.as_str(), f5.action), ("CHORD 2", Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 4 }))));
     assert_eq!((b(&s, "faderButton1").level, b(&s, "faderButton1").rgb), (Level::Bright, [0, 127, 0]));
     assert_eq!(b(&s, "masterButton").label, "STYLE");
     // Manual Bass (with Upper) mutes the Style's Bass part: its button dims, as on the
@@ -1069,12 +1172,12 @@ fn launchkey_button_descriptions() {
     assert_eq!((f3.level, f3.rgb), (Level::Dim, [0, 127, 0]), "Manual Bass");
     s.send(ChordCmd::SetManualBass { on: false }).unwrap();
     assert_eq!(b(&s, "faderButton3").level, Level::Bright);
-    // Page 3: ▼ to page 4 (Quick Racks), ▲ back to page 2, both pink.
-    s.send(PadsCmd::SetPadPage { page: Page::OtsParts }).unwrap();
-    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::QuickRacks })));
+    // Page 3 (Chord): ▼ to page 4 (Multi Pads), ▲ back to page 2 (Racks), both cyan.
+    s.send(PadsCmd::SetPadPage { page: Page::Chord }).unwrap();
+    assert_eq!(b(&s, "padBankDown").action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::MultiPads })));
     let up = b(&s, "padBankUp");
-    assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::ChordSetup })));
-    assert_eq!(up.rgb, [127, 0, 70]);
+    assert_eq!(up.action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Racks })));
+    assert_eq!(up.rgb, [0, 100, 127]);
     // Shift is mirrored while held.
     assert!(!s.state().surface.shift);
     s.midi_in(Port::Pads, &[0xB0, SHIFT_CC, 127]);

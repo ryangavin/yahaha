@@ -548,3 +548,109 @@ describe('mock knobs (#197)', () => {
     expect(m.state.effects.rotaryFast).toBe(false)
   })
 })
+
+describe('eyes-free contract (docs/eyes-free.md)', () => {
+  const pages = (m: MockSession) => m.state.pads.pages.map((p) => p.page)
+
+  it('the pad pages: Sections, then the default order, with names and positions', () => {
+    const m = new MockSession({ manual: true })
+    expect(m.state.settings.padPages).toEqual(['racks', 'chord', 'multiPads', 'setup'])
+    expect(m.state.pads.pages).toEqual([
+      { page: 'sections', name: 'Sections' }, { page: 'racks', name: 'Racks' }, { page: 'chord', name: 'Chord' },
+      { page: 'multiPads', name: 'Multi Pads' }, { page: 'setup', name: 'Setup' },
+    ])
+    expect(m.state.pads).toMatchObject({ page: 'sections', pageNumber: 1, pageCount: 5 })
+    m.send({ type: 'setPadPage', page: 'setup' })
+    expect(m.state.pads).toMatchObject({ page: 'setup', pageName: 'Setup', pageNumber: 5 })
+    expect(m.state.surface.layer).toEqual({ type: 'none' })
+  })
+
+  it('setPadPageOrder reorders and trims the pages; Pad Bank and Tab walk the order', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setPadPageOrder', pages: ['setup', 'racks'] })
+    expect(m.state.settings.padPages).toEqual(['setup', 'racks'])
+    expect(pages(m)).toEqual(['sections', 'setup', 'racks'])
+    expect(m.state.pads.pageCount).toBe(3)
+    const bank = (id: 'padBankUp' | 'padBankDown') => m.state.surface.controls.find((c) => c.id === id)!
+    expect(bank('padBankDown').action).toEqual({ type: 'setPadPage', page: 'setup' })
+    expect(bank('padBankUp').action).toBeNull()
+    m.send({ type: 'cyclePadPage', delta: 1 })
+    expect(m.state.pads).toMatchObject({ page: 'setup', pageNumber: 2 })
+    expect(bank('padBankDown').action).toEqual({ type: 'setPadPage', page: 'racks' })
+    m.send({ type: 'cyclePadPage', delta: 1 })
+    expect(m.state.pads).toMatchObject({ page: 'racks', pageNumber: 3 })
+    expect([bank('padBankDown').action, bank('padBankDown').level]).toEqual([null, 'off'])
+    m.send({ type: 'cyclePadPage', delta: 1 }) // wraps
+    expect(m.state.pads.page).toBe('sections')
+    m.send({ type: 'cyclePadPage', delta: -1 })
+    expect(m.state.pads.page).toBe('racks')
+  })
+
+  it('setPadPage refuses a page left out; leaving out the page on view goes to Sections', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setPadPage', page: 'chord' })
+    m.send({ type: 'setPadPageOrder', pages: ['racks', 'setup'] })
+    expect(m.state.pads.page).toBe('sections')
+    m.send({ type: 'setPadPage', page: 'chord' })
+    expect(m.state.pads.page).toBe('sections')
+    expect(m.state.message?.error).toBe(true)
+    m.send({ type: 'setPadPageOrder', pages: [] })
+    expect(pages(m)).toEqual(['sections'])
+  })
+
+  it('setPadPageOrder refuses Sections, a page twice, or more than four', () => {
+    const m = new MockSession({ manual: true })
+    for (const bad of [['sections', 'racks'], ['racks', 'racks'], ['racks', 'chord', 'multiPads', 'setup', 'racks']] as const) {
+      m.send({ type: 'clearMessage' })
+      m.send({ type: 'setPadPageOrder', pages: [...bad] })
+      expect(m.state.message?.error, bad.join()).toBe(true)
+      expect(m.state.settings.padPages).toEqual(['racks', 'chord', 'multiPads', 'setup'])
+    }
+  })
+
+  it('storeRack stores the live rack on that button of the bank on view, as Store then the button', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'stepQuickRackBank', delta: 1 })
+    // A never-saved rack waits for the save, as pressing an armed button does.
+    m.send({ type: 'storeRack', slot: 2 })
+    expect(m.state.quickRacks.storeWaiting).toBe(2)
+    m.send({ type: 'saveRackAs', name: 'Ballad' })
+    expect(m.state.quickRacks.buttons[2]).toMatchObject({ name: 'Ballad', loaded: true })
+    expect(m.state.quickRacks.store).toBe(false)
+    // A saved rack goes straight on, overwriting.
+    m.send({ type: 'storeRack', slot: 2 })
+    m.send({ type: 'storeRack', slot: 7 })
+    expect(m.state.quickRacks.buttons.map((b) => b.name)).toEqual(['', '', 'Ballad', '', '', '', '', 'Ballad'])
+    expect(m.state.quickRacks.bank).toBe(1)
+    m.send({ type: 'clearMessage' })
+    m.send({ type: 'storeRack', slot: 8 })
+    expect(m.state.message?.error).toBe(true)
+  })
+
+  it('swapSound checks the part (a no-op otherwise, for now); patches are numbered 1..', () => {
+    const m = new MockSession({ manual: true })
+    const program = m.state.keyboardParts[0].program
+    m.send({ type: 'swapSound', part: 0, step: 1 })
+    expect(m.state.message).toBeNull()
+    expect(m.state.keyboardParts[0].program).toBe(program)
+    m.send({ type: 'swapSound', part: 4, step: 1 })
+    expect(m.state.message?.error).toBe(true)
+    expect(m.state.soundLibrary.patches.map((p) => p.number)).toEqual(m.state.soundLibrary.patches.map((_, i) => i + 1))
+  })
+
+  it('fader button 6 is Sound on both fader pages; the Racks page pads', () => {
+    const m = new MockSession({ manual: true })
+    const b6 = () => m.state.surface.controls.find((c) => c.id === 'faderButton6')!
+    expect([b6().label, b6().action]).toEqual(['SOUND', null])
+    m.send({ type: 'toggleFaderPage' })
+    expect([b6().label, b6().action, b6().shiftLabel, b6().shiftAction]).toEqual(['SOUND', null, 'PAD', { type: 'toggleStylePart', part: 5 }])
+    m.send({ type: 'setPadPage', page: 'setup' })
+    const pad = (n: number) => m.state.pads.pads.find((p) => p.note === n)!
+    expect([pad(112).label, pad(113).action, pad(114).action]).toEqual(['OTS LINK', { type: 'setStopAcmp', mode: 'style' }, { type: 'setStopAcmp', mode: 'fixed' }])
+    m.send({ type: 'setStopAcmp', mode: 'fixed' })
+    expect([pad(113).level, pad(114).level]).toEqual(['dim', 'bright'])
+    m.send({ type: 'setPadPage', page: 'chord' })
+    expect(m.state.pads.pads.slice(0, 8).every((p) => p.action === null && p.level === 'off')).toBe(true)
+    expect(pad(112).label).toBe('MAN BASS')
+  })
+})

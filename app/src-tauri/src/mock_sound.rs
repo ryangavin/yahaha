@@ -465,9 +465,11 @@ impl MockSound {
             patches: self
                 .patches
                 .iter()
-                .map(|p| {
+                .enumerate()
+                .map(|(i, p)| {
                     let note = patches::unavailable_reason(p, &fonts);
-                    PatchInfo { patch: p.into(), available: note.is_none(), note }
+                    // Sound numbers: the library's order for now (lane A: favourites first).
+                    PatchInfo { patch: p.into(), available: note.is_none(), note, number: i as u32 + 1 }
                 })
                 .collect(),
             categories: Category::ALL.iter().map(|&c| CategoryInfo { id: c, label: c.label().into() }).collect(),

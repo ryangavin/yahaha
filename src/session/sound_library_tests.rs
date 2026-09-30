@@ -822,3 +822,26 @@ fn an_update_without_state_keeps_the_stored_plugin_state() {
     drop(s);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// Sound numbers (docs/eyes-free.md): every library sound has one, 1-based, the state
+/// shows it, and `number_of` and `at_number` agree with each other and with the state.
+#[test]
+fn every_sound_has_a_number() {
+    let data = folder("numbers");
+    let s = gen_session(&data);
+    let ids: Vec<String> = ["Piano", "Bass", "Pad"].iter().enumerate().map(|(i, n)| add(&s, n, 0, i as u8)).collect();
+    let st = s.state();
+    let numbers: Vec<u32> = st.sound_library.patches.iter().map(|p| p.number).collect();
+    assert_eq!(numbers, [1, 2, 3]);
+    let ctl = s.inner.lock();
+    let lib = &ctl.sound.lib;
+    for (p, id) in st.sound_library.patches.iter().zip(&ids) {
+        assert_eq!(super::number_of(lib, id), Some(p.number));
+        assert_eq!(super::at_number(lib, p.number).map(|x| x.id.as_str()), Some(id.as_str()));
+    }
+    assert_eq!(super::number_of(lib, "nope"), None);
+    assert!(super::at_number(lib, 0).is_none() && super::at_number(lib, 4).is_none());
+    drop(ctl);
+    drop(s);
+    let _ = std::fs::remove_dir_all(&data);
+}

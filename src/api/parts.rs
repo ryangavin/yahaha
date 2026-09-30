@@ -14,6 +14,10 @@ pub enum PartsCmd {
     SetPartVoice { part: u8, program: u8 },
     /// Previous/next voice for the selected part.
     StepVoice { delta: i8 },
+    /// Step keyboard part `part`'s (0-3) sound by `step` sound numbers
+    /// (`soundLibrary.patches[].number`), live, keeping its mix, as `replacePartSound`
+    /// does. Swap mode: hold the part's Panel fader button and turn knob 1.
+    SwapSound { part: u8, step: i32 },
     /// A part's volume (its CC7, 0-127). The Launchkey fader picks it up.
     SetPartVolume { part: u8, volume: u8 },
     /// A part's octave shift (-2..=2).

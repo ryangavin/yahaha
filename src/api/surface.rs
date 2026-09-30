@@ -2,6 +2,7 @@
 //! the beat clocks.
 
 use crate::launchkey::{Anim, Level};
+pub use crate::launchkey::Layer;
 use serde::{Deserialize, Serialize};
 
 use super::AppCmd;
@@ -12,6 +13,12 @@ use super::AppCmd;
 pub struct SurfaceState {
     /// The Launchkey's Shift button is held: show the controls' Shift layer.
     pub shift: bool,
+    /// A held control has turned the pads or knobs into another surface (docs/eyes-free.md):
+    /// `none`; `sound` (Panel fader button 6 held: the pads act and light as the Racks
+    /// page, from any page); `swap` (a Panel part button held and a knob turned: knob 1
+    /// steps `part`'s sound by number, knobs 2-8 are its mix).
+    #[serde(default)]
+    pub layer: Layer,
     /// Pad Bank ▲/▼, Track ◀/▶, Play, Stop, the two buttons right of the pads (Scene,
     /// Function), the 8 fader buttons and the master fader button, in that order.
     pub controls: Vec<SurfaceControl>,

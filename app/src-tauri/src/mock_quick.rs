@@ -1,7 +1,7 @@
 //! Quick Racks in the dev mock (docs/app-api.md › Quick Racks), kept in memory: press
 //! (through the rack guard), Store (waiting for the save when the rack is unsaved), bank
-//! −/+, clear, previous/next rack, page 4. As mock-quick-racks.ts. The mock has no
-//! hardware, so every press takes the app's path.
+//! −/+, clear, previous/next rack, `storeRack`, the Racks pad page. As mock-quick-racks.ts.
+//! The mock has no hardware, so every press takes the app's path.
 
 use super::MockSession;
 use yahaha::api::*;
@@ -27,7 +27,7 @@ impl MockQuick {
         self.banks[bank as usize][slot as usize].as_deref()
     }
 
-    /// The panel page 4 shows, for the live rack `live`.
+    /// The bank the Racks page shows, for the live rack `live`.
     fn panel(&self, live: Option<&str>) -> QuickPanel {
         let mut p = QuickPanel { bank: self.bank, store: self.store, ..QuickPanel::default() };
         for s in 0..SLOTS as u8 {
@@ -41,7 +41,7 @@ impl MockQuick {
         p
     }
 
-    /// `quickRacks` and, on page 4, the pads, from the racks list `racks`.
+    /// `quickRacks` and, on the Racks page, the pads, from the racks list `racks`.
     pub(super) fn fill(&self, st: &mut AppState, racks: &[RackEntry]) {
         let live = st.live_rack.id.clone();
         let buttons = (0..SLOTS as u8)
@@ -63,8 +63,9 @@ impl MockQuick {
             store_waiting: self.waiting.filter(|w| w.0 == self.bank).map(|w| w.1),
             read_only: false,
         };
-        if st.pads.page == Page::QuickRacks {
-            st.pads.pads = lk::quick_looks(&self.panel(live.as_deref()))
+        if st.pads.page == Page::Racks {
+            let panel = super::lk_panel(st, self.panel(live.as_deref()));
+            st.pads.pads = lk::racks_looks(&panel)
                 .iter()
                 .map(|(note, look)| Pad {
                     note: *note,
@@ -73,7 +74,7 @@ impl MockQuick {
                     rgb: [look.rgb.0, look.rgb.1, look.rgb.2],
                     level: look.level,
                     anim: look.anim,
-                    action: lk::pad_action(Page::QuickRacks, *note).map(AppCmd::from),
+                    action: lk::pad_action(Page::Racks, Layer::None, *note).map(AppCmd::from),
                     palette: None,
                 })
                 .collect();
@@ -107,6 +108,15 @@ impl MockSession {
             QuickRackCmd::ToggleQuickRackStore => {
                 self.quick.store = !self.quick.store;
                 self.quick.waiting = None;
+            }
+            // Store, then the button, in one command (hold Sound + tap a Racks pad).
+            QuickRackCmd::StoreRack { slot } => {
+                if slot as usize >= SLOTS {
+                    return self.message(format!("no Quick Rack {}", slot as usize + 1), true);
+                }
+                self.quick.store = true;
+                self.quick.waiting = None;
+                self.store_quick(self.quick.bank, slot);
             }
             QuickRackCmd::ClearQuickRack { bank, slot } => {
                 if bank as usize >= BANKS || slot as usize >= SLOTS {
