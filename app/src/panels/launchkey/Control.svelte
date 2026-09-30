@@ -8,6 +8,7 @@
   (Pad Bank, Track), on the face in place of the legend while Shift gives it another job.
 -->
 <script lang="ts">
+  import type { TipKey } from '../../help/tooltips'
   import type { ControlId, SurfaceState } from '../../lib/api/types'
   import { app, clock, ui } from '../../lib/store.svelte'
   import { controlTip, hasShiftFunction, layer } from '../../lib/surface'
@@ -21,6 +22,9 @@
     shape = 'rect',
     showFunction = false,
     pressed,
+    tip,
+    onpress,
+    onhold,
   }: {
     surface: SurfaceState
     id: ControlId
@@ -33,6 +37,12 @@
     showFunction?: boolean
     /** A held button that is down now (Sound, while the state's layer says so). */
     pressed?: boolean
+    /** The tooltip in place of the control's own (a held layer's). */
+    tip?: TipKey
+    /** In place of sending the state's action: a keyboard press (and a click, without `onhold`). */
+    onpress?: () => void
+    /** A button that is held (Sound): pointer down and up, as HwButton's `onhold`. */
+    onhold?: (down: boolean) => void
   } = $props()
 
   const c = $derived(surface.controls.find((x) => x.id === id)!)
@@ -42,14 +52,15 @@
 </script>
 
 <HwButton
-  tip={controlTip(c, shift)}
+  tip={tip ?? controlTip(c, shift)}
   led={c}
   beats={clock.beats}
   label={now.label || legend}
   {shape}
   {pressed}
   caption={showFunction ? now.label : caption}
-  onclick={() => now.action && app.send(now.action)}
+  {onhold}
+  onclick={() => (onpress ? onpress() : now.action && app.send(now.action))}
 >
   {#if shifted && !showFunction}<span class="fn shift">{now.label}</span><span class="legend hidden" aria-hidden="true">{legend}</span>
   {:else}<span class="legend">{legend}</span>{/if}

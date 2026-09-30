@@ -12,6 +12,8 @@
   the send layers a double-click puts the value back (pan to centre, a keyboard part's
   send to 0, a Style part's sends back to the style's). The soft-takeover mark and the
   Launchkey ghost follow the layer too.
+  A keyboard part's On is also its Panel fader button's hold: a long press enters swap mode
+  for the part (setLayer), latched until On is clicked again (see onDown below).
 -->
 <script lang="ts">
   import type { FaderLayer, PartSend } from '../../lib/api/types'
@@ -77,6 +79,53 @@
     if (keyboard) app.send({ type: 'togglePart', part })
     else app.send({ type: 'toggleStylePart', part: sIdx })
   }
+  // Swap mode (docs/eyes-free.md), the app's hold of the part's Panel fader button: a long
+  // press on a keyboard part's On (HOLD_MS, as the mirror's Sound) sends setLayer swap and
+  // stays latched when the pointer lifts, so the pointer can then turn the knobs; a click on
+  // the lit On lets go (setLayer none). A plain click toggles the part, as the hardware's
+  // tap does.
+  const HOLD_MS = 350
+  const swapping = $derived.by(() => {
+    const l = app.state.surface?.layer
+    return keyboard && l?.type === 'swap' && l.part === part
+  })
+  let holdTimer: ReturnType<typeof setTimeout> | null = null
+  /** This pointer press was a swap hold or its release: its click doesn't toggle. */
+  let heldPress = false
+  let releaseOnUp = false
+  const setSwap = (on: boolean) => app.send({ type: 'setLayer', layer: on ? { type: 'swap', part } : { type: 'none' } })
+  function onDown(e: PointerEvent) {
+    heldPress = releaseOnUp = false
+    if (!keyboard || e.button !== 0) return
+    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+    if (swapping) {
+      heldPress = releaseOnUp = true
+      return
+    }
+    holdTimer = setTimeout(() => {
+      holdTimer = null
+      heldPress = true
+      setSwap(true)
+    }, HOLD_MS)
+  }
+  function onUp() {
+    if (holdTimer) clearTimeout(holdTimer)
+    holdTimer = null
+    if (releaseOnUp) setSwap(false)
+    releaseOnUp = false
+  }
+  function onClick(e: MouseEvent) {
+    // A pointer press that held or let go of swap isn't also a toggle; Enter/Space
+    // (detail 0) is a plain press.
+    if (heldPress && e.detail > 0) {
+      heldPress = false
+      return
+    }
+    toggle()
+  }
+  $effect(() => () => {
+    if (holdTimer) clearTimeout(holdTimer)
+  })
   function solo() {
     if (keyboard) app.send({ type: 'setPartSolo', part: isSolo ? null : part })
     else app.send({ type: 'setStyleSolo', part: isSolo ? null : sIdx })
@@ -191,10 +240,16 @@
       type="button"
       class="on"
       class:lit
+      class:swapping
+      data-swap={swapping || undefined}
       aria-pressed={isOn}
-      aria-label="{name} {isOn ? 'on' : 'off'}"
+      aria-label="{name} {isOn ? 'on' : 'off'}{swapping ? ', swap held' : ''}"
       use:tip={k ? tipFor({ type: 'togglePart', part }) : 'mixer.style.mute'}
-      onclick={toggle}
+      onclick={onClick}
+      onpointerdown={onDown}
+      onpointerup={onUp}
+      onpointercancel={onUp}
+      onlostpointercapture={onUp}
     >
       <span class="lamp" aria-hidden="true"></span>On
     </button>
@@ -457,6 +512,11 @@
   .on.lit .lamp {
     background: var(--part);
     box-shadow: 0 0 6px var(--part);
+  }
+  /* Swap held on this part: the accent edge, as the mirror marks knob 1. */
+  .on.swapping {
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
   .solo {
     min-width: 1.5rem;

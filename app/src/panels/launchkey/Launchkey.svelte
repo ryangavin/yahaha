@@ -26,10 +26,12 @@
   The held layers (`surface.layer`, docs/eyes-free.md) show as the hardware's do. Sound
   (Panel fader button 6 on the hardware, here beside Shift since the strips are the
   faders) lights while held, the Racks tab is marked, and the pads are the state's, which
-  are already the Racks page's with the hold's actions (a capture pad sends storeRack). In
-  swap mode (a part's fader button held, a knob turned) the knob pager and knobs are the
-  state's, the part's: knob 1 its sound by number and name, which a turn steps with
-  swapSound as the hardware's knob 1 does; knobs 2-8 its mix (turnKnob, the engine's).
+  are already the Racks page's with the hold's actions (a capture pad sends storeRack). On
+  screen Sound is held with `setLayer`: a click latches it, the next click lets go, and a
+  press held past 350 ms is momentary. In swap mode (a part's fader button held, a knob
+  turned; on screen a long press on a keyboard strip's On, Strip.svelte) the knob pager
+  and knobs are the state's, the part's: knob 1 its sound by number and name, which a turn
+  steps with swapSound as the hardware's knob 1 does; knobs 2-8 its mix (turnSwapKnob).
 
   Every element shows its function on the current pad page and Shift layer, has a tooltip
   from the catalog, and clicking it sends exactly what the hardware sends. Every size is
@@ -40,7 +42,7 @@
 <script lang="ts">
   import type { Layer, Pad, PadPage, Rgb } from '../../lib/api/types'
   import { app, clock, ui } from '../../lib/store.svelte'
-  import { surfaceOf } from '../../lib/surface'
+  import { layer, surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import HwButton from '../../lib/ui/HwButton.svelte'
@@ -65,12 +67,41 @@
   const soundHeld = $derived(held.type === 'sound')
   const swapPart = $derived(held.type === 'swap' ? held.part : null)
   /** A knob turned: in swap mode knob 1 steps the part's sound, as the hardware's knob 1
-   *  does (`swapSound`); every other turn is the knob's own (`turnKnob`, which the engine
-   *  gives to the swapped part's mix while the swap holds). */
+   *  does (`swapSound`), and knobs 2-8 are the part's mix (`turnSwapKnob`); otherwise the
+   *  knob page's (`turnKnob`). */
   function turn(i: number, delta: number) {
-    if (swapPart !== null && i === 0) app.send({ type: 'swapSound', part: swapPart, step: delta })
-    else app.send({ type: 'turnKnob', knob: i, delta })
+    if (swapPart === null) app.send({ type: 'turnKnob', knob: i, delta })
+    else if (i === 0) app.send({ type: 'swapSound', part: swapPart, step: delta })
+    else app.send({ type: 'turnSwapKnob', part: swapPart, knob: i, delta })
   }
+
+  // Sound (Panel fader button 6): held as the hardware's is, with `setLayer`. A click
+  // latches it (the pointer is then free for the pads) and the next click lets go; a press
+  // held past HOLD_MS is momentary, let go on release (a second finger plays the pads). While
+  // Shift gives the button another job (Style page: mute the Pad part) it does that instead,
+  // but a held Sound always lets go.
+  const HOLD_MS = 350
+  const b6 = $derived(surface.controls.find((c) => c.id === 'faderButton6'))
+  const isSound = $derived(soundHeld || (!shift && b6?.label === 'SOUND'))
+  let soundDown: { at: number; release: boolean } | null = null
+  const setSound = (on: boolean) => app.send({ type: 'setLayer', layer: on ? { type: 'sound' } : { type: 'none' } })
+  function soundOther() {
+    const a = b6 && layer(b6, shift).action
+    if (a) app.send(a)
+  }
+  function soundHold(down: boolean) {
+    if (down) {
+      soundDown = null
+      if (!isSound) return soundOther()
+      soundDown = { at: performance.now(), release: soundHeld }
+      if (!soundHeld) setSound(true)
+    } else if (soundDown) {
+      if (soundDown.release || performance.now() - soundDown.at >= HOLD_MS) setSound(false)
+      soundDown = null
+    }
+  }
+  /** Enter or Space: latch or let go. */
+  const soundPress = () => (isSound ? setSound(!soundHeld) : soundOther())
 
   /** Page identity colours for the tabs (src/launchkey.rs: white, cyan, magenta, orange). */
   const PAGE_RGB: Record<PadPage, Rgb> = { sections: [100, 100, 100], racks: [127, 60, 0], chord: [0, 100, 127], multiPads: [127, 127, 0], setup: [127, 0, 70] }
@@ -104,9 +135,9 @@
             label={knob.name}
             level={knob.level}
             disabled={off}
-            tipKey={sound ? 'part.swap' : 'knobs.knob'}
+            tipKey={swapPart !== null ? 'part.swap' : 'knobs.knob'}
             onturn={(delta) => turn(i, delta)}
-            onreset={() => !sound && app.send({ type: 'resetKnob', knob: i })}
+            onreset={() => swapPart === null && app.send({ type: 'resetKnob', knob: i })}
           />
           <div class="text">
             <span class="name engraved">{knob.short}</span>
@@ -140,10 +171,17 @@
         <span class="icon">⇧</span><span class="word">Shift</span>
       </HwButton>
       <!-- Sound: Panel fader button 6 on the hardware, here beside Shift since the strips
-           are the faders. Lit (and pressed) while it is held; what it sends is the state's
-           (the hold itself has no command yet: see the PR). -->
+           are the faders. Lit (and pressed) while it is held or latched (setLayer). -->
       <div class="sound" data-held={soundHeld}>
-        <Control {surface} id="faderButton6" legend="Sound" pressed={soundHeld} />
+        <Control
+          {surface}
+          id="faderButton6"
+          legend="Sound"
+          pressed={soundHeld}
+          tip={soundHeld ? 'launchkey.sound' : undefined}
+          onhold={soundHold}
+          onpress={soundPress}
+        />
       </div>
       <div class="padbank" role="group" aria-label="Pad Bank">
         <Control {surface} id="padBankUp" legend="▲" />
