@@ -1,7 +1,13 @@
 <!--
-  The lead-sheet band above the Launchkey mirror: "where am I, what's next".
+  The display above the Launchkey mirror: "where am I, what's next". A status line on top,
+  as the Genos Home display's Style area: the style (click its name or Browse for the
+  style browser, as touching the name does on the Genos), the chord the style follows,
+  large, then the fingering type, transpose and time signature. Tempo, bar/beat and Sync
+  are on the header's transport bar.
 
-   ┌ now ─────────┬ lane ──────────────────────────────────────────┬────────┬ next ─────────┐
+   ┌ status line (glass) ─────────────────────────────────────────────────────────────────┐
+   │ Cool Pop [BROWSE]            C7  played Bb7            Fingered  Transpose +2·0  4/4 │
+   ├ now ─────────┬ lane─────────┬ lane ──────────────────────────────────────────┬────────┬ next ─────────┐
    │ Playing      │ ┌1────────┬2────────┬3────────┬4────────┐        │        │ Next          │
    │ Main B       │ │ / / / / │ / / / / │ / /   / │ /  /  / │ cells  │[Charts]│ → Main C      │
    │ bar 3 of 4   │ └─────────┴─────────┴─────────┴─────────┘        │        │ at the bar    │
@@ -23,6 +29,8 @@
 
   const s = $derived(app.state)
   const t = $derived(s.transport)
+  const c = $derived(s.chord)
+  const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0')
   /** Chart mode with a chart chosen: the lane shows the chart. */
   const chart = $derived(s.chart?.on && s.chart.song ? s.chart : null)
   /** Bars in the section's pattern; unknown (the engine doesn't send it yet): one cell. */
@@ -68,6 +76,24 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex (display items are focusable so their tooltips are reachable from the keyboard) -->
 <section class="lead mat-chassis" aria-label="Lead sheet">
+  <!-- Labelled as the mirror's status display was: it takes that display's place. -->
+  <div class="status mat-screen" role="group" aria-label="Status display">
+    <!-- Touching the style name opens the Style Selection display on the Genos: here, the style browser. -->
+    <button type="button" class="style" use:tip={'browser.open'} onclick={() => (ui.browser = true)}>
+      <span class="sname glow-text">{s.style.name || 'No style'}</span><span class="browse">Browse</span>
+    </button>
+    <span class="chord" tabindex="0" use:tip={'display.chord'}>
+      <span class="cname glow-text">{c.name ?? '–'}</span>{#if c.fingered && c.fingered !== c.name}<span class="fingered">played {c.fingered}</span>{/if}
+    </span>
+    <span class="info">
+      <span class="fingering" tabindex="0" use:tip={'fingering.select'}>{c.fingeringName}{c.manualBassActive ? ' · Manual Bass' : ''}</span>
+      <span class="transpose" tabindex="0" use:tip={'transpose.display'} class:set={c.transposeKeyboard !== 0 || c.transposeMaster !== 0}>
+        Transpose {signed(c.transposeKeyboard)} · {signed(c.transposeMaster)}
+      </span>
+      <span class="timesig" tabindex="0" use:tip={'display.timesig'}>{s.style.timeSignature[0]}/{s.style.timeSignature[1]}</span>
+    </span>
+  </div>
+
   <div class="now" tabindex="0" use:tip={'lead.section'}>
     <span class="engraved">{t.running ? 'Playing' : 'Starts with'}</span>
     <span class="name">{now}</span>
@@ -110,12 +136,128 @@
   .lead {
     display: grid;
     grid-template-columns: 13em minmax(0, 1fr) auto 12em;
-    grid-template-rows: minmax(0, 1fr);
-    gap: 1.2em;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0.5em 1.2em;
     height: 100%;
-    padding: 0.7em 1.5em;
+    padding: 0.6em 1.5em 0.7em;
     border-radius: 1em;
     font-family: var(--font-display);
+    /* On a short window the shell gives the display as little as 4em: the status line
+       stays whole and the row under it is cut off, rather than spill over the mirror (the
+       section also shows on the header's transport bar). */
+    container: display / size;
+    overflow: hidden;
+  }
+  @container display (height < 7em) {
+    .status {
+      padding-block: 0;
+    }
+    .cname {
+      font-size: 2em;
+    }
+  }
+
+  /* The status line: one row of glass across the display, style left, chord in the middle,
+     fingering, transpose and time signature right. Each side shrinks (ellipsis) before the
+     chord does. */
+  .status {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 1.2em;
+    padding: 0.2em 0.9em;
+    border-radius: 0.5em;
+    white-space: nowrap;
+  }
+  .status span[tabindex] {
+    border-radius: 3px;
+  }
+  .style {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6em;
+    min-width: 0;
+    max-width: 100%;
+    justify-self: start;
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+    font-size: 1.35em;
+    color: inherit;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .sname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* A soft-key label on the glass: the name is the button, as on the Genos. */
+  .browse {
+    flex: none;
+    padding: 0.1em 0.45em;
+    font-size: 0.55em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--screen-dim);
+    border: 1px solid color-mix(in srgb, var(--screen-dim) 55%, transparent);
+    border-radius: 0.3em;
+  }
+  .style:hover .browse,
+  .style:focus-visible .browse {
+    color: var(--screen-ink);
+    border-color: var(--screen-ink);
+  }
+  .chord {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5em;
+  }
+  /* Large enough to read from the keys. */
+  .cname {
+    font-size: 2.6em;
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: 0.01em;
+  }
+  .fingered {
+    font-size: 0.9em;
+    color: var(--screen-dim);
+  }
+  .info {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 1em;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--screen-dim);
+  }
+  .info > * {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fingering {
+    flex: 0 1 auto;
+    color: var(--screen-ink);
+    font-weight: 600;
+    font-size: 1.1em;
+  }
+  .transpose {
+    flex: 0 1 auto;
+  }
+  .transpose.set {
+    color: var(--accent);
+  }
+  .timesig {
+    flex: none;
+    color: var(--screen-ink);
+    font-weight: 600;
+    font-size: 1.1em;
   }
   .lead :global(.engraved) {
     font-size: 0.78em;
