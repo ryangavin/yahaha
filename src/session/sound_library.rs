@@ -259,6 +259,9 @@ pub(super) struct SoundLib {
     gm_cache: RefCell<Option<GmCache>>,
     /// The inputs the pump last found the rack complete for (`pump_sound_library`).
     rack_ok: Option<RackWant>,
+    /// A swap step (`set_part_patch_live`) changed a part's sound without the full
+    /// `sound_library_changed`; `pump_swap_end` runs it once swap mode ends.
+    swap_pending: bool,
 }
 
 impl SoundLib {
@@ -305,6 +308,7 @@ impl SoundLib {
             native: None,
             gm_cache: RefCell::new(None),
             rack_ok: None,
+            swap_pending: false,
         }
     }
 
@@ -577,6 +581,7 @@ impl Control {
 
     /// Rewrite the route table, and save the library (after an edit).
     fn sound_library_changed(&mut self) {
+        self.sound.swap_pending = false;
         // A style's own map left with no rules (all cleared through `map_mut`) goes.
         self.sound.lib.style_maps.retain(|_, m| !m.is_empty());
         let avail = self.avail_fonts();
@@ -1039,6 +1044,41 @@ impl Control {
     /// A keyboard part plays a library patch (or its GM voice again). The part keeps its
     /// mix (volume, octave, pan and sends): a sound has none (docs/racks.md).
     pub(super) fn set_part_patch(&mut self, part: usize, id: Option<String>) -> Result<(), CmdError> {
+        self.put_part_patch(part, id)?;
+        self.sound_library_changed();
+        Ok(())
+    }
+
+    /// A swap step (`swapSound`, docs/eyes-free.md): part `part` plays patch `id` at once,
+    /// with only what makes that part play it.
+    ///
+    /// Decision: a step doesn't run the full `sound_library_changed` (every route rewritten
+    /// and resynced, the library file saved), which an encoder click at a time would
+    /// repeat. It writes the parts' routes (as `sound_library_part_voice` does) and brings
+    /// the parts' plugins to their patches (`sync_part_plugins` touches only a part whose
+    /// plugin changes, so a plugin sound still loads when landed on), plus what
+    /// `set_part_patch` does besides (a SoundFont patch ends a picked plugin; the voice
+    /// settings go back to neutral). The full change runs once, when swap mode ends
+    /// (`pump_swap_end`): at the release, or straight after an app step outside it.
+    pub(super) fn set_part_patch_live(&mut self, part: usize, id: Option<String>) -> Result<(), CmdError> {
+        self.put_part_patch(part, id)?;
+        let (avail, routes) = (self.avail_fonts(), self.shared.routes.clone());
+        self.sound.write_parts(&routes, &avail);
+        self.sync_part_plugins();
+        self.sound.swap_pending = true;
+        Ok(())
+    }
+
+    /// The pump: once swap mode has ended, the full change its steps put off
+    /// (`set_part_patch_live`) runs, once.
+    pub(super) fn pump_swap_end(&mut self) {
+        if self.sound.swap_pending && !matches!(self.shared.layer(), crate::launchkey::Layer::Swap { .. }) {
+            self.sound_library_changed();
+        }
+    }
+
+    /// Part `part`'s own patch becomes `id`, with no rerouting yet.
+    fn put_part_patch(&mut self, part: usize, id: Option<String>) -> Result<(), CmdError> {
         self.need_patch_or_none(&id)?;
         let patch = id.as_deref().and_then(|i| self.sound.lib.patch(i));
         // A SoundFont patch ends a picked plugin. (A plugin patch replaces it on the channel.)
@@ -1053,7 +1093,6 @@ impl Control {
             self.wake_engine();
         }
         self.sound.part_patch[part] = id;
-        self.sound_library_changed();
         Ok(())
     }
 
@@ -1766,7 +1805,6 @@ pub(crate) fn numbers(lib: &SoundLibrary) -> Vec<u32> {
 
 /// Sound `id`'s number (None: not in the library). One pass over the library, with no
 /// allocation: one more than how many sounds come before it.
-#[allow(dead_code)] // swap mode (lane B) reads it
 pub(crate) fn number_of(lib: &SoundLibrary, id: &str) -> Option<u32> {
     let i = lib.patches.iter().position(|p| p.id == id)?;
     let p = (i, &lib.patches[i]);
@@ -1775,7 +1813,6 @@ pub(crate) fn number_of(lib: &SoundLibrary, id: &str) -> Option<u32> {
 }
 
 /// The sound numbered `n` (None: no sound has it).
-#[allow(dead_code)] // swap mode (lane B) reads it
 pub(crate) fn at_number(lib: &SoundLibrary, n: u32) -> Option<&Patch> {
     let i = *numbered(lib).get((n as usize).checked_sub(1)?)?;
     lib.patches.get(i)

@@ -26,6 +26,31 @@ impl Control {
                 // The page on view left out: back to Sections.
                 self.shared.step_page(|p| if order.contains(p) { p } else { Page::Sections });
             }
+            PadsCmd::SetLayer { layer } => return self.set_layer(layer),
+        }
+        Ok(())
+    }
+
+    /// `setLayer`: the app's mirror holds or releases Sound or a part button, through the
+    /// same steps the input thread runs for the Launchkey's (`live::sound_hold`,
+    /// `live::swap`). The pads read `Shared::layer` on the next press, so the Racks page
+    /// (and capture on a tap, `Action::QuickRackHeld`) follows at once.
+    fn set_layer(&mut self, to: Layer) -> Result<(), CmdError> {
+        use crate::live::{sound_hold, swap};
+        let now = self.shared.layer();
+        let next = match to {
+            Layer::Sound => sound_hold::press(now),
+            Layer::Swap { part } if part as usize >= crate::parts::COUNT => return self.fail(format!("no keyboard part {part}")),
+            Layer::Swap { part } => Layer::Swap { part },
+            Layer::None if now == Layer::Sound => sound_hold::release(now),
+            Layer::None => Layer::None,
+        };
+        self.shared.layer.store(next.to_u8(), Relaxed);
+        // Leaving swap mode: the release after a turn, as the input thread runs it.
+        if let (Layer::Swap { part }, Layer::None) = (now, next)
+            && let Some(a) = swap::commit(part)
+        {
+            return self.apply_hardware(a);
         }
         Ok(())
     }
@@ -101,5 +126,46 @@ fn palette_led(led: Led) -> PaletteLed {
         flash_colour: flash,
         flash_rgb: flash.map(|f| look(f).0),
         flash_level: flash.map(|f| look(f).1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::api::*;
+    use crate::launchkey::{Layer, Page};
+    use crate::session::testing::session;
+
+    /// `setLayer {sound}` is the app's Sound hold: the pads are the Racks page from any
+    /// page, the page on view kept; `none` gives the page back.
+    #[test]
+    fn set_layer_sound_shows_the_racks_page_until_none() {
+        let s = session();
+        s.send(PadsCmd::SetPadPage { page: Page::Chord }).unwrap();
+        let before = s.state().pads.clone();
+        assert_ne!(before.page_name, "Racks");
+        s.send(PadsCmd::SetLayer { layer: Layer::Sound }).unwrap();
+        let st = s.state();
+        assert_eq!(st.surface.layer, Layer::Sound);
+        assert_eq!((st.pads.page, st.pads.page_name.as_str()), (Page::Chord, "Racks"));
+        s.send(PadsCmd::SetLayer { layer: Layer::None }).unwrap();
+        let st = s.state();
+        assert_eq!(st.surface.layer, Layer::None);
+        assert_eq!((st.pads.page, st.pads.page_name.as_str()), (Page::Chord, before.page_name.as_str()));
+    }
+
+    /// `setLayer {swap}` is the app's part-button hold: the knobs are that part's until
+    /// `none`; a part past Left is refused.
+    #[test]
+    fn set_layer_swap_puts_the_knobs_in_swap_mode_until_none() {
+        let s = session();
+        let page = s.state().knobs.page_name.clone();
+        s.send(PadsCmd::SetLayer { layer: Layer::Swap { part: 1 } }).unwrap();
+        let st = s.state();
+        assert_eq!((st.surface.layer, st.knobs.page_name.as_str()), (Layer::Swap { part: 1 }, "Swap R2"));
+        s.send(PadsCmd::SetLayer { layer: Layer::None }).unwrap();
+        let st = s.state();
+        assert_eq!((st.surface.layer, st.knobs.page_name.as_str()), (Layer::None, page.as_str()));
+        assert!(s.send(PadsCmd::SetLayer { layer: Layer::Swap { part: 4 } }).is_err());
+        assert_eq!(s.state().surface.layer, Layer::None);
     }
 }

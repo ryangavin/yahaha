@@ -72,6 +72,12 @@ impl Control {
                     return self.apply(cmd);
                 }
             }
+            KnobsCmd::TurnSwapKnob { part, knob, delta } => {
+                if part as usize >= parts::COUNT || knob >= 8 {
+                    return self.fail(format!("no swap knob {} for keyboard part {part}", knob as u16 + 1));
+                }
+                return self.swap_knob(part, knob, delta);
+            }
         }
         Ok(())
     }
@@ -269,5 +275,29 @@ mod tests {
         let vol = st.keyboard_parts[2].volume;
         s.send(KnobsCmd::TurnKnob { knob: 1, delta: 1 }).unwrap();
         assert_eq!(s.state().keyboard_parts[2].volume, vol, "the page's knob again");
+    }
+
+    /// `turnSwapKnob` turns a part's swap knob outside swap mode too: knob 1 (index 0) its
+    /// sound, knob 2 its level; other parts and the page's knobs are left alone. A part or
+    /// knob out of range is refused.
+    #[test]
+    fn turn_swap_knob_works_outside_swap_mode() {
+        use crate::session::part_sound::tests::{part_number, with_sounds};
+        let s = with_sounds(&["Grand", "Rhodes Soft"], &[]);
+        let before = s.state();
+        assert_eq!(before.surface.layer, crate::launchkey::Layer::None);
+        s.send(KnobsCmd::TurnSwapKnob { part: 3, knob: 1, delta: -5 }).unwrap();
+        let st = s.state();
+        assert_eq!(st.keyboard_parts[3].volume, before.keyboard_parts[3].volume.saturating_sub(10));
+        for p in 0..3 {
+            assert_eq!(st.keyboard_parts[p].volume, before.keyboard_parts[p].volume);
+        }
+        assert_eq!(st.dynamics.level, before.dynamics.level, "not the page's knob");
+        s.send(KnobsCmd::TurnSwapKnob { part: 3, knob: 0, delta: 2 }).unwrap();
+        assert_eq!(part_number(&s, 3).0, 2);
+        assert_eq!(part_number(&s, 0).0, 0);
+        assert!(s.send(KnobsCmd::TurnSwapKnob { part: 4, knob: 1, delta: 1 }).is_err());
+        assert!(s.send(KnobsCmd::TurnSwapKnob { part: 0, knob: 8, delta: 1 }).is_err());
+        assert_eq!(s.state().keyboard_parts[3].volume, st.keyboard_parts[3].volume);
     }
 }

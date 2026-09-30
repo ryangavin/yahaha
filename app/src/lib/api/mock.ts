@@ -342,7 +342,9 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
   const order: PadPage[] = ['sections', ...st.settings.padPages]
   const pageName = (id: PadPage) => PAD_PAGES.find((p) => p.id === id)!.name
   st.pads.pages = order.map((page) => ({ page, name: pageName(page) }))
-  st.pads.pageName = pageName(st.pads.page)
+  // The page the pads show: Racks while Sound is held (`page` stays the one on view).
+  const sound = st.surface?.layer?.type === 'sound'
+  st.pads.pageName = pageName(sound ? 'racks' : st.pads.page)
   st.pads.pageNumber = order.indexOf(st.pads.page) + 1
   st.pads.pageCount = order.length
   // Where a fill (or the Break) queued or playing lands (#282).
@@ -351,7 +353,7 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
   t.landing = t.running && (fillLike(t.queued) || fillLike(t.section)) ? MAINS[t.main] : null
   st.transport.lamps = padsFor(st, 'sections')
   // Hold Sound: the pads act and light as the Racks page (`Layer::pads`).
-  st.pads.pads = padsFor(st, st.surface?.layer?.type === 'sound' ? 'racks' : st.pads.page)
+  st.pads.pads = padsFor(st, sound ? 'racks' : st.pads.page, sound)
   const h = hw ?? idleHardware(st)
   st.keyboardParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
   st.mixer.styleParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
@@ -1669,6 +1671,16 @@ export class MockSession implements Session {
         if (st.pads.page !== 'sections' && !pages.includes(st.pads.page)) st.pads.page = 'sections'
         break
       }
+      case 'setLayer': {
+        // The app's mirror holds or releases Sound or a part button (`surface.layer`).
+        const l = cmd.layer
+        if (l.type === 'swap' && !(Number.isInteger(l.part) && l.part >= 0 && l.part <= 3)) {
+          this.message(`no keyboard part ${l.part}`, true)
+          break
+        }
+        st.surface.layer = l.type === 'swap' ? { type: 'swap', part: l.part } : { type: l.type }
+        break
+      }
       case 'setStyleVolume':
         st.mixer.styleVolume = vol(cmd.volume)
         st.mixer.styleVolumeWaiting = false
@@ -2056,6 +2068,15 @@ export class MockSession implements Session {
       }
       case 'resetKnob': {
         const c = this.knobs.reset(cmd.knob, this.state)
+        if (c) this.cmd(c)
+        break
+      }
+      case 'turnSwapKnob': {
+        if (cmd.part < 0 || cmd.part > 3 || cmd.knob < 0 || cmd.knob > 7) {
+          this.message(`no swap knob ${cmd.knob + 1} for keyboard part ${cmd.part}`, true)
+          break
+        }
+        const c = this.knobs.turnSwap(cmd.part, cmd.knob, cmd.delta, this.state)
         if (c) this.cmd(c)
         break
       }

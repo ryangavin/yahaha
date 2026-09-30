@@ -110,8 +110,12 @@ const QUICK_KEYS = ['⇧Q', '⇧W', '⇧E', '⇧R', '⇧T', '⇧Y', '⇧U', '⇧
 
 /** Page Racks (`racks_looks`, launchkey/pages/racks.rs): Quick Racks 1–8 of the bank on
  * view on the top row; OTS 1–4, Bank −/+ and Store on the bottom row, the last pad dark.
- * Hold Sound shows it from any page. */
-function racksPads(s: AppState): Pad[] {
+ * Hold Sound shows it from any page.
+ *
+ * `sound`: Sound is held, so the lit Quick Rack pad and the empty ones (or ones whose rack
+ * is gone) capture the live rack (`storeRack`), as a tap does on the Launchkey under the
+ * hold (`sound_tap_captures`); not while Store is armed. */
+function racksPads(s: AppState, sound = false): Pad[] {
   const q = s.quickRacks
   const p = (note: number, label: string, key: string, action: AppCmd | null, available: boolean, on: boolean) =>
     pagePad('racks', note, label, key, action, available, on)
@@ -124,7 +128,9 @@ function racksPads(s: AppState): Pad[] {
       : stored && b.loaded
         ? look(QUICK_LOADED, 'bright')
         : look(QUICK_STORED, stored ? 'bright' : 'off')
-    return pad(96 + i, `QUICK ${i + 1}`, QUICK_KEYS[i], { type: 'pressQuickRack', slot: i }, l)
+    const capture = sound && !q.store && (!stored || b.loaded || b.missing)
+    const action: AppCmd = capture ? { type: 'storeRack', slot: i } : { type: 'pressQuickRack', slot: i }
+    return pad(96 + i, `QUICK ${i + 1}`, QUICK_KEYS[i], action, l)
   }
   return [
     ...Array.from({ length: 8 }, (_, i) => button(i)),
@@ -174,10 +180,10 @@ function multiPadPads(s: AppState): Pad[] {
   ]
 }
 
-/** The 16 pads of a page, top row then bottom row. */
-export function padsFor(s: AppState, page: PadPage): Pad[] {
+/** The 16 pads of a page, top row then bottom row; `sound`: Sound is held (see `racksPads`). */
+export function padsFor(s: AppState, page: PadPage, sound = false): Pad[] {
   if (page === 'multiPads') return multiPadPads(s)
-  if (page === 'racks') return racksPads(s)
+  if (page === 'racks') return racksPads(s, sound)
   if (page === 'chord') return chordPads(s)
   if (page === 'setup') return setupPads(s)
   return sectionPads(s)

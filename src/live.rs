@@ -435,8 +435,8 @@ pub fn fingered_star(mask: u16, c: Chord) -> Option<Chord> {
 
 mod kbdfx;
 mod pipeline;
-mod sound_hold;
-mod swap;
+pub(crate) mod sound_hold;
+pub(crate) mod swap;
 pub use kbdfx::{right_parts, type_index, FxConfig, FxKey, FxMode, KbdFx, ACMP, ASSIGNS, FX_RING};
 pub use pipeline::{Note, Processor, ALL_RIGHT};
 use pipeline::{Harmonized, PATH_PLAIN};
@@ -2983,8 +2983,8 @@ mod tests {
     }
 
     /// Swap mode: a knob turned while a part button is held sets the layer, knob 1 steps
-    /// the part's sound, knobs 2-8 leave the Knob Assign page alone, and the release is not
-    /// a tap and ends the layer.
+    /// the part's sound, knobs 2-8 turn the part's mix (not the Knob Assign page), and the
+    /// release is not a tap and ends the layer.
     #[test]
     fn hold_and_knob_swaps_the_sound() {
         let (mut input, shared, mut cmds, mut acts) = pads_rig();
@@ -2998,7 +2998,12 @@ mod tests {
         assert_eq!(acts.pop(), Ok(Action::SwapSound { part: 1, step: -2 }));
         for k in 1..8 {
             input.pad_msg(&[launchkey::ENCODER_STATUS, knob0 + k, 65]);
+            assert_eq!(acts.pop(), Ok(Action::SwapKnob { part: 1, knob: k, delta: 1 }));
+            assert_eq!(touched(&shared), Some(Touch::Knob(k)));
         }
+        input.pad_msg(&[launchkey::ENCODER_STATUS, knob0 + 3, 61]);
+        assert_eq!(acts.pop(), Ok(Action::SwapKnob { part: 1, knob: 3, delta: -3 }));
+        assert_eq!(shared.layer(), Layer::Swap { part: 1 });
         input.pad_msg(&[0xB0, 38, 0]);
         assert_eq!(shared.layer(), Layer::None);
         while let Ok(a) = acts.pop() {
@@ -3012,7 +3017,8 @@ mod tests {
     }
 
     /// Hold Sound (fader button 6) on either fader page: the pads act as the Racks page
-    /// from any page while it is held.
+    /// from any page while it is held, and a Quick Rack pad says it was tapped under the
+    /// hold (`QuickRackHeld`), which the Racks page's own pads don't.
     #[test]
     fn sound_hold_turns_the_pads_into_racks() {
         use crate::engine::Button;
@@ -3026,9 +3032,13 @@ mod tests {
             assert_eq!(shared.layer(), Layer::Sound, "{fader_page:?}");
             assert!(acts.pop().is_err() && cmds.pop().is_err(), "no plugin reload, no Style mute");
             input.pad_msg(&[0x90, 97, 100]);
-            assert_eq!(acts.pop(), Ok(Action::QuickRack(1)));
+            assert_eq!(acts.pop(), Ok(Action::QuickRackHeld(1)));
+            input.pad_msg(&[0x90, 103, 100]);
+            assert_eq!(acts.pop(), Ok(Action::QuickRackHeld(7)));
             input.pad_msg(&[0x90, 112, 100]);
             assert_eq!(acts.pop(), Ok(Action::Ots(0)));
+            input.pad_msg(&[0x90, 118, 100]);
+            assert_eq!(acts.pop(), Ok(Action::QuickRackStore), "Store as on the Racks page");
             assert!(cmds.pop().is_err(), "not the Sections pads");
             input.pad_msg(&[0xB0, sound, 0]);
             assert_eq!(shared.layer(), Layer::None);

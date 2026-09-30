@@ -4,8 +4,8 @@
 //! (`alloc_count`, on the test's own thread, which plays the input thread) checks
 //! `Input::packet` through both hands, layered parts, a transpose, retriggers, pedals,
 //! wheels, the pedals' assignable functions and aftertouch, and on the Launchkey port
-//! through the faders, knobs, fader buttons (a tap, swap mode's hold + knob, the Sound hold)
-//! and pads.
+//! through the faders, knobs, fader buttons (a tap, swap mode's hold + knobs 1-3, the Sound
+//! hold with a Quick Rack pad tapped under it) and pads.
 
 use crate::alloc_count::{count_here, counts};
 use std::sync::atomic::Ordering;
@@ -43,7 +43,7 @@ fn keyboard_note_path_does_not_allocate() {
     let (allocs, frees) = counts();
     input.packet(1, yahaha::rt::host_now(), &[0x90, 62, 100, 0x80, 62, 0]);
     let (mut assigned, mut strikes, mut levels, mut holds, mut rack_faders, mut knobs) = (0, 0, 0, 0, 0, 0);
-    let (mut swaps, mut racks) = (0, 0);
+    let (mut swaps, mut swap_knobs, mut racks) = (0, 0, 0);
     for round in 0..50u8 {
         // Dynamics Touch / Accent on in some rounds: chord-section strikes go to the engine.
         shared.strikes.store(round % 4 < 2, Ordering::Relaxed);
@@ -68,7 +68,8 @@ fn keyboard_note_path_does_not_allocate() {
                 yahaha::launchkey::Action::RackFader(..) => rack_faders += 1,
                 yahaha::launchkey::Action::Knob(..) => knobs += 1,
                 yahaha::launchkey::Action::SwapSound { .. } => swaps += 1,
-                yahaha::launchkey::Action::QuickRack(_) => racks += 1,
+                yahaha::launchkey::Action::SwapKnob { .. } => swap_knobs += 1,
+                yahaha::launchkey::Action::QuickRackHeld(_) => racks += 1,
                 _ => assigned += 1,
             }
         }
@@ -121,12 +122,13 @@ fn keyboard_note_path_does_not_allocate() {
         input.packet(TAG_PADS, 0, &[0xB0, f1, round, 0xB0, f1 + 1, round, 0xB0, f1 + 3, 127 - round]);
         input.packet(TAG_PADS, 0, &[0xBF, 21, 65]);
         // The fader buttons' holds (docs/eyes-free.md): a part button tapped; a part button
-        // held with knobs 1 and 3 turned (swap mode, on the Panel page); and Sound held with
-        // a pad pressed under it (the Racks page's pads), then let go.
+        // held with knobs 1, 2 and 3 turned (swap mode, on the Panel page: the sound, then
+        // the part's mix); and Sound held with a Quick Rack pad tapped under it (the Racks
+        // page's pads, marked as under the hold), then let go.
         use yahaha::launchkey::SOUND_FADER_BTN;
         let (b1, sound) = (*FADER_BTN_CC.start(), *FADER_BTN_CC.start() + SOUND_FADER_BTN);
         input.packet(TAG_PADS, 0, &[0xB0, b1 + 1, 127, 0xB0, b1 + 1, 0]);
-        input.packet(TAG_PADS, 0, &[0xB0, b1, 127, 0xBF, 21, 65, 0xBF, 23, 63, 0xB0, b1, 0]);
+        input.packet(TAG_PADS, 0, &[0xB0, b1, 127, 0xBF, 21, 65, 0xBF, 22, 65, 0xBF, 23, 63, 0xB0, b1, 0]);
         input.packet(TAG_PADS, 0, &[0xB0, sound, 127, 0x90, 96 + round % 8, 100, 0xB0, sound, 0]);
         if round % 7 == 0 {
             input.packet(TAG_PADS, 0, &[0xB0, mb, 127]);
@@ -143,7 +145,8 @@ fn keyboard_note_path_does_not_allocate() {
     assert!(rack_faders > 0, "remapped faders went through the actions ring");
     assert!(knobs > 0, "the knobs went through the actions ring");
     assert!(swaps > 0, "a knob during a part button's hold stepped the part's sound");
-    assert!(racks > 0, "a pad under the Sound hold recalled a Quick Rack");
+    assert!(swap_knobs > 0, "knobs 2-8 during a part button's hold turned the part's mix");
+    assert!(racks > 0, "a Quick Rack pad was tapped under the Sound hold");
     assert_eq!(shared.layer(), yahaha::launchkey::Layer::None, "every hold was let go");
 }
 

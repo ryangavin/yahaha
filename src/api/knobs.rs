@@ -17,6 +17,11 @@ pub enum KnobsCmd {
     /// Put knob `knob` (0-7) back to its function's default (a double-click in the app):
     /// Dynamics to max, sends dry, pan centre, returns unity, Tempo the style's.
     ResetKnob { knob: u8 },
+    /// Swap mode (docs/eyes-free.md): turn knob `knob` (0-7) of keyboard part `part` (0-3)
+    /// by `delta` steps, as the Launchkey does while the part's Panel fader button is held:
+    /// knob 1 steps the part's sound by number (`swapSound`), knobs 2-8 its mix (level, pan,
+    /// reverb, chorus, delay, insert 1's amount, send 4). Whatever the Knob Assign page.
+    TurnSwapKnob { part: u8, knob: u8, delta: i8 },
 }
 
 /// The knobs.

@@ -15,6 +15,8 @@ impl Control {
     /// sound (its GM voice, or a plugin picked on its own) dials from before 1: a step up
     /// lands on 1. A plugin sound loads as a patch's plugin does; the part's GM voice plays
     /// until it is ready. Steps aren't recents: dialling through sounds would flood them.
+    /// A step reroutes only that part and doesn't save the library
+    /// (`set_part_patch_live`); the full change runs once swap mode ends.
     pub(super) fn swap_sound(&mut self, part: u8, step: i32) -> Result<(), crate::api::CmdError> {
         if part as usize >= parts::COUNT {
             return self.fail(format!("no keyboard part {part}"));
@@ -34,7 +36,7 @@ impl Control {
             return self.fail(format!("no sound number {to}"));
         };
         let mix = self.capture_rack_part(p, false);
-        self.set_part_patch(p, Some(id))?;
+        self.set_part_patch_live(p, Some(id))?;
         if let Err(e) = self.apply_rack_mix(p, &mix) {
             return self.fail(e);
         }
@@ -129,6 +131,12 @@ pub(super) mod tests {
     /// favourites (so the sound numbers put them first once they count).
     pub(in crate::session) fn with_sounds(names: &[&str], favourites: &[&str]) -> Session {
         let s = session();
+        add_sounds(&s, names, favourites);
+        s
+    }
+
+    /// Add library sounds named `names` to `s` (see `with_sounds`).
+    fn add_sounds(s: &Session, names: &[&str], favourites: &[&str]) {
         for (i, name) in names.iter().enumerate() {
             let patch = PatchFields {
                 name: name.to_string(),
@@ -139,7 +147,6 @@ pub(super) mod tests {
             };
             s.send(SoundLibraryCmd::CreatePatch { patch }).unwrap();
         }
-        s
     }
 
     /// The number of the sound keyboard part `part` plays (0: none), and its name.
@@ -251,5 +258,41 @@ pub(super) mod tests {
         hold(&s, 1, false);
         assert_eq!(s.state().keyboard_parts[1].on, !on);
         assert_eq!(part_number(&s, 1).0, 2);
+    }
+
+    /// A swap step plays the new sound at once but doesn't save the library file (nor
+    /// resync everything) on each encoder click: the full change runs once, at the
+    /// release. An app step outside swap mode saves straight away.
+    #[test]
+    fn swap_steps_save_the_library_once_at_the_release() {
+        use crate::patches::FILE_NAME;
+        use crate::session::testing::{data_dir, session_in};
+        let d = data_dir("swap-saves-once");
+        let file = d.join(FILE_NAME);
+        let s = session_in(&d);
+        add_sounds(&s, &["Grand", "Rhodes Soft", "Strings", "Nylon"], &[]);
+        assert!(file.exists(), "the sounds are saved");
+        hold(&s, 1, true);
+        turn(&s, 0, 1);
+        std::fs::remove_file(&file).unwrap();
+        for (delta, n) in [(1, 2), (1, 3), (-1, 2), (2, 4)] {
+            turn(&s, 0, delta);
+            let st = s.state();
+            assert_eq!(part_number(&s, 1).0, n);
+            assert_eq!(st.keyboard_parts[1].voice_name, named(&s, n), "it plays the sound at once");
+            assert!(!file.exists(), "step to {n}: the library is not saved during the hold");
+        }
+        hold(&s, 1, false);
+        assert!(file.exists(), "saved at the release");
+        assert_eq!(part_number(&s, 1).0, 4);
+        // Once: nothing more is saved after that.
+        std::fs::remove_file(&file).unwrap();
+        s.send(PartsCmd::SetPartPan { part: 0, pan: 30 }).unwrap();
+        assert!(!file.exists(), "nothing left to save");
+        // Outside swap mode an app step saves at once.
+        s.send(PartsCmd::SwapSound { part: 1, step: -1 }).unwrap();
+        assert!(file.exists());
+        drop(s);
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

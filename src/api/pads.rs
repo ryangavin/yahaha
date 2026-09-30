@@ -1,6 +1,6 @@
 //! The Launchkey pads.
 
-use crate::launchkey::{Anim, Level, Page};
+use crate::launchkey::{Anim, Layer, Level, Page};
 use serde::{Deserialize, Serialize};
 
 use super::AppCmd;
@@ -19,6 +19,11 @@ pub enum PadsCmd {
     /// Racks). Refused if `pages` names Sections, names a page twice, or has more than
     /// four. Saved in `settings.json`; on a page left out, the pads go to Sections.
     SetPadPageOrder { pages: Vec<Page> },
+    /// The held control's layer (`surface.layer`), for the app's mirror of the Launchkey:
+    /// `sound` holds Sound (the pads are the Racks page, from any page), `swap` holds keyboard
+    /// part `part`'s Panel fader button with a knob turned (swap mode), `none` releases
+    /// either, as the Launchkey's button release does. Refused for a part outside 0-3.
+    SetLayer { layer: Layer },
 }
 
 /// The Launchkey pads.
