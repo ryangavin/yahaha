@@ -35,11 +35,12 @@
 
   Scaling, CSS only: the app fills the window exactly (no page scroll). The stage is a
   size container (`stage`); the stack inside sets its font size to --u, the smaller of
-  its width / 96 and its height / 64 (7–15px), and the hand surface's slot, the Quick
-  Racks row and the keyboard strip are sized in em of it. The mixer row has a set height
-  that MixerRow fills (268–280px; with its details shown it takes the display's place
-  instead); the display takes what's left, and on a short window the hand surface gives
-  way first, down to its least height. The hand surface's slot is its own size container
+  its width / 96 and its height / 64 (7–15px; height / 72 on a stage under 560px), and
+  the hand surface's slot, the Quick Racks row and the keyboard strip are sized in em of
+  it. The mixer row has a set height that MixerRow fills (236–280px; with its details
+  shown it takes the display's place instead); the display takes what's left, at least
+  110px, and on a short window the hand surface gives way first, down to 80px. Under
+  760px of window height the app's gaps close up, so 1024×700 fits every row whole. The hand surface's slot is its own size container
   (`hand`): the mirror sets its --u to the largest that fits the slot at the surface's
   proportions (76em × 18em, centred). The help footer has a fixed height (taller in help
   mode), so hovering never moves the stage.
@@ -193,22 +194,42 @@
     flex-direction: column;
     gap: 0.7em;
   }
-  /* The display takes what the other rows leave, and keeps at least 4em of it: on a short
-     window the hand surface gives up its height for it. */
+  /* A short stage (under 560px, so a window under about 760px tall): the stack's --u
+     follows height / 72, so the Quick Racks row and the keyboard strip keep their
+     proportions a little smaller, and the gaps close up. With the app's own tighter
+     spacing below, 1024×700 fits the display's 110px, the hand surface's 80px and a whole
+     mixer row. */
+  @container stage (height < 560px) {
+    .stack {
+      --u: clamp(7px, min(100cqw / 96, 100cqh / 72), 15px);
+      gap: 0.4em;
+    }
+  }
+  @media (max-height: 760px) {
+    .app {
+      gap: 0.3rem;
+      padding-top: 0.3rem;
+      padding-bottom: 0.3rem;
+    }
+  }
+  /* The display takes what the other rows leave, and keeps at least 110px of it (its
+     status line plus the Now/Next row with the bar cells): on a short window the hand
+     surface gives up its height for it. */
   .display-slot {
     flex: 1 1 0;
-    min-height: 4em;
+    min-height: 6.875rem;
   }
   .display-slot.hidden {
     display: none;
   }
   /* The hand surface: a full-width slot, 13em of the stack's --u tall (195px on a big
-     window); on a short one it is the row that shrinks, down to 7em (55px at 1024×700).
-     It is its own size container, so the mirror sizes itself in em of it. */
+     window); on a short one it is the row that shrinks, down to 80px, the least at which
+     the mirror's print shows. It is its own size container, so the mirror sizes itself in
+     em of it. */
   .hand-slot {
     container: hand / size;
     flex: 0 1 13em;
-    min-height: 7em;
+    min-height: 5rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -217,7 +238,7 @@
   /* With the mixer's details shown, the hand surface keeps only its least height and the
      mixer row takes the rest. */
   .hand-slot.details {
-    flex-basis: 7em;
+    flex-basis: max(5rem, 7em);
   }
   /* The mirror's own --u: the largest that fits the slot at the surface's proportions,
      105em × 10em: one flat row with the 8 knobs beside the 16 pads, Shift, Pad Bank, Track

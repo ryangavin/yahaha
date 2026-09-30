@@ -11,7 +11,9 @@
 
   One press loads a rack; the buttons light like pad page 4 (red loaded, blue stored,
   dark empty; all flashing while Store is armed), the rack's name printed on the button,
-  ✕ clears it. A Store waiting for a save asks in the buttons' place (RackPrompt), and a
+  ✕ clears it. Storing, as on the Launchkey: Store then a button (armed, the button sends
+  pressQuickRack as the Store pad then a rack pad do), or in one go, a long press or
+  right-click on a button (storeRack, as hold Sound + tap a Racks pad; quickracks/storeHold). A Store waiting for a save asks in the buttons' place (RackPrompt), and a
   rack prompt that appears opens the Rack drawer (openRackDrawerOnPrompt). Library has
   its own one-row bar of the same buttons (panels/quickracks/QuickBar). Nothing here is
   hardware-only.
@@ -21,7 +23,7 @@
   buttons are as tall as the two; with the padding the panel is 3.99em.
 
   State: quickRacks, liveRack. Commands: pressQuickRack, stepQuickRackBank,
-  toggleQuickRackStore, clearQuickRack.
+  toggleQuickRackStore, storeRack, clearQuickRack.
 -->
 <script lang="ts">
   import { QUICK } from '../../help/actions'
@@ -31,6 +33,7 @@
   import HwButton from '../../lib/ui/HwButton.svelte'
   import { openRackDrawerOnPrompt } from '../quickracks/rackPromptDrawer.svelte'
   import RackPrompt, { asking } from '../quickracks/RackPrompt.svelte'
+  import { storeHold } from '../quickracks/storeHold'
 
   const q = $derived(app.state.quickRacks)
   const beats = $derived(clock.beats)
@@ -63,10 +66,12 @@
     {#each q.buttons as b, i (i)}
       {@const label = quickLabel(q.bank, i)}
       <div class="slot" title="{label}: {quickName(q, i)}" style:grid-column={col(i)} data-col={i}>
-        <HwButton tip={QUICK[i]} led={quickLook(q, i)} {beats} label="Quick Rack {label}: {quickName(q, i)}" onclick={() => app.send({ type: 'pressQuickRack', slot: i })}>
-          <span class="num">{i + 1}</span>
-          <span class="bname" class:empty={!b.rack} class:missing={b.missing}>{quickName(q, i)}</span>
-        </HwButton>
+        <div class="hold" use:storeHold={() => app.send({ type: 'storeRack', slot: i })}>
+          <HwButton tip={QUICK[i]} led={quickLook(q, i)} {beats} label="Quick Rack {label}: {quickName(q, i)}" onclick={() => app.send({ type: 'pressQuickRack', slot: i })}>
+            <span class="num">{i + 1}</span>
+            <span class="bname" class:empty={!b.rack} class:missing={b.missing}>{quickName(q, i)}</span>
+          </HwButton>
+        </div>
         {#if b.rack}
           <button type="button" class="clear" aria-label="Clear Quick Rack {label}" use:tip={'quick.clear'} onclick={() => app.send({ type: 'clearQuickRack', bank: q.bank, slot: i })}>✕</button>
         {/if}
@@ -178,6 +183,15 @@
     grid-row: 1;
     position: relative;
     min-width: 0;
+  }
+  /* The long-press wrapper takes no box: the button sizes to the slot. No callout or
+     selection on a touch long press. */
+  .hold {
+    display: contents;
+  }
+  .slot {
+    -webkit-touch-callout: none;
+    user-select: none;
   }
   .slot :global(.hw),
   .store :global(.hw) {

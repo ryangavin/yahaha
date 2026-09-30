@@ -150,6 +150,98 @@ describe('Quick Racks row commands', () => {
     expect(panel.querySelectorAll('.slot')).toHaveLength(8)
   })
 
+  it('armed, a rack button sends pressQuickRack, as the Store pad then a rack pad do (never storeRack)', async () => {
+    const { m, click, took } = stage()
+    await click('[data-tip="quick.store"]')
+    took()
+    await click('[data-tip="quick.6"]')
+    expect(took()).toEqual([{ type: 'pressQuickRack', slot: 5 }])
+    expect(m.state.quickRacks.storeWaiting).toBe(5)
+  })
+})
+
+describe('Quick Racks row: store in one go (hold Sound + tap, on the Launchkey)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Holds the pointer down on rack button `n` (1–8) for `ms`, then lets go. */
+  async function hold(at: ReturnType<typeof stage>['at'], n: number, ms: number) {
+    const btn = at(`[data-tip="quick.${n}"]`)
+    await fireEvent.pointerDown(btn, { button: 0, isPrimary: true, pointerId: 1 })
+    vi.advanceTimersByTime(ms)
+    await fireEvent.pointerUp(btn, { button: 0, isPrimary: true, pointerId: 1 })
+    await fireEvent.click(btn, { detail: 1 })
+    flushSync()
+  }
+
+  it('a long press on a rack button sends storeRack for its slot, and not the press', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { m, at, took } = stage()
+    took()
+    await hold(at, 4, 500)
+    expect(took()).toEqual([{ type: 'storeRack', slot: 3 }])
+    // The mock's live rack was never saved: it waits on A4 for the name, as Store + A4 does.
+    expect(m.state.quickRacks).toMatchObject({ store: true, storeWaiting: 3 })
+    expect(at('.ask').textContent).toContain('store it on A4')
+  })
+
+  it('a short press still loads (pressQuickRack), with no storeRack after it', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { at, took } = stage()
+    took()
+    await hold(at, 2, 300)
+    vi.advanceTimersByTime(1000)
+    expect(took()).toEqual([{ type: 'pressQuickRack', slot: 1 }])
+  })
+
+  it('a right-click sends storeRack for its slot, with the menu kept away; a touch long press that also brings the menu stores once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { at, took } = stage()
+    took()
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })
+    at('[data-tip="quick.7"]').dispatchEvent(menu)
+    flushSync()
+    expect(menu.defaultPrevented).toBe(true)
+    expect(took()).toEqual([{ type: 'storeRack', slot: 6 }])
+    await fireEvent.click(at('[data-tip="quick.cancel_store"]'))
+    flushSync()
+    took()
+    // Touch: the hold fires, then the browser's contextmenu, then the lift.
+    const btn = at('[data-tip="quick.2"]')
+    await fireEvent.pointerDown(btn, { button: 0, isPrimary: true, pointerId: 2 })
+    vi.advanceTimersByTime(500)
+    await fireEvent.contextMenu(btn)
+    await fireEvent.pointerUp(btn, { button: 0, isPrimary: true, pointerId: 2 })
+    flushSync()
+    expect(took()).toEqual([{ type: 'storeRack', slot: 1 }])
+  })
+
+  it('overwrites a stored, lit button with no confirm, as the pads do; the slot is of the bank on view', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { m, at, click, took } = stage()
+    // Ballad on A2, saved and loaded (lit).
+    await click('[data-tip="quick.store"]')
+    await click('[data-tip="quick.2"]')
+    await fireEvent.input(at<HTMLInputElement>('[data-tip="quick.save_name"]'), { target: { value: 'Ballad' } })
+    await click('[data-tip="quick.save"]')
+    expect(m.state.quickRacks.buttons[1]).toMatchObject({ name: 'Ballad', loaded: true })
+    took()
+    await hold(at, 2, 500)
+    expect(took()).toEqual([{ type: 'storeRack', slot: 1 }])
+    expect(m.state.quickRacks).toMatchObject({ store: false, storeWaiting: null })
+    expect(m.state.quickRacks.buttons[1]).toMatchObject({ name: 'Ballad', loaded: true })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    // On bank B, button 5 is B5: storeRack names the slot; the bank is the one on view.
+    await click('[data-tip="quick.bank_next"]')
+    took()
+    await hold(at, 5, 500)
+    expect(took()).toEqual([{ type: 'storeRack', slot: 4 }])
+    expect(m.state.quickRacks.buttons[4]).toMatchObject({ name: 'Ballad', loaded: true })
+  })
+})
+
+describe('Quick Racks row prompt', () => {
   it('Save in the prompt stores the rack on the button; ✕ clears it', async () => {
     const { m, panel, at, click, took } = stage()
     await click('[data-tip="quick.store"]')

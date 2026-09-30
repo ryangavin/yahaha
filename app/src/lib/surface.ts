@@ -1,11 +1,11 @@
 // The Launchkey surface beyond the pads: what every button and fader does on the current
 // page and Shift layer, how it's lit, and the beat clock. The engine sends it as
 // `state.surface` (#77, docs/app-api.md "surface"); the mocks send the same
-// (lib/api/mock-surface.ts). These helpers turn it into tooltips and commands.
+// (lib/api/mock-surface.ts). These helpers turn its controls into labels and tooltips.
 
 import { tipFor } from '../help/actions'
 import type { TipKey } from '../help/tooltips'
-import type { AppCmd, AppState, LibraryList, SurfaceControl, SurfaceFader, SurfaceState } from './api/types'
+import type { AppCmd, AppState, LibraryList, SurfaceControl, SurfaceState } from './api/types'
 
 export { neighbours } from './api/constants'
 
@@ -51,26 +51,4 @@ export function controlTip(c: SurfaceControl, shift: boolean): TipKey {
   if (!shift && c.id === 'faderButton6' && c.label === 'SOUND') return 'launchkey.sound'
   if (!action) return c.id.startsWith('faderButton') ? 'launchkey.fader_unused' : 'launchkey.unused'
   return tipFor(action)
-}
-
-/** The catalog entry for a fader. */
-export function faderTip(f: SurfaceFader): TipKey {
-  if (!f.set) return 'launchkey.fader_unused'
-  if (f.set.type === 'setPartVolume' || f.set.type === 'setPartPan' || f.set.type === 'setPartSend' || f.set.type === 'setStylePartSend') return tipFor(f.set)
-  if (f.set.type === 'setStylePartVolume') return 'mixer.style.volume'
-  if (f.set.type === 'setStyleVolume') return 'mixer.style_level'
-  if (f.set.type === 'setMultiPadVolume') return 'mixer.pad_level'
-  if (f.set.type === 'moveRackFader') return 'launchkey.fader_rack'
-  return 'mixer.master'
-}
-
-/**
- * The command moving a fader to `v` sends: its `set` with the value filled in, in the
- * field that command names it (`pan`, `value` for a send, else `volume`). In a send layer
- * the faders move pan or sends (#409).
- */
-export function faderCmd(f: SurfaceFader, v: number): AppCmd | null {
-  if (!f.set) return null
-  const field = f.set.type === 'setPartPan' ? 'pan' : f.set.type === 'setPartSend' || f.set.type === 'setStylePartSend' ? 'value' : 'volume'
-  return { ...f.set, [field]: v } as AppCmd
 }
