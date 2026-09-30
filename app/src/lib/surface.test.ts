@@ -6,7 +6,7 @@ import { MockSession } from './api/mock'
 import type { Pad } from './api/types'
 import { DIM, padLight } from './leds'
 import { app, clock } from './store.svelte'
-import { hasShiftFunction, surfaceOf } from './surface'
+import { controlTip, hasShiftFunction, surfaceOf } from './surface'
 
 afterEach(() => {
   app.detach()
@@ -102,6 +102,12 @@ describe('Shift layer, as the engine JSON arrives', () => {
       // Button 6: Sound is a plain (Shift off) hold; Shift + it does nothing on the Panel page.
       'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton6', 'faderButton8', 'masterButton',
     ])
+  })
+
+  it('fader button 6 (the Sound hold) shows the Sound tooltip', () => {
+    const m = new MockSession({ manual: true, demo: true })
+    const b6 = m.state.surface.controls.find((x) => x.id === 'faderButton6')!
+    expect(controlTip(b6, false)).toBe('launchkey.sound')
   })
 })
 
