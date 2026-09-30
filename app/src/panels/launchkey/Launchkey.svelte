@@ -71,7 +71,7 @@
         <nav class="drawers" aria-label="Part panels">
           <DrawerButton tip="drawer.rack" open={ui.rack} onclick={() => ui.toggleDrawer('rack')}>Rack</DrawerButton>
           <DrawerButton tip="drawer.library" open={ui.view === 'library'} onclick={() => toggleLibrary('sounds')}>Library</DrawerButton>
-          <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => (ui.mixer = !ui.mixer)}>Mixer</DrawerButton>
+          <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleMixer()}>Mixer</DrawerButton>
         </nav>
       </div>
       <div class="fader-body"><FaderBank {surface} /></div>
@@ -80,7 +80,7 @@
     <div class="screen-area"><StatusDisplay /></div>
 
     <div class="pagebar">
-      <span class="engraved">Pad page</span>
+      <span class="engraved pp-label">Pad page</span>
       <div class="tabs" role="tablist" aria-label="Pad page">
         {#each PAD_PAGES as p, i (p.id)}
           <button
@@ -92,11 +92,13 @@
             use:tip={PAGE_TIP[p.id]}
             onclick={() => app.send({ type: 'setPadPage', page: p.id })}
           >
-            <span class="num">{i + 1}</span>{p.name}
+            <span class="num">{i + 1}</span><span class="pname">{p.name}</span>
           </button>
         {/each}
       </div>
-      <span class="engraved lk" class:on={s.pads.connected}>{s.pads.connected ? 'Launchkey connected' : 'No Launchkey'}</span>
+      <span class="engraved lk" class:on={s.pads.connected} use:tip={'launchkey.status'}
+        ><span class="lk-dot" aria-hidden="true"></span><span class="lk-text">{s.pads.connected ? 'Launchkey connected' : 'No Launchkey'}</span></span
+      >
       <DrawerButton tip="drawer.multipad" open={ui.multipad} onclick={() => ui.toggleDrawer('multipad')}>Multi Pads</DrawerButton>
     </div>
 
@@ -342,23 +344,234 @@
     font-size: 0.78em;
   }
 
-  /* A narrow slot (the shell's `mirror` container narrower than 2.09:1, where 66em × 46.4em
-     scales larger than 96em × 26.2em): the fader bank moves under the pads. */
-  @container mirror (aspect-ratio < 2.09) {
+  .lk-dot {
+    display: none;
+  }
+
+  /* The compact layout, for the slot beside the mixer row (the shell's `mirror` container
+     narrower than 3:1; the full surface above only reads better on a wider slot). The
+     surface fills the slot and the shell sets --u from its height (App.svelte): screen,
+     pad-page tabs, the nav/transport buttons in one row, the pads, then the faders, which
+     take the height left. Every control stays; long print gives way first (the unselected
+     tabs show their number, the connection its light, the tooltips say the rest). */
+  @container mirror (aspect-ratio < 3) {
+    .wrap,
     .device {
-      grid-template-columns: 11.5em minmax(0, 1fr) 4.2em 4.2em;
-      grid-template-rows: 9.5em auto auto 19em;
+      height: 100%;
+    }
+    .device {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-rows: auto auto auto auto minmax(0, 1fr);
       grid-template-areas:
-        'screen screen screen screen'
-        'pagebar pagebar pagebar pagebar'
-        'nav pads side transport'
-        'faders faders faders faders';
+        'screen screen screen'
+        'pagebar pagebar pagebar'
+        'nav side transport'
+        'pads pads pads'
+        'faders faders faders';
+      column-gap: 0.4em;
+      row-gap: 0.45em;
+      padding: 0.6em 0.6em 0.5em;
+      border-radius: 0.6em;
+    }
+    .screw {
+      display: none;
+    }
+    .device :global(.engraved) {
+      font-size: 0.85em;
+      letter-spacing: 0.04em;
+    }
+    .device :global(.btn) {
+      min-width: 1.8em;
+      height: 1.9em;
+      padding: 0 0.3em;
+    }
+    .device :global(.caption) {
+      font-size: 0.75em;
+      letter-spacing: 0;
+    }
+    .pagebar {
+      align-items: center;
+      gap: 0.4em;
+      padding: 0;
+    }
+    .pp-label {
+      display: none;
+    }
+    .tabs {
+      gap: 0.2em;
+    }
+    .pagetab {
+      gap: 0.3em;
+      padding: 0.2em 0.3em;
+      font-size: 0.8em;
+    }
+    .pagetab .num {
+      font-size: 0.9em;
+    }
+    /* Only the page showing keeps its name; the others read as their number. */
+    .pagetab[aria-selected='false'] .pname {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .pagetab[aria-selected='true'] {
+      padding-right: 0.5em;
+    }
+    .pagetab {
+      white-space: nowrap;
+    }
+    .lk-text {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .lk-dot {
+      display: block;
+      width: 0.6em;
+      height: 0.6em;
+      border-radius: 50%;
+      background: var(--seam);
+    }
+    .lk.on .lk-dot {
+      background: currentColor;
+      box-shadow: 0 0 5px currentColor;
+    }
+    .pagebar :global(.drawer-btn) {
+      margin-top: 0;
+      height: 2em;
+      padding: 0 0.5em;
+    }
+    /* Shift · ▲ ▼ page · ◀ ▶ · Rotary in one row; their labels are the tooltips'. */
+    .nav {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.3em;
+      padding-top: 0;
+    }
+    .padbank,
+    .track {
+      column-gap: 0.2em;
+    }
+    .page-num {
+      margin-top: 0.2em;
+    }
+    .track-label,
+    .rotary-label {
+      display: none;
+    }
+    .track :global(.caption) {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      max-width: 4em;
+      min-height: 2.2em;
+      overflow-wrap: normal;
+    }
+    .rotary :global(.btn) {
+      height: 1.9em;
+    }
+    .side,
+    .transport {
+      flex-direction: row;
+      gap: 0.3em;
+      padding-top: 0;
+    }
+    .side :global(.caption),
+    .transport :global(.caption) {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.05;
+      max-width: 2.6em;
+    }
+    .pads {
+      gap: 0.3em;
+      padding: 0.3em;
+      border-radius: 0.5em;
+    }
+    /* A little wider than tall, so the faders keep some travel below them; on the
+       narrowest slot a label takes two lines ("ENDING / 1"). */
+    .pads :global(.pad) {
+      aspect-ratio: 1.15;
+    }
+    .pads :global(.label) {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      left: 0.05em;
+      right: 0.05em;
+      bottom: 0.25em;
+      font-size: 0.66em;
+      letter-spacing: 0;
+      white-space: normal;
+    }
+    .pads :global(.key) {
+      top: 0.2em;
+      right: 0.3em;
     }
     .faders {
-      padding: 0.7em 0 0;
+      gap: 0.25em;
+      padding: 0.35em 0 0;
+      min-height: 0;
       border-right: none;
       border-top: 1px solid var(--seam);
       box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+    }
+    .fader-head {
+      gap: 0.4em;
+    }
+    .drawers {
+      gap: 0.2em;
+    }
+    .fader-head :global(.drawer-btn) {
+      height: 1.8em;
+      padding: 0 0.45em;
+    }
+  }
+  /* A wider compact slot: Scene/Function and Stop/Play stand right of the pads again, as
+     on the hardware, and the nav row has the width to itself. */
+  @container mirror (aspect-ratio < 3) and (width >= 19rem) {
+    .device {
+      grid-template-areas:
+        'screen screen screen'
+        'pagebar pagebar pagebar'
+        'nav nav nav'
+        'pads side transport'
+        'faders faders faders';
+    }
+    .side,
+    .transport {
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 0.15em;
+    }
+    /* One line each: the row is wide enough for the neighbouring styles' names, and the
+       pads for their labels. */
+    .track :global(.caption) {
+      display: block;
+      max-width: 7em;
+      min-height: 0;
+      white-space: nowrap;
+    }
+    .pads :global(.pad) {
+      aspect-ratio: 1.5;
+    }
+    .pads :global(.label) {
+      display: block;
+      font-size: 0.72em;
+      white-space: nowrap;
+    }
+    .side :global(.caption),
+    .transport :global(.caption) {
+      max-width: 3.4em;
+      white-space: nowrap;
     }
   }
 </style>
