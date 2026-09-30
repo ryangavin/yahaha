@@ -181,9 +181,10 @@ describe('Quick Racks row: store in one go (hold Sound + tap, on the Launchkey)'
     took()
     await hold(at, 4, 500)
     expect(took()).toEqual([{ type: 'storeRack', slot: 3 }])
-    // The mock's live rack was never saved: it waits on A4 for the name, as Store + A4 does.
-    expect(m.state.quickRacks).toMatchObject({ store: true, storeWaiting: 3 })
-    expect(at('.ask').textContent).toContain('store it on A4')
+    // One step: the live rack is saved and stored on A4 at once, with no prompt.
+    expect(m.state.quickRacks).toMatchObject({ store: false, storeWaiting: null })
+    expect(m.state.quickRacks.buttons[3].rack).toBeTruthy()
+    expect(document.querySelector('.ask')).toBeNull()
   })
 
   it('a short press still loads (pressQuickRack), with no storeRack after it', async () => {
@@ -197,16 +198,17 @@ describe('Quick Racks row: store in one go (hold Sound + tap, on the Launchkey)'
 
   it('a right-click sends storeRack for its slot, with the menu kept away; a touch long press that also brings the menu stores once', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const { at, took } = stage()
+    const { m, at, took } = stage()
     took()
     const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })
     at('[data-tip="quick.7"]').dispatchEvent(menu)
     flushSync()
     expect(menu.defaultPrevented).toBe(true)
     expect(took()).toEqual([{ type: 'storeRack', slot: 6 }])
-    await fireEvent.click(at('[data-tip="quick.cancel_store"]'))
-    flushSync()
-    took()
+    // Stored at once on A7: no prompt, nothing waiting.
+    expect(m.state.quickRacks).toMatchObject({ store: false, storeWaiting: null })
+    expect(m.state.quickRacks.buttons[6].rack).toBeTruthy()
+    expect(document.querySelector('.ask')).toBeNull()
     // Touch: the hold fires, then the browser's contextmenu, then the lift.
     const btn = at('[data-tip="quick.2"]')
     await fireEvent.pointerDown(btn, { button: 0, isPrimary: true, pointerId: 2 })
