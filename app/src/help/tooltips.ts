@@ -55,7 +55,7 @@ const MP_STOP = {
 }
 // The Quick Rack buttons 1–8 (the bar's, the drawer's and pad page 2's).
 const QUICK_BUTTON = {
-  body: 'Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead.',
+  body: 'Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead; so does a long-press or right-click.',
 }
 
 const catalog = {

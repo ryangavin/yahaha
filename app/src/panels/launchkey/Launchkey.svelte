@@ -5,21 +5,31 @@
   track buttons left of them, Scene Launch / Function right of the pads; CCs in
   crates/yahaha-engine/src/launchkey.rs). One flat row, the stage's full width.
 
-   ┌ cheek ─────────────────┬ 8 knob columns ──────────────────┬ right cheek ──────────────┐
-   │ KNOBS 1/6              │ (◯) NAME  (◯) NAME  …  (◯) NAME  │ [1 Sections] [2 Racks] …  │
-   │ [◀][  Style   ][▶]     │     [val]     [val]        [val]  │ [4 Multi Pads] [5 Setup]  │
-   │ [Shift] [▲][▼] Page 2  │ ┌ pads, top row ───────────────┐ │ [›] TEMPO+ [■] STOP [Multi Pads]
-   │ [Rotary][◀][▶]         │ └ pads, bottom row ────────────┘ │ [•] TEMPO- [▶] PLAY ● connected
-   │          prev   next   │                                  │                           │
-   └────────────────────────┴──────────────────────────────────┴───────────────────────────┘
+   ┌ cheek ──────────────────────┬ 8 knob columns ──────────────────┬ right cheek ──────────────┐
+   │ KNOBS 1/6                   │ (◯) NAME  (◯) NAME  …  (◯) NAME  │ [1 Sections] [2 Racks] …  │
+   │ [◀][  Style   ][▶]          │     [val]     [val]        [val]  │ [4 Multi Pads] [5 Setup]  │
+   │ [Shift][Sound] [▲][▼] Page 2│ ┌ pads, top row ───────────────┐ │ [›] TEMPO+ [■] STOP [Multi Pads]
+   │ [Rotary] [◀]     [▶]        │ └ pads, bottom row ────────────┘ │ [•] TEMPO- [▶] PLAY ● connected
+   │          prev     next      │                                  │                           │
+   └─────────────────────────────┴──────────────────────────────────┴───────────────────────────┘
 
   The knobs are relative, like the hardware's: a Knob sends the same turnKnob a hardware
   turn does (drag, wheel or arrow keys; double-click resets), with its label over its lit
   readout, and the ◀ ▶ pager steps the knob page (stepKnobPage); the page shown is the
-  hardware's. The pad-page tabs sit over the right cheek, and the Multi Pads drawer button
+  hardware's. The pad-page tabs sit over the right cheek, one per page in the player's
+  order and names (`pads.pages`: Sections, then Settings › Launchkey's order; a page left
+  out has no tab), and the Multi Pads drawer button
   (lib/ui/DrawerButton: small and quieter, not hardware) beside Stop/Play. The faders and
   the Launchkey's screen are not here: the mixer row's strips are what the faders move,
   and the header and the display show what the screen did.
+
+  The held layers (`surface.layer`, docs/eyes-free.md) show as the hardware's do. Sound
+  (Panel fader button 6 on the hardware, here beside Shift since the strips are the
+  faders) lights while held, the Racks tab is marked, and the pads are the state's, which
+  are already the Racks page's with the hold's actions (a capture pad sends storeRack). In
+  swap mode (a part's fader button held, a knob turned) the knob pager and knobs are the
+  state's, the part's: knob 1 its sound by number and name, which a turn steps with
+  swapSound as the hardware's knob 1 does; knobs 2-8 its mix (turnKnob, the engine's).
 
   Every element shows its function on the current pad page and Shift layer, has a tooltip
   from the catalog, and clicking it sends exactly what the hardware sends. Every size is
@@ -28,7 +38,7 @@
   (unreadable there) steps aside and the tooltips carry it.
 -->
 <script lang="ts">
-  import { PAD_PAGES, type Pad, type PadPage, type Rgb } from '../../lib/api/types'
+  import type { Layer, Pad, PadPage, Rgb } from '../../lib/api/types'
   import { app, clock, ui } from '../../lib/store.svelte'
   import { surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
@@ -48,7 +58,19 @@
   const pads = $derived(s.pads.pads)
   const top = $derived(pads.filter((p) => p.note < 112))
   const bottom = $derived(pads.filter((p) => p.note >= 112))
-  const pageIndex = $derived(PAD_PAGES.findIndex((p) => p.id === s.pads.page))
+  // The held control's layer (docs/eyes-free.md): while Sound is held the state's pads are
+  // already the Racks page's (and their actions the hold's, storeRack on a capture pad);
+  // while a part's button is held with a knob turned, the knobs are that part's.
+  const held: Layer = $derived(surface.layer ?? { type: 'none' })
+  const soundHeld = $derived(held.type === 'sound')
+  const swapPart = $derived(held.type === 'swap' ? held.part : null)
+  /** A knob turned: in swap mode knob 1 steps the part's sound, as the hardware's knob 1
+   *  does (`swapSound`); every other turn is the knob's own (`turnKnob`, which the engine
+   *  gives to the swapped part's mix while the swap holds). */
+  function turn(i: number, delta: number) {
+    if (swapPart !== null && i === 0) app.send({ type: 'swapSound', part: swapPart, step: delta })
+    else app.send({ type: 'turnKnob', knob: i, delta })
+  }
 
   /** Page identity colours for the tabs (src/launchkey.rs: white, cyan, magenta, orange). */
   const PAGE_RGB: Record<PadPage, Rgb> = { sections: [100, 100, 100], racks: [127, 60, 0], chord: [0, 100, 127], multiPads: [127, 127, 0], setup: [127, 0, 70] }
@@ -73,17 +95,18 @@
     </div>
 
     <!-- The eight knobs, each over its column of pads. -->
-    <div class="knobs" role="group" aria-label="Knobs">
+    <div class="knobs" class:swap={swapPart !== null} role="group" aria-label="Knobs" data-layer={held.type}>
       {#each k.knobs as knob, i (i)}
         {@const off = knob.function === 'none'}
-        <div class="cell" class:off title={knob.name} data-col={i}>
+        {@const sound = swapPart !== null && i === 0}
+        <div class="cell" class:off class:swapsound={sound} title={knob.name} data-col={i}>
           <Knob
             label={knob.name}
             level={knob.level}
             disabled={off}
-            tipKey="knobs.knob"
-            onturn={(delta) => app.send({ type: 'turnKnob', knob: i, delta })}
-            onreset={() => app.send({ type: 'resetKnob', knob: i })}
+            tipKey={sound ? 'part.swap' : 'knobs.knob'}
+            onturn={(delta) => turn(i, delta)}
+            onreset={() => !sound && app.send({ type: 'resetKnob', knob: i })}
           />
           <div class="text">
             <span class="name engraved">{knob.short}</span>
@@ -95,15 +118,16 @@
 
     <!-- The pad pages, over the right cheek: every page named, in two rows. -->
     <div class="tabs" role="tablist" aria-label="Pad page">
-      {#each PAD_PAGES as p, i (p.id)}
+      {#each s.pads.pages as p, i (p.page)}
         <button
           type="button"
           role="tab"
           class="pagetab"
-          aria-selected={p.id === s.pads.page}
-          style:--page={cssRgb(PAGE_RGB[p.id])}
-          use:tip={PAGE_TIP[p.id]}
-          onclick={() => app.send({ type: 'setPadPage', page: p.id })}
+          class:held={soundHeld && p.page === 'racks'}
+          aria-selected={p.page === s.pads.page}
+          style:--page={cssRgb(PAGE_RGB[p.page])}
+          use:tip={PAGE_TIP[p.page]}
+          onclick={() => app.send({ type: 'setPadPage', page: p.page })}
         >
           <span class="num">{i + 1}</span><span class="pname">{p.name}</span>
         </button>
@@ -115,10 +139,16 @@
       <HwButton tip="launchkey.shift" pressed={shift} label="Shift" onclick={() => (ui.shiftLatched = !ui.shiftLatched)}>
         <span class="icon">⇧</span><span class="word">Shift</span>
       </HwButton>
+      <!-- Sound: Panel fader button 6 on the hardware, here beside Shift since the strips
+           are the faders. Lit (and pressed) while it is held; what it sends is the state's
+           (the hold itself has no command yet: see the PR). -->
+      <div class="sound" data-held={soundHeld}>
+        <Control {surface} id="faderButton6" legend="Sound" pressed={soundHeld} />
+      </div>
       <div class="padbank" role="group" aria-label="Pad Bank">
         <Control {surface} id="padBankUp" legend="▲" />
         <Control {surface} id="padBankDown" legend="▼" />
-        <span class="engraved page-num">Page <b style:color={cssRgb(PAGE_RGB[s.pads.page])}>{pageIndex + 1}</b></span>
+        <span class="engraved page-num">Page <b style:color={cssRgb(PAGE_RGB[s.pads.page])}>{s.pads.pageNumber}</b></span>
       </div>
       <!-- The organ rotary speaker's Slow/Fast: Shift + the encoder page ▲ on the hardware. -->
       <HwButton tip="launchkey.rotary_fast" pressed={s.effects.rotaryFast} label="Rotary Fast" onclick={() => app.send({ type: 'toggleRotaryFast' })}>Rotary</HwButton>
@@ -128,7 +158,7 @@
       </div>
     </div>
 
-    <div class="pads mat-well" role="group" aria-label="Pads: page {pageIndex + 1}, {s.pads.pageName}">
+    <div class="pads mat-well" role="group" aria-label="Pads: {soundHeld ? 'Sound held, Racks' : `page ${s.pads.pageNumber}, ${s.pads.pageName}`}" data-layer={held.type}>
       {#each top as p (p.note)}<HwPad pad={p} {beats} paletteLeds={s.pads.paletteLeds} onpress={press} />{/each}
       {#each bottom as p (p.note)}<HwPad pad={p} {beats} paletteLeds={s.pads.paletteLeds} onpress={press} />{/each}
     </div>
@@ -157,7 +187,7 @@
   /* The surface scales with the window: every size below is in em of `--u`, which the
      shell derives from its slot (App.svelte). 16px when shown on its own. The height is
      the shell's --h (10em): 0.6em padding, the knob row (2.8em), a 0.45em gap and the pad
-     rows. The width is the shell's --w (105em): the fixed columns take 44.4em with the
+     rows. The width is the shell's --w (105em): the fixed columns take 48.5em with the
      gaps and padding, and the eight knob/pad columns the rest, so a narrower slot narrows
      the pads, not the controls beside them. */
   .device {
@@ -166,7 +196,7 @@
     box-sizing: border-box;
     height: 10em;
     display: grid;
-    grid-template-columns: 15em minmax(0, 1fr) 6.6em 6.6em 8.6em;
+    grid-template-columns: 19.1em minmax(0, 1fr) 6.6em 6.6em 8.6em;
     grid-template-rows: 2.8em minmax(0, 1fr);
     grid-template-areas:
       'kpager knobs tabs tabs tabs'
@@ -279,6 +309,14 @@
   .off .readout {
     color: var(--screen-dim);
   }
+  /* Swap mode: knob 1 is the held part's sound (its number and name), marked in the
+     accent so the row reads as the part's, not the knob page's. */
+  .swapsound .name {
+    color: var(--accent);
+  }
+  .swapsound .readout {
+    outline: 1px solid var(--accent);
+  }
 
   /* ── The pad-page tabs: two rows over the right cheek ── */
   .tabs {
@@ -313,18 +351,24 @@
     border-radius: 50%;
     border: 1px solid currentColor;
   }
+  /* Sound held: the pads show Racks, whatever page is on view. */
+  .pagetab.held {
+    color: var(--ink);
+    border-style: dashed;
+    border-color: var(--page);
+  }
   .pagetab[aria-selected='true'] {
     color: var(--ink);
     border-color: var(--page);
     box-shadow: inset 0 -2px 0 var(--page), 0 0 10px -4px var(--page);
   }
 
-  /* ── Left of the pads: [Shift] [▲ ▼ page] over [Rotary] [◀ ▶ + the neighbouring
-     styles' names] ── */
+  /* ── Left of the pads: [Shift] [Sound] [▲ ▼ page] over [Rotary] [◀ ▶ + the
+     neighbouring styles' names] ── */
   .nav {
     grid-area: nav;
     display: grid;
-    grid-template-columns: 3.6em minmax(0, 1fr);
+    grid-template-columns: 3.6em 3.6em minmax(0, 1fr);
     grid-template-rows: auto auto;
     column-gap: 0.5em;
     align-content: space-between;
@@ -347,6 +391,16 @@
   }
   .padbank {
     grid-template-columns: 1fr 1fr 3.2em;
+  }
+  /* Track ◀ ▶ take the width under Sound and Pad Bank: their captions are style names. */
+  .track {
+    grid-column: 2 / 4;
+  }
+  .sound {
+    min-width: 0;
+  }
+  .sound :global(.legend) {
+    font-size: 0.8em;
   }
   .page-num {
     align-self: center;

@@ -5,7 +5,8 @@ import { MockSession, LIBRARY } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import Launchkey from './Launchkey.svelte'
 import { neighbours } from '../../lib/surface'
-import { PAD_PAGES } from '../../lib/api/types'
+import type { AppCmd, AppState, KnobFunction, Layer } from '../../lib/api/types'
+import { TIPS } from '../../help/tooltips'
 
 function setup(page?: 'chord' | 'racks') {
   const session = new MockSession({ manual: true, demo: true })
@@ -192,9 +193,9 @@ describe('Launchkey mirror', () => {
   })
 
   it('names every pad page on its tab, and the connection in words', () => {
-    setup()
+    const { session } = setup()
     const tabs = [...document.querySelectorAll('[role="tab"]')]
-    expect(tabs.map((t) => t.querySelector('.pname')?.textContent)).toEqual(PAD_PAGES.map((p) => p.name))
+    expect(tabs.map((t) => t.querySelector('.pname')?.textContent)).toEqual(session.state.pads.pages.map((p) => p.name))
     expect(document.querySelector('.lk')!.getAttribute('data-tip')).toBe('launchkey.status')
     expect(document.querySelector('.lk .lk-text')!.textContent).toMatch(/Launchkey/)
   })
@@ -206,5 +207,166 @@ describe('Launchkey mirror', () => {
     const up = document.querySelector('[aria-label="Pad Bank"] .btn')!
     expect(up.querySelector('.fn')?.textContent).toBeTruthy()
     expect(up.querySelector('.legend')?.textContent).toBe('▲')
+  })
+})
+
+/** The mirror on `st` as the engine would send it, recording what it sends. */
+function withState(st: AppState) {
+  const session = new MockSession({ manual: true, demo: true })
+  const sent: AppCmd[] = []
+  app.attach({ kind: 'mock', subscribe: (fn) => (fn(st), () => {}), send: (c) => sent.push(c), library: () => session.library(), meters: () => session.meters(), dispose: () => {} })
+  flushSync()
+  render(Launchkey)
+  return sent
+}
+
+/** The mock's state with the held layer `layer` (the mock has no hardware to hold one). */
+function holding(layer: Layer) {
+  const session = new MockSession({ manual: true, demo: true })
+  session.state.surface.layer = layer
+  session.send({ type: 'setPadPage', page: session.state.pads.page }) // re-derive the pads
+  return session
+}
+
+/** Knob 1's function in swap mode as the engine sends it (src/session/knobs.rs); types.ts's
+ *  KnobFunction doesn't name it yet (a contract follow-up). */
+const SWAP_SOUND = 'swapSound' as KnobFunction
+
+const soundButton = () => document.querySelector<HTMLButtonElement>('[data-tip="launchkey.sound"]')!
+const tabNames = () => [...document.querySelectorAll('[role="tab"] .pname')].map((t) => t.textContent)
+
+describe('Launchkey mirror: page order and held layers', () => {
+  it('has one tab per page in the player\'s order, and Pad Bank ▲ ▼ walk that order', async () => {
+    const { session } = setup()
+    session.send({ type: 'setPadPageOrder', pages: ['multiPads', 'racks'] })
+    flushSync()
+    expect(tabNames()).toEqual(['Sections', 'Multi Pads', 'Racks'])
+    expect(document.querySelector('[role="tab"][data-tip="padpage.chord"]')).toBeNull()
+    expect([...document.querySelectorAll('[role="tab"] .num')].map((n) => n.textContent)).toEqual(['1', '2', '3'])
+    const down = () => document.querySelector<HTMLButtonElement>('[data-tip="padpage.next"]')!
+    await fireEvent.click(down())
+    expect(session.state.pads.page).toBe('multiPads')
+    flushSync()
+    expect(document.querySelector('.page-num b')!.textContent).toBe('2')
+    expect(document.querySelector('[role="tab"][aria-selected="true"] .pname')!.textContent).toBe('Multi Pads')
+    await fireEvent.click(down())
+    expect(session.state.pads.page).toBe('racks')
+    flushSync()
+    // The last page: ▼ does nothing more.
+    await fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="Pad Bank"] .hw:nth-child(2) button')!)
+    expect(session.state.pads.page).toBe('racks')
+    await fireEvent.click(document.querySelector<HTMLButtonElement>('[data-tip="padpage.prev"]')!)
+    expect(session.state.pads.page).toBe('multiPads')
+  })
+
+  it('names the tabs as the state does', () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const st = structuredClone(session.state)
+    st.pads.pages = [{ page: 'sections', name: 'Sections' }, { page: 'setup', name: 'My Setup' }]
+    withState(st)
+    expect(tabNames()).toEqual(['Sections', 'My Setup'])
+  })
+
+  it('lights Sound while it is held, with the Racks page on the pads and its tab marked', () => {
+    app.attach(holding({ type: 'sound' }))
+    flushSync()
+    render(Launchkey)
+    expect(soundButton().getAttribute('aria-pressed')).toBe('true')
+    expect(soundButton().closest('.sound')!.getAttribute('data-held')).toBe('true')
+    // The page on view stays Sections; the pads are the Racks page's.
+    expect(document.querySelector('[role="tab"][aria-selected="true"] .pname')!.textContent).toBe('Sections')
+    expect(document.querySelector('[role="tab"].held .pname')!.textContent).toBe('Racks')
+    expect(pad(112).textContent).toContain('OTS 1')
+    expect(document.querySelector('.pads')!.getAttribute('aria-label')).toBe('Pads: Sound held, Racks')
+  })
+
+  it('shows Sound up, and no page marked, with no layer or a swap', () => {
+    for (const layer of [{ type: 'none' }, { type: 'swap', part: 0 }] as Layer[]) {
+      app.attach(holding(layer))
+      flushSync()
+      render(Launchkey)
+      expect(soundButton().getAttribute('aria-pressed'), layer.type).toBe('false')
+      expect(document.querySelector('[role="tab"].held'), layer.type).toBeNull()
+      expect(pad(113).textContent, layer.type).toContain('MAIN B')
+      cleanup()
+      app.detach()
+    }
+  })
+
+  it('under the Sound hold a pad sends the action the state gives it (storeRack on a capture pad)', async () => {
+    const session = holding({ type: 'sound' })
+    const st = structuredClone(session.state)
+    st.pads.pads.find((p) => p.note === 96)!.action = { type: 'storeRack', slot: 0 }
+    const sent = withState(st)
+    await fireEvent.click(pad(96))
+    expect(sent).toEqual([{ type: 'storeRack', slot: 0 }])
+    expect(pad(96).dataset.tip).toBe('quick.store_rack')
+  })
+
+  it('the Sound button sends what the hardware button sends on the layer showing', async () => {
+    const { session } = setup()
+    // Panel page: a hold, no command.
+    const before = JSON.stringify(session.state.mixer)
+    await fireEvent.click(soundButton())
+    expect(JSON.stringify(session.state.mixer)).toBe(before)
+    // Style page with Shift: it mutes the sixth Style part, as on the hardware.
+    session.send({ type: 'toggleFaderPage' })
+    ui.shiftLatched = true
+    flushSync()
+    const on = session.state.mixer.styleParts[5].on
+    const b = document.querySelector<HTMLButtonElement>('.sound button')!
+    await fireEvent.click(b)
+    expect(session.state.mixer.styleParts[5].on).toBe(!on)
+  })
+
+  it('in swap mode knob 1 is the part\'s sound, and turning it steps the sound as the hardware\'s knob 1 does', async () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const st = structuredClone(session.state)
+    st.surface.layer = { type: 'swap', part: 1 }
+    st.knobs.pageName = 'Swap R2'
+    st.knobs.knobs[0] = { function: SWAP_SOUND, name: 'Right 2 Sound', short: 'Sound', value: '23 Rhodes Soft', level: null }
+    const sent = withState(st)
+    const cell = document.querySelector('[aria-label="Knobs"] .cell')!
+    expect(cell.querySelector('.name')!.textContent).toBe('Sound')
+    expect(cell.querySelector('.readout')!.textContent).toBe('23 Rhodes Soft')
+    expect(cell.classList.contains('swapsound')).toBe(true)
+    expect(knob(0).dataset.tip).toBe('part.swap')
+    expect(document.querySelector('.page-name')!.textContent).toBe('Swap R2')
+    knob(0).focus()
+    await fireEvent.keyDown(knob(0), { key: 'ArrowUp' })
+    await fireEvent.keyDown(knob(1), { key: 'ArrowUp' })
+    // Knob 1 has no default sound: a reset sends nothing.
+    await fireEvent.dblClick(knob(0))
+    expect(sent).toEqual([
+      { type: 'swapSound', part: 1, step: 1 },
+      { type: 'turnKnob', knob: 1, delta: 1 },
+    ])
+  })
+
+  it('outside swap mode knob 1 is the knob page\'s', async () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const sent = withState(structuredClone(session.state))
+    await fireEvent.keyDown(knob(0), { key: 'ArrowUp' })
+    expect(sent).toEqual([{ type: 'turnKnob', knob: 0, delta: 1 }])
+    expect(knob(0).dataset.tip).toBe('knobs.knob')
+  })
+
+  it('every control has a catalog tooltip under each layer', () => {
+    for (const layer of [{ type: 'none' }, { type: 'sound' }, { type: 'swap', part: 2 }] as Layer[]) {
+      for (const shift of [false, true]) {
+        const st = structuredClone(holding(layer).state)
+        if (layer.type === 'swap') st.knobs.knobs[0] = { function: SWAP_SOUND, name: 'Right 3 Sound', short: 'Sound', value: '-', level: null }
+        ui.shiftLatched = shift
+        withState(st)
+        const els = document.querySelectorAll('button, [role="slider"], [role="tab"]')
+        expect(els.length).toBeGreaterThan(30)
+        for (const el of els) {
+          const key = el.getAttribute('data-tip')
+          expect(key && key in TIPS, `${layer.type}${shift ? '+shift' : ''}: ${el.outerHTML.slice(0, 80)}`).toBe(true)
+        }
+        cleanup()
+        app.detach()
+      }
+    }
   })
 })
