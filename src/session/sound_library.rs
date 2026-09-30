@@ -1729,25 +1729,55 @@ fn from_fields(id: String, f: PatchFields) -> Patch {
     Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source }
 }
 
-/// Sound numbers (docs/eyes-free.md): each library sound's 1-based number, by its index in
-/// `lib.patches`, what swap mode dials and the display and the Library show. The contract
-/// numbers them in the library's own order. TODO(lane A): favourites 1-n, then the
-/// Library's category order.
-pub(crate) fn numbers(lib: &SoundLibrary) -> Vec<u32> {
-    (1..=lib.patches.len() as u32).collect()
+/// The order sound numbers follow (docs/eyes-free.md, "Sound numbers"), for patches `a`
+/// and `b` with their indices in the library: favourites first, then everything else;
+/// within each, the Library's order: category (the Genos order, `Category::ALL`), then
+/// name ignoring case (as the Library's list sorts), then the name as written, then the
+/// patch's place in the library, so no two sounds tie. Moving a patch (`MovePatch`) only
+/// breaks ties: the Library doesn't show that order.
+fn number_order((i, a): (usize, &Patch), (j, b): (usize, &Patch)) -> std::cmp::Ordering {
+    b.favourite
+        .cmp(&a.favourite)
+        .then(a.category.cmp(&b.category))
+        .then_with(|| a.name.chars().flat_map(char::to_lowercase).cmp(b.name.chars().flat_map(char::to_lowercase)))
+        .then_with(|| a.name.cmp(&b.name))
+        .then(i.cmp(&j))
 }
 
-/// Sound `id`'s number (None: not in the library).
+/// The library's patch indices in number order: `numbered(lib)[n - 1]` is sound `n`.
+fn numbered(lib: &SoundLibrary) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..lib.patches.len()).collect();
+    order.sort_unstable_by(|&i, &j| number_order((i, &lib.patches[i]), (j, &lib.patches[j])));
+    order
+}
+
+/// Sound numbers (docs/eyes-free.md): each library sound's 1-based number, by its index in
+/// `lib.patches`: what swap mode dials and the display and the Library show. Favourites
+/// are 1-n, then the rest (see `number_order`), so starring a sound renumbers what
+/// follows. Worked out from the library on each call (a sort of its patches, on the control
+/// thread only, never the engine, audio or MIDI threads), so it is never stale.
+pub(crate) fn numbers(lib: &SoundLibrary) -> Vec<u32> {
+    let mut numbers = vec![0; lib.patches.len()];
+    for (n, i) in numbered(lib).into_iter().enumerate() {
+        numbers[i] = n as u32 + 1;
+    }
+    numbers
+}
+
+/// Sound `id`'s number (None: not in the library). One pass over the library, with no
+/// allocation: one more than how many sounds come before it.
 #[allow(dead_code)] // swap mode (lane B) reads it
 pub(crate) fn number_of(lib: &SoundLibrary, id: &str) -> Option<u32> {
     let i = lib.patches.iter().position(|p| p.id == id)?;
-    numbers(lib).get(i).copied()
+    let p = (i, &lib.patches[i]);
+    let before = lib.patches.iter().enumerate().filter(|&q| number_order(q, p).is_lt()).count();
+    Some(before as u32 + 1)
 }
 
 /// The sound numbered `n` (None: no sound has it).
 #[allow(dead_code)] // swap mode (lane B) reads it
 pub(crate) fn at_number(lib: &SoundLibrary, n: u32) -> Option<&Patch> {
-    let i = numbers(lib).iter().position(|&m| m == n)?;
+    let i = *numbered(lib).get((n as usize).checked_sub(1)?)?;
     lib.patches.get(i)
 }
 
