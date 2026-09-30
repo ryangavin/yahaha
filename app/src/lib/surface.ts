@@ -47,6 +47,8 @@ export function controlTip(c: SurfaceControl, shift: boolean): TipKey {
   if (!shift && c.id === 'padBankDown') return 'padpage.next'
   if (c.id === 'trackPrev') return shift && action ? 'quick.prev' : 'style.prev'
   if (c.id === 'trackNext') return shift && action ? 'quick.next' : 'style.next'
+  // Fader button 6 is Sound on both fader pages: a hold, so it sends no command.
+  if (!shift && c.id === 'faderButton6' && c.label === 'SOUND') return 'launchkey.sound'
   if (!action) return c.id.startsWith('faderButton') ? 'launchkey.fader_unused' : 'launchkey.unused'
   return tipFor(action)
 }

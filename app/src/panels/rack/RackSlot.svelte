@@ -12,8 +12,7 @@
   └───────────────────────────────────────────────────────────────┘
 
   Clicking anywhere in it makes it the part you edit (selectPart), as the Launchkey's EDIT
-  pads do. Every
-  control sends an existing part command, or for its channel strip (`part.strip`) a strip
+  pads do. Every control sends an existing part command, or for its channel strip (`part.strip`) a strip
   command on strip `index`: the delay and send 4–6 levels (`setStripSend`), the compressor
   (`setStripCompressorOn`, `…Preset`), and per insert chip its on/off (`setStripInsertOn`)
   and a small popover with its type and settings (`setStripInsertKind`, `…Setting`).
