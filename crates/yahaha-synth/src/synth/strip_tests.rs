@@ -148,6 +148,49 @@ fn the_strip_chain_runs_on_a_soundfont_stem() {
     assert!(bits(&dry) == bits(&elsewhere), "another channel's insert 2 changed this one");
 }
 
+/// A channel a plugin plays: its SoundFont stem is silent and its strip runs in the plugin
+/// rack, so the SoundFont side's compressor there, on in the strip, settles and then does
+/// no work (the channel leaves the chain's mask). Once the plugin lets go, it runs on the
+/// SoundFont stem again.
+#[cfg(feature = "plugins")]
+#[test]
+fn a_plugin_channels_soundfont_compressor_does_no_work() {
+    use crate::plugin::{LoadConfig, PluginHost, PluginId, Swap};
+    use yahaha_core::route::Source;
+    use yahaha_fx::fx::PartComp;
+    use yahaha_fx::fx::master::CompPreset;
+    let font = tiny_font_with(&[(CUTOFF, 6000), (RELEASE, -2084)]);
+    let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+    let (_tx, rx) = RingBuffer::<Msg>::new(16);
+    let ctl = Arc::new(SynthControl::new(0));
+    ctl.fx.strips.set_comp(0, &PartComp::of(true, CompPreset::Loud));
+    let (mut core, _swap, link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+    let mut link = link.unwrap();
+    let mut out = vec![0f32; 512];
+    core.process(&mut out);
+    assert_eq!(core.inserts.mask() & 1, 1, "on the SoundFont stem, the compressor runs");
+    let dls = PluginHost::new(None).load(&PluginId::DLS, LoadConfig { sample_rate: 48_000.0, max_frames: 256, ..Default::default() }).expect("Apple's DLSMusicDevice");
+    link.assign(0, dls, Swap::default()).ok().unwrap();
+    ctl.routes.set(0, Source::Plugin);
+    let mut buffers = 0;
+    while core.inserts.mask() & 1 != 0 {
+        core.process(&mut out);
+        buffers += 1;
+        assert!(buffers < 50, "the SoundFont side's compressor never stopped on a plugin channel");
+    }
+    for _ in 0..10 {
+        core.process(&mut out);
+        assert_eq!(core.inserts.mask() & 1, 0, "no compressor work on a plugin channel's stem");
+    }
+    // The plugin lets go: the compressor runs on the SoundFont stem again.
+    link.clear(0, 0);
+    ctl.routes.set(0, Source::SoundFont(0));
+    for _ in 0..4 {
+        core.process(&mut out);
+    }
+    assert_eq!(core.inserts.mask() & 1, 1, "back on the SoundFont, the compressor runs again");
+}
+
 /// Send 4 as a Hall reverb (the three buses' sends and returns at 0): a part whose send 4 is
 /// 0 stops with its release; one whose send 4 is up rings on well after it.
 #[test]

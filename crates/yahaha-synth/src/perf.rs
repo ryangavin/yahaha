@@ -51,7 +51,8 @@ pub struct Snapshot {
     pub sample_rate: u32,
     pub stages: [(u64, u64); STAGES.len()],
     pub channels: [ChannelRow; CHANNELS],
-    pub buses: [(u64, u64, f32); yahaha_fx::fx::BUSES],
+    /// Each send (reverb, chorus, variation, sends 4-6): sum, max, peak (zeros: none ran).
+    pub buses: [(u64, u64, f32); yahaha_core::perf::BUSES],
     /// Each Style part's insertion effect (#269): sum, max, peak (zeros: none ran).
     pub inserts: [(u64, u64, f32); INSERTS],
     pub voices: u32,

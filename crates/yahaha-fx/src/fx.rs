@@ -51,7 +51,7 @@
 //! [`FxBus::process_add_slots`] never allocate, lock or block
 //! (`tests/it/synth_no_alloc.rs`). A block with no input whose output has died away is
 //! skipped, so an idle bus costs next to nothing. The performance view's counters
-//! (`yahaha_core::perf`) are sized [`BUSES`]: they count the buses, not sends 4-6.
+//! (`yahaha_core::perf`) have a row per send, [`SENDS`]: the buses, then sends 4-6.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, Ordering::Relaxed};
 
@@ -81,9 +81,11 @@ pub use params::{PARAMS, Param, Spec};
 pub use reverb::{Reverb, ReverbType};
 pub use sends::{ADDED_SENDS, SendControl};
 
-/// The send buses: Reverb (CC91), Chorus (CC93), Variation (CC94). Defined in core's
-/// `perf`, whose counters it sizes.
-pub use yahaha_core::perf::BUSES;
+/// The send buses: Reverb (CC91), Chorus (CC93), Variation (CC94).
+pub const BUSES: usize = 3;
+
+// The performance view's send counters (`yahaha_core::perf`) have a row per send.
+const _: () = assert!(SENDS == yahaha_core::perf::BUSES);
 pub const REVERB: usize = 0;
 pub const CHORUS: usize = 1;
 pub const VARIATION: usize = 2;
@@ -409,10 +411,15 @@ impl FxBus {
                 yahaha_core::perf::Perf::peak(&perf.bus_peak[b], peak * block.gain);
             }
         }
-        // Sends 4-6. The performance view's counters are sized BUSES: not counted there.
+        // Sends 4-6, counted after the buses; one that didn't run records nothing.
         for (i, (fx, c)) in self.added.iter_mut().zip(&ctl.sends).enumerate().take(slots - BUSES) {
+            let t0 = if prof { yahaha_core::rt::host_now() } else { 0 };
             let (il, ir) = bus(BUSES + i);
-            fx.process_add(il, ir, n, left, right, c, bpm);
+            let ran = fx.process_add(il, ir, n, left, right, c, bpm);
+            if let (true, Some(peak)) = (prof, ran) {
+                perf.bus[BUSES + i].add(yahaha_core::rt::host_to_ns(yahaha_core::rt::host_now().wrapping_sub(t0)));
+                yahaha_core::perf::Perf::peak(&perf.bus_peak[BUSES + i], peak);
+            }
         }
     }
 }
@@ -507,6 +514,38 @@ mod tests {
             ctl.sends[0].set(&SendSlot::of(SendKind::Hall));
             assert_eq!(run_slots(&mut bus, &ctl, later, 3, 4800), fresh, "code {code}");
         }
+    }
+
+    /// With the performance view on, a sounding send 4 records its time and output peak
+    /// into the view's fourth send row. Other tests only add to `PERF`, and none reads
+    /// it, so a nonzero window here is this test's.
+    #[test]
+    fn sends_a_running_send_4_is_counted_by_the_performance_view() {
+        yahaha_core::perf::enable();
+        let perf = &yahaha_core::perf::PERF;
+        let ctl = with_send(0, SendKind::Hall);
+        run_slots(&mut FxBus::new(48_000), &ctl, noise(3), 3, 4800);
+        let (sum, max) = perf.bus[BUSES].take();
+        let peak = f32::from_bits(perf.bus_peak[BUSES].swap(0, Relaxed));
+        assert!(sum > 0 && max > 0 && sum >= max, "{sum} {max}");
+        assert!(peak > 0.0 && peak.is_finite(), "{peak}");
+    }
+
+    /// A send that doesn't run (no kind, or idle with no input) reports nothing, so
+    /// `process_add_slots` records nothing for it; a running one reports its peak.
+    #[test]
+    fn sends_a_slot_that_does_not_run_reports_nothing_to_the_performance_view() {
+        let n = 64;
+        let (il, ir) = (vec![0.5f32; n], vec![-0.5f32; n]);
+        let silence = vec![0f32; n];
+        let (mut l, mut r) = (vec![0f32; n], vec![0f32; n]);
+        let empty = FxControl::new();
+        let mut fx = sends::SendFx::new(48_000.0);
+        assert_eq!(fx.process_add(&il, &ir, n, &mut l, &mut r, &empty.sends[0], 120.0), None, "no kind");
+        let hall = with_send(0, SendKind::Hall);
+        let mut fx = sends::SendFx::new(48_000.0);
+        assert_eq!(fx.process_add(&silence, &silence, n, &mut l, &mut r, &hall.sends[0], 120.0), None, "idle, no input");
+        assert!(fx.process_add(&il, &ir, n, &mut l, &mut r, &hall.sends[0], 120.0).is_some(), "running");
     }
 
     /// Send 5 as a delay repeats at the style tempo.
