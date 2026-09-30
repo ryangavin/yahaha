@@ -324,28 +324,150 @@ fn store_rack_overwrites_a_button_in_one_command() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// Hold Sound (Panel fader button 6): the state's layer says so, and the pads show and do
-/// what the Racks page does, from any page; let go, they are the page's again.
+const SOUND: u8 = *launchkey::FADER_BTN_CC.start() + launchkey::SOUND_FADER_BTN;
+
+fn hold_sound(s: &Session, down: bool) {
+    s.midi_in(crate::session::Port::Pads, &[0xB0, SOUND, if down { 127 } else { 0 }]);
+}
+
+fn tap(s: &Session, note: u8) {
+    s.midi_in(crate::session::Port::Pads, &[0x90, note, 100]);
+    s.midi_in(crate::session::Port::Pads, &[0x80, note, 0]);
+}
+
+/// Hold Sound (Panel fader button 6): the state's layer says so, and the pads show, light
+/// and do what the Racks page does, from any page; let go, they are the page's again,
+/// lamps included.
 #[test]
 fn holding_sound_shows_the_racks_page() {
-    use crate::session::Port;
     let d = dir("sound-hold");
     let s = session(&d);
-    let sound = launchkey::FADER_BTN_CC.start() + launchkey::SOUND_FADER_BTN;
-    let b = s.state().surface.controls.iter().find(|c| c.cc == sound).cloned().unwrap();
+    rack_on(&s, "Ballad", 60, 1);
+    rack_on(&s, "Loud", 20, 2);
+    let b = s.state().surface.controls.iter().find(|c| c.cc == SOUND).cloned().unwrap();
     assert_eq!((b.label.as_str(), b.action), ("SOUND", None), "a hold: no command");
-    assert_eq!(s.state().surface.layer, launchkey::Layer::None);
-    s.midi_in(Port::Pads, &[0xB0, sound, 127]);
+    for page in [Page::Sections, Page::Chord, Page::Setup] {
+        s.send(PadsCmd::SetPadPage { page }).unwrap();
+        let before = s.state().pads.clone();
+        assert_eq!(s.state().surface.layer, launchkey::Layer::None);
+        hold_sound(&s, true);
+        let st = s.state();
+        assert_eq!(st.surface.layer, launchkey::Layer::Sound);
+        assert_eq!((st.pads.page, st.pads.page_name.as_str()), (page, "Racks"), "the page on view stays; the pads are Racks");
+        let pad = |note: u8| st.pads.pads.iter().find(|p| p.note == note).unwrap().clone();
+        let rgb = |c: (u8, u8, u8)| [c.0, c.1, c.2];
+        // Ballad is stored (blue), Loud is the live rack's (red), the rest empty (dark).
+        assert_eq!((pad(97).label.as_str(), pad(97).rgb), ("QUICK 2", rgb(launchkey::C_QUICK_STORED)));
+        assert_eq!(pad(97).action, Some(QuickRackCmd::PressQuickRack { slot: 1, discard: false }.into()), "another rack: recall");
+        assert_eq!((pad(98).label.as_str(), pad(98).rgb), ("QUICK 3", rgb(launchkey::C_QUICK_LOADED)));
+        assert_eq!(pad(98).action, Some(QuickRackCmd::StoreRack { slot: 2 }.into()), "the lit pad: overwrite");
+        assert_eq!((pad(96).label.as_str(), pad(96).level), ("QUICK 1", launchkey::Level::Off));
+        assert_eq!(pad(96).action, Some(QuickRackCmd::StoreRack { slot: 0 }.into()), "an empty pad: store");
+        assert_eq!(pad(112).action, Some(OtsCmd::RecallOts { index: 0 }.into()));
+        assert_eq!(pad(118).action, Some(QuickRackCmd::ToggleQuickRackStore.into()));
+        hold_sound(&s, false);
+        let st = s.state();
+        assert_eq!(st.surface.layer, launchkey::Layer::None);
+        assert_eq!(st.pads, before, "{page:?}: the page's pads again, lamps and all");
+    }
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Hold Sound + tap: the lit pad saves the live rack's changes over its rack; an empty pad
+/// saves the live rack as a new rack named from its sounds and puts it there; a pad holding
+/// another rack recalls it. The Launchkey display confirms each.
+#[test]
+fn hold_sound_and_tap_captures_the_live_rack() {
+    use crate::launchkey::Touch;
+    use crate::session::display::display_text;
+    let d = dir("capture");
+    let s = session(&d);
+    let ballad = rack_on(&s, "Ballad", 60, 0);
+    let loud = rack_on(&s, "Loud", 20, 1);
+    let racks = s.state().racks.len();
+
+    // The lit pad (Loud, 2): its rack takes the changes.
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 33 }).unwrap();
+    assert!(s.state().live_rack.modified);
+    hold_sound(&s, true);
+    tap(&s, 97);
     let st = s.state();
-    assert_eq!(st.surface.layer, launchkey::Layer::Sound);
-    assert_eq!(st.pads.page, Page::Sections, "the page stays");
-    let action = |note: u8| st.pads.pads.iter().find(|p| p.note == note).and_then(|p| p.action.clone());
-    assert_eq!(action(96), Some(QuickRackCmd::PressQuickRack { slot: 0, discard: false }.into()));
-    assert_eq!(action(112), Some(OtsCmd::RecallOts { index: 0 }.into()));
-    s.midi_in(Port::Pads, &[0xB0, sound, 0]);
+    assert_eq!((st.live_rack.id.as_deref(), st.live_rack.modified), (Some(loud.as_str()), false), "saved over Loud");
+    assert_eq!(st.racks.len(), racks, "no new rack");
+    assert_eq!(st.quick_racks.buttons[1].rack.as_deref(), Some(loud.as_str()));
+    assert_eq!(display_text(Touch::Pad(97), &st), Some(("Pads: Racks".into(), "QUICK 2".into(), "Loud".into())));
+
+    // An empty pad (4): a new rack named from the parts that are on.
+    s.send(PartsCmd::SetPartVoice { part: 0, program: 4 }).unwrap();
+    s.send(PartsCmd::SetPartVoice { part: 1, program: 48 }).unwrap();
+    for (part, on) in [(0, true), (1, true), (2, false), (3, false)] {
+        s.send(PartsCmd::SetPartOn { part, on }).unwrap();
+    }
     let st = s.state();
-    assert_eq!(st.surface.layer, launchkey::Layer::None);
-    assert_eq!(st.pads.pads[0].label, "INTRO 1");
+    let (r1, r2) = (st.keyboard_parts[0].voice_name.clone(), st.keyboard_parts[1].voice_name.clone());
+    assert!(!r1.is_empty() && !r2.is_empty() && r1 != r2);
+    let name = format!("{r1} + {r2}");
+    tap(&s, 99);
+    let st = s.state();
+    let new = st.quick_racks.buttons[3].rack.clone().expect("stored");
+    assert!(new != loud && new != ballad);
+    assert_eq!((st.live_rack.name.as_str(), st.live_rack.id.as_deref(), st.live_rack.modified), (name.as_str(), Some(new.as_str()), false));
+    assert_eq!(rack_id(&s, &name), new);
+    assert_eq!(st.racks.len(), racks + 1);
+    assert_eq!(display_text(Touch::Pad(99), &st), Some(("Pads: Racks".into(), "QUICK 4".into(), name.clone())));
+
+    // The same sounds changed again, on another empty pad (5): the name is taken, so "… 2".
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 44 }).unwrap();
+    tap(&s, 100);
+    let st = s.state();
+    assert_eq!(st.live_rack.name, format!("{name} 2"));
+    assert_eq!(st.quick_racks.buttons[4].rack, st.live_rack.id);
+    assert_ne!(st.live_rack.id.as_deref(), Some(new.as_str()), "the first capture is left as it was");
+
+    // A pad holding another rack (Ballad, 1): recalled, not stored over.
+    tap(&s, 96);
+    let st = s.state();
+    assert_eq!((st.live_rack.id.as_deref(), st.keyboard_parts[0].volume), (Some(ballad.as_str()), 60));
+    assert_eq!(st.quick_racks.buttons[0].rack.as_deref(), Some(ballad.as_str()));
+    assert_eq!(display_text(Touch::Pad(96), &st), Some(("Pads: Racks".into(), "QUICK 1".into(), "Ballad".into())));
+    // A saved rack with no changes on an empty pad (6): it goes on as it is.
+    let racks = s.state().racks.len();
+    tap(&s, 101);
+    let st = s.state();
+    assert_eq!((st.quick_racks.buttons[5].rack.as_deref(), st.racks.len()), (Some(ballad.as_str()), racks));
+    hold_sound(&s, false);
+
+    // Loud kept the changes the lit pad saved.
+    s.hardware(Action::QuickRack(1)).unwrap();
+    assert_eq!(volume(&s, 0), 33);
+    // Without the hold, an empty pad does not store (Store + pad does).
+    s.send(PadsCmd::SetPadPage { page: Page::Racks }).unwrap();
+    tap(&s, 103);
+    assert_eq!(quick_state(&s).buttons[7].rack, None);
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// `storeRack` from the app captures as the hold does, with no save flow: a new rack that
+/// was never saved is saved as one named from its sounds; the lit button takes the live
+/// rack's changes.
+#[test]
+fn store_rack_saves_the_live_rack_as_it_goes() {
+    let d = dir("store-rack-save");
+    let s = session(&d);
+    s.send(RackCmd::NewRack { discard: true }).unwrap();
+    assert_eq!(s.state().live_rack.id, None);
+    s.send(QuickRackCmd::StoreRack { slot: 2 }).unwrap();
+    let st = s.state();
+    let id = st.live_rack.id.clone().expect("saved");
+    let parts: Vec<&str> = st.keyboard_parts.iter().filter(|p| p.on).map(|p| p.voice_name.as_str()).collect();
+    assert_eq!(Some(st.live_rack.name.clone()), quick::name_from_sounds(parts));
+    assert_eq!((st.quick_racks.buttons[2].rack.as_deref(), st.quick_racks.store_waiting), (Some(id.as_str()), None));
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 91 }).unwrap();
+    s.send(QuickRackCmd::StoreRack { slot: 2 }).unwrap();
+    let st = s.state();
+    assert_eq!((st.live_rack.id.as_deref(), st.live_rack.modified), (Some(id.as_str()), false), "saved over its own rack");
     drop(s);
     let _ = std::fs::remove_dir_all(&d);
 }

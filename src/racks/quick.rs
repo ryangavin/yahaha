@@ -127,6 +127,28 @@ pub fn path(data: &Path) -> std::path::PathBuf {
     data.join(FILE)
 }
 
+/// A captured rack's name, from its sounds (hold Sound + tap an empty Quick Rack pad,
+/// docs/eyes-free.md): the sounds of the parts that are on, in part order (Right 1-3, then
+/// Left), each once, joined with " + ": "Rhodes Soft + Strings". Blank names are skipped.
+/// None when no part names a sound.
+pub fn name_from_sounds<'a>(sounds: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut names: Vec<&str> = Vec::new();
+    for s in sounds.into_iter().map(str::trim).filter(|s| !s.is_empty()) {
+        if !names.iter().any(|n| n.eq_ignore_ascii_case(s)) {
+            names.push(s);
+        }
+    }
+    (!names.is_empty()).then(|| names.join(" + "))
+}
+
+/// `name`, or the first of "`name` 2", "`name` 3", ... that `taken` says is free.
+pub fn unique_name(name: &str, taken: impl Fn(&str) -> bool) -> String {
+    (1..)
+        .map(|n| if n == 1 { name.to_string() } else { format!("{name} {n}") })
+        .find(|n| !taken(n))
+        .expect("a free name")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +187,23 @@ mod tests {
         assert!(QuickRacks::from_json(r#"{"format":"yahaha.rack","version":1}"#).is_err());
         assert_eq!(QuickRacks::load(&dir.join("none.json")).unwrap(), None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_captured_rack_is_named_from_its_sounds() {
+        assert_eq!(name_from_sounds(["Rhodes Soft", "Strings"]).as_deref(), Some("Rhodes Soft + Strings"));
+        // Each sound once (case aside), blanks skipped, in the order given.
+        assert_eq!(name_from_sounds(["Strings", " ", "Rhodes Soft", "strings", "Fretless"]).as_deref(), Some("Strings + Rhodes Soft + Fretless"));
+        assert_eq!(name_from_sounds(["  Piano "]).as_deref(), Some("Piano"));
+        assert_eq!(name_from_sounds([]), None);
+        assert_eq!(name_from_sounds(["", " "]), None);
+    }
+
+    #[test]
+    fn unique_names_count_up_from_2() {
+        assert_eq!(unique_name("Piano", |_| false), "Piano");
+        let taken = ["Piano", "Piano 2"];
+        assert_eq!(unique_name("Piano", |n| taken.contains(&n)), "Piano 3");
     }
 
     #[test]

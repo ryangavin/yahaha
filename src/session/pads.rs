@@ -1,8 +1,8 @@
 //! The Launchkey pads: the pad page, its order, and the pads as the state shows them.
 
 use super::{Control, View};
-use crate::api::{AppCmd, CmdError, Pad, PadPageInfo, PadsCmd, PadsState, PaletteLed};
-use crate::launchkey::{self, Layer, Led, Page, PageOrder, Panel};
+use crate::api::{AppCmd, CmdError, Pad, PadPageInfo, PadsCmd, PadsState, PaletteLed, QuickRackCmd};
+use crate::launchkey::{self, Action, Layer, Led, Page, PageOrder, Panel};
 use std::sync::atomic::Ordering::Relaxed;
 
 impl Control {
@@ -38,15 +38,26 @@ impl Control {
         launchkey::looks(s, &info.has, &p)
             .iter()
             .enumerate()
-            .map(|(i, (note, look))| Pad {
-                note: *note,
-                label: look.label.to_string(),
-                key: look.key.to_string(),
-                rgb: [look.rgb.0, look.rgb.1, look.rgb.2],
-                level: look.level,
-                anim: look.anim,
-                action: launchkey::pad_action(page, layer, *note).map(AppCmd::from),
-                palette: palette.map(|leds| palette_led(leds[i].1)),
+            .map(|(i, (note, look))| {
+                let action = launchkey::pad_action(page, layer, *note);
+                // Hold Sound: the lit Quick Rack pad and the empty ones capture the live
+                // rack (`storeRack`), as a tap on the Launchkey does under the hold.
+                let capture = match action {
+                    Some(Action::QuickRack(slot)) if layer == Layer::Sound && !pnl.quick.store && self.sound_tap_captures(slot) => Some(slot),
+                    _ => None,
+                };
+                // The label stays "QUICK n": the display names the pad after it acted, and a
+                // recalled pad is the lit one by then.
+                Pad {
+                    note: *note,
+                    label: look.label.to_string(),
+                    key: look.key.to_string(),
+                    rgb: [look.rgb.0, look.rgb.1, look.rgb.2],
+                    level: look.level,
+                    anim: look.anim,
+                    action: capture.map_or_else(|| action.map(AppCmd::from), |slot| Some(QuickRackCmd::StoreRack { slot }.into())),
+                    palette: palette.map(|leds| palette_led(leds[i].1)),
+                }
             })
             .collect()
     }
@@ -56,7 +67,9 @@ impl Control {
         let order = pnl.order;
         PadsState {
             page: pnl.page,
-            page_name: pnl.page.name().to_string(),
+            // The page the pads show: Racks while Sound is held (`page` stays the one on
+            // view, which comes back on release).
+            page_name: pnl.layer.pads(pnl.page).name().to_string(),
             page_number: order.position(pnl.page).map_or(0, |i| i as u8 + 1),
             page_count: order.len() as u8,
             pages: order.pages().map(|page| PadPageInfo { page, name: page.name().to_string() }).collect(),
