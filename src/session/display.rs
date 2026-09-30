@@ -13,7 +13,7 @@ use crate::api::{
     AppCmd, AppState, ChordCmd, HarmonyArpCmd, LibraryCmd, LooperCmd, LooperMode, MixerCmd, MultiPadCmd, OtsCmd, PadLamp, PadsCmd, PartsCmd,
     QuickRackCmd, StyleSettingsCmd, TransportCmd,
 };
-use crate::launchkey::{self, Level, Touch};
+use crate::launchkey::{self, Layer, Level, Touch};
 use crate::parts::FaderPage;
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -25,6 +25,9 @@ const FOLLOW_NS: u64 = 600_000_000;
 /// Style volume (#199) and the Multi Pad volume (#196).
 const PERCENT_FADERS: [usize; 2] = [crate::parts::STYLE_LEVEL, crate::parts::PAD_LEVEL];
 
+/// The keyboard parts' short names in swap mode's display line ("R1: 23 Rhodes Soft").
+pub(super) const SWAP_LABELS: [&str; 4] = ["R1", "R2", "R3", "L"];
+
 /// What the display shows: title, name, value.
 pub(super) type Text = (String, String, String);
 
@@ -35,6 +38,8 @@ pub(super) struct Display {
     seen: u32,
     /// The control being followed, and until when.
     touch: Option<(Touch, u64)>,
+    /// The followed knob was turned in swap mode on this keyboard part (0-3).
+    swap: Option<u8>,
     /// What was last sent.
     pub(super) shown: Option<Text>,
 }
@@ -48,6 +53,7 @@ impl Control {
             self.display.seen = v;
             if let Some(t) = Touch::unpack(v) {
                 self.display.touch = Some((t, now + FOLLOW_NS));
+                self.display.swap = None;
                 self.display.shown = None;
             }
         }
@@ -56,7 +62,25 @@ impl Control {
             self.display.touch = None;
             return;
         }
-        let Some(text) = display_text(t, st) else { return };
+        let text = match (t, self.display.swap, st.surface.layer) {
+            // A knob in swap mode (the input thread sets the layer as it records the
+            // touch, so a state may see the touch first).
+            (Touch::Knob(k), None, Layer::Swap { part }) => {
+                self.display.swap = Some(part);
+                swap_text(part, k, st)
+            }
+            (Touch::Knob(k), Some(part), layer) => {
+                // Released: the sound it landed on still shows as it arrives; a mix knob's
+                // last value stays on the display rather than turn into the page's knob.
+                if k != 0 && layer != (Layer::Swap { part }) {
+                    self.display.touch = None;
+                    return;
+                }
+                swap_text(part, k, st)
+            }
+            _ => display_text(t, st),
+        };
+        let Some(text) = text else { return };
         if self.display.shown.as_ref() == Some(&text) {
             return;
         }
@@ -108,6 +132,10 @@ pub(super) fn display_text(t: Touch, st: &AppState) -> Option<Text> {
             if cc == launchkey::KNOB_DOWN_CC && shift {
                 return Some((s("Buttons"), s("ACMP"), if st.transport.acmp { s("On") } else { s("Off") }));
             }
+            // Shift + encoder page ▲: the rotary speaker's speed.
+            if cc == launchkey::KNOB_UP_CC && shift {
+                return Some((s("Buttons"), s("ROTARY"), if st.effects.rotary_fast { s("Fast") } else { s("Slow") }));
+            }
             // The encoder page buttons are the knobs' KNOB ASSIGN.
             if cc == launchkey::KNOB_UP_CC || cc == launchkey::KNOB_DOWN_CC {
                 return Some((s("Knobs"), s("KNOB ASSIGN"), st.knobs.page_name.clone()));
@@ -122,6 +150,28 @@ pub(super) fn display_text(t: Touch, st: &AppState) -> Option<Text> {
             button_text(title, c, shift, st)
         }
     }
+}
+
+/// What the display says for knob `knob` turned in swap mode on keyboard part `part`, from
+/// the state `st`. Knob 1: the part and its sound's number on top, the sound's name below
+/// ("R1: 23" / "Rhodes Soft": the line `R1: 23 Rhodes Soft` split so a long name keeps
+/// its 16 characters); a part playing no numbered sound shows "-" and what it plays.
+/// Knobs 2-8: the part's mix knob and its value, as the state's knobs show them in swap
+/// mode.
+pub(super) fn swap_text(part: u8, knob: u8, st: &AppState) -> Option<Text> {
+    let label = SWAP_LABELS.get(part as usize)?;
+    if knob == 0 {
+        let kp = st.keyboard_parts.get(part as usize)?;
+        let sound = kp.patch.as_ref().and_then(|id| st.sound_library.patches.iter().find(|p| &p.patch.id == id));
+        let (number, name) = match sound {
+            Some(s) => (s.number.to_string(), s.patch.name.clone()),
+            None => ("-".into(), kp.voice_name.clone()),
+        };
+        return Some((format!("{label}: {number}"), name, "Swap".into()));
+    }
+    let k = st.knobs.knobs.get(knob as usize)?;
+    let value = if k.function == "none" { "-".into() } else { k.value.clone() };
+    Some((format!("Swap {label}"), k.name.clone(), value))
 }
 
 fn button_text(title: &str, c: &crate::api::SurfaceControl, shift: bool, st: &AppState) -> Option<Text> {
@@ -189,6 +239,7 @@ fn value_of(cmd: &AppCmd, level: Level, st: &AppState) -> String {
             QuickRackCmd::PressQuickRack { .. } | QuickRackCmd::StepQuickRack { .. } => st.live_rack.name.clone(),
             QuickRackCmd::StepQuickRackBank { .. } => format!("Bank {}", crate::racks::quick::bank_letter(st.quick_racks.bank as usize)),
             QuickRackCmd::ToggleQuickRackStore => on(st.quick_racks.store),
+            QuickRackCmd::StoreRack { .. } => st.live_rack.name.clone(),
             QuickRackCmd::ClearQuickRack { .. } => "Cleared".into(),
         },
         AppCmd::Looper(LooperCmd::LooperOnOff | LooperCmd::LooperRec) => match st.looper.mode {
@@ -261,23 +312,56 @@ mod tests {
         let t = shown(&s).unwrap();
         assert_eq!((t.0.as_str(), t.1.as_str()), ("Faders: Panel", "RIGHT 2"));
         assert!(t.2.starts_with(&v.to_string()), "{t:?}");
-        // A fader button: Right 3 on.
-        s.midi_in(Port::Pads, &[0xB0, 39, 127]);
+        // A fader button: Right 3 on (a tap: it acts on the release).
+        s.midi_in(Port::Pads, &[0xB0, 39, 127, 0xB0, 39, 0]);
         assert_eq!(shown(&s), text("Fader buttons", "RIGHT 3", "On"));
         // The encoder page button.
         s.midi_in(Port::Pads, &[0xB0, launchkey::KNOB_DOWN_CC, 127]);
         assert_eq!(shown(&s), text("Knobs", "KNOB ASSIGN", "Rack"));
-        // A pad page button, then a Chord/Setup pad.
+        // Shift + ▲: the rotary speed, not the knob page.
+        s.midi_in(Port::Pads, &[0xB0, launchkey::SHIFT_CC, 127, 0xB0, launchkey::KNOB_UP_CC, 127, 0xB0, launchkey::SHIFT_CC, 0]);
+        assert_eq!(shown(&s), text("Buttons", "ROTARY", "Fast"));
+        assert_eq!(s.state().knobs.page_name, "Rack", "the page stays");
+        // A pad page button, then a Setup pad (the last page).
         s.midi_in(Port::Pads, &[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        assert_eq!(shown(&s), text("Buttons", "PAGE ▼", "Chord/Setup"));
+        assert_eq!(shown(&s), text("Buttons", "PAGE ▼", "Racks"));
+        s.midi_in(Port::Pads, &[0xB0, launchkey::PAD_UP_CC, 127]);
+        s.send(crate::api::PadsCmd::SetPadPage { page: launchkey::Page::Setup }).unwrap();
         s.midi_in(Port::Pads, &[0x90, 103, 100]);
-        assert_eq!(shown(&s), text("Pads: Chord/Setup", "UPPER", "Upper"));
+        assert_eq!(shown(&s), text("Pads: Setup", "UPPER", "Upper"));
         // Fader button 8 on the Panel page: the Chord Looper; Shift: REC/STOP.
         s.midi_in(Port::Pads, &[0xB0, 44, 127]);
         assert_eq!(shown(&s).map(|t| t.1), Some("LOOPER".into()));
         s.midi_in(Port::Pads, &[0xB0, launchkey::SHIFT_CC, 127, 0xB0, 44, 127, 0xB0, launchkey::SHIFT_CC, 0]);
         let t = shown(&s).unwrap();
         assert_eq!((t.1.as_str(), t.2.as_str()), ("LOOP REC", "Rec at bar"));
+    }
+
+    /// Swap mode: knob 1 shows the part, the sound's number and its name on each step,
+    /// and still does after the release; a mix knob shows the part's own setting.
+    #[test]
+    fn swap_mode_shows_the_part_number_and_sound() {
+        use crate::session::part_sound::tests::{hold, turn, with_sounds};
+        let s = with_sounds(&["Grand", "Rhodes Soft", "Strings"], &[]);
+        let name = |n: u32| s.state().sound_library.patches.iter().find(|p| p.number == n).unwrap().patch.name.clone();
+        let text = |a: &str, b: &str, c: &str| Some((a.to_string(), b.to_string(), c.to_string()));
+        hold(&s, 0, true);
+        turn(&s, 0, 1);
+        assert_eq!(shown(&s), text("R1: 1", &name(1), "Swap"));
+        turn(&s, 0, 1);
+        assert_eq!(shown(&s), text("R1: 2", &name(2), "Swap"));
+        // A mix knob: the part's pan (no command reaches it from the Launchkey yet, so it
+        // shows where it is).
+        turn(&s, 2, 1);
+        let pan = crate::knobs::pan_text(s.state().keyboard_parts[0].pan);
+        assert_eq!(shown(&s), text("Swap R1", "Right 1 Pan", &pan));
+        turn(&s, 0, 1);
+        hold(&s, 0, false);
+        assert_eq!(shown(&s), text("R1: 3", &name(3), "Swap"));
+        // Left, with no numbered sound yet: its voice.
+        let st = s.state();
+        let voice = st.keyboard_parts[3].voice_name.clone();
+        assert_eq!(swap_text(3, 0, &st), text("L: -", &voice, "Swap"));
     }
 
     #[test]

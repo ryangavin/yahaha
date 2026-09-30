@@ -12,8 +12,7 @@
   └───────────────────────────────────────────────────────────────┘
 
   Clicking anywhere in it makes it the part you edit (selectPart), as the Launchkey's EDIT
-  pads do. Hovering or focusing it lights its fader on the mirror (lib/mirror). Every
-  control sends an existing part command, or for its channel strip (`part.strip`) a strip
+  pads do. Every control sends an existing part command, or for its channel strip (`part.strip`) a strip
   command on strip `index`: the delay and send 4–6 levels (`setStripSend`), the compressor
   (`setStripCompressorOn`, `…Preset`), and per insert chip its on/off (`setStripInsertOn`)
   and a small popover with its type and settings (`setStripInsertKind`, `…Setting`).
@@ -21,7 +20,6 @@
 -->
 <script lang="ts">
   import { COMP_PRESETS, type CompPreset, type InsertType, type KeyboardPart } from '../../lib/api/types'
-  import { mirror } from '../../lib/mirror.svelte'
   import { app, ui } from '../../lib/store.svelte'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
@@ -76,16 +74,20 @@
   const setInsertOn = (slot: number) => app.send({ type: 'setStripInsertOn', strip: index, slot, on: !strip.inserts[slot].on })
   const setInsertSetting = (slot: number, setting: number, value: number) => app.send({ type: 'setStripInsertSetting', strip: index, slot, setting, value })
   const toggleInsert = (slot: number) => (openInsert = openInsert === slot ? null : slot)
+  // The popover belongs to the part being edited: when another part becomes the edited one
+  // (a click on another slot, the Launchkey's EDIT pads, a strip name), it closes. Keyed on
+  // the edited part's index, so it runs only when that changes, and not when this slot
+  // itself becomes the edited part (the click that opened the popover selected it).
+  const edited = $derived(app.state.keyboardParts.findIndex((p) => p.selected))
+  $effect(() => {
+    if (edited !== index) openInsert = null
+  })
   function popKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       e.stopPropagation()
       openInsert = null
     }
   }
-
-  const link = (on: boolean) => (mirror.panelFader = on ? index : mirror.panelFader === index ? null : mirror.panelFader)
-  // Closing the drawer under the pointer never fires pointerleave: let go of the mirror.
-  $effect(() => () => link(false))
 </script>
 
 <!-- Pointer-down anywhere selects the part (a shortcut); from the keyboard, the part name button does. -->
@@ -96,10 +98,6 @@
   role="group"
   aria-label={part.name}
   onpointerdown={select}
-  onpointerenter={() => link(true)}
-  onpointerleave={() => link(false)}
-  onfocusin={() => link(true)}
-  onfocusout={() => link(false)}
 >
   {#key recalled}<span class="flash" class:go={recalled > 0} aria-hidden="true"></span>{/key}
 

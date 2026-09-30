@@ -21,6 +21,9 @@ pub enum QuickRackCmd {
     StepQuickRackBank { delta: i8 },
     /// Store: arm (or disarm) it for the next button press.
     ToggleQuickRackStore,
+    /// Store the live rack on button `slot` (0-7) of the bank on view, overwriting what is
+    /// there, as Store then the button does (hold Sound + tap a Racks pad).
+    StoreRack { slot: u8 },
     /// Empty button `slot` of bank `bank` (0 = A).
     ClearQuickRack { bank: u8, slot: u8 },
     /// Previous/next rack in the bank on view: the stored button before/after the lit one

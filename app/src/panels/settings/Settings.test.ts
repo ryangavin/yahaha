@@ -32,7 +32,7 @@ describe('Settings drawer', () => {
   it('groups the pages like the Genos menus, one visible at a time', async () => {
     setup()
     const tabs = [...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent?.trim())
-    expect(tabs).toEqual(['Chord', 'Split', 'Transpose', 'Style', 'Pedals', 'Lock', 'Audio', 'MIDI', 'Library'])
+    expect(tabs).toEqual(['Chord', 'Split', 'Transpose', 'Style', 'Pedals', 'Lock', 'Audio', 'MIDI', 'Launchkey', 'Library'])
     expect(page('chord').hidden).toBe(false)
     expect(page('audio').hidden).toBe(true)
     await fireEvent.click(q('#settings-tab-audio'))
@@ -298,6 +298,65 @@ describe('Settings drawer', () => {
     s.advance(1500)
     flushSync()
     expect(page('library').textContent).toContain('Rescan styles')
+  })
+
+  describe('Launchkey page: the pad page order (docs/eyes-free.md)', () => {
+    const rows = () => [...page('launchkey').querySelectorAll<HTMLElement>('ol .row')].map((r) => r.textContent?.replace(/[▲▼✕\s]+/g, ' ').trim())
+    const inRow = (p: string, key: string) => page('launchkey').querySelector<HTMLButtonElement>(`ol [data-page="${p}"] [data-tip="${key}"]`)!
+
+    it('shows Sections fixed, then the order from the state', async () => {
+      setup()
+      await fireEvent.click(q('#settings-tab-launchkey'))
+      expect(page('launchkey').hidden).toBe(false)
+      expect(rows()).toEqual(['1 Sections Fixed', '2 Racks', '3 Chord', '4 Multi Pads', '5 Setup'])
+      expect(page('launchkey').querySelector('.fixed button')).toBeNull()
+      expect(inRow('racks', 'settings.pad_pages.up').disabled).toBe(true)
+      expect(inRow('setup', 'settings.pad_pages.down').disabled).toBe(true)
+      expect(byTip('settings.pad_pages.reset')[0]).toHaveProperty('disabled', true)
+    })
+
+    it('move up/down sends setPadPageOrder with the new order', async () => {
+      const s = setup()
+      const sent = vi.spyOn(s, 'send')
+      await fireEvent.click(inRow('setup', 'settings.pad_pages.up'))
+      expect(sent).toHaveBeenLastCalledWith({ type: 'setPadPageOrder', pages: ['racks', 'chord', 'setup', 'multiPads'] })
+      flushSync()
+      expect(rows()).toEqual(['1 Sections Fixed', '2 Racks', '3 Chord', '4 Setup', '5 Multi Pads'])
+      await fireEvent.click(inRow('racks', 'settings.pad_pages.down'))
+      expect(sent).toHaveBeenLastCalledWith({ type: 'setPadPageOrder', pages: ['chord', 'racks', 'setup', 'multiPads'] })
+      expect(s.state.settings.padPages).toEqual(['chord', 'racks', 'setup', 'multiPads'])
+    })
+
+    it('trims a page, adds it back last, and resets to the default', async () => {
+      const s = setup()
+      const sent = vi.spyOn(s, 'send')
+      s.send({ type: 'setPadPage', page: 'chord' })
+      await fireEvent.click(inRow('chord', 'settings.pad_pages.remove'))
+      expect(sent).toHaveBeenLastCalledWith({ type: 'setPadPageOrder', pages: ['racks', 'multiPads', 'setup'] })
+      expect(s.state.pads.page).toBe('sections')
+      flushSync()
+      expect(rows()).toEqual(['1 Sections Fixed', '2 Racks', '3 Multi Pads', '4 Setup'])
+      const add = byTip('settings.pad_pages.add')
+      expect(add).toHaveLength(1)
+      expect(add[0].closest('[data-page]')?.getAttribute('data-page')).toBe('chord')
+      await fireEvent.click(add[0])
+      expect(sent).toHaveBeenLastCalledWith({ type: 'setPadPageOrder', pages: ['racks', 'multiPads', 'setup', 'chord'] })
+      flushSync()
+      expect(byTip('settings.pad_pages.add')).toHaveLength(0)
+      await fireEvent.click(byTip('settings.pad_pages.reset')[0])
+      expect(sent).toHaveBeenLastCalledWith({ type: 'setPadPageOrder', pages: ['racks', 'chord', 'multiPads', 'setup'] })
+    })
+
+    it('every page can be left out, leaving Sections alone', async () => {
+      const s = setup()
+      for (const p of ['racks', 'chord', 'multiPads', 'setup']) {
+        await fireEvent.click(inRow(p, 'settings.pad_pages.remove'))
+        flushSync()
+      }
+      expect(s.state.settings.padPages).toEqual([])
+      expect(rows()).toEqual(['1 Sections Fixed'])
+      expect(byTip('settings.pad_pages.add')).toHaveLength(4)
+    })
   })
 })
 

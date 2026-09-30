@@ -22,6 +22,7 @@ afterEach(() => {
   app.detach()
   ui.mixer = false
   ui.selectedPart = 0
+  ui.shiftLatched = false
   ui.view = 'stage'
   ui.libraryTab = 'sounds'
   ui.libraryPart = 0
@@ -30,8 +31,6 @@ afterEach(() => {
 const strips = () => [...document.querySelectorAll<HTMLElement>('.mixer-row .strip')]
 const nameOf = (s: HTMLElement) => s.querySelector<HTMLButtonElement>('button.name')!
 const faderOf = (s: HTMLElement) => s.querySelector<HTMLElement>('.fader [role="slider"]')!
-const knobOf = (s: HTMLElement, caption: string) =>
-  [...s.querySelectorAll<HTMLElement>('.knobs .knob')].find((k) => k.querySelector('.caption')?.textContent === caption)!
 const tick = async () => {
   await new Promise((r) => setTimeout(r, 0))
   flushSync()
@@ -73,15 +72,51 @@ describe('Mixer row', () => {
     expect(s.state.mixer.styleParts[2].volume).toBe(st - 10)
   })
 
-  it('REV sends setPartSend reverb on a keyboard part and setStylePartSend on a style part', async () => {
+  it('the mixer bar shows with the details hidden, and the strips have no mini knobs', () => {
     setup()
+    expect(ui.mixer).toBe(false)
+    expect(document.querySelector('.mixer-row .bar')).not.toBeNull()
+    expect(document.querySelectorAll('.mixer-row .col .detail')).toHaveLength(0)
+    expect(document.querySelectorAll('.mixer-row .strip .knob')).toHaveLength(0)
+  })
+
+  it('a fader layer changes every strip\'s fader: keyboard and Style parts send that layer\'s command', async () => {
+    const s = setup()
     const send = vi.spyOn(app, 'send')
-    await fireEvent.keyDown(knobOf(strips()[0], 'Rev'), { key: 'ArrowUp' })
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'setPartSend', part: 0, send: 'reverb' }))
-    await fireEvent.keyDown(knobOf(strips()[5], 'Rev'), { key: 'ArrowUp' })
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'setStylePartSend', part: 1, send: 'reverb' }))
-    await fireEvent.keyDown(knobOf(strips()[5], 'Dly'), { key: 'ArrowUp' })
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'setStylePartSend', part: 1, send: 'variation' }))
+    app.send({ type: 'setFaderLayer', layer: 'chorus' })
+    flushSync()
+    await fireEvent.keyDown(faderOf(strips()[1]), { key: 'PageUp' })
+    expect(send).toHaveBeenLastCalledWith({ type: 'setPartSend', part: 1, send: 'chorus', value: s.state.keyboardParts[1].chorus })
+    await fireEvent.keyDown(faderOf(strips()[11]), { key: 'PageDown' })
+    expect(send).toHaveBeenLastCalledWith({ type: 'setStylePartSend', part: 7, send: 'chorus', value: s.state.mixer.styleParts[7].chorus })
+    expect(strips().map((e) => e.querySelector('.tags .layer')?.textContent)).toEqual(Array(12).fill('CHO'))
+    expect(faderOf(strips()[11]).dataset.tip).toBe('mixer.style.chorus')
+    expect(faderOf(strips()[1]).dataset.tip).toBe('mixer.part.chorus')
+  })
+
+  it('fader badges: F1–F4 on the keyboard parts on the Panel page, F1–F8 on the Style parts on the Style page, M on the master', () => {
+    const s = setup()
+    const badges = () => strips().map((e) => e.querySelector<HTMLElement>('.tags .badge')?.textContent ?? null)
+    const master = () => document.querySelector('.mixer-row .master .badge')?.textContent ?? null
+    expect(s.state.mixer.faderPage).toBe('panel')
+    expect(badges()).toEqual(['F1', 'F2', 'F3', 'F4', null, null, null, null, null, null, null, null])
+    expect(master()).toBe('M')
+    for (const b of document.querySelectorAll<HTMLElement>('.mixer-row .badge')) expect(b.dataset.tip).toBe('stage.fader_badge')
+    app.send({ type: 'toggleFaderPage' })
+    flushSync()
+    expect(badges()).toEqual([null, null, null, null, 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8'])
+    expect(master()).toBe('M')
+    // Shift changes the buttons under the faders, not which part a fader moves.
+    ui.shiftLatched = true
+    flushSync()
+    expect(badges()).toEqual([null, null, null, null, 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8'])
+    // PAN on the Style page: the Style parts have no pan, so no fader reaches them.
+    app.send({ type: 'setFaderLayer', layer: 'pan' })
+    flushSync()
+    expect(badges()).toEqual(Array(12).fill(null))
+    app.send({ type: 'setFaderPage', page: 'panel' })
+    flushSync()
+    expect(badges()).toEqual(['F1', 'F2', 'F3', 'F4', null, null, null, null, null, null, null, null])
   })
 
   it('clicking a strip name selects it; a keyboard part also sends selectPart, a style part not', async () => {

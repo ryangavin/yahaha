@@ -359,6 +359,8 @@ struct Control {
     fx: fx::FxSettings,
     /// The Master Compressor and Master EQ, and their file (session/master_fx.rs).
     master: master_fx::MasterFile,
+    /// `settings.json`: the pad page order and the Setup page's switches.
+    settings: settings::SettingsFile,
     /// The Launchkey display: what the control last touched did (session/display.rs).
     display: display::Display,
     /// Multi Pad banks to the engine thread, and replaced players back to free here.
@@ -522,6 +524,8 @@ impl Control {
         let parts = &self.shared.parts;
         Panel {
             page: Page::from_u8(self.shared.page.load(Relaxed)),
+            layer: self.shared.layer(),
+            order: self.shared.page_order(),
             fingering: Fingering::from_u8(self.shared.fingering.load(Relaxed)),
             upper: self.shared.upper.load(Relaxed),
             manual_bass: self.shared.manual_bass.load(Relaxed),
@@ -529,7 +533,6 @@ impl Control {
             ots_applied: parts.ots_applied.load(Relaxed),
             ots_link: parts.ots_link.load(Relaxed),
             harmony_arp: self.harmony_arp.on,
-            plugin_fault: self.selected_plugin_fault(),
             left_hold: self.shared.controllers.left_hold(),
             looper: self.looper_lamp(),
             parts_on: parts.sounding_mask(),
@@ -653,6 +656,8 @@ impl Control {
         }
         self.pump_ots_link();
         self.pump_pedal_releases();
+        self.pump_settings();
+        self.pump_swap_end();
         while self.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
         while self.old_audition_rx.pop().is_ok() {}
         self.pump_sound_font();
@@ -740,6 +745,7 @@ impl Control {
             live_rack: self.live_rack_state(),
             racks: Vec::new(),
             quick_racks: Default::default(),
+            settings: self.settings_state(),
         };
         st.racks = self.rack_entries(&st.plugins);
         st.quick_racks = self.quick_racks_state();
@@ -967,6 +973,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         knobs: Default::default(),
         fx: fx_settings,
         master: master_fx::MasterFile::load(opts.data_dir.as_deref()),
+        settings: settings::SettingsFile::load(opts.data_dir.as_deref()),
         display: Default::default(),
         sound_settings: gm_auto::settings_file(opts.data_dir.as_deref()),
         rack_controls: Default::default(),
@@ -977,6 +984,7 @@ fn assemble(opts: &Options, engine_out: live::Out, input_out: live::Out, offline
         hardware: false,
     };
     let mut control = control;
+    control.restore_settings();
     control.list_sound_fonts();
     if let Some(e) = control.sound.load_error().map(str::to_string) {
         control.say(format!("Sound library not loaded (it will not be saved over): {e}"), true);

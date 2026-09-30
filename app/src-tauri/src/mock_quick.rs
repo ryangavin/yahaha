@@ -1,7 +1,7 @@
 //! Quick Racks in the dev mock (docs/app-api.md › Quick Racks), kept in memory: press
 //! (through the rack guard), Store (waiting for the save when the rack is unsaved), bank
-//! −/+, clear, previous/next rack, page 4. As mock-quick-racks.ts. The mock has no
-//! hardware, so every press takes the app's path.
+//! −/+, clear, previous/next rack, `storeRack`, the Racks pad page. As mock-quick-racks.ts.
+//! The mock has no hardware, so every press takes the app's path.
 
 use super::MockSession;
 use yahaha::api::*;
@@ -27,7 +27,7 @@ impl MockQuick {
         self.banks[bank as usize][slot as usize].as_deref()
     }
 
-    /// The panel page 4 shows, for the live rack `live`.
+    /// The bank the Racks page shows, for the live rack `live`.
     fn panel(&self, live: Option<&str>) -> QuickPanel {
         let mut p = QuickPanel { bank: self.bank, store: self.store, ..QuickPanel::default() };
         for s in 0..SLOTS as u8 {
@@ -41,8 +41,9 @@ impl MockQuick {
         p
     }
 
-    /// `quickRacks` and, on page 4, the pads, from the racks list `racks`.
-    pub(super) fn fill(&self, st: &mut AppState, racks: &[RackEntry]) {
+    /// `quickRacks` and, on the Racks page (or any page while Sound is held, `layer`), the
+    /// pads, from the racks list `racks`.
+    pub(super) fn fill(&self, st: &mut AppState, racks: &[RackEntry], layer: Layer) {
         let live = st.live_rack.id.clone();
         let buttons = (0..SLOTS as u8)
             .map(|s| {
@@ -63,20 +64,42 @@ impl MockQuick {
             store_waiting: self.waiting.filter(|w| w.0 == self.bank).map(|w| w.1),
             read_only: false,
         };
-        if st.pads.page == Page::QuickRacks {
-            st.pads.pads = lk::quick_looks(&self.panel(live.as_deref()))
+        if layer.pads(st.pads.page) == Page::Racks {
+            let panel = lk::Panel { page: Page::Racks, layer, ..super::lk_panel(st, self.panel(live.as_deref())) };
+            st.pads.pads = lk::racks_looks(&panel)
                 .iter()
-                .map(|(note, look)| Pad {
-                    note: *note,
-                    label: look.label.into(),
-                    key: look.key.into(),
-                    rgb: [look.rgb.0, look.rgb.1, look.rgb.2],
-                    level: look.level,
-                    anim: look.anim,
-                    action: lk::pad_action(Page::QuickRacks, *note).map(AppCmd::from),
-                    palette: None,
+                .map(|(note, look)| {
+                    let action = lk::pad_action(Page::Racks, layer, *note);
+                    // Hold Sound: the lit Quick Rack pad and the empty ones capture the live
+                    // rack (`storeRack`), as the session's pads do.
+                    let capture = match action {
+                        Some(lk::Action::QuickRack(slot)) if layer == Layer::Sound && !self.store && self.sound_tap_captures(slot, live.as_deref(), racks) => {
+                            Some(slot)
+                        }
+                        _ => None,
+                    };
+                    Pad {
+                        note: *note,
+                        label: look.label.into(),
+                        key: look.key.into(),
+                        rgb: [look.rgb.0, look.rgb.1, look.rgb.2],
+                        level: look.level,
+                        anim: look.anim,
+                        action: capture.map_or_else(|| action.map(AppCmd::from), |slot| Some(QuickRackCmd::StoreRack { slot }.into())),
+                        palette: None,
+                    }
                 })
                 .collect();
+        }
+    }
+
+    /// Under the Sound hold, whether a tap on button `slot` of the bank on view captures
+    /// the live rack `live` (`storeRack`) rather than recalling: the lit button, an empty
+    /// one, or one whose rack is gone (the session's `sound_tap_captures`).
+    fn sound_tap_captures(&self, slot: u8, live: Option<&str>, racks: &[RackEntry]) -> bool {
+        match self.get(self.bank, slot) {
+            None => true,
+            Some(id) => live == Some(id) || !racks.iter().any(|r| r.id == id),
         }
     }
 
@@ -107,6 +130,16 @@ impl MockSession {
             QuickRackCmd::ToggleQuickRackStore => {
                 self.quick.store = !self.quick.store;
                 self.quick.waiting = None;
+            }
+            // The live rack on the button in one step, saved as it goes (hold Sound + tap
+            // a Racks pad); Store armed clears.
+            QuickRackCmd::StoreRack { slot } => {
+                if slot as usize >= SLOTS {
+                    return self.message(format!("no Quick Rack {}", slot as usize + 1), true);
+                }
+                self.quick.store = false;
+                self.quick.waiting = None;
+                self.capture_quick(self.quick.bank, slot);
             }
             QuickRackCmd::ClearQuickRack { bank, slot } => {
                 if bank as usize >= BANKS || slot as usize >= SLOTS {
@@ -155,6 +188,49 @@ impl MockSession {
                 self.message(format!("Save the rack first; then it goes on Quick Rack {}", label(bank, slot)), false);
             }
         }
+    }
+
+    /// `storeRack` (the session's `capture_quick`): the live rack, saved as it goes, on
+    /// button (`bank`, `slot`). The lit button's rack takes the live rack's changes;
+    /// elsewhere a saved rack with no changes goes on as it is, and anything else is saved
+    /// as a new rack named from the sounds of its on parts ("Rhodes Soft + Strings").
+    fn capture_quick(&mut self, bank: u8, slot: u8) {
+        let racks = self.racks.entries();
+        let modified = self.state.live_rack.modified;
+        let own = self.state.live_rack.id.clone().filter(|id| racks.iter().any(|r| r.id == *id));
+        let lit = own.is_some() && self.quick.get(bank, slot) == own.as_deref();
+        let id = match own {
+            Some(id) if !modified => Some(id),
+            Some(_) if lit => self.save_live(None),
+            _ => {
+                let sounds: Vec<&str> = self.state.keyboard_parts.iter().filter(|k| k.on).map(|k| k.voice_name.as_str()).collect();
+                let base = yahaha::racks::quick::name_from_sounds(sounds).unwrap_or_else(|| "New Rack".into());
+                let name = yahaha::racks::quick::unique_name(&base, |n| racks.iter().any(|r| r.name.eq_ignore_ascii_case(n)));
+                self.save_live(Some(name))
+            }
+        };
+        match id {
+            Some(id) => self.put_quick(bank, slot, id),
+            None => self.message("the rack was not saved", true),
+        }
+    }
+
+    /// Save the live rack (`saveRack`, or `saveRackAs` with a name) with no dialog: edited
+    /// presets that become new sounds take their suggested names, and a prompt up in the
+    /// app is dismissed. The saved rack's id, if it saved.
+    fn save_live(&mut self, save_as: Option<String>) -> Option<String> {
+        self.state.live_rack.prompt = None;
+        let cmd = |sound_names| match &save_as {
+            Some(name) => RackCmd::SaveRackAs { name: name.clone(), sound_names },
+            None => RackCmd::SaveRack { sound_names },
+        };
+        self.rack_cmd(cmd(Default::default()));
+        if let Some(RackPrompt::SoundNames { parts, .. }) = self.state.live_rack.prompt.take() {
+            let names = parts.into_iter().map(|p| (p.part, if p.suggested.trim().is_empty() { "Sound".to_string() } else { p.suggested })).collect();
+            self.rack_cmd(cmd(names));
+        }
+        let lr = &self.state.live_rack;
+        lr.id.clone().filter(|_| !lr.modified && lr.prompt.is_none())
     }
 
     fn put_quick(&mut self, bank: u8, slot: u8, id: String) {

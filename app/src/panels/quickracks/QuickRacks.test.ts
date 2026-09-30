@@ -22,8 +22,8 @@ function setup() {
 
 const q = <T extends Element = HTMLButtonElement>(sel: string) => document.querySelector<T>(sel)!
 const tipped = <T extends Element = HTMLButtonElement>(key: string) => [...document.querySelectorAll<T>(`[data-tip="${key}"]`)]
-/** The stage's Quick Racks, under the knobs. */
-const STAGE = 'section[aria-label="Knobs and Quick Racks"]'
+/** The stage's Quick Racks row (panels/knobracks). */
+const STAGE = 'section[aria-label="Quick Racks"]'
 const names = () => [...document.querySelectorAll('.qbar .bname .txt')].map((e) => e.textContent)
 
 async function click(el: Element) {
@@ -48,7 +48,7 @@ afterEach(() => {
 })
 
 describe('Quick Racks bar', () => {
-  it('replaces the Registration bar on the stage, under the knobs (panels/knobracks)', () => {
+  it('replaces the Registration bar on the stage, in the Quick Racks row (panels/knobracks)', () => {
     render(App, { props: { session: new MockSession({ demo: true, manual: true }) } })
     flushSync()
     const bar = q<HTMLElement>(STAGE)
@@ -287,20 +287,20 @@ describe('Quick Racks in the mock', () => {
     expect(s.state.quickRacks.storeWaiting).toBeNull()
   })
 
-  it('pad page 4: Quick 1–8, Bank −/+, Store, Rack −/+ and dark pads, with page 4 lamps', () => {
+  it('pad page 2 (Racks): Quick 1–8, OTS 1–4, Bank −/+, Store and a dark pad, with its lamps', () => {
     const s = new MockSession({ manual: true })
-    s.send({ type: 'setPadPage', page: 'quickRacks' })
+    s.send({ type: 'setPadPage', page: 'racks' })
     const pad = (n: number) => s.state.pads.pads.find((p) => p.note === n)!
-    expect(s.state.pads.pageName).toBe('Quick Racks')
+    expect(s.state.pads.pageName).toBe('Racks')
     expect([pad(96).label, pad(96).key, pad(96).action]).toEqual(['QUICK 1', '⇧Q', { type: 'pressQuickRack', slot: 0 }])
     expect([pad(103).label, pad(103).key]).toEqual(['QUICK 8', '⇧I'])
-    expect([pad(112).action, pad(112).level, pad(113).level]).toEqual([{ type: 'stepQuickRackBank', delta: -1 }, 'off', 'dim'])
-    for (const n of [114, 115, 117]) expect([pad(n).label, pad(n).key, pad(n).action, pad(n).level]).toEqual(['', '', null, 'off'])
-    expect([pad(116).label, pad(116).key, pad(116).action]).toEqual(['STORE', 'F5', { type: 'toggleQuickRackStore' }])
-    expect([pad(118).label, pad(118).key, pad(118).action, pad(118).level]).toEqual(['RACK -', 'F7', { type: 'stepQuickRack', delta: -1 }, 'off'])
-    expect([pad(119).label, pad(119).key, pad(119).action]).toEqual(['RACK +', 'F8', { type: 'stepQuickRack', delta: 1 }])
+    expect([pad(112).label, pad(112).key, pad(112).action]).toEqual(['OTS 1', '⇧1', { type: 'recallOts', index: 0 }])
+    expect([pad(115).label, pad(115).key]).toEqual(['OTS 4', '⇧4'])
+    expect([pad(116).action, pad(116).key, pad(116).level, pad(117).level]).toEqual([{ type: 'stepQuickRackBank', delta: -1 }, '⇧O', 'off', 'dim'])
+    expect([pad(118).label, pad(118).key, pad(118).action]).toEqual(['STORE', 'F5', { type: 'toggleQuickRackStore' }])
+    expect([pad(119).label, pad(119).key, pad(119).action, pad(119).level]).toEqual(['', '', null, 'off'])
     s.send({ type: 'toggleQuickRackStore' })
-    expect([pad(96).anim, pad(116).anim]).toEqual(['flash', 'flash'])
+    expect([pad(96).anim, pad(118).anim]).toEqual(['flash', 'flash'])
     s.send({ type: 'pressQuickRack', slot: 0 })
     s.send({ type: 'saveRackAs', name: 'Ballad' })
     s.send({ type: 'newRack' })
@@ -308,7 +308,7 @@ describe('Quick Racks in the mock', () => {
     s.send({ type: 'pressQuickRack', slot: 0 })
     expect([pad(96).rgb, pad(96).level]).toEqual([[127, 0, 0], 'bright'])
     for (let i = 0; i < 7; i++) s.send({ type: 'stepQuickRackBank', delta: 1 })
-    expect([pad(112).level, pad(113).level]).toEqual(['dim', 'off'])
+    expect([pad(116).level, pad(117).level]).toEqual(['dim', 'off'])
   })
 
   it('Shift + Track is the previous/next Quick Rack, dark while the bank has none', () => {
@@ -333,13 +333,13 @@ describe('Quick Racks in the mock', () => {
     for (const k of ['F6', 'F11', 'F12', '<', '>']) expect(BINDINGS[k], k).toBeUndefined()
   })
 
-  it('a page 4 pad on the mirror loads its rack', async () => {
+  it('a Racks page pad on the mirror loads its rack', async () => {
     const s = setup()
     s.send({ type: 'toggleQuickRackStore' })
     s.send({ type: 'pressQuickRack', slot: 2 })
     s.send({ type: 'saveRackAs', name: 'Organ' })
     s.send({ type: 'newRack' })
-    s.send({ type: 'setPadPage', page: 'quickRacks' })
+    s.send({ type: 'setPadPage', page: 'racks' })
     flushSync()
     render(Launchkey)
     await click(q('.pad[data-note="98"]'))

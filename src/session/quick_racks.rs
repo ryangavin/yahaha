@@ -9,11 +9,20 @@
 //!   unsaved changes, or one never saved, is saved first: the button waits
 //!   (`storeWaiting`) until `saveRack` / `saveRackAs` succeeds, then takes the saved rack.
 //!   From the hardware there is no save flow, so Store there needs a saved rack.
+//! - **Capture** (`storeRack`; hold Sound + tap a Racks pad, docs/eyes-free.md) needs no
+//!   save flow: the live rack is saved as it goes on the button. On the button the live
+//!   rack came from (lit), its changes are saved over that rack. Anywhere else, a saved rack
+//!   with no changes goes on as it is; otherwise it is saved as a new rack named from its
+//!   sounds ("Rhodes Soft + Strings"). Under the hold, a pad holding another rack recalls
+//!   it, as the Racks page does. The input thread reads the hold when the pad goes down
+//!   and sends `Action::QuickRackHeld`; `Control::apply_hardware` decides from that and the
+//!   buttons alone, never from the layer (which may have been let go by then).
 //! - A button names a rack by id, so a rename keeps it; deleting a rack empties its buttons.
 
 use super::{Control, Session};
-use crate::api::{CmdError, QuickRackButton, QuickRackCmd, QuickRacksState, RackCmd};
+use crate::api::{CmdError, QuickRackButton, QuickRackCmd, QuickRacksState, RackCmd, RackPrompt};
 use crate::launchkey::{Action, QuickPanel};
+use std::collections::BTreeMap;
 use crate::racks::quick::{self, QuickRacks, BANKS, SLOTS};
 use std::path::{Path, PathBuf};
 
@@ -83,6 +92,14 @@ impl Control {
                 self.quick.store = !self.quick.store;
                 self.quick.waiting = None;
                 Ok(())
+            }
+            QuickRackCmd::StoreRack { slot } => {
+                if slot as usize >= SLOTS {
+                    return self.fail(format!("no Quick Rack {}", slot as usize + 1));
+                }
+                self.quick.store = false;
+                self.quick.waiting = None;
+                self.capture_quick(self.quick.bank, slot)
             }
             QuickRackCmd::ClearQuickRack { bank, slot } => {
                 if bank as usize >= BANKS || slot as usize >= SLOTS {
@@ -155,6 +172,84 @@ impl Control {
         }
     }
 
+    /// Hold Sound + tap button `slot` of the bank on view captures the live rack
+    /// (`storeRack`) rather than loading: on the button the live rack came from (lit), or
+    /// an empty one (or one whose rack is gone). A button holding another rack loads it.
+    pub(super) fn sound_tap_captures(&self, slot: u8) -> bool {
+        match self.quick.get(self.quick.bank, slot) {
+            None => true,
+            Some(id) => self.live_rack.id.as_deref() == Some(id) || !self.presence.racks().iter().any(|r| r.id == id),
+        }
+    }
+
+    /// `storeRack`: the live rack, saved as it goes, on button (`bank`, `slot`). The lit
+    /// button's rack takes the live rack's changes; elsewhere a saved rack with no changes
+    /// goes on as it is, and anything else is saved as a new rack named from its sounds.
+    fn capture_quick(&mut self, bank: u8, slot: u8) -> Result<(), CmdError> {
+        if let Some(e) = self.quick_refusal() {
+            return self.fail(e);
+        }
+        self.presence.refresh_racks(false);
+        let own = self.live_rack.id.clone().filter(|id| self.presence.racks().iter().any(|r| r.id == *id));
+        let lit = own.is_some() && self.quick.get(bank, slot) == own.as_deref();
+        let id = match own {
+            Some(id) if !self.live_rack.modified => id,
+            Some(id) if lit => {
+                self.save_live(None)?;
+                id
+            }
+            _ => {
+                let base = self.live_sounds_name().unwrap_or_else(|| super::live_rack::NEW_NAME.to_string());
+                let name = {
+                    let dir = self.presence.racks_dir();
+                    let racks = self.presence.racks();
+                    quick::unique_name(&base, |n| {
+                        racks.iter().any(|r| r.name.eq_ignore_ascii_case(n)) || dir.is_some_and(|d| crate::racks::path_for(d, n).exists())
+                    })
+                };
+                self.save_live(Some(name))?;
+                match self.live_rack.id.clone() {
+                    Some(id) => id,
+                    None => return self.fail("the rack was not saved"),
+                }
+            }
+        };
+        self.put_quick(bank, slot, id)
+    }
+
+    /// Save the live rack (`saveRack`, or `saveRackAs` with a name) with no dialog: edited
+    /// presets that become new sounds take their suggested names, and a prompt up in the
+    /// app (unsaved changes before a switch) is dismissed, so no switch follows the save.
+    fn save_live(&mut self, save_as: Option<String>) -> Result<(), CmdError> {
+        self.live_rack.prompt = None;
+        let cmd = |sound_names: BTreeMap<u8, String>| match &save_as {
+            Some(name) => RackCmd::SaveRackAs { name: name.clone(), sound_names },
+            None => RackCmd::SaveRack { sound_names },
+        };
+        match self.rack_cmd(cmd(BTreeMap::new())) {
+            Err(CmdError::NeedsSoundNames) => {
+                let names = match self.live_rack.prompt.take() {
+                    Some(RackPrompt::SoundNames { parts, .. }) => {
+                        parts.into_iter().map(|p| (p.part, if p.suggested.trim().is_empty() { "Sound".to_string() } else { p.suggested })).collect()
+                    }
+                    _ => BTreeMap::new(),
+                };
+                let r = self.rack_cmd(cmd(names));
+                if r.is_err() {
+                    self.live_rack.prompt = None;
+                }
+                r
+            }
+            r => r,
+        }
+    }
+
+    /// The live rack's sounds as a rack name: the parts that are on (`quick::name_from_sounds`).
+    fn live_sounds_name(&self) -> Option<String> {
+        let names: Vec<String> = (0..crate::parts::COUNT).filter(|&p| self.shared.parts.is_on(p)).map(|p| self.part_sound_named(p).0.voice_name).collect();
+        quick::name_from_sounds(names.iter().map(String::as_str))
+    }
+
     fn put_quick(&mut self, bank: u8, slot: u8, id: String) -> Result<(), CmdError> {
         self.quick.store = false;
         self.quick.waiting = None;
@@ -211,9 +306,21 @@ impl Control {
     }
 
     /// A Launchkey pad or button, or a pedal: its command, run as the hardware (no dialog).
+    ///
+    /// A Quick Rack pad tapped under the Sound hold comes as `Action::QuickRackHeld`: the
+    /// input thread read the hold when the pad went down, so nothing here reads
+    /// `Shared::layer`, which may have moved on since (the hold let go before the pump
+    /// ran). With Store not armed, the lit pad or an empty one captures the live rack
+    /// (`storeRack`); otherwise it is the plain press (a recall, or the armed Store).
     pub(super) fn apply_hardware(&mut self, a: Action) -> Result<(), CmdError> {
         self.hardware = true;
-        let r = self.apply(a.into());
+        let cmd = match a {
+            Action::QuickRackHeld(slot) if !self.quick.store && (slot as usize) < SLOTS && self.sound_tap_captures(slot) => {
+                QuickRackCmd::StoreRack { slot }.into()
+            }
+            a => a.into(),
+        };
+        let r = self.apply(cmd);
         self.hardware = false;
         r
     }

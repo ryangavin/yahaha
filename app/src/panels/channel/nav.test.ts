@@ -14,6 +14,7 @@ afterEach(() => {
   channelNav.close()
   ui.selectedPart = 0
   ui.effects = false
+  ui.mixer = false
 })
 
 function setup() {
@@ -56,6 +57,23 @@ describe('Channel view in the display', () => {
     expect(channel()).not.toBeNull()
     await fireEvent.keyDown(window, { key: 'Escape' })
     expect(channel()).toBeNull()
+  })
+
+  it('with the Details layer shown a strip name only selects the part', () => {
+    setup()
+    ui.mixer = true
+    flushSync()
+    clickStrip(2)
+    expect(ui.selectedPart).toBe(2)
+    expect(channelNav.open).toBe(false)
+    ui.mixer = false
+    flushSync()
+    clickStrip(2)
+    expect(channelNav.open).toBe(true)
+    ui.mixer = true
+    flushSync()
+    clickStrip(2)
+    expect(channelNav.open).toBe(true)
   })
 
   it('‹ › step the selected part and × closes', async () => {

@@ -65,6 +65,40 @@ function rackFns(m: ControlMap): Fn[] {
   return m.knobs.slice(0, 8).map(rackFn)
 }
 
+/** Swap mode's part labels on the display and the knobs' page name (`SWAP_LABELS`). */
+export const SWAP_LABELS = ['R1', 'R2', 'R3', 'L']
+
+/** Swap mode's knobs for keyboard part `part` (`session::knobs::swap_map`): knob 1 is the
+ * sound (`swapSound`, none here), then its level, pan, reverb, chorus and delay sends,
+ * its insert 1's first setting (its amount) and its level to send 4. */
+function swapFns(part: number): Fn[] {
+  const t: ControlTarget[] = [
+    { kind: 'none' },
+    { kind: 'partLevel', part },
+    { kind: 'partPan', part },
+    { kind: 'partReverb', part },
+    { kind: 'partChorus', part },
+    { kind: 'partDelay', part },
+    { kind: 'partInsertSetting', part, slot: 0, setting: 0 },
+    { kind: 'partSend', part, send: 3 },
+  ]
+  return t.map(rackFn)
+}
+
+/** The keyboard part in swap mode (`surface.layer` swap), or null. */
+export function swapPart(s: AppState): number | null {
+  const l = s.surface?.layer
+  return l?.type === 'swap' && l.part >= 0 && l.part < 4 ? l.part : null
+}
+
+/** Swap mode's knob 1 as it reads: the part's sound number and name ("23 Rhodes Soft"), or
+ * "-" when it plays no numbered sound (`swap_sound_text`). */
+function swapSoundText(s: AppState, part: number): string {
+  const id = s.keyboardParts[part]?.patch
+  const p = id ? s.soundLibrary.patches.find((x) => x.id === id) : undefined
+  return p ? `${p.number} ${p.name}` : '-'
+}
+
 /** A fader's route on the input thread for target `t` of fader `f` (`knobs::fader_routes`). */
 export function faderRoute(t: ControlTarget, f: number): 'own' | 'off' | 'control' {
   if (t.kind === 'partLevel' && t.part === f) return 'own'
@@ -193,6 +227,7 @@ const NAMES: Record<KnobFunction, [string, string]> = {
   insertSetting: ['', ''],
   partSend: ['', ''],
   rotaryFast: ['Rotary Fast/Slow', 'Rotary'],
+  swapSound: ['Sound', 'Sound'],
 }
 /** The strip functions' part names, full and short (Right 1-3, Left). */
 const STRIP_PART: [string, string][] = [['Right 1', 'R1'], ['Right 2', 'R2'], ['Right 3', 'R3'], ['Left', 'L']]
@@ -236,17 +271,34 @@ export class MockKnobs {
     this.setPage(ORDER[clamp(ORDER.indexOf(this.page) + delta, 0, ORDER.length - 1)])
   }
 
-  /** The page's knobs: the Rack page's follow the live rack's controller map. */
+  /** The page's knobs: the Rack page's follow the live rack's controller map; in swap mode
+   * the held part's. */
   private fns(s: AppState): Fn[] {
+    const part = swapPart(s)
+    if (part !== null) return swapFns(part)
     return this.page === 'rack' ? rackFns(s.liveRack.controls) : PAGES[this.page]
   }
 
-  /** Knob `knob` turned `delta` steps: the command it runs, or null. */
+  /** Knob `knob` turned `delta` steps: the command it runs, or null. In swap mode the
+   * held part's knob (`turnSwap`). */
   turn(knob: number, delta: number, s: AppState): AppCmd | null {
-    const f = this.fns(s)[knob] ?? NONE
+    const part = swapPart(s)
+    if (part !== null) return this.turnSwap(part, knob, delta, s)
+    return this.run(this.fns(s)[knob] ?? NONE, knob, delta, s)
+  }
+
+  /** Swap mode's knob `knob` of keyboard part `part` turned `delta` steps
+   * (`turnSwapKnob`), whatever the page: knob 1 steps the sound, knobs 2-8 its mix. */
+  turnSwap(part: number, knob: number, delta: number, s: AppState): AppCmd | null {
+    if (knob === 0) return { type: 'swapSound', part, step: delta }
+    return this.run(swapFns(part)[knob] ?? NONE, knob, delta, s)
+  }
+
+  private run(f: Fn, knob: number, delta: number, s: AppState): AppCmd | null {
     const level = (v: number) => clamp(v + delta * LEVEL_STEP, 0, 127)
     switch (f.fn) {
       case 'none':
+      case 'swapSound':
         return null
       case 'dynamics':
         return { type: 'setDynamics', level: level(s.dynamics.level) }
@@ -337,7 +389,9 @@ export class MockKnobs {
   reset(knob: number, s: AppState): AppCmd | null {
     const f = this.fns(s)[knob] ?? NONE
     switch (f.fn) {
+      // The sound has no default to go back to.
       case 'none':
+      case 'swapSound':
         return null
       case 'dynamics':
         return s.dynamics.level === 127 ? null : { type: 'setDynamics', level: 127 }
@@ -412,9 +466,14 @@ export class MockKnobs {
     return clamp(n, -6, 6)
   }
 
+  /** The knobs as the state shows them: the page's, or in swap mode the held part's
+   * (`pageName` "Swap R1", knob 1 `swapSound`) over the page the knobs go back to. */
   state(s: AppState): KnobsState {
+    const part = swapPart(s)
     const knobs = this.fns(s).map((f) => this.read(f, s))
-    return { page: this.page, pageName: PAGE_NAME[this.page], pageNumber: ORDER.indexOf(this.page) + 1, pageCount: ORDER.length, knobs }
+    if (part !== null) knobs[0] = { function: 'swapSound', name: `${STRIP_PART[part][0]} Sound`, short: 'Sound', value: swapSoundText(s, part), level: null }
+    const pageName = part !== null ? `Swap ${SWAP_LABELS[part]}` : PAGE_NAME[this.page]
+    return { page: this.page, pageName, pageNumber: ORDER.indexOf(this.page) + 1, pageCount: ORDER.length, knobs }
   }
 
   /** Function `f` as it reads now (on a knob, or on a fader the controller map gives it). */
@@ -428,6 +487,7 @@ export class MockKnobs {
       const r = (value: string, level: number | null) => ({ function: f.fn, name, short, value, level })
       switch (f.fn) {
         case 'none': return r('', null)
+        case 'swapSound': return r(swapSoundText(s, f.part ?? 0), null)
         case 'dynamics': return r(String(s.dynamics.level), s.dynamics.level)
         case 'retriggerRate': {
           const rate = s.styleSettings.retriggerRate

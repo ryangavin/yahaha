@@ -30,7 +30,7 @@ impl Control {
             beats_per_bar: self.info.timesig.0,
             section_bars: (s.section_bars > 0).then_some(s.section_bars),
             tempo: s.bpm,
-            lamps: self.pads(&v.pnl, Page::Sections),
+            lamps: self.pads(&v.pnl, Page::Sections, crate::launchkey::Layer::None),
             half_bar_fill: s.half_bar_fill,
             stop_acmp_mode: s.stop_acmp_mode.into(),
             fade: s.fade,

@@ -207,6 +207,9 @@ pub struct MockSession {
     sounds: sounds::MockSounds,
     /// Knob Assign pages (#197): the engine's own model.
     knobs: yahaha::knobs::Knobs,
+    /// The held control's layer (`setLayer`, `surface.layer`): the mock has no hardware,
+    /// so only the app's mirror holds Sound or a part button.
+    layer: Layer,
     /// The user's racks (mock_racks.rs).
     racks: racks::MockRacks,
     /// Channel strips and send effects (the mixer rework): the engine's own model, as the
@@ -353,7 +356,7 @@ impl MockSession {
                 style_solo: None,
                 part_solo: None,
             },
-            pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: Page::ALL.len() as u8, pads: vec![], connected: true, palette_leds: false },
+            pads: PadsState { page: Page::Sections, page_name: String::new(), page_number: 1, page_count: Page::ALL.len() as u8, pages: vec![], pads: vec![], connected: true, palette_leds: false },
             ots: OtsState { settings: vec![], applied: 0, link: false, link_timing: OtsLinkTiming::MainChange, racks: vec![], racks_read_only: false },
             library: LibraryStatus {
                 revision: 1,
@@ -430,6 +433,7 @@ impl MockSession {
             live_rack: LiveRackState { name: "New rack".into(), id: None, modified: false, controls: Default::default(), prompt: None },
             racks: Vec::new(),
             quick_racks: QuickRacksState::default(),
+            settings: SettingsState::default(),
         };
         let mut m = MockSession {
             state,
@@ -463,6 +467,7 @@ impl MockSession {
             sound: sound::MockSound::default(),
             sounds: sounds::MockSounds::default(),
             knobs: Default::default(),
+            layer: Layer::None,
             racks: Default::default(),
             strips: Strips::default(),
         };
@@ -865,6 +870,76 @@ impl MockSession {
             send_count: self.strips.sends() as u8,
             rotary_fast: self.state.effects.rotary_fast,
         }
+    }
+
+    /// The knobs as the state shows them (the session's `knobs_state`): the Knob Assign
+    /// page, or in swap mode the held part's knobs (`pageName` "Swap R1", knob 1
+    /// `swapSound`), over the page the knobs go back to.
+    fn knobs_state(&self) -> KnobsState {
+        let (now, strips) = (self.knobs_now(), self.strip_now());
+        let Layer::Swap { part } = self.layer else { return self.knobs.state_at(&now, &strips) };
+        let mut st = swap_knobs(part).state_at(&now, &strips);
+        let page = self.knobs.page;
+        st.page = page;
+        st.page_number = page.index() as u8 + 1;
+        st.page_name = format!("Swap {}", SWAP_LABELS[part as usize]);
+        st.knobs[0] = KnobState {
+            function: "swapSound".into(),
+            name: format!("{} Sound", parts::NAMES[part as usize]),
+            short: "Sound".into(),
+            value: self.swap_sound_text(part),
+            level: None,
+        };
+        st
+    }
+
+    /// Swap mode's knob 1 as it reads: the part's sound number and name, or "-" when it
+    /// plays no numbered sound.
+    fn swap_sound_text(&self, part: u8) -> String {
+        let id = self.state.keyboard_parts[part as usize].patch.as_ref();
+        match self.state.sound_library.patches.iter().find(|p| Some(&p.patch.id) == id) {
+            Some(p) => format!("{} {}", p.number, p.patch.name),
+            None => "-".into(),
+        }
+    }
+
+    /// Swap mode: knob `knob` (0-7) of keyboard part `part` turned `delta` steps (the
+    /// session's `swap_knob`): knob 1 steps the sound by number, knobs 2-8 the mix.
+    fn swap_knob(&mut self, part: u8, knob: u8, delta: i8) {
+        if knob == 0 {
+            return self.swap_sound(part, delta as i32);
+        }
+        let (now, strips) = (self.knobs_now(), self.strip_now());
+        if let Some(cmd) = swap_knobs(part).turn_at(knob, delta, &now, &strips) {
+            self.cmd(cmd);
+        }
+    }
+
+    /// `swapSound` (the session's `swap_sound`): step keyboard part `part`'s sound by
+    /// `step` sound numbers, keeping its mix. Stops at the first and last number; a part
+    /// playing no numbered sound dials from before 1.
+    fn swap_sound(&mut self, part: u8, step: i32) {
+        let p = part as usize;
+        if p >= parts::COUNT {
+            return self.message(format!("no keyboard part {part}"), true);
+        }
+        let lib = &self.state.sound_library.patches;
+        if lib.is_empty() {
+            return self.message(format!("{}: no sounds in the library to swap to", parts::NAMES[p]), true);
+        }
+        let k = &self.state.keyboard_parts[p];
+        let now = lib.iter().find(|x| Some(&x.patch.id) == k.patch.as_ref()).map_or(0, |x| x.number);
+        let to = (now as i64 + step as i64).clamp(1, lib.len() as i64) as u32;
+        if to == now {
+            return;
+        }
+        let Some(id) = lib.iter().find(|x| x.number == to).map(|x| x.patch.id.clone()) else {
+            return self.message(format!("no sound number {to}"), true);
+        };
+        let mix = (k.volume, k.pan, k.reverb, k.chorus, k.variation, k.octave, k.on);
+        self.cmd(SoundLibraryCmd::SetPartPatch { part, id: Some(id) }.into());
+        let k = &mut self.state.keyboard_parts[p];
+        (k.volume, k.pan, k.reverb, k.chorus, k.variation, k.octave, k.on) = mix;
     }
 
     /// A keyboard part's own plugin patch plays its plugin (the session's
@@ -1351,7 +1426,7 @@ impl MockSession {
         // Plugin instances loaded (#407): one per keyboard part playing one.
         self.state.plugins.instances =
             self.state.keyboard_parts.iter().filter(|k| k.plugin.as_ref().is_some_and(|p| p.status == PluginStatus::Playing)).count() as u32;
-        self.state.knobs = self.knobs.state_at(&self.knobs_now(), &self.strip_now());
+        let layer = self.layer;
         let st = &mut self.state;
         let c = &mut st.chord;
         c.fingering_name = if c.upper { "Fingered*".into() } else { c.fingering.name().into() };
@@ -1392,19 +1467,27 @@ impl MockSession {
         for (p, hw) in st.mixer.style_parts.iter_mut().zip(self.hw_faders) {
             p.fader = Some(hw);
         }
-        st.pads.page_name = st.pads.page.name().into();
-        st.pads.page_number = st.pads.page as u8 + 1;
+        // The page and the page order (`settings.padPages`), as the session shows them.
+        let order = page_order(st);
+        // Hold Sound: the pads show (and do) the Racks page; `page` stays the one on view.
+        let shown = layer.pads(st.pads.page);
+        st.pads.page_name = shown.name().into();
+        st.pads.page_number = order.position(st.pads.page).map_or(1, |i| i as u8 + 1);
+        st.pads.page_count = order.len() as u8;
+        st.pads.pages = order.pages().map(|page| PadPageInfo { page, name: page.name().into() }).collect();
         // Where a fill (or the Break) queued or playing lands (#282).
         let fill_like = |x: &Option<String>| x.as_deref().is_some_and(|x| FILLS.contains(&x) || x == BREAK);
         let t = &mut st.transport;
         t.landing = (t.running && (fill_like(&t.queued) || fill_like(&t.section))).then(|| MAINS[t.main as usize % 4].into());
         st.transport.lamps = pads_for(st, Page::Sections);
         st.home = crate::mock_home::home(st);
-        st.pads.pads = pads_for(st, st.pads.page);
-        self.quick.fill(st, &self.racks.entries());
+        st.pads.pads = pads_for(st, shown);
+        self.quick.fill(st, &self.racks.entries(), layer);
         self.style_racks.fill(st, &self.racks.entries());
         // Every part's strip and the send effects (`Strips::fill`, as the session).
         self.strips.fill(st);
+        // The knobs last: in swap mode knob 1 reads the part's sound as just derived.
+        self.state.knobs = self.knobs_state();
         self.anchor_clocks();
         self.state.surface = self.surface();
     }
@@ -1438,20 +1521,14 @@ impl MockSession {
         let mask = |bits: Vec<bool>| bits.iter().enumerate().fold(0u8, |m, (i, on)| m | (*on as u8) << i);
         let parts_on = mask(st.keyboard_parts.iter().map(|p| p.sounding).collect());
         let style_on = lk::style_lit(mask(st.mixer.style_parts.iter().map(|p| p.on).collect()), st.chord.manual_bass_active);
-        let fault = st.keyboard_parts.iter().find(|p| p.selected).and_then(|p| p.plugin.as_ref()).is_some_and(|p| matches!(p.status, PluginStatus::Muted | PluginStatus::Failed));
-        let looper = match st.looper.mode {
-            LooperMode::Off if st.looper.has_data => lk::LooperLamp::Ready,
-            LooperMode::Off => lk::LooperLamp::Empty,
-            LooperMode::RecArmed => lk::LooperLamp::RecArmed,
-            LooperMode::Recording => lk::LooperLamp::Recording,
-            LooperMode::LoopArmed => lk::LooperLamp::LoopArmed,
-            LooperMode::Looping => lk::LooperLamp::Looping,
-        };
-        let colours = lk::button_colours(page, styles, fader_page, st.mixer.fader_layer, parts_on, style_on, lk::PanelLamps { harmony_arp: st.harmony_arp.on, plugin_fault: fault, left_hold: st.chord.left_hold, looper });
+        let order = page_order(st);
+        // No hardware: Sound is held only through the app's mirror (`setLayer`).
+        let lamps = lk::PanelLamps { harmony_arp: st.harmony_arp.on, sound: self.layer == Layer::Sound, left_hold: st.chord.left_hold, looper: looper_lamp(st) };
+        let colours = lk::button_colours(page, order, styles, fader_page, st.mixer.fader_layer, parts_on, style_on, lamps);
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match lk::cc_control(cc, shift)? {
                 Control::Page(d) => {
-                    let to = page.step(d);
+                    let to = order.step(page, d);
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 Control::Act(Action::Style(_)) if !styles => None,
@@ -1460,8 +1537,10 @@ impl MockSession {
             }
         };
         let mut controls = Vec::new();
+        // Sound (fader button 6) is a hold: labelled, with no action.
+        let sound_cc = lk::FADER_BTN_CC.start() + lk::SOUND_FADER_BTN;
         let mut push = |id: String, cc: u8, label: &str, action: Option<AppCmd>, shift: Option<(&str, Option<AppCmd>)>| {
-            let label = if action.is_some() { label.to_string() } else { String::new() };
+            let label = if action.is_some() || cc == sound_cc { label.to_string() } else { String::new() };
             let (shift_label, shift_action) = match shift {
                 Some((l, a)) => (if a.is_some() { l.to_string() } else { String::new() }, a),
                 None => (label.clone(), action.clone()),
@@ -1496,11 +1575,16 @@ impl MockSession {
             push(id.to_string(), cc, label, a, shift);
         }
         // The buttons under faders 1-8: Panel = Right 1-3 and Left on/off (Shift: select),
-        // Style = the Style parts' mute.
+        // Style = the Style parts' mute. Button 6 is Sound on both pages (hold: the pads
+        // act as the Racks page); on the Style page, Shift + it mutes the Pad part.
         for i in 0..8u8 {
             let cc = lk::FADER_BTN_CC.start() + i;
             let id = format!("faderButton{}", i + 1);
             match fader_page {
+                FaderPage::Panel if i == lk::SOUND_FADER_BTN => push(id, cc, "SOUND", None, Some(("", None))),
+                FaderPage::Style if i == lk::SOUND_FADER_BTN => {
+                    push(id, cc, "SOUND", None, Some(("PAD", Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })))))
+                }
                 FaderPage::Panel if (i as usize) < parts::COUNT => {
                     let p = i as usize;
                     let shift = (lk::SELECT_LABELS[p], Some(AppCmd::Parts(PartsCmd::SelectPart { part: i })));
@@ -1508,9 +1592,6 @@ impl MockSession {
                 }
                 FaderPage::Panel if i == lk::HARM_ARP_FADER_BTN => {
                     push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
-                }
-                FaderPage::Panel if i == lk::PLUGIN_FADER_BTN => {
-                    push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
                 }
                 FaderPage::Panel if i == lk::LEFT_HOLD_FADER_BTN => push(id, cc, "L HOLD", Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)), None),
                 FaderPage::Panel if i == lk::LOOPER_FADER_BTN => {
@@ -1637,6 +1718,7 @@ impl MockSession {
         let t = &st.transport;
         SurfaceState {
             shift: false,
+            layer: self.layer,
             controls,
             faders,
             track_prev: self.neighbour(-1),
@@ -2052,6 +2134,7 @@ impl MockSession {
                     self.gm_voice(i);
                 }
             }
+            AppCmd::Parts(PartsCmd::SwapSound { part, step }) => self.swap_sound(part, step as i32),
             AppCmd::Parts(PartsCmd::SetPartVolume { part, volume }) => {
                 if let Some(p) = self.state.keyboard_parts.get_mut(part as usize) {
                     p.volume = vol(volume);
@@ -2104,10 +2187,30 @@ impl MockSession {
                 let page = if self.state.mixer.fader_page == FaderPage::Panel { FaderPage::Style } else { FaderPage::Panel };
                 self.set_fader_page(page);
             }
-            AppCmd::Pads(PadsCmd::SetPadPage { page }) => self.state.pads.page = page,
-            AppCmd::Pads(PadsCmd::CyclePadPage { delta }) => {
-                let i = self.state.pads.page as i8;
-                self.state.pads.page = Page::ALL[(i as i16 + delta as i16).rem_euclid(Page::ALL.len() as i16) as usize];
+            AppCmd::Pads(PadsCmd::SetPadPage { page }) => {
+                if !page_order(&self.state).contains(page) {
+                    return self.message(format!("The {} page is left out of the pad page order", page.name()), true);
+                }
+                self.state.pads.page = page;
+            }
+            // The app's mirror of the Launchkey holds or releases Sound or a part button.
+            AppCmd::Pads(PadsCmd::SetLayer { layer }) => {
+                if let Layer::Swap { part } = layer
+                    && part as usize >= parts::COUNT
+                {
+                    return self.message(format!("no keyboard part {part}"), true);
+                }
+                self.layer = layer;
+            }
+            AppCmd::Pads(PadsCmd::CyclePadPage { delta }) => self.state.pads.page = page_order(&self.state).cycle(self.state.pads.page, delta),
+            AppCmd::Pads(PadsCmd::SetPadPageOrder { pages }) => {
+                let Some(order) = lk::PageOrder::new(&pages) else {
+                    return self.message("A pad page order lists pages 2-5 at most once each, without Sections", true);
+                };
+                self.state.settings.pad_pages = order.movable().collect();
+                if !order.contains(self.state.pads.page) {
+                    self.state.pads.page = Page::Sections;
+                }
             }
             AppCmd::Mixer(MixerCmd::SetMasterVolume { volume }) => {
                 if self.state.io.synth.is_some() {
@@ -2226,6 +2329,10 @@ impl MockSession {
                 KnobsCmd::SetKnobPage { page } => self.knobs.set_page(page),
                 KnobsCmd::StepKnobPage { delta } => self.knobs.set_page(self.knobs.page.step(delta)),
                 KnobsCmd::TurnKnob { knob, delta } => {
+                    // Swap mode: the knobs are the held part's.
+                    if let Layer::Swap { part } = self.layer {
+                        return self.swap_knob(part, knob, delta);
+                    }
                     let (now, strips) = (self.knobs_now(), self.strip_now());
                     if let Some(cmd) = self.knobs.turn_at(knob, delta, &now, &strips) {
                         self.cmd(cmd);
@@ -2233,9 +2340,21 @@ impl MockSession {
                 }
                 KnobsCmd::ResetKnob { knob } => {
                     let (now, strips) = (self.knobs_now(), self.strip_now());
-                    if let Some(cmd) = self.knobs.reset_at(knob, &now, &strips) {
+                    let cmd = match self.layer {
+                        // The sound has no default to go back to.
+                        Layer::Swap { .. } if knob == 0 => None,
+                        Layer::Swap { part } => swap_knobs(part).reset_at(knob, &now, &strips),
+                        _ => self.knobs.reset_at(knob, &now, &strips),
+                    };
+                    if let Some(cmd) = cmd {
                         self.cmd(cmd);
                     }
+                }
+                KnobsCmd::TurnSwapKnob { part, knob, delta } => {
+                    if part as usize >= parts::COUNT || knob >= 8 {
+                        return self.message(format!("no swap knob {} for keyboard part {part}", knob as u16 + 1), true);
+                    }
+                    self.swap_knob(part, knob, delta);
                 }
             },
             // The effect bus (#204), as the session: a type must be the block's own.
@@ -2347,6 +2466,10 @@ impl MockSession {
             // Channel strips and sends, as the session's `strips_cmd`: what an older
             // command covers goes through it, and everything is kept in `strips`.
             AppCmd::Strips(c) => {
+                // A command the strips refuse changes nothing: the older ones don't run.
+                if let Err(e) = self.strips.check(&c) {
+                    return self.message(e, true);
+                }
                 for old in c.legacy() {
                     self.cmd(old);
                 }
@@ -2471,7 +2594,7 @@ const C_STOPSYNC: [u8; 3] = [0, 110, 110];
 const C_RUN: [u8; 3] = [0, 127, 0];
 const C_IDLE: [u8; 3] = [127, 0, 0];
 const C_CHORD: [u8; 3] = [0, 100, 127];
-const C_OTS: [u8; 3] = [127, 0, 70];
+const C_SETUP: [u8; 3] = [127, 0, 70];
 
 fn pad(note: u8, label: &str, key: &str, action: Option<AppCmd>, (rgb, level, anim): ([u8; 3], Level, Anim)) -> Pad {
     Pad { note, label: label.into(), key: key.into(), rgb, level, anim, action, palette: None }
@@ -2479,6 +2602,74 @@ fn pad(note: u8, label: &str, key: &str, action: Option<AppCmd>, (rgb, level, an
 
 fn toggle(on: bool, rgb: [u8; 3]) -> ([u8; 3], Level, Anim) {
     (rgb, if on { Level::Bright } else { Level::Dim }, Anim::Solid)
+}
+
+/// The pad page order (`settings.padPages`): Sections, then the player's pages 2-5.
+fn page_order(s: &AppState) -> lk::PageOrder {
+    lk::PageOrder::new(&s.settings.pad_pages).unwrap_or_default()
+}
+
+/// The Chord Looper's lamp (fader button 8).
+fn looper_lamp(s: &AppState) -> lk::LooperLamp {
+    match s.looper.mode {
+        LooperMode::Off if s.looper.has_data => lk::LooperLamp::Ready,
+        LooperMode::Off => lk::LooperLamp::Empty,
+        LooperMode::RecArmed => lk::LooperLamp::RecArmed,
+        LooperMode::Recording => lk::LooperLamp::Recording,
+        LooperMode::LoopArmed => lk::LooperLamp::LoopArmed,
+        LooperMode::Looping => lk::LooperLamp::Looping,
+    }
+}
+
+/// Swap mode's part labels, as the display's (`src/session/display.rs`).
+const SWAP_LABELS: [&str; 4] = ["R1", "R2", "R3", "L"];
+
+/// Swap mode's knobs for keyboard part `part` (the session's `swap_knobs`), turned and read
+/// as the Rack page's: knob 1 is `swapSound`'s, then level, pan, reverb, chorus, delay,
+/// insert 1's amount and send 4.
+fn swap_knobs(part: u8) -> yahaha::knobs::Knobs {
+    use yahaha::racks::{ControlMap, ControlTarget as T};
+    let map = ControlMap {
+        faders: Default::default(),
+        knobs: [
+            T::None,
+            T::PartLevel { part },
+            T::PartPan { part },
+            T::PartReverb { part },
+            T::PartChorus { part },
+            T::PartDelay { part },
+            T::PartInsertSetting { part, slot: 0, setting: 0 },
+            T::PartSend { part, send: 3 },
+        ],
+    };
+    let mut k = yahaha::knobs::Knobs::default();
+    k.set_page(yahaha::knobs::KnobPage::Rack);
+    k.set_rack(&map);
+    k
+}
+
+/// What the engine's Launchkey pages draw from (`launchkey::Panel`), from the mock's state
+/// and Quick Racks' `quick`. The mock has no hardware: no layer is held.
+fn lk_panel(s: &AppState, quick: lk::QuickPanel) -> lk::Panel {
+    let parts = &s.keyboard_parts;
+    lk::Panel {
+        page: s.pads.page,
+        layer: Layer::None,
+        order: page_order(s),
+        fingering: s.chord.fingering,
+        upper: s.chord.upper,
+        manual_bass: s.chord.manual_bass,
+        ots_count: s.ots.settings.len() as u8,
+        ots_applied: s.ots.applied,
+        ots_link: s.ots.link,
+        harmony_arp: s.harmony_arp.on,
+        left_hold: s.chord.left_hold,
+        looper: looper_lamp(s),
+        parts_on: parts.iter().enumerate().fold(0, |m, (i, p)| m | (p.on as u8) << i),
+        selected: parts.iter().position(|p| p.selected).unwrap_or(0) as u8,
+        quick,
+        rotary_fast: s.effects.rotary_fast,
+    }
 }
 
 fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
@@ -2497,10 +2688,11 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
         }
     };
     let page_pad = |note, label: &str, key: &str, action, available: bool, on: bool| {
-        let rgb = if page == Page::ChordSetup { C_CHORD } else { C_OTS };
+        let rgb = if page == Page::Chord { C_CHORD } else { C_SETUP };
         let level = if !available { Level::Off } else if on { Level::Bright } else { Level::Dim };
         pad(note, label, key, action, (rgb, level, Anim::Solid))
     };
+    let dark = |note| page_pad(note, "", "", None, false, false);
     match page {
         Page::Sections => {
             let main = |i: usize| {
@@ -2543,16 +2735,11 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
                 pad(119, if t.running { "START" } else { "STOP" }, "spc", Some(AppCmd::Transport(TransportCmd::StartStop)), (if t.running { C_RUN } else { C_IDLE }, Level::Bright, Anim::Solid)),
             ]
         }
-        Page::ChordSetup => {
-            const LABELS: [&str; 7] = ["SINGLE", "FINGERED", "ON BASS", "MULTI", "AI FING", "FULL KBD", "AI FULL"];
+        // Page 3 by default: the mid-song chord switches on the bottom row; the top row dark.
+        Page::Chord => {
             let c = &s.chord;
-            let mut v: Vec<Pad> = Fingering::ALL
-                .iter()
-                .enumerate()
-                .map(|(i, f)| page_pad(96 + i as u8, LABELS[i], "pad", Some(AppCmd::Chord(ChordCmd::SetFingering { fingering: *f })), true, c.fingering == *f))
-                .collect();
+            let mut v: Vec<Pad> = (96..=103).map(dark).collect();
             v.extend([
-                page_pad(103, "UPPER", "d", Some(AppCmd::Chord(ChordCmd::ToggleUpper)), true, c.upper),
                 page_pad(112, "MAN BASS", "D", Some(AppCmd::Chord(ChordCmd::ToggleManualBass)), c.upper, c.manual_bass),
                 page_pad(113, "STOP ACMP", "h", Some(AppCmd::Transport(TransportCmd::ToggleStopAcmp)), true, t.stop_acmp),
                 page_pad(114, "SPLIT -", "[", Some(AppCmd::Chord(ChordCmd::MoveSplit { delta: -1 })), true, false),
@@ -2564,27 +2751,27 @@ fn pads_for(s: &AppState, page: Page) -> Vec<Pad> {
             ]);
             v
         }
-        Page::OtsParts => {
-            let n = s.ots.settings.len();
-            let mut v: Vec<Pad> = (0..4)
-                .map(|i| page_pad(96 + i as u8, &format!("OTS {}", i + 1), &format!("⇧{}", i + 1), Some(AppCmd::Ots(OtsCmd::RecallOts { index: i as u8 })), i < n, s.ots.applied as usize == i + 1))
+        // Last by default: the set-and-forget switches, each saved in settings.json.
+        Page::Setup => {
+            const LABELS: [&str; 7] = ["SINGLE", "FINGERED", "ON BASS", "MULTI", "AI FING", "FULL KBD", "AI FULL"];
+            let c = &s.chord;
+            let mut v: Vec<Pad> = Fingering::ALL
+                .iter()
+                .enumerate()
+                .map(|(i, f)| page_pad(96 + i as u8, LABELS[i], "pad", Some(AppCmd::Chord(ChordCmd::SetFingering { fingering: *f })), true, c.fingering == *f))
                 .collect();
+            let acmp = |mode| Some(AppCmd::Transport(TransportCmd::SetStopAcmp { mode }));
             v.extend([
-                page_pad(100, "OTS LINK", "F10", Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)), true, s.ots.link),
-                page_pad(101, "FADE", "F", Some(AppCmd::Transport(TransportCmd::ToggleFade)), true, t.fade != FadeState::Off),
-                page_pad(102, "VOICE -", "9", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: -1 })), true, false),
-                page_pad(103, "VOICE +", "0", Some(AppCmd::Parts(PartsCmd::StepVoice { delta: 1 })), true, false),
+                page_pad(103, "UPPER", "d", Some(AppCmd::Chord(ChordCmd::ToggleUpper)), true, c.upper),
+                page_pad(112, "OTS LINK", "F10", Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)), true, s.ots.link),
+                page_pad(113, "ACMP STYLE", "pad", acmp(StopAcmpMode::Style), true, t.stop_acmp_mode == StopAcmpMode::Style),
+                page_pad(114, "ACMP FIXED", "pad", acmp(StopAcmpMode::Fixed), true, t.stop_acmp_mode == StopAcmpMode::Fixed),
             ]);
-            for (i, (label, key)) in [("RIGHT 1", "5"), ("RIGHT 2", "6"), ("RIGHT 3", "7"), ("LEFT", "8/l")].iter().enumerate() {
-                v.push(page_pad(112 + i as u8, label, key, Some(AppCmd::Parts(PartsCmd::TogglePart { part: i as u8 })), true, s.keyboard_parts[i].on));
-            }
-            for (i, label) in ["EDIT R1", "EDIT R2", "EDIT R3", "EDIT L"].iter().enumerate() {
-                v.push(page_pad(116 + i as u8, label, &format!("F{}", i + 1), Some(AppCmd::Parts(PartsCmd::SelectPart { part: i as u8 })), true, s.keyboard_parts[i].selected));
-            }
+            v.extend((115..=119).map(dark));
             v
         }
-        // Page 4 comes from the Quick Racks mock (`MockQuick::fill`).
-        Page::QuickRacks | Page::MultiPads => vec![],
+        // The Racks page comes from the Quick Racks mock (`MockQuick::fill`).
+        Page::Racks | Page::MultiPads => vec![],
     }
 }
 
@@ -2742,6 +2929,19 @@ mod tests {
         // A refused one says why.
         m.send(StripCmd::RemoveSend { send: 1 });
         assert!(m.state.message.as_ref().is_some_and(|x| x.error), "{:?}", m.state.message);
+    }
+
+    /// A refused setting on an empty keyboard insert 1 changes nothing, as in the session:
+    /// the older amount command doesn't run, so the slot stays empty.
+    #[test]
+    fn a_setting_on_an_empty_insert_is_refused() {
+        let mut m = MockSession::new();
+        let before = m.state_now().keyboard_parts[0].insert;
+        m.send(StripCmd::SetStripInsertSetting { strip: 0, slot: 0, setting: 0, value: 10 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error), "{:?}", m.state.message);
+        let st = m.state_now();
+        assert_eq!(st.keyboard_parts[0].strip.inserts[0].kind, InsertType::None);
+        assert_eq!(st.keyboard_parts[0].insert, before, "the older slot is untouched");
     }
 
     fn bar_ms(m: &MockSession) -> f64 {
@@ -2984,15 +3184,23 @@ mod tests {
         assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().recent_overruns, 0);
     }
 
-    /// `reloadPartPlugin` retries the selected part's failed plugin; Panel fader button 6
-    /// is red while it needs that.
+    /// `reloadPartPlugin` retries the selected part's failed plugin. It has no Launchkey
+    /// button: Panel fader button 6 is Sound, on both fader pages, a hold with no action
+    /// (Shift + it on the Style page mutes the Pad part).
     #[test]
-    fn reload_part_plugin_and_its_launchkey_button() {
+    fn reload_part_plugin_and_the_sound_button() {
         let mut m = MockSession::new();
         let b6 = |m: &MockSession| m.surface().controls.into_iter().find(|c| c.id == "faderButton6").unwrap();
-        assert_eq!((b6(&m).label.as_str(), b6(&m).level), ("PLUGIN", Level::Off));
+        let b = b6(&m);
+        assert_eq!((b.label.as_str(), b.action, b.shift_label.as_str(), b.shift_action), ("SOUND", None, "", None));
+        assert_eq!((b.rgb, b.level), ([127, 127, 127], Level::Dim), "dim white while Sound isn't held");
+        assert_eq!(m.state.surface.layer, Layer::None);
         m.send(PluginCmd::SetPartPlugin { part: 0, id: "aumu Mock Demo".into(), state: None });
-        assert_eq!((b6(&m).level, b6(&m).action), (Level::Bright, Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None }))));
+        assert_eq!((b6(&m).label.as_str(), b6(&m).action), ("SOUND", None), "a failed plugin doesn't take the button");
+        m.send(MixerCmd::SetFaderPage { page: FaderPage::Style });
+        let b = b6(&m);
+        assert_eq!((b.label.as_str(), b.action, b.shift_label.as_str()), ("SOUND", None, "PAD"));
+        assert_eq!(b.shift_action, Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 })));
         m.send(PluginCmd::ReloadPartPlugin { part: None });
         assert_eq!(m.state.keyboard_parts[0].plugin.as_ref().unwrap().status, PluginStatus::Failed, "Broken Synth fails again");
         m.send(PluginCmd::ReloadPartPlugin { part: Some(1) });
@@ -3563,10 +3771,12 @@ mod tests {
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "PLUGIN", "L HOLD", "LOOPER", "PANEL"]
+            ["", "PAGE ▼", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "HARM/ARP", "SOUND", "L HOLD", "LOOPER", "PANEL"]
         );
         assert_eq!((s.controls[0].shift_label.as_str(), s.controls[1].shift_label.as_str()), ("LEFT", "OTS LINK"));
         assert_eq!(s.controls[0].action, None);
+        assert_eq!(s.controls[1].action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Racks })), "page 2 in the default order");
+        assert_eq!(s.layer, Layer::None);
         assert_eq!(s.controls[0].shift_action, Some(AppCmd::Parts(PartsCmd::TogglePart { part: 3 })));
         assert_eq!(s.controls[8].shift_label, "EDIT R1");
         assert_eq!(s.controls[8].shift_action, Some(AppCmd::Parts(PartsCmd::SelectPart { part: 0 })));
@@ -3582,16 +3792,18 @@ mod tests {
         assert_eq!(m.state.keyboard_parts[1].fader, Some(72));
         assert_eq!(m.state.mixer.style_parts[7].fader, Some(0));
 
-        // Style page.
+        // Style page, on the last pad page: no Pad Bank ▼.
         m.send(MixerCmd::ToggleFaderPage);
-        m.send(PadsCmd::SetPadPage { page: Page::MultiPads });
+        m.send(PadsCmd::SetPadPage { page: Page::Setup });
         let s = &m.state.surface;
         assert_eq!(
             labels(&m),
-            ["PAGE ▲", "", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "PAD", "PHRASE 1", "PHRASE 2", "STYLE"]
+            ["PAGE ▲", "", "◀ STYLE", "STYLE ▶", "PLAY", "STOP", "TEMPO +", "TEMPO -", "RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "SOUND", "PHRASE 1", "PHRASE 2", "STYLE"]
         );
+        assert_eq!(s.controls[0].action, Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::MultiPads })));
         assert_eq!(s.controls[8].shift_label, "RHYTHM 1");
-        assert_eq!(s.controls[13].action, Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 })));
+        assert_eq!((s.controls[13].action.clone(), s.controls[13].shift_label.as_str()), (None, "PAD"));
+        assert_eq!(s.controls[13].shift_action, Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: 5 })));
         assert_eq!(faders(&m), ["RHYTHM 1", "RHYTHM 2", "BASS", "CHORD 1", "CHORD 2", "PAD", "PHRASE 1", "PHRASE 2", "MASTER"]);
         assert_eq!(s.faders[5].set, Some(AppCmd::Mixer(MixerCmd::SetStylePartVolume { part: 5, volume: 0 })));
     }
@@ -3676,9 +3888,9 @@ mod tests {
     }
 
     /// Quick Racks as the session does them: Store (after a save when unsaved), press
-    /// through the guard, bank −/+, page 4, Shift + Track.
+    /// through the guard, bank −/+, the Racks page, Shift + Track.
     #[test]
-    fn quick_racks_store_press_and_light_page_4() {
+    fn quick_racks_store_press_and_light_the_racks_page() {
         let mut m = MockSession::new();
         m.send(QuickRackCmd::ToggleQuickRackStore);
         m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: false });
@@ -3691,12 +3903,18 @@ mod tests {
         assert!(matches!(m.state.live_rack.prompt, Some(RackPrompt::UnsavedChanges { .. })), "the guard");
         m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: true });
         assert!(!m.state.live_rack.modified);
-        m.send(PadsCmd::SetPadPage { page: Page::QuickRacks });
+        m.send(PadsCmd::SetPadPage { page: Page::Racks });
         let pads = &m.state.pads.pads;
         assert_eq!(pads.len(), 16);
         assert_eq!((pads[1].rgb, pads[0].level), ([127, 0, 0], Level::Off));
-        assert_eq!((pads[0].label.as_str(), pads[12].label.as_str(), pads[10].label.as_str()), ("QUICK 1", "STORE", ""));
+        let labels: Vec<&str> = pads[8..].iter().map(|p| p.label.as_str()).collect();
+        assert_eq!((pads[0].label.as_str(), labels), ("QUICK 1", vec!["OTS 1", "OTS 2", "OTS 3", "OTS 4", "BANK -", "BANK +", "STORE", ""]));
         assert_eq!(pads[1].action, Some(AppCmd::QuickRacks(QuickRackCmd::PressQuickRack { slot: 1, discard: false })));
+        assert_eq!(pads[8].action, Some(AppCmd::Ots(OtsCmd::RecallOts { index: 0 })));
+        assert_eq!(pads[14].action, Some(AppCmd::QuickRacks(QuickRackCmd::ToggleQuickRackStore)));
+        assert_eq!(pads[15].action, None, "the spare pad");
+        let n = m.state.ots.settings.len();
+        assert!(pads[8..12].iter().enumerate().all(|(i, p)| (p.level == Level::Off) == (i >= n)), "OTS past the style's count are dark");
         m.send(QuickRackCmd::StepQuickRackBank { delta: 1 });
         assert_eq!((m.state.quick_racks.bank, m.state.quick_racks.buttons[1].rack.clone()), (1, None));
         m.send(QuickRackCmd::ToggleQuickRackStore);
@@ -3708,6 +3926,208 @@ mod tests {
         assert_eq!((tl.shift_label.as_str(), tl.shift_action.clone()), ("RACK ▶", Some(AppCmd::QuickRacks(QuickRackCmd::StepQuickRack { delta: 1, discard: false }))));
         m.send(QuickRackCmd::ClearQuickRack { bank: 0, slot: 1 });
         assert_eq!(m.state.quick_racks.buttons[1].rack, None);
+    }
+
+    /// `storeRack` stores in one step, with no arming, as the session's `capture_quick`: an
+    /// unsaved live rack is saved as a new rack named from its on parts' sounds; a saved,
+    /// unchanged one goes on as is; a changed one is saved over its own rack on the lit
+    /// button and as a new rack elsewhere. Store armed clears.
+    #[test]
+    fn store_rack_captures_the_live_rack_in_one_step() {
+        let mut m = MockSession::new();
+        let sounds: Vec<String> = m.state.keyboard_parts.iter().filter(|k| k.on).map(|k| k.voice_name.clone()).collect();
+        let name = yahaha::racks::quick::name_from_sounds(sounds.iter().map(String::as_str)).unwrap();
+        m.send(QuickRackCmd::ToggleQuickRackStore);
+        m.send(QuickRackCmd::StoreRack { slot: 3 });
+        let q = &m.state.quick_racks;
+        assert_eq!((q.store, q.store_waiting, q.buttons[3].name.as_str(), q.buttons[3].loaded), (false, None, name.as_str(), true));
+        let (id, racks) = (m.state.live_rack.id.clone(), m.state.racks.len());
+        assert!(id.is_some() && !m.state.live_rack.modified);
+        // Saved and unchanged: it goes on as it is.
+        m.send(QuickRackCmd::StoreRack { slot: 0 });
+        assert_eq!((m.state.quick_racks.buttons[0].rack.clone(), m.state.racks.len()), (id.clone(), racks));
+        // Changed, on the lit button: saved over its own rack.
+        m.send(PartsCmd::SetPartPan { part: 0, pan: 10 });
+        assert!(m.state.live_rack.modified);
+        m.send(QuickRackCmd::StoreRack { slot: 0 });
+        assert_eq!((m.state.live_rack.id.clone(), m.state.live_rack.modified, m.state.racks.len()), (id.clone(), false, racks));
+        // Changed, elsewhere: a new rack, named from the sounds, on the button.
+        m.send(PartsCmd::SetPartPan { part: 0, pan: 20 });
+        m.send(QuickRackCmd::StoreRack { slot: 5 });
+        let q = &m.state.quick_racks;
+        assert_eq!((q.buttons[5].name.clone(), q.buttons[5].loaded, m.state.racks.len()), (format!("{name} 2"), true, racks + 1));
+        assert_eq!(q.buttons[0].rack, id, "the other buttons keep the rack they had");
+        // No slot 9.
+        assert!(!m.state.message.as_ref().is_some_and(|x| x.error));
+        m.send(QuickRackCmd::StoreRack { slot: 8 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+    }
+
+    /// `setLayer`: under Sound the pads are the Racks page from any page (`pads.page` stays
+    /// the page on view), the lit and empty Quick Rack pads capture (`storeRack`) and the
+    /// other stored ones recall; `none` releases; a part outside 0-3 is refused.
+    #[test]
+    fn set_layer_sound_shows_the_racks_page_and_captures() {
+        let mut m = MockSession::new();
+        m.send(QuickRackCmd::StoreRack { slot: 1 });
+        m.send(RackCmd::NewRack { discard: true });
+        m.send(PadsCmd::SetLayer { layer: Layer::Sound });
+        assert_eq!((m.state.surface.layer, m.state.pads.page, m.state.pads.page_name.as_str()), (Layer::Sound, Page::Sections, "Racks"));
+        let action = |m: &MockSession, note: u8| m.state.pads.pads.iter().find(|p| p.note == note).unwrap().action.clone();
+        assert_eq!(action(&m, 96), Some(QuickRackCmd::StoreRack { slot: 0 }.into()), "an empty pad: store");
+        assert_eq!(action(&m, 97), Some(QuickRackCmd::PressQuickRack { slot: 1, discard: false }.into()), "another rack: recall");
+        // Its own rack on view: the lit pad overwrites it.
+        m.send(QuickRackCmd::PressQuickRack { slot: 1, discard: true });
+        assert_eq!(action(&m, 97), Some(QuickRackCmd::StoreRack { slot: 1 }.into()), "the lit pad: overwrite");
+        // Store armed: every pad is a press again.
+        m.send(QuickRackCmd::ToggleQuickRackStore);
+        assert_eq!(action(&m, 96), Some(QuickRackCmd::PressQuickRack { slot: 0, discard: false }.into()));
+        m.send(QuickRackCmd::ToggleQuickRackStore);
+        m.send(PadsCmd::SetLayer { layer: Layer::None });
+        assert_eq!((m.state.surface.layer, m.state.pads.page_name.as_str()), (Layer::None, "Sections"));
+        assert_eq!(action(&m, 112), Some(AppCmd::Transport(TransportCmd::Main { index: 0 })));
+        m.send(PadsCmd::SetLayer { layer: Layer::Swap { part: 4 } });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        assert_eq!(m.state.surface.layer, Layer::None);
+    }
+
+    /// Swap mode: under `setLayer swap` the knobs are the part's (knob 1 its sound, the rest
+    /// its mix) and `turnKnob` goes to them; `turnSwapKnob` turns them whatever the layer.
+    #[test]
+    fn swap_knobs_turn_the_parts_sound_and_mix() {
+        let mut m = MockSession::new();
+        m.send(PadsCmd::SetLayer { layer: Layer::Swap { part: 1 } });
+        let k = &m.state.knobs;
+        assert_eq!((k.page, k.page_name.as_str(), k.knobs[0].function.as_str()), (yahaha::knobs::KnobPage::Style, "Swap R2", "swapSound"));
+        assert_eq!(k.knobs[0].name, "Right 2 Sound");
+        let v = m.state.keyboard_parts[1].volume;
+        m.send(KnobsCmd::TurnKnob { knob: 1, delta: -1 });
+        assert_eq!(m.state.keyboard_parts[1].volume, v - 2, "levels move 2 per step");
+        m.send(PadsCmd::SetLayer { layer: Layer::None });
+        assert_eq!(m.state.knobs.page_name, "Style");
+        // Without the layer: pan of Left, then its sound by number, its mix kept.
+        let pan = m.state.keyboard_parts[3].pan;
+        m.send(KnobsCmd::TurnSwapKnob { part: 3, knob: 2, delta: 3 });
+        assert!(m.state.keyboard_parts[3].pan > pan);
+        let number = |m: &MockSession| {
+            let id = m.state.keyboard_parts[3].patch.clone();
+            m.state.sound_library.patches.iter().find(|p| Some(&p.patch.id) == id.as_ref()).map_or(0, |p| p.number)
+        };
+        let (n, vol) = (number(&m), m.state.keyboard_parts[3].volume);
+        m.send(KnobsCmd::TurnSwapKnob { part: 3, knob: 0, delta: 1 });
+        assert_eq!((number(&m), m.state.keyboard_parts[3].volume), (n + 1, vol));
+        m.send(PadsCmd::SetLayer { layer: Layer::Swap { part: 3 } });
+        assert!(m.state.knobs.knobs[0].value.starts_with(&format!("{} ", n + 1)), "{}", m.state.knobs.knobs[0].value);
+        // Refused: knob 9, part 5.
+        m.send(SystemCmd::ClearMessage);
+        m.send(KnobsCmd::TurnSwapKnob { part: 0, knob: 8, delta: 1 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+        m.send(SystemCmd::ClearMessage);
+        m.send(KnobsCmd::TurnSwapKnob { part: 4, knob: 1, delta: 1 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error));
+    }
+
+    /// `swapSound` steps the part's sound by number, stopping at the ends, and checks its
+    /// part.
+    #[test]
+    fn swap_sound_steps_by_number_and_checks_its_part() {
+        let mut m = MockSession::new();
+        let number = |m: &MockSession| {
+            let id = m.state.keyboard_parts[2].patch.clone();
+            m.state.sound_library.patches.iter().find(|p| Some(&p.patch.id) == id.as_ref()).map_or(0, |p| p.number)
+        };
+        let last = m.state.sound_library.patches.len() as u32;
+        m.send(PartsCmd::SwapSound { part: 2, step: -100 });
+        assert_eq!(number(&m), 1, "hard left lands on 1");
+        m.send(PartsCmd::SwapSound { part: 2, step: 100 });
+        assert_eq!(number(&m), last);
+        m.send(SystemCmd::ClearMessage);
+        m.send(PartsCmd::SwapSound { part: 4, step: -1 });
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains('4')));
+    }
+
+    /// The pad page order: Sections first, then `settings.padPages`; Pad Bank ▲/▼ stop at
+    /// the ends, Tab wraps, a page left out is refused, and a bad order changes nothing.
+    #[test]
+    fn the_pad_page_order_is_walked_and_checked() {
+        let mut m = MockSession::new();
+        let names = |m: &MockSession| m.state.pads.pages.iter().map(|p| p.name.clone()).collect::<Vec<_>>();
+        let down = |m: &MockSession| m.state.surface.controls[1].action.clone();
+        assert_eq!(m.state.settings.pad_pages, [Page::Racks, Page::Chord, Page::MultiPads, Page::Setup]);
+        assert_eq!(names(&m), ["Sections", "Racks", "Chord", "Multi Pads", "Setup"]);
+        assert_eq!((m.state.pads.page_number, m.state.pads.page_count), (1, 5));
+
+        // Tab walks the order, wrapping both ways.
+        m.send(PadsCmd::CyclePadPage { delta: 2 });
+        assert_eq!((m.state.pads.page, m.state.pads.page_name.as_str(), m.state.pads.page_number), (Page::Chord, "Chord", 3));
+        m.send(PadsCmd::CyclePadPage { delta: -3 });
+        assert_eq!(m.state.pads.page, Page::Setup);
+        assert_eq!(down(&m), None, "Pad Bank ▼ stops at the last page");
+        m.send(PadsCmd::CyclePadPage { delta: 1 });
+        assert_eq!(m.state.pads.page, Page::Sections);
+
+        // A new order: Setup second, Multi Pads left out.
+        m.send(PadsCmd::SetPadPage { page: Page::MultiPads });
+        m.send(PadsCmd::SetPadPageOrder { pages: vec![Page::Setup, Page::Racks, Page::Chord] });
+        assert_eq!(m.state.settings.pad_pages, [Page::Setup, Page::Racks, Page::Chord]);
+        assert_eq!(names(&m), ["Sections", "Setup", "Racks", "Chord"]);
+        assert_eq!((m.state.pads.page, m.state.pads.page_number, m.state.pads.page_count), (Page::Sections, 1, 4), "the page left out goes to Sections");
+        assert_eq!(down(&m), Some(AppCmd::Pads(PadsCmd::SetPadPage { page: Page::Setup })));
+        m.send(PadsCmd::SetPadPage { page: Page::MultiPads });
+        assert_eq!(m.state.pads.page, Page::Sections);
+        assert!(m.state.message.as_ref().is_some_and(|x| x.error && x.text.contains("Multi Pads")));
+        m.send(PadsCmd::CyclePadPage { delta: -1 });
+        assert_eq!(m.state.pads.page, Page::Chord);
+        m.send(PadsCmd::SetPadPage { page: Page::Racks });
+        assert_eq!((m.state.pads.page, m.state.pads.page_number), (Page::Racks, 3));
+
+        // Refused: Sections, a page twice, more than four.
+        for bad in [vec![Page::Sections], vec![Page::Racks, Page::Racks], vec![Page::Racks, Page::Chord, Page::MultiPads, Page::Setup, Page::Setup]] {
+            m.send(SystemCmd::ClearMessage);
+            m.send(PadsCmd::SetPadPageOrder { pages: bad.clone() });
+            assert!(m.state.message.as_ref().is_some_and(|x| x.error), "{bad:?}");
+            assert_eq!(m.state.settings.pad_pages, [Page::Setup, Page::Racks, Page::Chord], "{bad:?} changed nothing");
+        }
+        // An empty order leaves Sections alone.
+        m.send(PadsCmd::SetPadPageOrder { pages: vec![] });
+        assert_eq!((m.state.pads.page, m.state.pads.page_count), (Page::Sections, 1));
+        assert_eq!(m.state.surface.controls[1].action, None);
+    }
+
+    /// The Chord and Setup pages, as the engine's (crates/yahaha-engine/src/launchkey/pages).
+    #[test]
+    fn the_chord_and_setup_pages() {
+        let mut m = MockSession::new();
+        m.send(PadsCmd::SetPadPage { page: Page::Chord });
+        let labels = |m: &MockSession| m.state.pads.pads.iter().map(|p| p.label.clone()).collect::<Vec<_>>();
+        let mut want = vec![""; 8];
+        want.extend(["MAN BASS", "STOP ACMP", "SPLIT -", "SPLIT +", "KBD TR -", "KBD TR +", "TR RESET", "RETRIG"]);
+        assert_eq!(labels(&m), want);
+        assert!(m.state.pads.pads[..8].iter().all(|p| p.level == Level::Off && p.action.is_none()));
+        assert_eq!(m.state.pads.pads[8].rgb, [0, 100, 127]);
+
+        m.send(PadsCmd::SetPadPage { page: Page::Setup });
+        let mut want = vec!["SINGLE", "FINGERED", "ON BASS", "MULTI", "AI FING", "FULL KBD", "AI FULL", "UPPER", "OTS LINK", "ACMP STYLE", "ACMP FIXED"];
+        want.extend([""; 5]);
+        assert_eq!(labels(&m), want);
+        assert_eq!(m.state.pads.pads[0].rgb, [127, 0, 70]);
+        let fixed = m.state.pads.pads[10].action.clone().unwrap();
+        assert_eq!(fixed, AppCmd::Transport(TransportCmd::SetStopAcmp { mode: StopAcmpMode::Fixed }));
+        m.send(fixed);
+        assert_eq!((m.state.pads.pads[9].level, m.state.pads.pads[10].level), (Level::Dim, Level::Bright));
+        assert_eq!(m.state.pads.pads[8].action, Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)));
+    }
+
+    /// Sound numbers: favourites first, then the rest; within each by category, then name.
+    #[test]
+    fn sound_library_patches_are_numbered_favourites_first() {
+        let m = MockSession::new();
+        let mut p: Vec<_> = m.state.sound_library.patches.iter().collect();
+        assert!(p.iter().any(|p| p.patch.favourite) && p.iter().any(|p| !p.patch.favourite));
+        p.sort_by_key(|p| p.number);
+        assert!(p.iter().enumerate().all(|(i, p)| p.number == i as u32 + 1));
+        let key = |p: &&PatchInfo| (!p.patch.favourite, p.patch.category, p.patch.name.to_lowercase());
+        assert!(p.windows(2).all(|w| key(&w[0]) <= key(&w[1])), "{:?}", p.iter().map(|p| &p.patch.name).collect::<Vec<_>>());
     }
 
     /// Knob Assign pages (#197): a turn runs its function's command, as the session's.

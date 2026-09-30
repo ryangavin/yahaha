@@ -12,7 +12,7 @@ export interface QuickCtx {
   message: (text: string, error?: boolean) => void
 }
 
-const TYPES = new Set<string>(['pressQuickRack', 'stepQuickRackBank', 'toggleQuickRackStore', 'clearQuickRack', 'stepQuickRack'])
+const TYPES = new Set<string>(['pressQuickRack', 'stepQuickRackBank', 'toggleQuickRackStore', 'storeRack', 'clearQuickRack', 'stepQuickRack'])
 
 export class MockQuickRacks {
   private banks: (string | null)[][] = Array.from({ length: QUICK_BANKS }, () => Array<string | null>(QUICK_SLOTS).fill(null))
@@ -42,6 +42,12 @@ export class MockQuickRacks {
         this.store = !this.store
         this.waiting = null
         return
+      case 'storeRack':
+        // One step, no arming (`capture_quick`); Store armed is cleared.
+        if (cmd.slot < 0 || cmd.slot >= QUICK_SLOTS) return ctx.message(`no Quick Rack ${cmd.slot + 1}`, true)
+        this.store = false
+        this.waiting = null
+        return this.capture(this.bank, cmd.slot, ctx)
       case 'clearQuickRack':
         if (cmd.bank < 0 || cmd.bank >= QUICK_BANKS || cmd.slot < 0 || cmd.slot >= QUICK_SLOTS) return ctx.message(`no Quick Rack ${cmd.bank}:${cmd.slot}`, true)
         this.banks[cmd.bank][cmd.slot] = null
@@ -106,6 +112,45 @@ export class MockQuickRacks {
     if (saved) return this.put(bank, slot, live.id!, ctx)
     this.waiting = [bank, slot]
     ctx.message(`Save the rack first; then it goes on Quick Rack ${quickLabel(bank, slot)}`)
+  }
+
+  /** `storeRack`: the live rack, saved as it goes, on button (`bank`, `slot`)
+   * (`capture_quick`). The lit button's rack takes the live rack's changes; elsewhere a
+   * saved rack with no changes goes on as it is, and anything else is saved as a new rack
+   * named from the sounds of the parts that are on. */
+  private capture(bank: number, slot: number, ctx: QuickCtx) {
+    const st = ctx.state
+    const live = st.liveRack
+    const own = live.id !== null && st.racks.some((r) => r.id === live.id) ? live.id : null
+    const lit = own !== null && this.banks[bank][slot] === own
+    if (own !== null && !live.modified) return this.put(bank, slot, own, ctx)
+    if (own !== null && lit) {
+      if (!this.saveLive(null, ctx)) return
+      return this.put(bank, slot, own, ctx)
+    }
+    const seen = new Set<string>()
+    const names = st.keyboardParts
+      .filter((p) => p.on)
+      .map((p) => p.voiceName.trim())
+      .filter((n) => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
+    const base = names.length ? names.join(' + ') : 'New rack'
+    const taken = (n: string) => st.racks.some((r) => r.name.toLowerCase() === n.toLowerCase())
+    let name = base
+    for (let n = 2; taken(name); n++) name = `${base} ${n}`
+    if (!this.saveLive(name, ctx) || st.liveRack.id === null) return
+    this.put(bank, slot, st.liveRack.id, ctx)
+  }
+
+  /** Save the live rack (`saveRack`, or `saveRackAs` with a name) with no dialog: edited
+   * sounds take their suggested names and a prompt up is dismissed (`save_live`). */
+  private saveLive(saveAs: string | null, ctx: QuickCtx): boolean {
+    const st = ctx.state
+    st.liveRack.prompt = null
+    const soundNames: Record<number, string> = {}
+    st.keyboardParts.forEach((p, part) => {
+      if (p.soundEdited) soundNames[part] = p.sound?.name ?? p.voiceName
+    })
+    return ctx.rack(saveAs === null ? { type: 'saveRack', soundNames } : { type: 'saveRackAs', name: saveAs, soundNames })
   }
 
   private put(bank: number, slot: number, id: string, ctx: QuickCtx) {

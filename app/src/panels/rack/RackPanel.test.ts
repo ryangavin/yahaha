@@ -4,9 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isTipKey } from '../../help/tooltips'
 import { MockSession } from '../../lib/api/mock'
 import type { AppCmd, PartPlugin, PluginEntry } from '../../lib/api/types'
-import { mirror } from '../../lib/mirror.svelte'
 import { app, ui } from '../../lib/store.svelte'
-import Launchkey from '../launchkey/Launchkey.svelte'
+import App from '../../App.svelte'
 import { pluginBadge, pluginTip } from '../mixer/voice'
 import { inProcessPending, pluginStatusLine } from '../parts/parts'
 import { rackName, soundBadge, soundLabel, targetLabel } from './rack'
@@ -31,10 +30,10 @@ function spy(session: MockSession): AppCmd['type'][] {
 afterEach(() => {
   cleanup()
   app.detach()
-  mirror.panelFader = null
   ui.view = 'stage'
   ui.libraryPart = 0
   ui.rack = false
+  ui.mixer = false
 })
 
 const tipped = (key: string) => document.querySelector<HTMLElement>(`[data-tip="${key}"]`)!
@@ -395,17 +394,6 @@ describe('Rack panel: the part slots', () => {
     expect(ui.libraryTab).toBe('sounds')
     expect(ui.libraryPart).toBe(2)
   })
-
-  it('hovering a part lights its fader on the mirror', async () => {
-    setup()
-    render(Launchkey)
-    await fireEvent.pointerEnter(slot('Right 2'))
-    expect(mirror.panelFader).toBe(1)
-    const bank = document.querySelector('[aria-label="Faders"]')!
-    expect([...bank.children].indexOf(bank.querySelector('.linked')!)).toBe(1)
-    await fireEvent.pointerLeave(slot('Right 2'))
-    expect(bank.querySelector('.linked')).toBeNull()
-  })
 })
 
 describe('Rack panel: One Touch Settings', () => {
@@ -451,43 +439,28 @@ describe('Rack panel: docked', () => {
   })
 })
 
-describe('Stage: sound names under the part faders', () => {
-  const names = () => [...document.querySelectorAll<HTMLElement>('[aria-label="Faders"] button.sname')]
+describe('Stage: sound names on the part strips', () => {
+  const names = () => [...document.querySelectorAll<HTMLElement>('.strip button.voice')]
+  const rackHead = () => document.querySelector('[data-testid="rack-name"]')!.textContent!
 
-  it('names each part\'s sound on the Panel page, with ● edited and ⚠ missing; a click opens the picker', async () => {
+  it('names each part\'s sound on its strip, the bar names the rack; a click opens the picker', async () => {
     const session = new MockSession({ manual: true, demo: false })
-    app.attach(session)
+    render(App, { props: { session } })
     flushSync()
-    render(Launchkey)
     expect(names().map((b) => b.textContent)).toEqual(session.state.keyboardParts.map((p) => p.voiceName))
-    expect(document.querySelector('.fader-head')!.textContent).toContain('Rack: Untitled rack')
+    expect(rackHead()).toContain('Rack: Untitled rack')
     session.missingPlugin(1)
     session.send({ type: 'setPartVolume', part: 0, volume: 12 })
     flushSync()
-    expect(names()[1].textContent!.startsWith('⚠ ')).toBe(true)
-    expect(names()[1].classList.contains('missing')).toBe(true)
-    expect(document.querySelector('.fader-head')!.textContent).toContain('Rack: Untitled rack ●')
+    expect(rackHead()).toContain('Rack: Untitled rack ●')
     await fireEvent.click(names()[3])
     expect(ui.view).toBe('library')
     expect(ui.libraryPart).toBe(3)
-    // The Style page's faders are the band: no part sounds.
+    // The Style page's faders are the band.
+    ui.view = 'stage'
     session.send({ type: 'toggleFaderPage' })
     flushSync()
-    expect(names()).toHaveLength(0)
-    expect(document.querySelector('.fader-head')!.textContent).toContain('Style: the band')
-  })
-
-  it('an edited sound gets ● under its fader', () => {
-    const session = new MockSession({ manual: true, demo: false })
-    app.attach(session)
-    session.send({ type: 'listPluginPresets', id: 'au:aumu Smp7 Fake' })
-    session.send({ type: 'setPartPluginPreset', part: 0, id: 'aumu Smp7 Fake', preset: 'f:1' })
-    session.advance(5000)
-    session.pluginWindow(0, 1)
-    flushSync()
-    render(Launchkey)
-    expect(names()[0].textContent!.endsWith(' ●')).toBe(true)
-    expect(names()[0].classList.contains('edited')).toBe(true)
+    expect(rackHead()).toContain('Style: the band')
   })
 })
 

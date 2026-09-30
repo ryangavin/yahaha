@@ -1,7 +1,9 @@
 // Whether the display shows the Channel view (ChannelView.svelte) for `ui.selectedPart`.
 // Clicking a mixer strip's name opens it on that part; clicking the selected strip again,
 // Esc (once nothing is open over the stage) or its × closes it, and the display shows what
-// it showed before (the lead sheet).
+// it showed before (the lead sheet). While the mixer's Details layer is shown (`ui.mixer`)
+// the display is hidden, so a strip's name only selects the part, as the strip does, and
+// leaves the Channel view as it was.
 
 import { app, ui } from '../../lib/store.svelte'
 
@@ -20,8 +22,10 @@ class ChannelNav {
   }
 
   /** A click anywhere in the mixer row, seen before the strip handles it: a strip's name
-   * opens its channel, or closes it when that strip's channel is already shown. */
+   * opens its channel, or closes it when that strip's channel is already shown. Ignored
+   * while the Details layer hides the display. */
   stripClick(e: MouseEvent) {
+    if (ui.mixer) return
     const target = e.target instanceof Element ? e.target : null
     const name = target?.closest('[data-tip="mixer.strip.select"]')
     const part = Number(name?.closest<HTMLElement>('[data-part]')?.dataset.part)

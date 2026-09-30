@@ -1,7 +1,11 @@
 <!--
   One Launchkey button, rendered from the surface state: its face is the legend printed on
-  the hardware (▲, ▶, ■ …), its caption and tooltip are what it does now on the layer
-  showing (Shift or not), and its light is the state's. Clicking sends its action.
+  the hardware (▲, ▶, ■ …), and its tooltip is what it does now on the layer showing
+  (Shift or not); its light is the state's. Clicking sends its action.
+
+  What it does now shows in one of two places: engraved under it (`showFunction`, for the
+  buttons with room below: Scene, Function, Stop, Play), or, where the mirror has no room
+  (Pad Bank, Track), on the face in place of the legend while Shift gives it another job.
 -->
 <script lang="ts">
   import type { ControlId, SurfaceState } from '../../lib/api/types'
@@ -15,17 +19,20 @@
     legend,
     caption,
     shape = 'rect',
-    showLabel = false,
+    showFunction = false,
+    pressed,
   }: {
     surface: SurfaceState
     id: ControlId
     /** What's printed on the hardware button. */
     legend: string
-    /** Engraved text under it; defaults to the control's function when it has a Shift function showing. */
+    /** Engraved text under it (e.g. the neighbouring style's name). */
     caption?: string
     shape?: 'rect' | 'square'
-    /** Show the function label on the face instead of the legend. */
-    showLabel?: boolean
+    /** Engrave the control's current function under it, and keep the legend on the face. */
+    showFunction?: boolean
+    /** A held button that is down now (Sound, while the state's layer says so). */
+    pressed?: boolean
   } = $props()
 
   const c = $derived(surface.controls.find((x) => x.id === id)!)
@@ -40,13 +47,18 @@
   beats={clock.beats}
   label={now.label || legend}
   {shape}
-  caption={caption ?? (shifted ? now.label : undefined)}
+  {pressed}
+  caption={showFunction ? now.label : caption}
   onclick={() => now.action && app.send(now.action)}
 >
-  {#if showLabel || shifted}<span class="fn" class:shift={shifted}>{now.label}</span>{:else}<span class="legend">{legend}</span>{/if}
+  {#if shifted && !showFunction}<span class="fn shift">{now.label}</span><span class="legend hidden" aria-hidden="true">{legend}</span>
+  {:else}<span class="legend">{legend}</span>{/if}
 </HwButton>
 
 <style>
+  .hidden {
+    display: none;
+  }
   .legend {
     font-size: 1.05em;
     line-height: 1;

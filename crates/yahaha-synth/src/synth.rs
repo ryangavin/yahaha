@@ -1145,6 +1145,10 @@ impl AudioCore {
                 s.kind = yahaha_fx::fx::InsertKind::None;
             }
         }
+        // A plugin channel's SoundFont stem is silent and its strip runs in the plugin
+        // rack: its chain here is off whatever the strip says (the compressor glides back
+        // and stops, then does no work; it starts from rest when the plugin lets go).
+        self.inserts.set_skip(active);
         self.inserts.set(&ins);
         self.inserts.set_strips(&ctl.fx.strips);
         // A plugin channel's compressor and insert 2 run in the plugin rack; the SoundFont

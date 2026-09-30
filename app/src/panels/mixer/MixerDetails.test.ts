@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import { isTipKey } from '../../help/tooltips'
@@ -41,9 +41,88 @@ afterEach(() => {
   app.detach()
   ui.mixer = false
   ui.effects = false
+  ui.rack = false
+  ui.settings = false
+  ui.view = 'stage'
+  ui.libraryTab = 'sounds'
 })
 
-describe('MixerBar', () => {
+describe('MixerBar, always shown', () => {
+  const rackText = () => q('[data-testid="rack-name"]').textContent!.trim()
+
+  it('names the loaded rack on the Panel page, ● while modified, and the band on the Style page', async () => {
+    const s = attach()
+    render(MixerBar, { meters: null })
+    expect(q('[data-testid="rack-name"]').dataset.tip).toBe('stage.rack_name')
+    expect(rackText()).toBe('Rack: Untitled rack')
+    // The mock marks the rack modified from its second publish on.
+    s.advance(16)
+    s.send({ type: 'setPartVolume', part: 0, volume: 12 })
+    s.advance(16)
+    flushSync()
+    expect(s.state.liveRack.modified).toBe(true)
+    expect(rackText()).toBe('Rack: Untitled rack ●')
+    s.send({ type: 'toggleFaderPage' })
+    s.advance(16)
+    flushSync()
+    expect(rackText()).toBe('Style: the band')
+  })
+
+  it('Rack opens the Rack drawer, Library the sounds page, Mixer the details (and back)', async () => {
+    attach()
+    render(MixerBar, { meters: null })
+    const btn = (key: string) => q<HTMLButtonElement>(`button[data-tip="${key}"]`)
+    expect(ui.rack).toBe(false)
+    await fireEvent.click(btn('drawer.rack'))
+    expect(ui.rack).toBe(true)
+    flushSync()
+    expect(btn('drawer.rack').getAttribute('aria-pressed')).toBe('true')
+
+    ui.libraryTab = 'racks'
+    await fireEvent.click(btn('drawer.library'))
+    expect(ui.view).toBe('library')
+    expect(ui.libraryTab).toBe('sounds')
+    flushSync()
+    expect(btn('drawer.library').getAttribute('aria-pressed')).toBe('true')
+    await fireEvent.click(btn('drawer.library'))
+    expect(ui.view).toBe('stage')
+
+    expect(document.querySelector('[role="tablist"]')).toBeNull()
+    await fireEvent.click(btn('drawer.mixer'))
+    expect(ui.mixer).toBe(true)
+    flushSync()
+    expect(btn('drawer.mixer').getAttribute('aria-pressed')).toBe('true')
+    expect(document.querySelector('[role="tablist"]')).not.toBeNull()
+    await fireEvent.click(btn('drawer.mixer'))
+    expect(ui.mixer).toBe(false)
+    // Opening the details never closed the drawer.
+    expect(ui.rack).toBe(true)
+  })
+
+  it('the layer selector shows without the details and sends setFaderLayer', async () => {
+    const s = attach()
+    render(MixerBar, { meters: null })
+    const layer = (n: string) => qa<HTMLButtonElement>('[data-tip="mixer.layer"]').find((b) => b.textContent?.includes(n))!
+    expect(qa('[data-tip="mixer.layer"]').map((b) => b.textContent?.trim())).toEqual(['VOL', 'PAN', 'REV', 'CHO', 'DLY'])
+    await fireEvent.click(layer('DLY'))
+    expect(s.state.mixer.faderLayer).toBe('delay')
+    flushSync()
+    expect(layer('DLY').getAttribute('aria-checked')).toBe('true')
+    expect(layer('VOL').getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('every control has a tooltip, details hidden', () => {
+    attach()
+    render(MixerBar, { meters: METERS })
+    expect(untipped(document.body)).toEqual([])
+  })
+})
+
+describe('MixerBar, details shown', () => {
+  beforeEach(() => {
+    ui.mixer = true
+  })
+
   it('the page tabs send setFaderPage, so the Launchkey follows, and follow the Launchkey', async () => {
     const s = attach()
     render(MixerBar, { meters: null })
@@ -130,6 +209,24 @@ describe('MixerBar', () => {
     cleanup()
     render(MixerBar, { meters: null })
     expect(q('[data-testid="cpu-total"]').textContent).toContain('(synth off)')
+  })
+
+  it('shows the Style\'s and the Multi Pads\' CPU beside their volumes, red by the average only', () => {
+    attach()
+    render(MixerBar, { meters: METERS })
+    const text = (id: string) => q(`[data-testid="${id}"]`).textContent!.replace(/\s+/g, ' ').trim()
+    // Style: channels 9–16 (9 % … 16 %); Multi Pads: channels 5–8.
+    expect(text('style-cpu')).toBe('100% ≤ pk 200%')
+    expect(text('pad-cpu')).toBe('26% ≤ pk 52%')
+    expect(q('[data-testid="style-cpu"]').dataset.tip).toBe('mixer.cpu_group')
+    expect(q('[data-testid="pad-cpu"]').dataset.tip).toBe('mixer.cpu_group')
+    // Style by its 100 % average; the pads' summed peak (52 %) is past the line but only an upper bound.
+    expect(q('[data-testid="style-cpu"]').classList.contains('warn')).toBe(true)
+    expect(q('[data-testid="pad-cpu"]').classList.contains('warn')).toBe(false)
+    cleanup()
+    render(MixerBar, { meters: null })
+    expect(document.querySelector('[data-testid="style-cpu"]')).toBeNull()
+    expect(document.querySelector('[data-testid="pad-cpu"]')).toBeNull()
   })
 
   it('Effects… names what each block plays and opens the Effects screen', async () => {
@@ -288,6 +385,33 @@ describe('MasterStrip', () => {
     expect(d.getAttribute('aria-pressed')).toBe('true')
     await fireEvent.click(d)
     expect(ui.mixer).toBe(false)
+  })
+
+  it('from Library, Details goes back to Stage with the details shown', () => {
+    ui.view = 'library'
+    ui.toggleMixer()
+    expect(ui.view).toBe('stage')
+    expect(ui.mixer).toBe(true)
+    // Again from Library: still shows them (never hides what can't be seen).
+    ui.view = 'library'
+    ui.toggleMixer()
+    expect(ui.mixer).toBe(true)
+    ui.toggleMixer()
+    expect(ui.mixer).toBe(false)
+  })
+
+  it('opening or closing a drawer leaves the details as they were', () => {
+    ui.mixer = true
+    ui.toggleDrawer('rack')
+    expect(ui.rack).toBe(true)
+    expect(ui.mixer).toBe(true)
+    ui.toggleDrawer('effects')
+    ui.toggleDrawer('effects')
+    expect(ui.mixer).toBe(true)
+    ui.mixer = false
+    ui.toggleDrawer('settings')
+    expect(ui.mixer).toBe(false)
+    ui.toggleDrawer('settings')
   })
 
   it('every control has a tooltip, the editor open too', async () => {

@@ -3,8 +3,18 @@ import { flushSync } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import type { AppState } from '../../lib/api/types'
-import { app } from '../../lib/store.svelte'
+import { app, ui } from '../../lib/store.svelte'
 import LeadSheet from './LeadSheet.svelte'
+
+/** Renders the band on a fixed state (not the mock's), for values the mock doesn't reach. */
+function renderState(edit: (st: AppState) => void) {
+  const session = new MockSession({ manual: true, demo: true })
+  const st = JSON.parse(JSON.stringify(session.state)) as AppState
+  edit(st)
+  app.attach({ kind: 'tauri', subscribe: (fn) => (fn(st), () => {}), send: () => {}, library: () => session.library(), meters: () => session.meters(), dispose: () => {} })
+  flushSync()
+  render(LeadSheet)
+}
 
 function setup(demo = true) {
   const session = new MockSession({ manual: true, demo })
@@ -20,6 +30,66 @@ afterEach(() => {
 })
 
 const text = (sel: string) => document.querySelector(sel)!.textContent!.replace(/\s+/g, ' ').trim()
+
+describe('status line', () => {
+  afterEach(() => {
+    ui.browser = false
+  })
+
+  it('shows the style; its name and Browse open the style browser', () => {
+    const session = setup()
+    const style = document.querySelector<HTMLButtonElement>('.status .style')!
+    expect(style.getAttribute('data-tip')).toBe('browser.open')
+    expect(text('.status .sname')).toBe(session.state.style.name)
+    expect(ui.browser).toBe(false)
+    document.querySelector<HTMLElement>('.status .sname')!.click()
+    flushSync()
+    expect(ui.browser).toBe(true)
+    ui.browser = false
+    document.querySelector<HTMLElement>('.status .browse')!.click()
+    flushSync()
+    expect(ui.browser).toBe(true)
+  })
+
+  it('shows the chord, fingering and transpose from the state, and follows them', () => {
+    const session = setup()
+    expect(text('.status .cname')).toBe('Am7')
+    expect(document.querySelector('.status .chord')!.getAttribute('data-tip')).toBe('display.chord')
+    expect(text('.status .fingering')).toBe(session.state.chord.fingeringName)
+    expect(text('.status .transpose')).toBe('Transpose 0 · 0')
+    expect(document.querySelector('.status .transpose')!.classList.contains('set')).toBe(false)
+    session.send({ type: 'setFingering', fingering: 'multiFinger' })
+    session.send({ type: 'setTranspose', keyboard: 2, master: -1 })
+    flushSync()
+    expect(text('.status .fingering')).toBe('Multi Finger')
+    expect(text('.status .transpose')).toBe('Transpose +2 · −1')
+    expect(document.querySelector('.status .transpose')!.classList.contains('set')).toBe(true)
+  })
+
+  it('shows the time signature, the chord as fingered when transposed, and Manual Bass', () => {
+    renderState((st) => {
+      st.style.timeSignature = [3, 4]
+      st.chord.name = 'D7'
+      st.chord.fingered = 'C7'
+      st.chord.manualBassActive = true
+      st.chord.fingeringName = 'Fingered'
+    })
+    expect(text('.status .timesig')).toBe('3/4')
+    expect(document.querySelector('.status .timesig')!.getAttribute('data-tip')).toBe('display.timesig')
+    expect(text('.status .cname')).toBe('D7')
+    expect(text('.status .fingered')).toBe('played C7')
+    expect(text('.status .fingering')).toBe('Fingered · Manual Bass')
+  })
+
+  it('no chord yet: a dash', () => {
+    renderState((st) => {
+      st.chord.name = null
+      st.chord.fingered = null
+    })
+    expect(text('.status .cname')).toBe('–')
+    expect(document.querySelector('.status .fingered')).toBeNull()
+  })
+})
 
 describe('lead-sheet band', () => {
   it('shows the section playing, one cell per bar of it, and the current bar', () => {

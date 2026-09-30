@@ -149,6 +149,10 @@ impl Default for StripControl {
 /// (the Style parts' XG insert on channels 9-16, the keyboard parts' own slot on channels
 /// 1-4) and insert 2, in that order (`super::INSERT_SLOTS`). A stage that is off and
 /// settled isn't run, so it leaves the stem bit-identical.
+///
+/// A channel another rack plays (a plugin, whose own strip runs there) is skipped
+/// ([`ChannelInserts::set_skip`]): every stage of its chain here is off, whatever the
+/// strip says, so once its glide or fade out is done it does no work at all.
 pub struct ChannelInserts {
     comp: [PartCompDsp; CHANNELS],
     comps: [PartComp; CHANNELS],
@@ -156,6 +160,8 @@ pub struct ChannelInserts {
     settings: [InsertSettings; CHANNELS],
     second: [Insert; CHANNELS],
     second_settings: [InsertSettings; CHANNELS],
+    /// The skipped channels (bit = channel).
+    skip: u16,
 }
 
 impl ChannelInserts {
@@ -167,12 +173,32 @@ impl ChannelInserts {
             settings: [InsertSettings::NONE; CHANNELS],
             second: std::array::from_fn(|_| Insert::new(rate)),
             second_settings: [InsertSettings::NONE; CHANNELS],
+            skip: 0,
         }
+    }
+
+    /// The channels (bit = channel) whose chain here is off, whatever their strip says:
+    /// the ones a plugin plays, its strip in the plugin rack. Set it each buffer before
+    /// `set`, `set_strips` and `set_second`, which honour it. A skipped channel's
+    /// compressor glides back to unity as one turned off does and then stops; its inserts
+    /// fade out and stop. Once it is no longer skipped, its compressor starts from rest,
+    /// as one turned on does. Never allocates.
+    pub fn set_skip(&mut self, mask: u16) {
+        self.skip = mask;
+    }
+
+    fn skipped(&self, ch: usize) -> bool {
+        self.skip >> ch & 1 == 1
     }
 
     /// Take insert 1's settings for this buffer (`InsertSettings::channels`).
     pub fn set(&mut self, settings: &[InsertSettings; 16]) {
         self.settings = *settings;
+        for ch in 0..CHANNELS {
+            if self.skipped(ch) {
+                self.settings[ch].kind = InsertKind::None;
+            }
+        }
     }
 
     /// Take the rest of each channel's strip for this buffer, after `set`: its compressor,
@@ -180,7 +206,9 @@ impl ChannelInserts {
     /// took) and insert 2 (at insert 1's tempo and rotary speed). Never allocates.
     pub fn set_strips(&mut self, strips: &StripControl) {
         for ch in 0..CHANNELS {
+            let skip = self.skipped(ch);
             self.comps[ch] = strips.comp(ch);
+            self.comps[ch].on &= !skip;
             let s = &mut self.settings[ch];
             for (r, v) in s.rest.iter_mut().zip(strips.first_rest(ch)) {
                 if v != KIND_DEFAULT {
@@ -188,12 +216,20 @@ impl ChannelInserts {
                 }
             }
             self.second_settings[ch] = strips.second_settings(ch, s.bpm, s.fast);
+            if skip {
+                self.second_settings[ch].kind = InsertKind::None;
+            }
         }
     }
 
     /// Take insert 2's settings for this buffer (overriding what `set_strips` took).
     pub fn set_second(&mut self, settings: &[InsertSettings; 16]) {
         self.second_settings = *settings;
+        for ch in 0..CHANNELS {
+            if self.skipped(ch) {
+                self.second_settings[ch].kind = InsertKind::None;
+            }
+        }
     }
 
     /// Insert 2's settings as last taken.
@@ -321,6 +357,67 @@ mod tests {
             assert!(buffers < 200, "never settled");
         }
         assert_eq!(run(&mut ci, 2, &x, 0.5), x);
+    }
+
+    /// A skipped channel (a plugin plays it) does no work here, whatever its strip says: its
+    /// compressor and inserts go off and settle, it drops out of `mask`, and its stem passes
+    /// bit-identical. Other channels run on. Unskipped, its compressor starts from rest,
+    /// exactly as a fresh one does.
+    #[test]
+    fn a_skipped_channel_runs_nothing_and_starts_clean_when_unskipped() {
+        let x = sine(220.0, 0.8, 4 * BUF);
+        let strips = StripControl::new();
+        let loud = PartComp::of(true, CompPreset::Loud);
+        strips.set_comp(4, &loud);
+        strips.set_comp(6, &loud);
+        strips.set_second(4, &slot(InsertType::Distortion, [120, 40, 60, 80]));
+        let mut first = [InsertSettings::NONE; 16];
+        first[4].kind = InsertKind::Tremolo;
+        let take = |ci: &mut ChannelInserts, skip: u16| {
+            ci.set_skip(skip);
+            ci.set(&first);
+            ci.set_strips(&strips);
+            let second = *ci.second();
+            ci.set_second(&second);
+        };
+        let mut ci = ChannelInserts::new(RATE);
+        take(&mut ci, 0);
+        assert_eq!(ci.mask(), 1 << 4 | 1 << 6);
+        assert_ne!(run(&mut ci, 4, &x, 0.5), x);
+        // Skipped (a plugin took the channel): it glides and fades out, then stops.
+        take(&mut ci, 1 << 4);
+        let mut buffers = 0;
+        while ci.mask() != 1 << 6 {
+            run(&mut ci, 4, &x[..BUF], 0.5);
+            buffers += 1;
+            assert!(buffers < 200, "never settled");
+        }
+        assert_eq!(ci.mask() & 1 << 4, 0);
+        assert_eq!(run(&mut ci, 4, &x, 0.5), x, "a skipped channel's stem is untouched");
+        // Skipped from the start: never in the mask at all.
+        let mut fresh = ChannelInserts::new(RATE);
+        take(&mut fresh, 1 << 4);
+        assert_eq!(fresh.mask(), 1 << 6);
+        // Unskipped (the plugin let go): the whole chain runs again.
+        take(&mut ci, 0);
+        assert_eq!(ci.mask(), 1 << 4 | 1 << 6);
+        assert_ne!(run(&mut ci, 4, &x, 0.5), x);
+        // A compressor alone (channel 6), skipped mid-squash and then unskipped: the same
+        // samples as one that was never on, turned on now.
+        let x = sine(110.0, 0.9, 8 * BUF);
+        run(&mut ci, 6, &x, 0.5);
+        assert!(ci.comp[6].gain_reduction_db() < -1.0, "squashing");
+        take(&mut ci, 1 << 6);
+        let mut buffers = 0;
+        while ci.mask() & 1 << 6 != 0 {
+            run(&mut ci, 6, &x[..BUF], 0.5);
+            buffers += 1;
+            assert!(buffers < 200, "never settled");
+        }
+        take(&mut ci, 0);
+        let mut never = ChannelInserts::new(RATE);
+        take(&mut never, 0);
+        assert_eq!(run(&mut ci, 6, &x, 0.5), run(&mut never, 6, &x, 0.5), "the compressor starts from rest");
     }
 
     #[test]

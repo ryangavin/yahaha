@@ -1,12 +1,19 @@
 <!--
-  The bar across the top of the mixer row: everything the old Mixer drawer had above its
-  strips, in one or two wrapping lines.
+  The bar across the top of the mixer row. Always (one line, from the Launchkey mirror's
+  old fader head):
+  - What the faders play: on the Panel page the loaded rack's name ("Rack: <name>", ● while
+    it has unsaved changes), on the Style page "Style: the band".
+  - Rack (its drawer), Library (the sounds) and Mixer (shows/hides the details below, as
+    Alt+M and the master column's Details do; never closes a drawer).
+  - The fader layer (VOL/PAN/REV/CHO/DLY): what the Launchkey faders move, and what the
+    strips show.
+  With the details shown (`ui.mixer`), everything the old Mixer drawer had above its
+  strips follows, in one or two wrapping lines:
 
   - Page tabs Panel/Style: the tab IS the Launchkey fader page (`state.mixer.faderPage`),
     so switching sends `setFaderPage` and the Launchkey's page button switches the tab.
     All twelve strips stay visible either way; the page only says which ones the eight
     Launchkey faders move. The lamp beside it is the Launchkey's page button light.
-  - The fader layer (VOL/PAN/REV/CHO/DLY): what the Launchkey faders move.
   - MIDI out port; CPU of every track together and the plugin instances (#340, #407),
     from the meters the row reads.
   - Metronome (on, bell, its own volume: the built-in synth's click, never on the port).
@@ -14,7 +21,8 @@
     Style part's sends back to the style's, #268).
   - Style volume (#199) and Multi Pad volume (#196): Panel faders 5 and 6 on the
     Launchkey, scales on the Style parts' and the pads' CC 7. ↕ while the level waits for
-    its Launchkey fader.
+    its Launchkey fader. Beside each, that group's CPU: its tracks' together, red by the
+    average only, since the summed peak is an upper bound (cpu.ts).
   - Effects…: opens the Effects screen, with what each shared block plays.
   The Harmony/Arpeggio switch the drawer drew under Panel fader 5 lives on the Harmony
   drawer (and J, and the Launchkey's fader button 5).
@@ -23,12 +31,14 @@
   import { FADER_LAYERS, type FaderLayer, type FaderPage, type Meters, type TrackMuteOrder } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { css } from '../../lib/leds'
+  import { toggleLibrary } from '../../lib/nav'
   import { surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
-  import { CPU_WARN, pct } from './cpu'
+  import { CPU_WARN, cpuOf, cpuWarn, pct, type TrackCpu } from './cpu'
+  import { rackName } from '../rack/rack'
 
   let { meters }: { meters: Meters | null } = $props()
 
@@ -40,12 +50,17 @@
 
   const mixer = $derived(app.state.mixer)
   const page = $derived(mixer.faderPage)
+  const rack = $derived(app.state.liveRack)
   const metronome = $derived(app.state.metronome)
   const effects = $derived(app.state.effects.blocks)
   const outPort = $derived(app.state.io.outputPort)
   const surface = $derived(surfaceOf(app.state, app.library))
   const pageLed = $derived(surface.controls.find((c) => c.id === 'masterButton') ?? null)
   const cpuTotal = $derived(meters && meters.channels.length > 0 ? meters.cpu : null)
+  // The Style's and the Multi Pads' tracks together, beside their group volumes (#340):
+  // each strip below shows its own track's; a pad has no strip.
+  const styleCpu = $derived(cpuOf(meters, mixer.styleParts.map((p) => p.channel)))
+  const padCpu = $derived(cpuOf(meters, app.state.multiPad.pads.map((p) => p.channel)))
 
   // Style Track Mute is a knob: the engine keeps only the parts' switches it sets, so the
   // knob's position and order are this bar's. Choosing an order sends nothing, so parts
@@ -70,7 +85,37 @@
   }
 </script>
 
+{#snippet groupCpu(name: string, cpu: TrackCpu | null, testid: string)}
+  {#if cpu !== null}
+    <span
+      class="gcpu"
+      class:warn={cpuWarn(cpu)}
+      data-testid={testid}
+      use:tip={'mixer.cpu_group'}
+      aria-label="{name} CPU {pct(cpu.avg)}, peak at most {pct(cpu.peak)}">{pct(cpu.avg)} <span class="pk">≤ pk {pct(cpu.peak)}</span></span
+    >
+  {/if}
+{/snippet}
+
 <div class="bar" role="group" aria-label="Mixer">
+  <!-- What the faders play, and the panels that detail it (was the mirror's fader head). -->
+  <div class="group head">
+    <span class="engraved rack-name" data-testid="rack-name" use:tip={'stage.rack_name'}
+      >{#if page === 'panel'}<b>Rack: {rackName(rack)}{rack.modified ? ' ●' : ''}</b>{:else}Style: the band{/if}</span
+    >
+    <nav class="group drawers" aria-label="Part panels">
+      <DrawerButton tip="drawer.rack" open={ui.rack} onclick={() => ui.toggleDrawer('rack')}>Rack</DrawerButton>
+      <DrawerButton tip="drawer.library" open={ui.view === 'library'} onclick={() => toggleLibrary('sounds')}>Library</DrawerButton>
+      <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleMixer()}>Mixer</DrawerButton>
+    </nav>
+  </div>
+  <div class="group layers" role="group" aria-label="Fader layer">
+    {#each FADER_LAYERS as l (l)}
+      <Toggle on={mixer.faderLayer === l} tip="mixer.layer" onclick={() => app.send({ type: 'setFaderLayer', layer: l })}>{LAYER_NAMES[l]}</Toggle>
+    {/each}
+  </div>
+
+  {#if ui.mixer}
   <div class="tabs" role="tablist" aria-label="Mixer page (the Launchkey fader page)">
     {#each TABS as t (t.id)}
       <button
@@ -94,11 +139,6 @@
     <span class="lamp" aria-hidden="true" style:--led={pageLed ? css(pageLed.rgb) : 'transparent'}></span>
     Launchkey faders: {page === 'panel' ? 'Panel' : 'Style'}
   </span>
-  <div class="group layers" role="group" aria-label="Fader layer">
-    {#each FADER_LAYERS as l (l)}
-      <Toggle on={mixer.faderLayer === l} tip="mixer.layer" onclick={() => app.send({ type: 'setFaderLayer', layer: l })}>{LAYER_NAMES[l]}</Toggle>
-    {/each}
-  </div>
 
   <div class="group level">
     <span class="engraved">Style</span>
@@ -106,6 +146,7 @@
       <HSlider value={mixer.styleVolume} tip="mixer.style_level" label="Style volume" onchange={(v) => app.send({ type: 'setStyleVolume', volume: v })} />
     </div>
     {#if mixer.styleVolumeWaiting}<span class="wait" data-testid="style-waiting" use:tip={'mixer.style_level'}>↕</span>{/if}
+    {@render groupCpu('Style', styleCpu, 'style-cpu')}
   </div>
   <div class="group level">
     <span class="engraved">M.Pad</span>
@@ -113,6 +154,7 @@
       <HSlider value={mixer.multiPadVolume} tip="mixer.pad_level" label="Multi Pad volume" onchange={(v) => app.send({ type: 'setMultiPadVolume', volume: v })} />
     </div>
     {#if mixer.multiPadVolumeWaiting}<span class="wait" data-testid="pad-waiting" use:tip={'mixer.pad_level'}>↕</span>{/if}
+    {@render groupCpu('Multi Pad', padCpu, 'pad-cpu')}
   </div>
 
   <div class="group trackmute">
@@ -180,6 +222,7 @@
   </div>
 
   <span class="info" use:tip={'mixer.info'}><b>A fader is its channel’s CC 7</b>, no hidden gain</span>
+  {/if}
 </div>
 
 <style>
@@ -204,6 +247,24 @@
   }
   .bar :global(.drawer-btn) {
     height: 2.2em;
+  }
+  .head {
+    gap: 0.6rem;
+    min-width: 0;
+  }
+  /* A long rack name shortens rather than wrapping the bar. */
+  .rack-name {
+    max-width: 16rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rack-name b {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .drawers {
+    gap: 0.35em;
   }
   .tabs {
     display: flex;
@@ -293,6 +354,17 @@
     font-variant-numeric: tabular-nums;
   }
   .load .warn b {
+    color: var(--danger);
+  }
+  .gcpu {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .gcpu .pk {
+    color: var(--muted);
+  }
+  .gcpu.warn {
     color: var(--danger);
   }
   .info {

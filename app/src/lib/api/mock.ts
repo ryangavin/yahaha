@@ -25,7 +25,7 @@ import { FX_PARAMS, fxParams, isStripCmd, MockStrips, stripLegacy } from './mock
 import { emptyQuickRacks } from './quick-racks'
 import type { Session } from './session'
 import {
-  BREAK, CHORD_SETTLE_MAX_MS, clampEq, COMP_PRESETS, defaultStrip, eqPresetBands, MASTER_EQ_FREQ_RANGE, defaultControlMap, FLAT_EQ, OFF_INSERT, type PartInsert, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, RETRIGGER_RATES,
+  BREAK, CHORD_SETTLE_MAX_MS, clampEq, COMP_PRESETS, defaultStrip, eqPresetBands, MASTER_EQ_FREQ_RANGE, defaultControlMap, FLAT_EQ, OFF_INSERT, type PartInsert, ENDINGS, FADER_LAYERS, FILLS, FINGERINGS, INTROS, KEYBOARD_PART_NAMES, MAINS, PAD_PAGES, DEFAULT_PAD_PAGES, type PadPage, RETRIGGER_RATES,
   STYLE_PART_NAMES, type AppCmd, type AppState, type EffectBlockState, type EffectsState, type FxBlock, type FxType, type LibraryEntry, type LibraryList, type OtsPart, type PartEq, type PreviewState, type RackCmd, type StopAcmpMode,
   type SoundLibraryCmd, type StyleSettingsState, type StyleState,
 } from './types'
@@ -244,7 +244,7 @@ export function initialState(): AppState {
       styleSolo: null,
       partSolo: null,
     },
-    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: PAD_PAGES.length, pads: [], connected: true, paletteLeds: false },
+    pads: { page: 'sections', pageName: 'Sections', pageNumber: 1, pageCount: PAD_PAGES.length, pages: [], pads: [], connected: true, paletteLeds: false },
     ots: { settings: otsSettings(s.ots), applied: 0, link: false, linkTiming: 'mainChange', racks: [], racksReadOnly: false },
     library: { revision: LIBRARY.revision, count: LIBRARY.entries.length, position: 0, pending: 0, roots: [ROOT], scanning: false },
     io: {
@@ -286,6 +286,7 @@ export function initialState(): AppState {
     liveRack: { name: 'New rack', id: null, modified: false, controls: defaultControlMap(), prompt: null },
     racks: [],
     quickRacks: emptyQuickRacks(),
+    settings: { padPages: [...DEFAULT_PAD_PAGES] },
   }
   derive(state, LIBRARY)
   state.knobs = new MockKnobs().state(state)
@@ -337,15 +338,22 @@ function derive(st: AppState, lib: LibraryList, hw: MockHardware | null = null, 
         ? [0, 127]
         : [0, c.split],
   }
-  const page = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
-  st.pads.pageName = PAD_PAGES[page].name
-  st.pads.pageNumber = page + 1
+  // The page order: Sections, then settings.padPages (pageNumber is the position in it).
+  const order: PadPage[] = ['sections', ...st.settings.padPages]
+  const pageName = (id: PadPage) => PAD_PAGES.find((p) => p.id === id)!.name
+  st.pads.pages = order.map((page) => ({ page, name: pageName(page) }))
+  // The page the pads show: Racks while Sound is held (`page` stays the one on view).
+  const sound = st.surface?.layer?.type === 'sound'
+  st.pads.pageName = pageName(sound ? 'racks' : st.pads.page)
+  st.pads.pageNumber = order.indexOf(st.pads.page) + 1
+  st.pads.pageCount = order.length
   // Where a fill (or the Break) queued or playing lands (#282).
   const fillLike = (x: string | null) => x !== null && (FILLS.includes(x) || x === BREAK)
   const t = st.transport
   t.landing = t.running && (fillLike(t.queued) || fillLike(t.section)) ? MAINS[t.main] : null
   st.transport.lamps = padsFor(st, 'sections')
-  st.pads.pads = padsFor(st, st.pads.page)
+  // Hold Sound: the pads act and light as the Racks page (`Layer::pads`).
+  st.pads.pads = padsFor(st, sound ? 'racks' : st.pads.page, sound)
   const h = hw ?? idleHardware(st)
   st.keyboardParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
   st.mixer.styleParts.forEach((p, i) => (p.fader = h.faders[i] ?? null))
@@ -1582,6 +1590,13 @@ export class MockSession implements Session {
         this.gmVoice(st.keyboardParts.indexOf(p))
         break
       }
+      case 'swapSound':
+        if (cmd.part < 0 || cmd.part > 3) {
+          this.message(`no keyboard part ${cmd.part} (0-3)`, true)
+          break
+        }
+        // A no-op for now: lane B of docs/eyes-free.md steps the part's sound by number here.
+        break
       case 'setPartVolume':
         st.keyboardParts[cmd.part].volume = vol(cmd.volume)
         st.keyboardParts[cmd.part].waiting = false
@@ -1626,11 +1641,44 @@ export class MockSession implements Session {
         break
       }
       case 'setPadPage':
-        st.pads.page = cmd.page
+        // A page left out of the page order can't be paged to.
+        if (cmd.page !== 'sections' && !st.settings.padPages.includes(cmd.page)) this.message(`the ${PAD_PAGES.find((p) => p.id === cmd.page)?.name ?? cmd.page} pad page is not in the page order`, true)
+        else st.pads.page = cmd.page
         break
       case 'cyclePadPage': {
-        const i = PAD_PAGES.findIndex((p) => p.id === st.pads.page)
-        st.pads.page = PAD_PAGES[(((i + cmd.delta) % PAD_PAGES.length) + PAD_PAGES.length) % PAD_PAGES.length].id
+        // Tab walks the page order, wrapping (`PageOrder::cycle`).
+        const order: PadPage[] = ['sections', ...st.settings.padPages]
+        const i = Math.max(0, order.indexOf(st.pads.page))
+        st.pads.page = order[(((i + cmd.delta) % order.length) + order.length) % order.length]
+        break
+      }
+      case 'setPadPageOrder': {
+        // `PageOrder::new`: refused if it names Sections, names a page twice, or has more than four.
+        const pages = cmd.pages
+        const bad = pages.includes('sections')
+          ? 'Sections is always pad page 1'
+          : new Set(pages).size !== pages.length
+            ? 'a pad page is named twice'
+            : pages.length > 4
+              ? 'at most four pad pages follow Sections'
+              : null
+        if (bad) {
+          this.message(`pad page order refused: ${bad}`, true)
+          break
+        }
+        st.settings.padPages = [...pages]
+        // On a page left out, the pads go to Sections.
+        if (st.pads.page !== 'sections' && !pages.includes(st.pads.page)) st.pads.page = 'sections'
+        break
+      }
+      case 'setLayer': {
+        // The app's mirror holds or releases Sound or a part button (`surface.layer`).
+        const l = cmd.layer
+        if (l.type === 'swap' && !(Number.isInteger(l.part) && l.part >= 0 && l.part <= 3)) {
+          this.message(`no keyboard part ${l.part}`, true)
+          break
+        }
+        st.surface.layer = l.type === 'swap' ? { type: 'swap', part: l.part } : { type: l.type }
         break
       }
       case 'setStyleVolume':
@@ -2020,6 +2068,15 @@ export class MockSession implements Session {
       }
       case 'resetKnob': {
         const c = this.knobs.reset(cmd.knob, this.state)
+        if (c) this.cmd(c)
+        break
+      }
+      case 'turnSwapKnob': {
+        if (cmd.part < 0 || cmd.part > 3 || cmd.knob < 0 || cmd.knob > 7) {
+          this.message(`no swap knob ${cmd.knob + 1} for keyboard part ${cmd.part}`, true)
+          break
+        }
+        const c = this.knobs.turnSwap(cmd.part, cmd.knob, cmd.delta, this.state)
         if (c) this.cmd(c)
         break
       }

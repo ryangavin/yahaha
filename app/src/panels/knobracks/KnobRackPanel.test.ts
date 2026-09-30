@@ -1,68 +1,83 @@
-// The stage's knob and Quick Rack panel: knob n over rack n in shared columns, between the
-// mirror and the keyboard strip. And double-clicking a Knob Assign knob puts its function
-// back to its default (resetKnob), as the mock and the session do.
+// The stage's Quick Racks row: the bank pager, eight rack buttons in eight columns and
+// Store, between the mixer row and the keyboard strip, one row tall. Every control here
+// sends its command (checked on the session's send, not only on the state it leaves).
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../../App.svelte'
 import { MockSession } from '../../lib/api/mock'
+import type { AppCmd } from '../../lib/api/types'
+import { ui } from '../../lib/store.svelte'
 
-afterEach(cleanup)
-
-const PANEL = 'section[aria-label="Knobs and Quick Racks"]'
-const knob = (name: string) => document.querySelector<HTMLElement>(`${PANEL} [role="slider"][aria-label="${name}"]`)!
-
-describe('knob double-click reset', () => {
-  it('puts Dynamics back to max and a send back to dry', async () => {
-    const m = new MockSession({ demo: true, manual: true })
-    render(App, { props: { session: m } })
-    flushSync()
-    m.send({ type: 'turnKnob', knob: 0, delta: -10 })
-    flushSync()
-    expect(m.state.dynamics.level).toBeLessThan(127)
-    await fireEvent.dblClick(knob('Dynamics Control'))
-    flushSync()
-    expect(m.state.dynamics.level).toBe(127)
-    m.send({ type: 'setKnobPage', page: 'reverb' })
-    m.send({ type: 'turnKnob', knob: 0, delta: 5 })
-    flushSync()
-    expect(m.state.keyboardParts[0].reverb).toBeGreaterThan(0)
-    await fireEvent.dblClick(knob('Right 1 Reverb'))
-    flushSync()
-    expect(m.state.keyboardParts[0].reverb).toBe(0)
-  })
+afterEach(() => {
+  cleanup()
+  ui.rack = false
 })
 
-describe('knob layout', () => {
-  it('puts each knob first, then its label over its readout, with the full name as tooltip', () => {
-    const m = new MockSession({ demo: true, manual: true })
-    render(App, { props: { session: m } })
+const PANEL = 'section[aria-label="Quick Racks"]'
+
+/** The stage on a mock session, with every command it sends recorded. */
+function stage(opts: { demo?: boolean } = {}) {
+  const m = new MockSession({ ...opts, manual: true })
+  const sent: AppCmd[] = []
+  const send = m.send.bind(m)
+  vi.spyOn(m, 'send').mockImplementation((cmd: AppCmd) => {
+    sent.push(cmd)
+    send(cmd)
+  })
+  render(App, { props: { session: m } })
+  flushSync()
+  const panel = document.querySelector<HTMLElement>(PANEL)!
+  const at = <T extends Element = HTMLButtonElement>(sel: string) => panel.querySelector<T>(sel)!
+  const click = async (sel: string) => {
+    const el = at(sel)
+    expect(el, sel).not.toBeNull()
+    await fireEvent.click(el)
     flushSync()
-    const cells = [...document.querySelectorAll<HTMLElement>(`${PANEL} .cell`)]
-    expect(cells).toHaveLength(8)
-    m.state.knobs.knobs.forEach((k, i) => {
-      const [dial, text] = cells[i].children
-      expect(dial.getAttribute('role')).toBe('slider')
-      expect([...text.children].map((c) => [c.className.split(' ')[0], c.textContent])).toEqual([
-        ['name', k.short],
-        ['readout', k.value],
-      ])
-      expect(cells[i].title).toBe(k.name)
+  }
+  /** The commands sent since the last call. */
+  const took = () => sent.splice(0)
+  return { m, panel, at, click, took }
+}
+
+describe('Quick Racks row layout', () => {
+  it('puts rack n in column n + 1, the pager on the left cheek and Store on the right, between the mixer row and the keyboard strip', () => {
+    const { panel } = stage({ demo: true })
+    const slots = [...panel.querySelectorAll<HTMLElement>('.slot')]
+    expect(slots).toHaveLength(8)
+    slots.forEach((s, i) => {
+      expect(s.style.getPropertyValue('grid-column'), `rack ${i + 1}`).toBe(String(i + 2))
+      expect(s.querySelector(`[data-tip="quick.${i + 1}"]`)).not.toBeNull()
     })
+    for (const key of ['quick.bank_prev', 'quick.bank', 'quick.bank_next', 'quick.store']) {
+      expect(panel.querySelector(`[data-tip="${key}"]`), key).not.toBeNull()
+    }
+    const mixer = document.querySelector<HTMLElement>('section[aria-label="Mixer"]')!
+    const strip = document.querySelector<HTMLElement>('section[aria-label="Keyboard"]')!
+    expect(mixer.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(panel.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(strip.querySelector('[data-tip^="quick."]')).toBeNull()
+  })
+
+  it('holds no knobs: no dial, no knob page, no knob tooltip', () => {
+    const { panel } = stage({ demo: true })
+    expect(panel.querySelector('[role="slider"]')).toBeNull()
+    expect(panel.querySelector('[data-tip^="knobs."]')).toBeNull()
+    expect(panel.querySelector('.cell')).toBeNull()
+    expect(panel.textContent).not.toMatch(/Knobs/)
   })
 
   // jsdom doesn't lay out or apply component CSS, so this reads the rules themselves.
-  it('makes both rows, and so each knob and rack button, as tall as a label + readout, in em of the stage', () => {
+  it('is one row, as tall as a label + readout, in em of the stage', () => {
     const src = readFileSync(resolve(process.cwd(), 'src/panels/knobracks/KnobRackPanel.svelte'), 'utf8')
     const css = src.slice(src.indexOf('<style>'))
-    const app = readFileSync(resolve(process.cwd(), 'src/App.svelte'), 'utf8')
     // Every rule whose selector is exactly `sel`, joined in source order.
-    const rule = (text: string, sel: string) => {
+    const rule = (sel: string) => {
       const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const ms = [...text.matchAll(new RegExp(`\\n\\s*${esc} \\{([^}]*)\\}`, 'g'))]
+      const ms = [...css.matchAll(new RegExp(`\\n\\s*${esc} \\{([^}]*)\\}`, 'g'))]
       expect(ms.length, `rule ${sel}`).toBeGreaterThan(0)
       return ms.map((m) => m[1]).join('\n')
     }
@@ -72,109 +87,178 @@ describe('knob layout', () => {
       return m![1].trim()
     }
     const em = (v: string) => Number(v.replace(/em$/, ''))
-    // A row: one label line, the gap, the readout.
-    const label = rule(css, '.panel :global(.engraved)')
+    const label = rule('.panel :global(.engraved)')
     const font = em(decl(label, 'font-size'))
     const lh = Number(decl(label, 'line-height'))
-    const gap = em(decl(rule(css, '.text'), 'gap'))
-    const readout = em(decl(rule(css, '.readout'), 'height'))
-    const panel = rule(css, '.panel')
+    const gap = em(decl(rule('.pager'), 'gap'))
+    const readout = em(decl(rule('.readout'), 'height'))
+    const panel = rule('.panel')
     const terms = decl(panel, '--row').match(/^calc\((\S+)em \* (\S+) \+ (\S+)em \+ (\S+)em\)$/)!.slice(1).map(Number)
     expect(terms).toEqual([font, lh, gap, readout])
-    expect(decl(panel, 'grid-template-rows')).toBe('var(--row) var(--row)')
-    expect(decl(rule(css, '.cell'), '--knob-size')).toBe('var(--row)')
-    // Everything scales with the stage: no rem sizes, and no fixed term in the stack.
+    expect(decl(panel, 'grid-template-rows')).toBe('var(--row)')
+    for (const sel of ['.pager', '.slot', '.store', '.ask']) expect(decl(rule(sel), 'grid-row'), sel).toBe('1')
+    // The panel's height: the row plus its padding above and below, under 4em.
+    const pad = em(decl(panel, 'padding').split(' ')[0])
+    expect(font * lh + gap + readout + 2 * pad).toBeCloseTo(3.99, 2)
+    // Everything scales with the stage: no rem sizes.
     expect(css).not.toMatch(/\drem\b/)
-    expect(app).not.toMatch(/--fixed|--top|--knob-bar-h/)
+    // No two-row fallback for tall windows.
+    expect(css).not.toMatch(/@container/)
   })
 })
 
-describe('knobs over Quick Racks', () => {
-  it('puts rack n in knob n\'s grid column, between the mirror and the keyboard strip, not in it', () => {
-    render(App, { props: { session: new MockSession({ demo: true, manual: true }) } })
-    flushSync()
-    const panel = document.querySelector<HTMLElement>(PANEL)!
-    const cells = [...panel.querySelectorAll<HTMLElement>('.cell')]
-    const slots = [...panel.querySelectorAll<HTMLElement>('.slot')]
-    expect(cells).toHaveLength(8)
-    expect(slots).toHaveLength(8)
-    // Column 1 is the pagers' cheek; knob and rack i share column i + 2.
-    cells.forEach((c, i) => {
-      expect(c.style.getPropertyValue('grid-column'), `knob ${i + 1}`).toBe(String(i + 2))
-      expect(slots[i].style.getPropertyValue('grid-column'), `rack ${i + 1}`).toBe(String(i + 2))
-      expect(slots[i].querySelector(`[data-tip="quick.${i + 1}"]`)).not.toBeNull()
-    })
-    // Both pagers and Store are in the panel.
-    for (const key of ['knobs.page', 'quick.bank_prev', 'quick.bank', 'quick.bank_next', 'quick.store']) {
-      expect(panel.querySelector(`[data-tip="${key}"]`), key).not.toBeNull()
+describe('Quick Racks row commands', () => {
+  it('each rack button sends pressQuickRack for its slot', async () => {
+    const { click, took } = stage()
+    for (let i = 0; i < 8; i++) {
+      await click(`[data-tip="quick.${i + 1}"]`)
+      expect(took()).toEqual([{ type: 'pressQuickRack', slot: i }])
     }
-    // The keyboard strip holds no Quick Rack control, and the panel sits between it and the mirror.
-    const strip = document.querySelector<HTMLElement>('section[aria-label="Keyboard"]')!
-    expect(strip.querySelector('[data-tip^="quick."], [data-tip^="knobs."]')).toBeNull()
-    const mirror = document.querySelector<HTMLElement>('section[aria-label="Launchkey"]')!
-    expect(mirror.querySelector('[data-tip^="knobs."]')).toBeNull()
-    expect(mirror.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(panel.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('pages the knobs and steps the bank from the cheek; a waiting Store asks across the rack row', async () => {
-    const m = new MockSession({ manual: true })
-    render(App, { props: { session: m } })
-    flushSync()
-    const panel = document.querySelector<HTMLElement>(PANEL)!
-    const page = m.state.knobs.pageNumber
-    await fireEvent.click(panel.querySelector('[aria-label="Next knob page"]')!)
-    flushSync()
-    expect(m.state.knobs.pageNumber).toBe(page + 1)
-    expect(panel.querySelector('.page-name')!.textContent).toBe(m.state.knobs.pageName)
-    await fireEvent.click(panel.querySelector('[data-tip="quick.bank_next"]')!)
-    flushSync()
-    expect(panel.querySelector('.letter')!.textContent).toBe('B')
-    await fireEvent.click(panel.querySelector('[data-tip="quick.store"]')!)
-    await fireEvent.click(panel.querySelector('[data-tip="quick.3"]')!)
-    flushSync()
-    expect(panel.querySelector('.ask')!.textContent).toContain('store it on B3')
+  it('◀ and ▶ step the bank and the letter follows', async () => {
+    const { m, at, click, took } = stage()
+    expect(at('.letter').textContent).toBe('A')
+    await click('[data-tip="quick.bank_next"]')
+    expect(took()).toEqual([{ type: 'stepQuickRackBank', delta: 1 }])
+    expect(m.state.quickRacks.bank).toBe(1)
+    expect(at('.letter').textContent).toBe('B')
+    // Rack labels follow the bank.
+    expect(at('[data-col="2"]').title).toMatch(/^B3:/)
+    await click('[data-tip="quick.bank_prev"]')
+    expect(took()).toEqual([{ type: 'stepQuickRackBank', delta: -1 }])
+    expect(at('.letter').textContent).toBe('A')
+  })
+
+  it('Store arms (every button flashing), a press asks across the row, Cancel disarms', async () => {
+    const { m, panel, at, click, took } = stage()
+    await click('[data-tip="quick.store"]')
+    expect(took()).toEqual([{ type: 'toggleQuickRackStore' }])
+    expect(m.state.quickRacks.store).toBe(true)
+    expect(at('[data-tip="quick.store"]').getAttribute('aria-pressed')).toBe('true')
+    await click('[data-tip="quick.3"]')
+    expect(took()).toEqual([{ type: 'pressQuickRack', slot: 2 }])
+    expect(m.state.quickRacks.storeWaiting).toBe(2)
+    // The prompt takes the buttons' place, Store included (Cancel is in it).
+    expect(at('.ask').textContent).toContain('store it on A3')
     expect(panel.querySelectorAll('.slot')).toHaveLength(0)
     expect(panel.querySelector('[data-tip="quick.store"]')).toBeNull()
+    expect(panel.querySelector('.seam.right')).toBeNull()
+    await click('[data-tip="quick.cancel_store"]')
+    expect(took()).toEqual([{ type: 'toggleQuickRackStore' }])
+    expect(m.state.quickRacks).toMatchObject({ store: false, storeWaiting: null })
+    expect(panel.querySelectorAll('.slot')).toHaveLength(8)
+  })
+
+  it('armed, a rack button sends pressQuickRack, as the Store pad then a rack pad do (never storeRack)', async () => {
+    const { m, click, took } = stage()
+    await click('[data-tip="quick.store"]')
+    took()
+    await click('[data-tip="quick.6"]')
+    expect(took()).toEqual([{ type: 'pressQuickRack', slot: 5 }])
+    expect(m.state.quickRacks.storeWaiting).toBe(5)
   })
 })
 
-describe('mock resetKnob', () => {
-  it('goes to each function\'s default', () => {
-    const m = new MockSession({ manual: true })
-    m.send({ type: 'setKnobPage', page: 'pan' })
-    m.send({ type: 'turnKnob', knob: 1, delta: 5 })
-    m.send({ type: 'resetKnob', knob: 1 })
-    expect(m.state.keyboardParts[1].pan).toBe(64)
-    m.send({ type: 'setKnobPage', page: 'reverb' })
-    const def = m.state.effects.blocks[0].params[0].default
-    m.send({ type: 'turnKnob', knob: 4, delta: 4 })
-    m.send({ type: 'resetKnob', knob: 4 })
-    expect(m.state.effects.blocks[0].params[0].value).toBe(def)
-    m.send({ type: 'setKnobPage', page: 'rack' })
-    m.send({ type: 'resetKnob', knob: 2 })
-    expect(m.state.keyboardParts[2].volume).toBe(100)
+describe('Quick Racks row: store in one go (hold Sound + tap, on the Launchkey)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Holds the pointer down on rack button `n` (1–8) for `ms`, then lets go. */
+  async function hold(at: ReturnType<typeof stage>['at'], n: number, ms: number) {
+    const btn = at(`[data-tip="quick.${n}"]`)
+    await fireEvent.pointerDown(btn, { button: 0, isPrimary: true, pointerId: 1 })
+    vi.advanceTimersByTime(ms)
+    await fireEvent.pointerUp(btn, { button: 0, isPrimary: true, pointerId: 1 })
+    await fireEvent.click(btn, { detail: 1 })
+    flushSync()
+  }
+
+  it('a long press on a rack button sends storeRack for its slot, and not the press', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { m, at, took } = stage()
+    took()
+    await hold(at, 4, 500)
+    expect(took()).toEqual([{ type: 'storeRack', slot: 3 }])
+    // One step: the live rack is saved and stored on A4 at once, with no prompt.
+    expect(m.state.quickRacks).toMatchObject({ store: false, storeWaiting: null })
+    expect(m.state.quickRacks.buttons[3].rack).toBeTruthy()
+    expect(document.querySelector('.ask')).toBeNull()
+  })
+
+  it('a short press still loads (pressQuickRack), with no storeRack after it', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { at, took } = stage()
+    took()
+    await hold(at, 2, 300)
+    vi.advanceTimersByTime(1000)
+    expect(took()).toEqual([{ type: 'pressQuickRack', slot: 1 }])
+  })
+
+  it('a right-click sends storeRack for its slot, with the menu kept away; a touch long press that also brings the menu stores once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { m, at, took } = stage()
+    took()
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })
+    at('[data-tip="quick.7"]').dispatchEvent(menu)
+    flushSync()
+    expect(menu.defaultPrevented).toBe(true)
+    expect(took()).toEqual([{ type: 'storeRack', slot: 6 }])
+    // Stored at once on A7: no prompt, nothing waiting.
+    expect(m.state.quickRacks).toMatchObject({ store: false, storeWaiting: null })
+    expect(m.state.quickRacks.buttons[6].rack).toBeTruthy()
+    expect(document.querySelector('.ask')).toBeNull()
+    // Touch: the hold fires, then the browser's contextmenu, then the lift.
+    const btn = at('[data-tip="quick.2"]')
+    await fireEvent.pointerDown(btn, { button: 0, isPrimary: true, pointerId: 2 })
+    vi.advanceTimersByTime(500)
+    await fireEvent.contextMenu(btn)
+    await fireEvent.pointerUp(btn, { button: 0, isPrimary: true, pointerId: 2 })
+    flushSync()
+    expect(took()).toEqual([{ type: 'storeRack', slot: 1 }])
+  })
+
+  it('overwrites a stored, lit button with no confirm, as the pads do; the slot is of the bank on view', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { m, at, click, took } = stage()
+    // Ballad on A2, saved and loaded (lit).
+    await click('[data-tip="quick.store"]')
+    await click('[data-tip="quick.2"]')
+    await fireEvent.input(at<HTMLInputElement>('[data-tip="quick.save_name"]'), { target: { value: 'Ballad' } })
+    await click('[data-tip="quick.save"]')
+    expect(m.state.quickRacks.buttons[1]).toMatchObject({ name: 'Ballad', loaded: true })
+    took()
+    await hold(at, 2, 500)
+    expect(took()).toEqual([{ type: 'storeRack', slot: 1 }])
+    expect(m.state.quickRacks).toMatchObject({ store: false, storeWaiting: null })
+    expect(m.state.quickRacks.buttons[1]).toMatchObject({ name: 'Ballad', loaded: true })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    // On bank B, button 5 is B5: storeRack names the slot; the bank is the one on view.
+    await click('[data-tip="quick.bank_next"]')
+    took()
+    await hold(at, 5, 500)
+    expect(took()).toEqual([{ type: 'storeRack', slot: 4 }])
+    expect(m.state.quickRacks.buttons[4]).toMatchObject({ name: 'Ballad', loaded: true })
   })
 })
 
-describe('mock Rack knob page', () => {
-  it('is the Parts page with the default map, and follows the controller map', () => {
-    const m = new MockSession({ manual: true })
-    m.send({ type: 'setKnobPage', page: 'rack' })
-    expect(m.state.knobs.pageName).toBe('Rack')
-    expect(m.state.knobs.knobs.map((k) => k.short)).toEqual(['Right1', 'Right2', 'Right3', 'Left', 'HarmVol', 'MetroVol', '---', 'Tempo'])
-    m.send({ type: 'setRackControl', control: 'knob', index: 0, target: { kind: 'splitPoint' } })
-    expect(m.state.liveRack.modified).toBe(true)
-    expect(m.state.knobs.knobs[0]).toMatchObject({ function: 'splitPoint', short: 'Split', value: 'F#2' })
-    m.send({ type: 'turnKnob', knob: 0, delta: 2 })
-    expect(m.state.chord.split).toBe(56)
-    // A fader the map gives another target: its label and command in the mirror.
-    m.send({ type: 'setRackControl', control: 'fader', index: 1, target: { kind: 'partPan', part: 0 } })
-    const f = m.state.surface.faders[1]
-    expect(f).toMatchObject({ label: 'PANR1', set: { type: 'moveRackFader', fader: 1, volume: 0 } })
-    m.send({ type: 'moveRackFader', fader: 1, volume: 20 })
-    expect(m.state.keyboardParts[0].pan).toBe(20)
-    m.send({ type: 'setRackControl', control: 'fader', index: 1, target: { kind: 'tempo' } })
-    expect(m.state.liveRack.controls.faders[1]).toEqual({ kind: 'partPan', part: 0 })
+describe('Quick Racks row prompt', () => {
+  it('Save in the prompt stores the rack on the button; ✕ clears it', async () => {
+    const { m, panel, at, click, took } = stage()
+    await click('[data-tip="quick.store"]')
+    await click('[data-tip="quick.2"]')
+    await fireEvent.input(at<HTMLInputElement>('[data-tip="quick.save_name"]'), { target: { value: 'Ballad' } })
+    took()
+    await click('[data-tip="quick.save"]')
+    expect(took()).toEqual([{ type: 'saveRackAs', name: 'Ballad' }])
+    expect(m.state.quickRacks.buttons[1]).toMatchObject({ name: 'Ballad', loaded: true })
+    expect(at('[data-col="1"] .bname').textContent).toBe('Ballad')
+    // Only a stored button has ✕.
+    expect(panel.querySelectorAll('.clear')).toHaveLength(1)
+    await click('[data-col="1"] .clear')
+    expect(took()).toEqual([{ type: 'clearQuickRack', bank: 0, slot: 1 }])
+    expect(m.state.quickRacks.buttons[1].rack).toBeNull()
+    expect(panel.querySelectorAll('.clear')).toHaveLength(0)
   })
 })

@@ -1,17 +1,18 @@
 <!--
   The Quick Racks bar in Library (docs/racks.md): one press loads one of your racks. On
-  the stage the same buttons sit under the knobs (panels/knobracks); this one-row bar is
+  the stage the same buttons have their own row (panels/knobracks); this one-row bar is
   Library's, above its tabs. Every size is in em.
 
   [Quick Racks ◀ A ▶] [1]…[8] [Store]        (each button: its rack's name under it, ✕ clears)
 
   The buttons light like pad page 4 (red loaded, blue stored, dark empty; all flashing
-  while Store is armed). A Store waiting for a save asks in the buttons' place
+  while Store is armed). A long press or right-click on a button stores the live rack
+  there in one go (storeRack, as hold Sound + tap a Racks pad; storeHold). A Store waiting for a save asks in the buttons' place
   (RackPrompt). The rack prompts (unsaved changes, sound names) are asked only in the Rack
   panel (openRackDrawerOnPrompt).
 
   State: quickRacks, liveRack. Commands: pressQuickRack, stepQuickRackBank,
-  toggleQuickRackStore, clearQuickRack.
+  toggleQuickRackStore, storeRack, clearQuickRack.
 -->
 <script lang="ts">
   import { QUICK } from '../../help/actions'
@@ -21,6 +22,7 @@
   import HwButton from '../../lib/ui/HwButton.svelte'
   import { openRackDrawerOnPrompt } from './rackPromptDrawer.svelte'
   import RackPrompt, { asking } from './RackPrompt.svelte'
+  import { storeHold } from './storeHold'
 
   const q = $derived(app.state.quickRacks)
   const beats = $derived(clock.beats)
@@ -45,7 +47,9 @@
       {#each q.buttons as b, i (i)}
         {@const label = quickLabel(q.bank, i)}
         <div class="slot" title="{label}: {quickName(q, i)}">
-          <HwButton tip={QUICK[i]} led={quickLook(q, i)} {beats} shape="square" label="Quick Rack {label}" onclick={() => app.send({ type: 'pressQuickRack', slot: i })}>{i + 1}</HwButton>
+          <div class="hold" use:storeHold={() => app.send({ type: 'storeRack', slot: i })}>
+            <HwButton tip={QUICK[i]} led={quickLook(q, i)} {beats} shape="square" label="Quick Rack {label}" onclick={() => app.send({ type: 'pressQuickRack', slot: i })}>{i + 1}</HwButton>
+          </div>
           <span class="bname" class:empty={!b.rack} class:missing={b.missing} class:loaded={b.loaded}>
             <span class="txt">{quickName(q, i)}</span>
             {#if b.rack}
@@ -96,7 +100,13 @@
   .lbl {
     white-space: nowrap;
   }
+  /* The long-press wrapper takes no box; no callout or selection on a touch long press. */
+  .hold {
+    display: contents;
+  }
   .slot {
+    -webkit-touch-callout: none;
+    user-select: none;
     display: flex;
     flex-direction: column;
     align-items: center;

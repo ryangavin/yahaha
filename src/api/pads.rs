@@ -1,6 +1,6 @@
 //! The Launchkey pads.
 
-use crate::launchkey::{Anim, Level, Page};
+use crate::launchkey::{Anim, Layer, Level, Page};
 use serde::{Deserialize, Serialize};
 
 use super::AppCmd;
@@ -8,10 +8,22 @@ use super::AppCmd;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum PadsCmd {
-    /// The Launchkey pad page.
+    /// The Launchkey pad page. A page left out of the page order (`setPadPageOrder`) is
+    /// refused.
     SetPadPage { page: Page },
-    /// Step the pad page by `delta`, wrapping (the terminal's Tab / Shift+Tab).
+    /// Step the pad page by `delta` through the page order, wrapping (the terminal's Tab /
+    /// Shift+Tab).
     CyclePadPage { delta: i8 },
+    /// The order of pad pages 2-5 (Settings › Launchkey): Pad Bank ▲/▼ and Tab walk
+    /// Sections, then `pages`. A page left out can't be paged to (hold Sound still shows
+    /// Racks). Refused if `pages` names Sections, names a page twice, or has more than
+    /// four. Saved in `settings.json`; on a page left out, the pads go to Sections.
+    SetPadPageOrder { pages: Vec<Page> },
+    /// The held control's layer (`surface.layer`), for the app's mirror of the Launchkey:
+    /// `sound` holds Sound (the pads are the Racks page, from any page), `swap` holds keyboard
+    /// part `part`'s Panel fader button with a knob turned (swap mode), `none` releases
+    /// either, as the Launchkey's button release does. Refused for a part outside 0-3.
+    SetLayer { layer: Layer },
 }
 
 /// The Launchkey pads.
@@ -19,11 +31,14 @@ pub enum PadsCmd {
 #[serde(rename_all = "camelCase")]
 pub struct PadsState {
     pub page: Page,
-    /// "Sections", "Chord/Setup", "OTS/Parts".
+    /// "Sections", "Racks", "Chord", "Multi Pads", "Setup".
     pub page_name: String,
-    /// 1-based page number, and how many pages there are.
+    /// 1-based position of `page` in the page order, and how many pages it has.
     pub page_number: u8,
     pub page_count: u8,
+    /// The page order Pad Bank ▲/▼ walk: Sections, then `settings.padPages`.
+    #[serde(default)]
+    pub pages: Vec<PadPageInfo>,
     /// The 16 pads on this page: the top row (notes 96-103) then the bottom row (112-119).
     pub pads: Vec<Pad>,
     /// A Launchkey is connected (DAW port).
@@ -31,6 +46,15 @@ pub struct PadsState {
     /// The LEDs use the Novation palette (`--palette-leds`): the pads show `Pad::palette`,
     /// not `rgb`/`level`/`anim`.
     pub palette_leds: bool,
+}
+
+/// A pad page in the page order.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PadPageInfo {
+    pub page: Page,
+    /// "Sections", "Racks", "Chord", "Multi Pads", "Setup".
+    pub name: String,
 }
 
 /// A pad in palette-LED mode: what was sent to it.

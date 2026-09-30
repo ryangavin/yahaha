@@ -78,8 +78,23 @@ function sf(id: string, name: string, bank: number, program: number, extra: Part
     source: { kind: 'soundFont', file: SF2, bank, program },
     available: true,
     note: null,
+    number: 0,
     ...extra,
   }
+}
+
+/** Sound numbers, 1-based (docs/eyes-free.md, "Sound numbers"), as the engine's
+ * (src/session/sound_library.rs): favourites first, then the rest; within each, category
+ * (the Genos order), then name ignoring case, then the name as written, then the patch's
+ * place in the library. */
+export function number(patches: PatchInfo[]) {
+  const cats = Object.keys(CATEGORY_LABELS) as PatchCategory[]
+  const lower = (s: string) => s.toLowerCase()
+  const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+  patches
+    .map((p, i) => ({ p, i }))
+    .sort((x, y) => Number(y.p.favourite) - Number(x.p.favourite) || cats.indexOf(x.p.category) - cats.indexOf(y.p.category) || cmp(lower(x.p.name), lower(y.p.name)) || cmp(x.p.name, y.p.name) || x.i - y.i)
+    .forEach(({ p }, n) => (p.number = n + 1))
 }
 
 /** A small curated library, as a player might have built it. */
@@ -112,6 +127,7 @@ export function initialSoundLibrary(): SoundLibraryState {
     { program: 5, patch: 'warm-rhodes', volume: 96 },
   ]
   map.drums = 'studio-kit'
+  number(patches)
   return {
     patches,
     categories: (Object.keys(CATEGORY_LABELS) as PatchCategory[]).map((id) => ({ id, label: CATEGORY_LABELS[id] })),
@@ -147,6 +163,7 @@ function info(id: string, f: PatchFields): PatchInfo {
     // The desktop app builds with plugin hosting (#91): a plugin patch plays itself.
     available: !missing,
     note: missing ? `${(f.source as { file: string }).file} is not in the SoundFont folder` : null,
+    number: 0,
   }
 }
 
@@ -477,6 +494,7 @@ export class MockSoundLibrary {
    * keyboard parts' patch and voice names. */
   derive(st: AppState) {
     const sl = st.soundLibrary
+    number(sl.patches)
     sl.styleKey = st.style.path.split('/').pop() ?? ''
     const style = this.styleMaps.get(sl.styleKey) ?? null
     sl.styleMap = style ? structuredClone(style) : emptyMap()

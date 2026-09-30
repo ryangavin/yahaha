@@ -6,7 +6,7 @@ import { MockSession } from './api/mock'
 import type { Pad } from './api/types'
 import { DIM, padLight } from './leds'
 import { app, clock } from './store.svelte'
-import { hasShiftFunction, surfaceOf } from './surface'
+import { controlTip, hasShiftFunction, surfaceOf } from './surface'
 
 afterEach(() => {
   app.detach()
@@ -23,13 +23,13 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
       'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'play', 'stop', 'scene', 'function',
       'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton5', 'faderButton6', 'faderButton7', 'faderButton8', 'masterButton',
     ])
-    expect(labels(m)).toEqual(['', 'PAGE ▼', '◀ STYLE', 'STYLE ▶', 'PLAY', 'STOP', 'TEMPO +', 'TEMPO -', 'RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'HARM/ARP', 'PLUGIN', 'L HOLD', 'LOOPER', 'PANEL'])
+    expect(labels(m)).toEqual(['', 'PAGE ▼', '◀ STYLE', 'STYLE ▶', 'PLAY', 'STOP', 'TEMPO +', 'TEMPO -', 'RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'HARM/ARP', 'SOUND', 'L HOLD', 'LOOPER', 'PANEL'])
     expect(m.state.surface.controls.map((c) => c.shiftLabel).slice(0, 2)).toEqual(['LEFT', 'OTS LINK'])
     expect(m.state.surface.controls[8].shiftLabel).toBe('EDIT R1')
     expect(m.state.surface.faders).toHaveLength(9)
     expect(m.state.surface.faders.map((f) => f.label)).toEqual(['RIGHT 1', 'RIGHT 2', 'RIGHT 3', 'LEFT', 'STYLE', 'M.PAD', '', '', 'MASTER'])
     m.send({ type: 'toggleFaderPage' })
-    expect(labels(m).slice(8)).toEqual(['RHYTHM 1', 'RHYTHM 2', 'BASS', 'CHORD 1', 'CHORD 2', 'PAD', 'PHRASE 1', 'PHRASE 2', 'STYLE'])
+    expect(labels(m).slice(8)).toEqual(['RHYTHM 1', 'RHYTHM 2', 'BASS', 'CHORD 1', 'CHORD 2', 'SOUND', 'PHRASE 1', 'PHRASE 2', 'STYLE'])
   })
 
   it('each fader layer lights the Panel part buttons and master button in its colour (src/launchkey.rs layer_colour)', () => {
@@ -55,16 +55,20 @@ describe('the mock surface matches the engine (src/session.rs surface)', () => {
     expect(b5().level).toBe('bright')
   })
 
-  it('Panel button 6 reloads the selected part\'s plugin, lit red while it failed', () => {
+  it('button 6 is Sound on both fader pages: a hold, no action; Shift on the Style page mutes the Pad part', () => {
     const m = new MockSession({ manual: true, demo: true })
     const b6 = () => m.state.surface.controls.find((x) => x.id === 'faderButton6')!
-    expect([b6().label, b6().action, b6().level]).toEqual(['PLUGIN', { type: 'reloadPartPlugin', part: null }, 'off'])
+    expect(m.state.surface.layer).toEqual({ type: 'none' })
+    expect([b6().label, b6().action, b6().level, b6().rgb]).toEqual(['SOUND', null, 'dim', [127, 127, 127]])
+    expect([b6().shiftLabel, b6().shiftAction]).toEqual(['', null])
+    m.send({ type: 'toggleFaderPage' })
+    expect([b6().label, b6().action, b6().shiftLabel, b6().shiftAction]).toEqual(['SOUND', null, 'PAD', { type: 'toggleStylePart', part: 5 }])
+  })
+
+  it('plugin reload is an app command only: it reloads the selected part\'s plugin', () => {
+    const m = new MockSession({ manual: true, demo: true })
     m.send({ type: 'setPartPlugin', part: 0, id: 'aumu Mock Demo', state: null })
     m.advance(1000)
-    expect([b6().level, b6().rgb]).toEqual(['bright', [127, 0, 0]])
-    m.send({ type: 'selectPart', part: 1 })
-    expect(b6().level).toBe('off')
-    m.send({ type: 'selectPart', part: 0 })
     m.send({ type: 'reloadPartPlugin', part: null })
     expect(m.state.keyboardParts[0].plugin!.status).toBe('loading')
     m.advance(1000)
@@ -95,8 +99,15 @@ describe('Shift layer, as the engine JSON arrives', () => {
     const wire = JSON.parse(JSON.stringify(m.state.surface)) as typeof m.state.surface
     expect(wire.controls.filter(hasShiftFunction).map((c) => c.id)).toEqual([
       'padBankUp', 'padBankDown', 'trackPrev', 'trackNext', 'play', 'stop', 'scene', 'function',
-      'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton8', 'masterButton',
+      // Button 6: Sound is a plain (Shift off) hold; Shift + it does nothing on the Panel page.
+      'faderButton1', 'faderButton2', 'faderButton3', 'faderButton4', 'faderButton6', 'faderButton8', 'masterButton',
     ])
+  })
+
+  it('fader button 6 (the Sound hold) shows the Sound tooltip', () => {
+    const m = new MockSession({ manual: true, demo: true })
+    const b6 = m.state.surface.controls.find((x) => x.id === 'faderButton6')!
+    expect(controlTip(b6, false)).toBe('launchkey.sound')
   })
 })
 

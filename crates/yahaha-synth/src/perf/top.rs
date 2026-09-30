@@ -20,7 +20,8 @@ pub const PART_NAMES: [&str; CHANNELS] = [
 /// The rows in the order shown: the keyboard parts, the Style parts, then the pads.
 const ROW_ORDER: [usize; CHANNELS] = [0, 2, 3, 1, 8, 9, 10, 11, 12, 13, 14, 15, 4, 5, 6, 7];
 
-const BUS_NAMES: [&str; yahaha_fx::fx::BUSES] = ["Reverb", "Chorus", "Variation"];
+/// The send rows: the three buses, then sends 4-6.
+const BUS_NAMES: [&str; yahaha_core::perf::BUSES] = ["Reverb", "Chorus", "Variation", "Send 4", "Send 5", "Send 6"];
 /// The insertion effect rows (#269), by Style part.
 const INSERT_NAMES: [&str; crate::perf::INSERTS] = ["Ins Rhythm1", "Ins Rhythm2", "Ins Bass", "Ins Chord1", "Ins Chord2", "Ins Pad", "Ins Phrase1", "Ins Phrase2"];
 
@@ -225,13 +226,14 @@ mod tests {
         let right1 = lines.iter().find(|l| l.starts_with("Right 1")).unwrap();
         assert!(right1.contains("sf2") && right1.contains("12") && right1.contains("-12.0") && right1.contains("14.0"), "{right1}");
         assert!(lines.iter().any(|l| l.starts_with("Right 2") && l.contains("plugin")), "{text}");
-        assert_eq!(lines.iter().filter(|l| l.contains(" fx  bus")).count(), 3, "reverb, chorus, variation");
-        assert_eq!(lines.len(), 10 + CHANNELS + 3);
+        assert_eq!(lines.iter().filter(|l| l.contains(" fx  bus")).count(), 6, "reverb, chorus, variation, sends 4-6");
+        assert!(lines.iter().any(|l| l.starts_with("Send 6") && l.contains(" fx  bus")), "{text}");
+        assert_eq!(lines.len(), 10 + CHANNELS + 6);
         // An insertion effect that ran gets its own row (#269).
         s.inserts[3] = (750 * 8_000, 20_000, 0.5);
         let lines = render(&s, Duration::from_secs(1));
         let ins = lines.iter().find(|l| l.starts_with("Ins Chord1")).expect("the Chord 1 insert row");
         assert!(ins.contains(" 12  insert") && ins.contains("8.0") && ins.contains("-6.0"), "{ins}");
-        assert_eq!(lines.len(), 10 + CHANNELS + 4);
+        assert_eq!(lines.len(), 10 + CHANNELS + 7);
     }
 }

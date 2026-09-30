@@ -112,6 +112,10 @@ pub struct PatchInfo {
     /// It plays itself (false: it plays the SoundFont fallback; `note` says why).
     pub available: bool,
     pub note: Option<String>,
+    /// Its sound number, 1-based: what swap mode (`swapSound`) dials, what the Launchkey
+    /// display and the Library show. Stable while the library is unchanged.
+    #[serde(default)]
+    pub number: u32,
 }
 
 /// A library [`Patch`] as the state shows it: the same fields, with a plugin source's
@@ -286,7 +290,7 @@ mod tests {
 
     #[test]
     fn the_state_shows_whether_a_plugin_sound_has_state_never_the_state() {
-        let json = serde_json::to_value(PatchInfo { patch: (&plugin("c2FtcGxlcg==")).into(), available: true, note: None }).unwrap();
+        let json = serde_json::to_value(PatchInfo { patch: (&plugin("c2FtcGxlcg==")).into(), available: true, note: None, number: 1 }).unwrap();
         assert_eq!(json["source"], serde_json::json!({ "kind": "plugin", "componentId": "aumu Smp7 Fake", "hasState": true, "origin": { "kind": "factory", "number": 2 } }));
         assert!(!json.to_string().contains("c2FtcGxlcg"));
         let fresh = PatchView::from(&plugin(""));

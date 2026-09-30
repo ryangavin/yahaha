@@ -14,6 +14,7 @@ import {
   KEYBOARD_PART_NAMES,
   OFF_INSERT,
   PAD_PAGES,
+  DEFAULT_PAD_PAGES,
   STYLE_PART_NAMES,
   type AppState,
   type ClockState,
@@ -123,7 +124,7 @@ export function emptyState(): AppState {
       master: 100, masterWaiting: false, styleVolume: 100, styleVolumeWaiting: false, multiPadVolume: 100, multiPadVolumeWaiting: false,
       styleSolo: null, partSolo: null,
     },
-    pads: { page: 'sections', pageName: PAD_PAGES[0].name, pageNumber: 1, pageCount: PAD_PAGES.length, pads: [], connected: false, paletteLeds: false },
+    pads: { page: 'sections', pageName: PAD_PAGES[0].name, pageNumber: 1, pageCount: PAD_PAGES.length, pages: PAD_PAGES.map((p) => ({ page: p.id, name: p.name })), pads: [], connected: false, paletteLeds: false },
     ots: { settings: [], applied: 0, link: false, linkTiming: 'mainChange', racks: [], racksReadOnly: false },
     library: { revision: 0, count: 0, position: 0, pending: 0, roots: [], scanning: false },
     io: {
@@ -134,7 +135,7 @@ export function emptyState(): AppState {
     },
     message: null,
     styleChange: { tempo: 'hold', parts: 'hold', sectionSet: null },
-    surface: { shift: false, controls: CONTROL_IDS.map(control), faders: Array.from({ length: 9 }, fader), trackPrev: null, trackNext: null, clock },
+    surface: { shift: false, layer: { type: 'none' }, controls: CONTROL_IDS.map(control), faders: Array.from({ length: 9 }, fader), trackPrev: null, trackNext: null, clock },
     preview: { audition: null, queued: null },
     chart: {
       on: false, playlists: [], selected: null, song: null, choruses: 1, intro: 0, ending: 0, loop: null,
@@ -177,5 +178,6 @@ export function emptyState(): AppState {
     liveRack: { name: '', id: null, modified: false, controls: defaultControlMap(), prompt: null },
     racks: [],
     quickRacks: emptyQuickRacks(),
+    settings: { padPages: [...DEFAULT_PAD_PAGES] },
   }
 }

@@ -1,7 +1,8 @@
 <!--
   The Settings drawer (right side, not modal: performance keys keep working). Pages
   follow the Genos menus: Chord and Split (Split & Fingering), Transpose, Style (Style
-  Setting), Pedals (Assignable and Controller), Lock (Utility › Parameter Lock), then yahaha's own Audio, MIDI and Library. Every change applies at once:
+  Setting), Pedals (Assignable and Controller), Lock (Utility › Parameter Lock), then yahaha's own Audio, MIDI, Launchkey
+  (the pad page order) and Library. Every change applies at once:
   there is no Save. Settings the engine has go through `app.send`; the few it doesn't
   yet (SoundFont, MIDI inputs, palette LEDs, library folders) go through the settings
   adapter in lib/api/settings.svelte.ts.
@@ -15,6 +16,7 @@
   import Overlay from '../../lib/ui/Overlay.svelte'
   import AudioPage from './AudioPage.svelte'
   import ChordPage from './ChordPage.svelte'
+  import LaunchkeyPage from './LaunchkeyPage.svelte'
   import LibraryPage from './LibraryPage.svelte'
   import LockPage from './LockPage.svelte'
   import MidiPage from './MidiPage.svelte'
@@ -80,6 +82,7 @@
     {@render page('lock', LockPage)}
     {@render page('audio', AudioPage)}
     {@render page('midi', MidiPage)}
+    {@render page('launchkey', LaunchkeyPage)}
     {@render page('library', LibraryPage)}
   </div>
 </Overlay>
@@ -92,7 +95,7 @@
   }
   .tabs {
     display: grid;
-    /* Nine tabs in a 30rem drawer: each at least its label, the rest shared. */
+    /* Ten tabs in a 30rem drawer: each at least its label, the rest shared. */
     grid-auto-flow: column;
     grid-auto-columns: minmax(max-content, 1fr);
     gap: 2px;

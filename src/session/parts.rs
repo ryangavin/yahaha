@@ -34,6 +34,7 @@ impl Control {
                 // The voice settings back to neutral (#238): the engine thread sends them.
                 self.wake_engine();
             }
+            PartsCmd::SwapSound { part, step } => return self.swap_sound(part, step),
             PartsCmd::SetPartVolume { part, volume } => {
                 parts.set_volume((part & 3) as usize, volume);
                 self.wake_engine();

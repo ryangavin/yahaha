@@ -5,8 +5,10 @@ import { MockSession, LIBRARY } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import Launchkey from './Launchkey.svelte'
 import { neighbours } from '../../lib/surface'
+import type { AppCmd, AppState, KnobFunction, Layer } from '../../lib/api/types'
+import { TIPS } from '../../help/tooltips'
 
-function setup(page?: 'chordSetup' | 'otsParts') {
+function setup(page?: 'chord' | 'racks') {
   const session = new MockSession({ manual: true, demo: true })
   app.attach(session)
   if (page) session.send({ type: 'setPadPage', page })
@@ -19,9 +21,11 @@ afterEach(() => {
   cleanup()
   app.detach()
   ui.shiftLatched = false
+  ui.multipad = false
 })
 
 const pad = (note: number) => document.querySelector<HTMLButtonElement>(`.pad[data-note="${note}"]`)!
+const knob = (i: number) => document.querySelectorAll<HTMLElement>('[aria-label="Knobs"] [role="slider"]')[i]
 
 describe('Launchkey mirror', () => {
   it('shows the 16 pads of the current page with their labels and lights', () => {
@@ -32,20 +36,69 @@ describe('Launchkey mirror', () => {
     expect(pad(115).dataset.level).toBe('off') // this style has no Main D
   })
 
-  it('reads left to right like the hardware: faders, then the pads, then the transport', () => {
+  it('is the knobs over the pads, with no fader bank or status display', () => {
+    setup()
+    expect(document.querySelector('[aria-label="Faders"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Status display"]')).toBeNull()
+    expect(document.querySelectorAll('[aria-label="Knobs"] [role="slider"][data-tip="knobs.knob"]')).toHaveLength(8)
+    // Every button beside the pads is there.
+    for (const key of ['launchkey.shift', 'padpage.prev', 'padpage.next', 'style.prev', 'style.next', 'launchkey.rotary_fast', 'drawer.multipad', 'launchkey.status']) {
+      expect(document.querySelector(`[data-tip="${key}"]`), key).toBeTruthy()
+    }
+    expect(document.querySelectorAll('[aria-label="Scene Launch and Function"] button')).toHaveLength(2)
+    expect(document.querySelectorAll('[aria-label="Transport"] button')).toHaveLength(2)
+  })
+
+  it('reads like the hardware: the knob page and knobs, then Shift and the pad buttons, the pads, then the transport', () => {
     setup()
     const before = (a: string, b: string) =>
       !!(document.querySelector(a)!.compareDocumentPosition(document.querySelector(b)!) & Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(before('[aria-label="Faders"]', '.pads')).toBe(true)
+    expect(before('[aria-label="Knob page"]', '[aria-label="Knobs"]')).toBe(true)
+    expect(before('[aria-label="Knobs"]', '[data-tip="launchkey.shift"]')).toBe(true)
+    expect(before('[data-tip="launchkey.shift"]', '.pads')).toBe(true)
     expect(before('.pads', '[aria-label="Transport"]')).toBe(true)
+  })
+
+  it('shows the hardware\'s knob page, and ◀ ▶ step it as the encoder page buttons do', async () => {
+    const { session } = setup()
+    const name = () => document.querySelector('.page-name')!.textContent
+    expect(name()).toBe(session.state.knobs.pageName)
+    expect(document.body.textContent).toContain(`Knobs ${session.state.knobs.pageNumber}/${session.state.knobs.pageCount}`)
+    const n = session.state.knobs.pageNumber
+    await fireEvent.click(document.querySelector('[aria-label="Next knob page"]')!)
+    expect(session.state.knobs.pageNumber).toBe(n + 1)
+    flushSync()
+    expect(name()).toBe(session.state.knobs.pageName)
+    await fireEvent.click(document.querySelector('[aria-label="Previous knob page"]')!)
+    expect(session.state.knobs.pageNumber).toBe(n)
+    // The page the hardware moves to shows here too.
+    session.send({ type: 'setKnobPage', page: 'reverb' })
+    flushSync()
+    expect(name()).toBe(session.state.knobs.pageName)
+  })
+
+  it('each knob shows its label and lit readout, turns relatively and resets on double-click', async () => {
+    const { session } = setup()
+    const cells = document.querySelectorAll('[aria-label="Knobs"] .cell')
+    session.state.knobs.knobs.forEach((k, i) => {
+      expect(cells[i].querySelector('.name')!.textContent).toBe(k.short)
+      expect(cells[i].querySelector('.readout')!.textContent).toBe(k.value)
+      expect(knob(i).getAttribute('aria-label')).toBe(k.name)
+    })
+    const level = session.state.dynamics.level
+    knob(0).focus()
+    await fireEvent.keyDown(knob(0), { key: 'ArrowDown' })
+    expect(session.state.dynamics.level).toBeLessThan(level)
+    await fireEvent.dblClick(knob(0))
+    expect(session.state.dynamics.level).toBe(127)
   })
 
   it('follows the pad page', () => {
     const { session } = setup()
-    session.send({ type: 'setPadPage', page: 'otsParts' })
+    session.send({ type: 'setPadPage', page: 'racks' })
     flushSync()
-    expect(pad(96).textContent).toContain('OTS 1')
-    expect(pad(96).dataset.tip).toBe('ots.1')
+    expect(pad(112).textContent).toContain('OTS 1')
+    expect(pad(112).dataset.tip).toBe('ots.1')
   })
 
   it('the Rotary button (Shift + encoder ▲ on the hardware) toggles the rotary speed and lights while fast', async () => {
@@ -78,79 +131,41 @@ describe('Launchkey mirror', () => {
     await fireEvent.click(down())
     await fireEvent.click(down())
     await fireEvent.click(down())
-    expect(session.state.pads.page).toBe('multiPads')
+    expect(session.state.pads.page).toBe('setup')
   })
 
-  it('the Shift layer turns Pad Bank into Left on/off and OTS Link, and fader buttons into Edit', async () => {
+  it('a pad-page tab sets the page', async () => {
+    const { session } = setup()
+    await fireEvent.click(document.querySelector('[role="tab"][data-tip="padpage.chord"]')!)
+    expect(session.state.pads.page).toBe('chord')
+    flushSync()
+    expect(document.querySelector('[role="tab"][data-tip="padpage.chord"]')!.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('the Shift layer turns Pad Bank into Left on/off and OTS Link', async () => {
     const { session } = setup()
     ui.shiftLatched = true
     flushSync()
     expect(document.querySelector('[data-tip="padpage.prev"]')).toBeNull()
     await fireEvent.click(document.querySelector<HTMLButtonElement>('[data-tip="ots.link"]')!)
     expect(session.state.ots.link).toBe(true)
-    await fireEvent.click(document.querySelector<HTMLButtonElement>('[data-tip="part.right2.select"]')!)
-    expect(session.state.keyboardParts[1].selected).toBe(true)
   })
 
-  it('the master fader button switches the fader page, and the faders follow', async () => {
-    const { session } = setup()
-    expect(document.querySelectorAll('[data-tip="launchkey.fader_unused"][role="slider"]')).toHaveLength(2)
-    expect(document.querySelectorAll('[data-tip="mixer.style_level"][role="slider"]')).toHaveLength(1)
-    expect(document.querySelectorAll('[data-tip="mixer.pad_level"][role="slider"]')).toHaveLength(1)
-    await fireEvent.click(document.querySelector<HTMLButtonElement>('button[data-tip="mixer.page"]')!)
-    expect(session.state.mixer.faderPage).toBe('style')
+  it('Scene, Function, Stop and Play keep their legend and engrave what they do on the layer showing', () => {
+    setup()
+    const stop = () => document.querySelector('[aria-label="Transport"] .hw')!
+    expect(stop().querySelector('.legend')!.textContent).toBe('■')
+    expect(stop().querySelector('.caption')!.textContent).toBe('STOP')
+    ui.shiftLatched = true
     flushSync()
-    expect(document.querySelectorAll('[data-tip="mixer.style.volume"][role="slider"]')).toHaveLength(8)
+    expect(stop().querySelector('.legend')!.textContent).toBe('■')
+    expect(stop().querySelector('.caption')!.textContent).toBe('FADE')
   })
 
-  it('the fader buttons light in the fader layer\'s colour, as the hardware does (#341)', () => {
-    const { session } = setup()
-    const led = (sel: string) => document.querySelector<HTMLElement>(sel)!.style.getPropertyValue('--led')
-    const want = { volume: 'rgb(0 0 255 / 1)', pan: 'rgb(255 255 0 / 1)', reverb: 'rgb(0 201 255 / 1)', chorus: 'rgb(255 0 141 / 1)', delay: 'rgb(255 255 255 / 1)' }
-    for (const [layer, rgb] of Object.entries(want)) {
-      session.send({ type: 'setFaderLayer', layer: layer as keyof typeof want })
-      flushSync()
-      expect([layer, led('button[data-tip="mixer.page"]'), led('button[aria-label="RIGHT 1"]')]).toEqual([layer, rgb, rgb])
-    }
-  })
-
-  it('a fader moves its level and clears the waiting mark', async () => {
-    const { session } = setup()
-    session.send({ type: 'toggleFaderPage' })
-    flushSync()
-    expect(document.querySelectorAll('.pickup.on').length).toBeGreaterThan(0)
-    const f = document.querySelectorAll<HTMLElement>('[role="slider"]')[0]
-    f.focus()
-    await fireEvent.keyDown(f, { key: 'ArrowUp' })
-    expect(session.state.mixer.styleParts[0].waiting).toBe(false)
-  })
-
-  it('in a send layer the faders show and move the layer, not the volume, as the hardware does (#409)', async () => {
-    const { session } = setup()
-    session.send({ type: 'setPartSend', part: 0, send: 'reverb', value: 40 })
-    session.send({ type: 'setFaderLayer', layer: 'reverb' })
-    flushSync()
-    const vol = session.state.keyboardParts[0].volume
-    const f = document.querySelector<HTMLElement>('[data-tip="mixer.part.reverb"][role="slider"]')!
-    expect(f.getAttribute('aria-valuenow')).toBe('40')
-    f.focus()
-    await fireEvent.keyDown(f, { key: 'ArrowUp' })
-    expect(session.state.keyboardParts[0].reverb).toBeGreaterThan(40)
-    expect(session.state.keyboardParts[0].volume).toBe(vol)
-    // PAN: the part's pan; on the Style page, nothing (the Style parts have no pan).
-    session.send({ type: 'setFaderLayer', layer: 'pan' })
-    flushSync()
-    expect(document.querySelectorAll('[data-tip="mixer.part.pan"][role="slider"]')).toHaveLength(4)
-    session.send({ type: 'toggleFaderPage' })
-    flushSync()
-    expect(document.querySelectorAll('[data-tip="launchkey.fader_unused"][role="slider"]')).toHaveLength(8)
-    session.send({ type: 'setFaderLayer', layer: 'chorus' })
-    flushSync()
-    const s = document.querySelectorAll<HTMLElement>('[data-tip="mixer.style.chorus"][role="slider"]')
-    expect(s).toHaveLength(8)
-    s[2].focus()
-    await fireEvent.keyDown(s[2], { key: 'ArrowUp' })
-    expect(session.state.mixer.styleParts[2].sendsSet).toContain('chorus')
+  it('the Multi Pads button opens its drawer', async () => {
+    setup()
+    await fireEvent.click(document.querySelector('[data-tip="drawer.multipad"]')!)
+    expect(ui.multipad).toBe(true)
   })
 
   it('Track buttons show the neighbouring styles, skipping unreadable files', () => {
@@ -177,10 +192,181 @@ describe('Launchkey mirror', () => {
     expect(session.state.transport.queued).toBe('Main C')
   })
 
-  it('marks where the hardware fader is while a level waits for it', () => {
+  it('names every pad page on its tab, and the connection in words', () => {
     const { session } = setup()
-    session.send({ type: 'toggleFaderPage' })
+    const tabs = [...document.querySelectorAll('[role="tab"]')]
+    expect(tabs.map((t) => t.querySelector('.pname')?.textContent)).toEqual(session.state.pads.pages.map((p) => p.name))
+    expect(document.querySelector('.lk')!.getAttribute('data-tip')).toBe('launchkey.status')
+    expect(document.querySelector('.lk .lk-text')!.textContent).toMatch(/Launchkey/)
+  })
+
+  it('under Shift a button carries both its Shift function and its printed legend', () => {
+    setup()
+    ui.shiftLatched = true
     flushSync()
-    expect(document.querySelectorAll('.hw').length).toBeGreaterThan(0)
+    const up = document.querySelector('[aria-label="Pad Bank"] .btn')!
+    expect(up.querySelector('.fn')?.textContent).toBeTruthy()
+    expect(up.querySelector('.legend')?.textContent).toBe('▲')
+  })
+})
+
+/** The mirror on `st` as the engine would send it, recording what it sends. */
+function withState(st: AppState) {
+  const session = new MockSession({ manual: true, demo: true })
+  const sent: AppCmd[] = []
+  app.attach({ kind: 'mock', subscribe: (fn) => (fn(st), () => {}), send: (c) => sent.push(c), library: () => session.library(), meters: () => session.meters(), dispose: () => {} })
+  flushSync()
+  render(Launchkey)
+  return sent
+}
+
+/** The mock's state with the held layer `layer` (the mock has no hardware to hold one). */
+function holding(layer: Layer) {
+  const session = new MockSession({ manual: true, demo: true })
+  session.state.surface.layer = layer
+  session.send({ type: 'setPadPage', page: session.state.pads.page }) // re-derive the pads
+  return session
+}
+
+/** Knob 1's function in swap mode as the engine sends it (src/session/knobs.rs); types.ts's
+ *  KnobFunction doesn't name it yet (a contract follow-up). */
+const SWAP_SOUND = 'swapSound' as KnobFunction
+
+const soundButton = () => document.querySelector<HTMLButtonElement>('[data-tip="launchkey.sound"]')!
+const tabNames = () => [...document.querySelectorAll('[role="tab"] .pname')].map((t) => t.textContent)
+
+describe('Launchkey mirror: page order and held layers', () => {
+  it('has one tab per page in the player\'s order, and Pad Bank ▲ ▼ walk that order', async () => {
+    const { session } = setup()
+    session.send({ type: 'setPadPageOrder', pages: ['multiPads', 'racks'] })
+    flushSync()
+    expect(tabNames()).toEqual(['Sections', 'Multi Pads', 'Racks'])
+    expect(document.querySelector('[role="tab"][data-tip="padpage.chord"]')).toBeNull()
+    expect([...document.querySelectorAll('[role="tab"] .num')].map((n) => n.textContent)).toEqual(['1', '2', '3'])
+    const down = () => document.querySelector<HTMLButtonElement>('[data-tip="padpage.next"]')!
+    await fireEvent.click(down())
+    expect(session.state.pads.page).toBe('multiPads')
+    flushSync()
+    expect(document.querySelector('.page-num b')!.textContent).toBe('2')
+    expect(document.querySelector('[role="tab"][aria-selected="true"] .pname')!.textContent).toBe('Multi Pads')
+    await fireEvent.click(down())
+    expect(session.state.pads.page).toBe('racks')
+    flushSync()
+    // The last page: ▼ does nothing more.
+    await fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="Pad Bank"] .hw:nth-child(2) button')!)
+    expect(session.state.pads.page).toBe('racks')
+    await fireEvent.click(document.querySelector<HTMLButtonElement>('[data-tip="padpage.prev"]')!)
+    expect(session.state.pads.page).toBe('multiPads')
+  })
+
+  it('names the tabs as the state does', () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const st = structuredClone(session.state)
+    st.pads.pages = [{ page: 'sections', name: 'Sections' }, { page: 'setup', name: 'My Setup' }]
+    withState(st)
+    expect(tabNames()).toEqual(['Sections', 'My Setup'])
+  })
+
+  it('lights Sound while it is held, with the Racks page on the pads and its tab marked', () => {
+    app.attach(holding({ type: 'sound' }))
+    flushSync()
+    render(Launchkey)
+    expect(soundButton().getAttribute('aria-pressed')).toBe('true')
+    expect(soundButton().closest('.sound')!.getAttribute('data-held')).toBe('true')
+    // The page on view stays Sections; the pads are the Racks page's.
+    expect(document.querySelector('[role="tab"][aria-selected="true"] .pname')!.textContent).toBe('Sections')
+    expect(document.querySelector('[role="tab"].held .pname')!.textContent).toBe('Racks')
+    expect(pad(112).textContent).toContain('OTS 1')
+    expect(document.querySelector('.pads')!.getAttribute('aria-label')).toBe('Pads: Sound held, Racks')
+  })
+
+  it('shows Sound up, and no page marked, with no layer or a swap', () => {
+    for (const layer of [{ type: 'none' }, { type: 'swap', part: 0 }] as Layer[]) {
+      app.attach(holding(layer))
+      flushSync()
+      render(Launchkey)
+      expect(soundButton().getAttribute('aria-pressed'), layer.type).toBe('false')
+      expect(document.querySelector('[role="tab"].held'), layer.type).toBeNull()
+      expect(pad(113).textContent, layer.type).toContain('MAIN B')
+      cleanup()
+      app.detach()
+    }
+  })
+
+  it('under the Sound hold a pad sends the action the state gives it (storeRack on a capture pad)', async () => {
+    const session = holding({ type: 'sound' })
+    const st = structuredClone(session.state)
+    st.pads.pads.find((p) => p.note === 96)!.action = { type: 'storeRack', slot: 0 }
+    const sent = withState(st)
+    await fireEvent.click(pad(96))
+    expect(sent).toEqual([{ type: 'storeRack', slot: 0 }])
+    expect(pad(96).dataset.tip).toBe('quick.store_rack')
+  })
+
+  it('the Sound button sends what the hardware button sends on the layer showing', async () => {
+    const { session } = setup()
+    // Panel page: a hold, no command.
+    const before = JSON.stringify(session.state.mixer)
+    await fireEvent.click(soundButton())
+    expect(JSON.stringify(session.state.mixer)).toBe(before)
+    // Style page with Shift: it mutes the sixth Style part, as on the hardware.
+    session.send({ type: 'toggleFaderPage' })
+    ui.shiftLatched = true
+    flushSync()
+    const on = session.state.mixer.styleParts[5].on
+    const b = document.querySelector<HTMLButtonElement>('.sound button')!
+    await fireEvent.click(b)
+    expect(session.state.mixer.styleParts[5].on).toBe(!on)
+  })
+
+  it('in swap mode knob 1 is the part\'s sound, and turning it steps the sound as the hardware\'s knob 1 does', async () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const st = structuredClone(session.state)
+    st.surface.layer = { type: 'swap', part: 1 }
+    st.knobs.pageName = 'Swap R2'
+    st.knobs.knobs[0] = { function: SWAP_SOUND, name: 'Right 2 Sound', short: 'Sound', value: '23 Rhodes Soft', level: null }
+    const sent = withState(st)
+    const cell = document.querySelector('[aria-label="Knobs"] .cell')!
+    expect(cell.querySelector('.name')!.textContent).toBe('Sound')
+    expect(cell.querySelector('.readout')!.textContent).toBe('23 Rhodes Soft')
+    expect(cell.classList.contains('swapsound')).toBe(true)
+    expect(knob(0).dataset.tip).toBe('part.swap')
+    expect(document.querySelector('.page-name')!.textContent).toBe('Swap R2')
+    knob(0).focus()
+    await fireEvent.keyDown(knob(0), { key: 'ArrowUp' })
+    await fireEvent.keyDown(knob(1), { key: 'ArrowUp' })
+    // Knob 1 has no default sound: a reset sends nothing.
+    await fireEvent.dblClick(knob(0))
+    expect(sent).toEqual([
+      { type: 'swapSound', part: 1, step: 1 },
+      { type: 'turnKnob', knob: 1, delta: 1 },
+    ])
+  })
+
+  it('outside swap mode knob 1 is the knob page\'s', async () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const sent = withState(structuredClone(session.state))
+    await fireEvent.keyDown(knob(0), { key: 'ArrowUp' })
+    expect(sent).toEqual([{ type: 'turnKnob', knob: 0, delta: 1 }])
+    expect(knob(0).dataset.tip).toBe('knobs.knob')
+  })
+
+  it('every control has a catalog tooltip under each layer', () => {
+    for (const layer of [{ type: 'none' }, { type: 'sound' }, { type: 'swap', part: 2 }] as Layer[]) {
+      for (const shift of [false, true]) {
+        const st = structuredClone(holding(layer).state)
+        if (layer.type === 'swap') st.knobs.knobs[0] = { function: SWAP_SOUND, name: 'Right 3 Sound', short: 'Sound', value: '-', level: null }
+        ui.shiftLatched = shift
+        withState(st)
+        const els = document.querySelectorAll('button, [role="slider"], [role="tab"]')
+        expect(els.length).toBeGreaterThan(30)
+        for (const el of els) {
+          const key = el.getAttribute('data-tip')
+          expect(key && key in TIPS, `${layer.type}${shift ? '+shift' : ''}: ${el.outerHTML.slice(0, 80)}`).toBe(true)
+        }
+        cleanup()
+        app.detach()
+      }
+    }
   })
 })
