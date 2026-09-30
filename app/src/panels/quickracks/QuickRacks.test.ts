@@ -22,8 +22,8 @@ function setup() {
 
 const q = <T extends Element = HTMLButtonElement>(sel: string) => document.querySelector<T>(sel)!
 const tipped = <T extends Element = HTMLButtonElement>(key: string) => [...document.querySelectorAll<T>(`[data-tip="${key}"]`)]
-/** The stage's Quick Racks, under the knobs. */
-const STAGE = 'section[aria-label="Knobs and Quick Racks"]'
+/** The stage's Quick Racks row (panels/knobracks). */
+const STAGE = 'section[aria-label="Quick Racks"]'
 const names = () => [...document.querySelectorAll('.qbar .bname .txt')].map((e) => e.textContent)
 
 async function click(el: Element) {
@@ -48,7 +48,7 @@ afterEach(() => {
 })
 
 describe('Quick Racks bar', () => {
-  it('replaces the Registration bar on the stage, under the knobs (panels/knobracks)', () => {
+  it('replaces the Registration bar on the stage, in the Quick Racks row (panels/knobracks)', () => {
     render(App, { props: { session: new MockSession({ demo: true, manual: true }) } })
     flushSync()
     const bar = q<HTMLElement>(STAGE)

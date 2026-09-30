@@ -1,6 +1,6 @@
 <!--
   The Quick Racks bar in Library (docs/racks.md): one press loads one of your racks. On
-  the stage the same buttons sit under the knobs (panels/knobracks); this one-row bar is
+  the stage the same buttons have their own row (panels/knobracks); this one-row bar is
   Library's, above its tabs. Every size is in em.
 
   [Quick Racks ◀ A ▶] [1]…[8] [Store]        (each button: its rack's name under it, ✕ clears)
