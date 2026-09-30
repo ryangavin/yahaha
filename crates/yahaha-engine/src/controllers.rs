@@ -225,6 +225,10 @@ pub enum Function {
     /// Unison (a PSR-SX feature, engine/unison.rs): a Hold pedal engages it while held, a
     /// Toggle pedal latches it. Last, so older setups keep their numbers.
     Unison,
+    /// Organ Rotary Slow/Fast (RM p.140): every rotary insert's speed, a control-side
+    /// switch (`FxCmd::SetRotaryFast`). A Toggle pedal flips it on each press, Hold A is
+    /// Fast while held. Last, so older setups keep their numbers.
+    RotaryFast,
 }
 
 /// One row of the assignable-function table.
@@ -258,7 +262,7 @@ use Kind::*;
 /// The assignable functions, in `Function` order: the Genos live-play list (RM p.139-144)
 /// as far as yahaha has the feature. app/src/lib/api/assignable-functions.json is this table
 /// as the app reads it (a test keeps the two equal).
-pub const FUNCTIONS: [FunctionInfo; 71] = [
+pub const FUNCTIONS: [FunctionInfo; 72] = [
     f(Function::None, "No Assign", Overall, Trigger),
     f(Function::Sustain, "Sustain", Voice, Switch),
     f(Function::Sostenuto, "Sostenuto", Voice, Switch),
@@ -330,6 +334,7 @@ pub const FUNCTIONS: [FunctionInfo; 71] = [
     f(Function::SnapshotBankNext, "Quick Racks Bank +", QuickRacks, Trigger),
     f(Function::SnapshotBankPrev, "Quick Racks Bank −", QuickRacks, Trigger),
     f(Function::Unison, "Unison", Style, Switch),
+    f(Function::RotaryFast, "Organ Rotary Slow/Fast", Voice, Switch),
 ];
 
 /// What running a function means, for the input thread.
@@ -396,7 +401,7 @@ impl Function {
             // The FADE IN/OUT button (OM p.67): stopped, arms a fade in; playing, fades
             // out to the stop.
             F::FadeInOut => Effect::Engine(Button::Fade),
-            F::KbdHarmonyArp | F::ArpHold | F::LeftHold | F::Unison => Effect::ControlSwitch,
+            F::KbdHarmonyArp | F::ArpHold | F::LeftHold | F::Unison | F::RotaryFast => Effect::ControlSwitch,
             _ => Effect::Control,
         }
     }
@@ -1294,6 +1299,26 @@ mod tests {
         assert_eq!(control_switch_sets(a, a, true, true), [None, None], "no change");
         let toggle = hold(ControlType::Toggle);
         assert_eq!(control_switch_sets(other, toggle, false, false), [None, None], "a toggle leaves it as it is");
+    }
+
+    /// Organ Rotary Slow/Fast (RM p.140) is a control-side switch: a Toggle pedal runs it
+    /// on each press, a Hold A pedal sets it fast while down and slow when let go.
+    #[test]
+    fn rotary_pedal_follows_its_control_type() {
+        let c = Controllers::new();
+        let mut e = [0u8; 4];
+        assert_eq!(Function::RotaryFast.effect(), Effect::ControlSwitch);
+        let setup = |ct| PedalSetup { cc: Some(67), function: Function::RotaryFast, control_type: ct, ..PedalSetup::default() };
+        c.set_pedal(2, setup(ControlType::Toggle));
+        let Handled::Fire(f) = c.control_change(0, 67, 127, &mut e) else { panic!() };
+        assert_eq!((f.control, f.set), (Some(Function::RotaryFast), None), "toggle: a press runs it");
+        let Handled::Fire(f) = c.control_change(0, 67, 0, &mut e) else { panic!() };
+        assert_eq!((f.control, f.set), (None, None), "nothing on release");
+        c.set_pedal(2, setup(ControlType::HoldA));
+        let Handled::Fire(f) = c.control_change(0, 67, 127, &mut e) else { panic!() };
+        assert_eq!((f.control, f.set), (None, Some((Function::RotaryFast, true))), "hold A: fast while down");
+        let Handled::Fire(f) = c.control_change(0, 67, 0, &mut e) else { panic!() };
+        assert_eq!(f.set, Some((Function::RotaryFast, false)), "slow when let go");
     }
 
     /// A reset (Panic, a keyboard unplugged) lets go of the pedals: those that were down

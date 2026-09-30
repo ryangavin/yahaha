@@ -158,6 +158,11 @@ pub struct StylePart {
     /// The sends the player set (`setStylePartSend`); the others follow the style.
     #[serde(default)]
     pub sends_set: Vec<crate::api::PartSend>,
+    /// Its channel strip (the mixer rework): EQ, compressor, two insert slots (the style's
+    /// insert in slot 1) and its level to each of the six sends (`sends[0..3]` are
+    /// `reverb`, `chorus`, `variation` above).
+    #[serde(default)]
+    pub strip: crate::api::StripState,
 }
 
 /// A Yamaha voice as the style names it.

@@ -213,7 +213,14 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Revert** | Puts the rack back as it was last loaded or saved, dropping the unsaved changes. Shown while a saved rack has changes. | — | — | — |
 | **Harmony / Arp type** | The Keyboard Harmony type or arpeggio pattern this rack plays, saved with the rack. The switch next to it turns Harmony/Arp on or off; the Harmony/Arp drawer has its settings. | Keyboard Harmony/Arpeggio type | — | — |
 | **Controller map** | Shows and sets what Launchkey faders 1–4 (Panel page) and knobs 1–8 (Rack knob page) do while this rack is loaded. It is saved with the rack. | — | — | — |
-| **Controller target** | What this Launchkey fader or knob does while this rack is loaded: a part's level, pan, reverb or chorus, Harmony/Arp on or off, the split point, Harmony or Metronome volume, or (knobs only) the tempo. Changing it marks the rack modified; Save rack keeps it. A new rack has the parts' levels on faders 1–4 and knobs 1–4, then Harmony volume, Metronome volume, nothing and Tempo. | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Controller target** | What this Launchkey fader or knob does while this rack is loaded: a part's level, pan, reverb, chorus, delay, insert on/off or setting, or send 4–6, Harmony/Arp on or off, the rotary speed, the split point, Harmony or Metronome volume, or (knobs only) the tempo. Changing it marks the rack modified; Save rack keeps it. A new rack has the parts' levels on faders 1–4 and knobs 1–4, then Harmony volume, Metronome volume, nothing and Tempo. | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Part delay** | The controller sets this part's delay send (send 3). | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Part insert on/off** | The controller turns one of this part's insert slots on (upper half) or off (lower half). | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Part insert setting** | The controller sets one setting of one of this part's insert slots, across its range. | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Part send** | The controller sets this part's level to one of the added send effects (4–6). | — | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Rotary fast/slow** | The controller switches every rotary insert fast (upper half) or slow (lower half). | Rotary Speaker speed (Slow/Fast) | — | Panel faders 1–4; the eight knobs on the Rack knob page |
+| **Insert slot** | The effect in this insert slot of the part's strip. Click to pick its type and set its settings; the lamp beside it turns it on or off. The rack saves both slots. | Mixer › Effect › Insertion Effect | — | — |
+| **Done** | Closes the insert settings (Escape does too). Every change there is already sent. | — | — | — |
 | **Keyboard part** | Makes this part the one you edit: Voice −/+ and Library act on it, as the Launchkey's EDIT pads do. Clicking anywhere in the part does the same. | PART SELECT | — | Pad page 3 (OTS/Parts), bottom row, pads 5–8 (EDIT R1…L) |
 | **Sound** | The sound this part plays. Click to open Library › Sounds with this part as the target and pick another; the part keeps its level, pan, sends and octave. | Voice select (VOICE buttons) | — | — |
 | **Edit** | Opens the part's plugin window over the app. What you change there marks the sound "edited" until you save it. SoundFont sounds have no editor. | Voice Edit | — | — |
@@ -345,6 +352,29 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Insert effect** | The effect in this part's insert slot: Distortion (an amp simulator), Compressor, Auto Wah, Tremolo (at the style tempo) or Rotary (a rotary speaker; the Rotary fast switch sets its speed). It plays on the part's own sound, SoundFont voice or plugin, before its fader and sends; picking one doesn't turn the slot on. A One Touch Setting with an insertion effect sets it, and a rack saves it. | Mixer › Effect › Insertion Effect › Type | — | — |
 | **Insert on** | This part's insert slot on or off. Off, the part sounds exactly as with no insert at all. The style's Inserts switch doesn't touch it. | Mixer › Effect › Insertion Effect › On/Off | — | — |
 | **Insert amount** | How hard this part's insert works, 0–127: the distortion's drive, the compressor's squeeze, the wah's sensitivity, or the tremolo's and rotary's depth. The effect sees the part at full volume, so the fader doesn't change how hard it drives. Drag up or down; double-click for 64. | Mixer › Effect › Insertion Effect › Depth | — | — |
+| **EQ Low** | Boosts or cuts this strip's lows with a shelf, −12 to +12 dB. 0 dB takes the band out of the signal. | Mixer › EQ › Low Gain | — | — |
+| **EQ Low frequency** | Where this strip's low shelf starts: 32 Hz to 2 kHz (80 Hz at start). | Mixer › EQ › Low Frequency | — | — |
+| **EQ High** | Boosts or cuts this strip's highs with a shelf, −12 to +12 dB. 0 dB takes the band out of the signal. | Mixer › EQ › High Gain | — | — |
+| **EQ High frequency** | Where this strip's high shelf starts: 500 Hz to 16 kHz (10 kHz at start). | Mixer › EQ › High Frequency | — | — |
+| **Strip compressor** | This strip's own compressor on or off, after its EQ and before its inserts. Off, the part plays as with none. | — | — | — |
+| **Compressor type** | The strip compressor's character: Natural, Rich, Punchy, Electronic or Loud. Choosing one sets all its parameters. | — | — | — |
+| **Threshold** | The level above which the strip compressor works, −48 to 0 dB. | — | — | — |
+| **Ratio** | How hard the strip compressor squeezes what goes over the threshold, 1:1 to 20:1. | — | — | — |
+| **Attack** | How fast the strip compressor clamps down, 1 to 100 ms. | — | — | — |
+| **Release** | How fast the strip compressor lets go, 10 to 1000 ms. | — | — | — |
+| **Make-up** | Gain after the strip compressor, 0 to 24 dB, to make up what it takes away. | — | — | — |
+| **Insert type** | The effect in this insert slot: None, Distortion, Compressor, Auto Wah, Tremolo, Rotary or Phaser. A new type starts at its own settings; on/off stays as it was. | Mixer › Effect › Insertion Effect › Type | — | — |
+| **Insert on** | This insert slot on or off. Off, the strip sounds as with no insert in the slot. | Mixer › Effect › Insertion Effect › On/Off | — | — |
+| **Insert setting 1** | The insert's first setting (its drive, squeeze, sensitivity or depth: what the old single amount was). Drag up or down; double-click for the type's default. | Mixer › Effect › Insertion Effect › Parameter | — | — |
+| **Insert setting 2** | The insert's second setting, named on the knob (tone, attack, resonance, note, drive or rate). Drag up or down; double-click for the type's default. | Mixer › Effect › Insertion Effect › Parameter | — | — |
+| **Insert setting 3** | The insert's third setting, named on the knob. Drag up or down; double-click for the type's default. | Mixer › Effect › Insertion Effect › Parameter | — | — |
+| **Insert setting 4** | The insert's fourth setting, where its type has one (the compressor's output). Drag up or down; double-click for the type's default. | Mixer › Effect › Insertion Effect › Parameter | — | — |
+| **Send level** | How much of this strip goes to this send effect, 0–127. Sends 1–3 are the part's reverb, chorus and delay sends. | Mixer › Effect › Send level | — | — |
+| **Level** | This part's level (its CC 7), 0–127. Drag up or down. | Mixer › Volume | — | Panel faders 1–4 (keyboard parts); Style page faders 1–8 (Style parts) |
+| **Pan** | Where this part sits left to right (CC 10), 64 = centre. Drag up or down; double-click for centre. | Mixer › Pan | — | — |
+| **Previous part** | Shows the part before this one in the Channel view (after Right 1 comes Phrase 2). | — | — | — |
+| **Next part** | Shows the part after this one in the Channel view (after Phrase 2 comes Right 1). | — | — | — |
+| **Close the channel** | Closes the Channel view and puts back what the display showed before. Esc, or clicking the selected strip again, does the same. | — | `Esc` (terminal: ) | — |
 | **Style volume** | The whole band against your hands, in one fader: 100 plays the Style parts at their own levels, lower scales every Style part's CC 7 down together (above 100 raises them, up to 127), the way a Fade In/Out does. The part faders stay where they are. | Balance › Style (Mixer › Panel › Style) | — | Panel fader page: fader 5 |
 | **Multi Pad volume** | All four Multi Pads against the band, in one fader: 100 plays each pad at its own level, lower scales the pads' CC 7 down together (above 100 raises them, up to 127). | Balance › M.Pad (Mixer › Panel › Multi Pad) | — | Panel fader page: fader 6 |
 | **Style part volume** | This band part's volume. The fader is its channel's CC 7 itself (channels 9–16), with no hidden gain behind it, except that a Fade In/Out scales the CC 7 it sends while the fade runs (the fader stays put). Loading a style sets the faders to the style's own levels, and a pattern that changes its volume moves the fader too, until you move it yourself. | Mixer › Style › Volume | — | Style fader page: faders 1–8 (Rhythm 1 … Phrase 2) |
@@ -361,6 +391,19 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Style Track Mute** | A knob for the band: fully left leaves one part on, and turning it up brings the others in one by one until all eight play. It switches the Style parts on and off, so the On buttons follow it. | Live Control › Style Track Mute A/B (StyMuteA, StyMuteB) | — | Knobs 4 and 5 on the Style knob page |
 | **Track Mute order** | A starts from Rhythm 2, then Rhythm 1, Bass, Chord 1, Chord 2, Pad, Phrase 1 and Phrase 2. B starts from Chord 1, then Chord 2, Pad, Bass, Phrase 1, Phrase 2 and the rhythm parts last. | Style Track Mute A / B | — | — |
 | **MIDI out channel** | The channel this part plays on at yahaha's MIDI output: Right 1 = 1, Left = 2, Right 2 = 3, Right 3 = 4, the band 9–16. Map a DAW track (Ableton: MIDI From yahaha, this channel) to record or re-voice it. | Part / Style channel | — | — |
+| **Cutoff** | Opens or closes this part's filter, relative to the voice: above 64 brighter, below 64 darker. 64 is the voice's own. | Voice Edit › Filter › Cutoff | — | — |
+| **Resonance** | Boosts the filter around its cutoff, relative to the voice: above 64 a sharper, more peaky tone. 64 is the voice's own. | Voice Edit › Filter › Resonance | — | — |
+| **Attack** | How quickly each note reaches full level, relative to the voice: above 64 slower, below 64 faster. 64 is the voice's own. | Voice Edit › EG › Attack | — | — |
+| **Decay** | How quickly a held note falls from its peak, relative to the voice: above 64 slower, below 64 faster. 64 is the voice's own. | Voice Edit › EG › Decay | — | — |
+| **Release** | How long a note rings on after you let go, relative to the voice: above 64 longer, below 64 shorter. 64 is the voice's own. | Voice Edit › EG › Release | — | — |
+| **Vibrato rate** | How fast the vibrato wobbles, relative to the voice: above 64 faster, below 64 slower. 64 is the voice's own. | Voice Edit › Vibrato › Speed | — | — |
+| **Vibrato depth** | How far the vibrato bends the pitch, relative to the voice: above 64 deeper, below 64 shallower. 64 is the voice's own. | Voice Edit › Vibrato › Depth | — | — |
+| **Vibrato delay** | How long a note plays before the vibrato starts, relative to the voice: above 64 later, below 64 sooner. 64 is the voice's own. | Voice Edit › Vibrato › Delay | — | — |
+| **Mono** | Lit, this part plays one note at a time: a new note cuts off the one before, as on a solo instrument. Off, it plays chords (poly). | Voice Edit › Mono/Poly | — | — |
+| **Portamento** | Lit, this part glides in pitch from one note to the next instead of jumping. Portamento time sets how long the glide takes. | Voice Edit › Portamento | — | — |
+| **Portamento time** | How long the glide between notes takes while Portamento is on, 0–127: higher is slower. | Voice Edit › Portamento Time | — | — |
+| **Mixer strip** | Selects this part: its strip lights up. A keyboard part (Right 1–3, Left) also becomes the part you edit, as the Launchkey's part buttons do. | Mixer › channel | — | — |
+| **Voice** | The sound this part plays. On a keyboard part, click to choose another in Library › Sounds, loading into this part. A Style part plays the voice the style names; the name is cut short on a narrow strip, so hover it for the whole name. | Mixer › Voice | — | — |
 | **Voice** | Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it. | Mixer › Voice | — | — |
 | **Track CPU** | How much of each audio buffer this track takes to render over the last second (its SoundFont voices, filter and insert effect, or its plugin), where 100% is the whole buffer. "pk" is its slowest single buffer, red past half the buffer, where dropouts start. A larger audio buffer (Settings) gives a heavy plugin more room. | — | — | — |
 | **Group CPU** | How much of each audio buffer this group's tracks take together to render over the last second, where 100% is the whole buffer; red past half the buffer. "≤ pk" adds up each track's slowest single buffer. Those need not happen in the same buffer, so it is only an upper bound and never turns the strip red: open the group's tab to see each track's own peak. | — | — | — |
@@ -395,6 +438,14 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Part insert** | This Style part's own insertion effect on or off, leaving the other parts' as they are. Lasts until the next style, which brings its own inserts; the Inserts switch still turns them all off together. | Mixer › Effect › Insertion (part on/off) | — | — |
 | **Insert amount** | How hard this Style part's insertion effect works: the amp simulator's drive, the compressor's squeeze, the wah's sensitivity, or the tremolo's and rotary's depth. Starts at the style's own value and lasts until the next style. | Mixer › Effect › Insertion › Parameter | — | — |
 | **Rotary fast** | The rotary speaker switch: lit, every rotary insert spins at its fast speed; off, its slow one. The horn and drum speed up and slow down gradually, as a real rotary speaker does. | Rotary Speaker speed (Slow/Fast) | — | — |
+| **Add send** | Adds a send effect (up to six), returning at 0 dB. Every strip starts with no level to it. The rack saves it. | — | — | — |
+| **Remove send** | Removes this added send effect; the ones after it move down with every strip's level to them. Sends 1–3 stay. | — | — | — |
+| **Send type** | What this send effect plays. Sends 1–3 take their own family (reverbs, choruses, delays); an added send can play any type. A new type starts at its own parameters. | Mixer › Effect › Type | — | — |
+| **Send parameter** | One of this send effect's parameters, named on the knob. Drag up or down; double-click for the type's default. | Mixer › Effect › Parameter | — | — |
+| **Send return** | How loud this send effect comes back into the mix, 0–127 (64 = 0 dB). | Mixer › Effect › Return level | — | — |
+| **Rack keeps this type** | Lit, the live rack keeps this send's type and brings it back when loaded, over the style's. Off, the style sets it. | — | — | — |
+| **Use style's** | Drops the live rack's type for this send, so the style sets it again. | — | — | — |
+| **New send type** | What the next added send effect plays. Add send adds it. | Mixer › Effect › Type | — | — |
 | **Master Compressor** | A compressor on the whole mix, after the effects and before the output: it evens out the dynamics, bringing loud passages down. Lit, it plays (not on the metronome); off, the mix is untouched. It stays as set until you change it, even after a restart. | Mixer › Master › Compressor | — | — |
 | **Master Compressor type** | The compressor's character: Natural (moderate), Rich (gentle, for acoustic music), Punchy (heavy and fast, for rock), Electronic (for dance music) or Loud (the most). Choosing one sets its Compression, Texture and Output. | Mixer › Master › Compressor type | — | — |
 | **Master editor** | Opens the Master Compressor's parameters and the Master EQ's eight bands. | Mixer › Master › Edit | — | — |
@@ -544,6 +595,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Shift** | Hold for the second functions: Pad Bank ▲ = Left on/off, Pad Bank ▼ = OTS Link, the buttons under faders 1–4 on the Panel page = edit that part. On screen, click it to latch the Shift layer, or hold Shift on your computer keyboard. | — | — | Shift button |
+| **Rotary Fast** | The rotary speaker's Fast/Slow switch: lit while every rotary insert spins fast, dark while slow; each click switches it. The horn and drum change speed gradually, as a real rotary speaker does. An assignable pedal set to "Organ Rotary Slow/Fast" does the same. | Organ Rotary Slow/Fast | — | Shift + encoder page ▲ |
 | **Launchkey** | Whether the Launchkey is connected in DAW mode, so its pads and buttons are arranger controls. | — | — | — |
 | **Rack fader** | The loaded rack's controller map gives this Panel fader something other than its part's level: moving it sets what its label says (a pan or send, Harmony/Arp on from halfway up, the split point, a volume). Set it in the Rack panel's Controller map. | — | — | Panel fader page: faders 1–4 |
 | **Unused fader** | On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under faders 6–8 |
@@ -597,7 +649,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Rack** | Opens the Rack: what's under your hands (the four keyboard parts with their sounds and mix, the split, Harmony/Arp, transpose) and the style's One Touch Settings. Press again to close. | Voice Setting, ONE TOUCH SETTING | `Alt+O` (terminal: ) | — |
 | **Multi Pads** | Opens the Multi Pads drawer. Press again to close. | MULTI PAD CONTROL | `Alt+P` (terminal: ) | — |
 | **Effects** | Opens the Effects screen: the Reverb, Chorus and Delay cards (type, settings, return and the band's and pads' sends) and the style's inserts. Press again to close. | Mixer (Effect) | `Alt+E` (terminal: ) | — |
-| **Mixer** | Opens the full mixer. Press again to close. | Mixer | `Alt+M` (terminal: ) | — |
+| **Mixer details** | Shows the mixer row's details: its bar (fader page and layer, metronome, Track Mute, Style and Multi Pad volume, CPU) and, on every strip, its Chorus send, EQ, insert and CPU. Press again to hide them. | Mixer | `Alt+M` (terminal: ) | — |
 | **Chord Looper** | Opens the Chord Looper. Press again to close. | Menu › Chord Looper | `Alt+L` (terminal: ) | — |
 | **Charts** | Opens the iReal Pro chart player. Press again to close. | — | `Alt+C` (terminal: ) | — |
 | **Harmony/Arp** | Opens the Keyboard Harmony and Arpeggio panel. Press again to close. | HARMONY/ARPEGGIO | `Alt+H` (terminal: ) | — |
@@ -609,7 +661,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
 | **Rack** | Opens the Rack: Right 1–3 and Left with their sounds and mix, the split, Harmony/Arp, transpose, the controller map and the style's One Touch Settings. Alt+O too. | PART ON/OFF, Voice Setting, ONE TOUCH SETTING | — | Pad page 3 (OTS/Parts) has the part and OTS controls |
-| **Mixer** | Opens the full mixer: both fader pages side by side, with each band part's voice. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
+| **Mixer details** | Shows the mixer row's details: its bar (fader page and layer, metronome, Track Mute, Style and Multi Pad volume, CPU) and, on every strip, its Chorus send, EQ, insert and CPU. Press again to hide them. | Mixer (Panel / Style tabs) | — | The faders and the buttons under them |
 | **Effects** | Opens the Effects screen: the Reverb, Chorus and Delay cards and the style's inserts. Beside it, the type each effect plays now; each strip's own sends stay on its knobs here. | Mixer › Effect | — | — |
 | **Charts** | Opens the iReal Pro chart player: import playlists, pick a song, and set how the band plays it. | — | — | — |
 | **Harmony/Arpeggio** | Opens the Keyboard Harmony and Arpeggio panel: the switch, the type and its settings. | HARMONY/ARPEGGIO, Keyboard Harmony/Arpeggio settings | — | Panel fader page: the button under fader 5 is the on/off switch |

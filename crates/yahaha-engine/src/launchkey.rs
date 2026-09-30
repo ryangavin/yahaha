@@ -23,7 +23,8 @@
 //!
 //! The 8 encoders are knobs on Knob Assign pages (`knobs.rs`), stepped with the encoder
 //! page buttons ▲/▼ (CC 51/52) right of them, like the Genos KNOB ASSIGN button. yahaha
-//! turns the encoders' relative output on when it enters DAW mode.
+//! turns the encoders' relative output on when it enters DAW mode. Shift + ▼ is [ACMP];
+//! Shift + ▲ is Organ Rotary Slow/Fast, and ▲ is lit while the rotary is fast.
 //!
 //! Faders have two pages, like the Genos Mixer's Panel and Style tabs; the button under
 //! the master fader switches them (see `parts`). Panel: faders 1-4 = Right 1, Right 2,
@@ -444,6 +445,9 @@ pub fn cc_control(cc: u8, shift: bool) -> Option<Control> {
         PAD_DOWN_CC if shift => act(Action::ToggleOtsLink),
         // Shift + encoder page ▼: [ACMP] on/off (#266). Every pad is taken.
         KNOB_DOWN_CC if shift => act(Action::Button(Button::Acmp)),
+        // Shift + encoder page ▲: Organ Rotary Slow/Fast (Genos RM p.140), as a pedal set
+        // to it runs it (`controllers::Function::RotaryFast`).
+        KNOB_UP_CC if shift => act(Action::Assign(crate::controllers::Function::RotaryFast)),
         KNOB_UP_CC => act(Action::KnobPage(-1)),
         KNOB_DOWN_CC => act(Action::KnobPage(1)),
         PAD_UP_CC => Some(Control::Page(-1)),
@@ -470,9 +474,16 @@ pub fn nav_button_msgs(page: Page, styles: bool, out: &mut Vec<[u8; 3]>) {
     }
 }
 
-/// On exit: the Pad Bank, Track and fader button lights off.
+/// The encoder page ▲ light: lit while the rotary is fast (Shift + ▲ switches it; the
+/// Genos has no lamp for it, the Launchkey has one to spare). ▼ stays dark.
+pub fn knob_button_msgs(rotary_fast: bool, out: &mut Vec<[u8; 3]>) {
+    out.push([0xB0, KNOB_UP_CC, if rotary_fast { WHITE } else { OFF }]);
+    out.push([0xB3, KNOB_UP_CC, if rotary_fast { 127 } else { 0 }]);
+}
+
+/// On exit: the Pad Bank, Track, encoder page and fader button lights off.
 pub fn buttons_off_msgs(out: &mut Vec<[u8; 3]>) {
-    for cc in [PAD_UP_CC, PAD_DOWN_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC].into_iter().chain(FADER_BTN_CC) {
+    for cc in [PAD_UP_CC, PAD_DOWN_CC, TRACK_LEFT_CC, TRACK_RIGHT_CC, KNOB_UP_CC].into_iter().chain(FADER_BTN_CC) {
         out.push([0xB0, cc, OFF]);
         out.push([0xB3, cc, 0]);
     }
@@ -643,6 +654,8 @@ pub struct Panel {
     pub selected: u8,
     /// Quick Racks, for page 4.
     pub quick: QuickPanel,
+    /// Organ Rotary Slow/Fast is at fast (the encoder page ▲ light).
+    pub rotary_fast: bool,
 }
 
 /// The Quick Racks bank on view, as page 4 shows it.
@@ -682,6 +695,7 @@ impl Default for Panel {
             parts_on: 1 << parts::RIGHT1,
             selected: parts::RIGHT1 as u8,
             quick: QuickPanel::default(),
+            rotary_fast: false,
         }
     }
 }
@@ -1454,6 +1468,20 @@ mod tests {
         assert_eq!(serde_json::to_string(&Page::QuickRacks).unwrap(), "\"quickRacks\"");
     }
 
+    /// Encoder page ▲ is lit while the rotary is fast, dark while slow, and dark on exit.
+    #[test]
+    fn encoder_page_up_lights_for_rotary_fast() {
+        let mut out = Vec::new();
+        knob_button_msgs(true, &mut out);
+        assert_eq!(out, [[0xB0, KNOB_UP_CC, WHITE], [0xB3, KNOB_UP_CC, 127]]);
+        out.clear();
+        knob_button_msgs(false, &mut out);
+        assert_eq!(out, [[0xB0, KNOB_UP_CC, OFF], [0xB3, KNOB_UP_CC, 0]]);
+        out.clear();
+        buttons_off_msgs(&mut out);
+        assert!(out.contains(&[0xB0, KNOB_UP_CC, OFF]));
+    }
+
     #[test]
     fn buttons_and_page_switching() {
         assert_eq!(cc_control(103, false), Some(Control::Act(Action::Style(-1))));
@@ -1470,7 +1498,8 @@ mod tests {
         assert_eq!(cc_control(SHIFT_CC, false), None);
         assert_eq!(cc_control(51, false), Some(Control::Act(Action::KnobPage(-1))));
         assert_eq!(cc_control(52, false), Some(Control::Act(Action::KnobPage(1))));
-        assert_eq!(cc_control(51, true), Some(Control::Act(Action::KnobPage(-1))));
+        // Shift + ▲: Organ Rotary Slow/Fast.
+        assert_eq!(cc_control(51, true), Some(Control::Act(Action::Assign(crate::controllers::Function::RotaryFast))));
         // Shift + ▼: [ACMP] (#266).
         assert_eq!(cc_control(52, true), Some(Control::Act(Action::Button(Button::Acmp))));
         assert_eq!(cc_control(53, false), None);

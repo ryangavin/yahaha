@@ -1,413 +1,335 @@
 <!--
-  One mixer channel strip, like a Genos Mixer channel: the MIDI out channel, a big fader
-  that is the channel's CC 7 (with the soft-takeover mark and the ghost of where the
-  Launchkey fader physically sits), On and Solo, and the voice. A keyboard part's strip
-  also has Pan, Reverb and Chorus knobs (CC 10, 91, 93) above the fader, and under them its
-  channel-strip EQ (#247: low and high shelf gain and frequency), and under that its insert
-  slot (effect, on, amount); `fxRow` keeps
-  that row's space on a strip without them, so the faders line up. Everything comes from the
-  engine's state; the strip only sends commands.
+  One compact strip of the always-visible mixer row (MixerRow.svelte). All 12 parts are
+  equal: strip 0–3 the keyboard parts (Right 1–3, Left), 4–11 the Style parts. Top to
+  bottom: the part's colour and name (selects the part), its voice, the reserved insert
+  slot, Pan and the small REV and DLY sends, the fader (the channel's CC 7, with the
+  soft-takeover mark and the Launchkey ghost) with its meter, then On and Solo.
+  Everything comes from the engine's state; the strip only sends commands.
 -->
 <script lang="ts">
-  import type { TipKey } from '../../help/tooltips'
-  import { FLAT_EQ, INSERT_EFFECTS, type InsertEffect, type Pad, type PartEq, type PartInsert } from '../../lib/api/types'
-  import { dbText, GAIN_KNOB_MAX, gainKnob, HIGH_STEPS, hzText, knobGain, LOW_STEPS, stepOf, withEq } from './eq'
-  import { clock } from '../../lib/store.svelte'
+  import type { PartSend } from '../../lib/api/types'
+  import { app, ui } from '../../lib/store.svelte'
+  import { tipFor } from '../../help/actions'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
   import FxKnob from './FxKnob.svelte'
-  import HwButton from '../../lib/ui/HwButton.svelte'
-  import type { VoiceLines } from './voice'
-  import { cpuWarn, pct, type TrackCpu } from './cpu'
+  import { isKeyboard, meterFill, PART_COLORS, stylePartOf } from './parts'
+  import { partVoice, styleVoice, voiceName, voiceTitle } from './voice'
 
   let {
-    name,
-    channel = null,
-    value,
-    waiting = false,
+    part,
+    level = null,
     hw = null,
-    faderTip,
-    onchange,
-    lit = true,
-    unused = false,
-    on = null,
-    button = null,
-    voice = null,
-    badge = null,
-    solo = null,
-    fx = null,
-    fxRow = false,
-    eq = null,
-    insert = null,
-    cpu = null,
   }: {
-    name: string
-    /** 1-based MIDI channel at yahaha's output; null for an unused strip. */
-    channel?: number | null
-    value: number
-    waiting?: boolean
-    /** Where the Launchkey fader physically is (0–127), when the engine says. */
+    /** Strip index: 0–3 the keyboard parts, 4–11 the Style parts (Rhythm 1 … Phrase 2). */
+    part: number
+    /** The channel's peak (linear), or null without meters: a static dim bar. */
+    level?: number | null
+    /** Where the Launchkey fader for this part physically is (0–127), only while the
+     *  Launchkey's live fader page maps to it; null otherwise. */
     hw?: number | null
-    faderTip: TipKey
-    onchange: (v: number) => void
-    lit?: boolean
-    /** An unused Launchkey fader (Panel page, 5–8): drawn dim so the page reads 1:1. */
-    unused?: boolean
-    /** The on/off button: its light (the Launchkey fader button's), tooltip and command. */
-    on?: { led: Pick<Pad, 'rgb' | 'level' | 'anim'> | null; isOn: boolean; tip: TipKey; onclick: () => void } | null
-    /** Another function on the Launchkey fader button (an unused strip's: Panel button 5 is
-     *  HARMONY/ARPEGGIO), drawn in place of On/Solo. */
-    button?: { led: Pick<Pad, 'rgb' | 'level' | 'anim'> | null; text: string; label: string; tip: TipKey; onclick: () => void } | null
-    voice?: VoiceLines | null
-    /** A note under the name, e.g. "Manual Bass" when the engine mutes the Bass part. */
-    badge?: { text: string; tip: TipKey } | null
-    /** Solo: whether this part is the one soloed, and the command that toggles it. */
-    solo?: { isSolo: boolean; onclick: () => void } | null
-    /** Pan and the reverb/chorus/variation sends (0–127), what moving them sends, and the
-     *  part's default reverb send (a double-click goes back to it). */
-    fx?: {
-      /** Null: no pan knob (a Style part). */
-      pan: number | null
-      reverb: number
-      chorus: number
-      variation: number
-      reverbDefault: number
-      onpan: (v: number) => void
-      onsend: (send: 'reverb' | 'chorus' | 'variation', v: number) => void
-      /** A Style part (#268): its knobs' tooltips, the sends the player set, and what a double-click does. */
-      style?: { set: ('reverb' | 'chorus' | 'variation')[]; onreset: () => void } | null
-    } | null
-    /** Keep the knob row's space when there are no knobs. */
-    fxRow?: boolean
-    /** A keyboard part's channel-strip EQ (#247): its low and high shelves, and what
-     *  turning a knob sends. Drawn under the send knobs. */
-    eq?: { value: PartEq; onchange: (eq: PartEq) => void } | null
-    /** A keyboard part's insert slot: its effect, on/off and amount, and what changing each
-     *  sends. Drawn under the EQ. */
-    insert?: {
-      value: PartInsert
-      oneffect: (effect: InsertEffect) => void
-      onon: (on: boolean) => void
-      onamount: (amount: number) => void
-    } | null
-    /** #340: the track's CPU (null: no reading, or an unused strip). */
-    cpu?: TrackCpu | null
   } = $props()
 
+  const keyboard = $derived(isKeyboard(part))
+  const k = $derived(keyboard ? app.state.keyboardParts[part] : null)
+  const sIdx = $derived(stylePartOf(part))
+  const s = $derived(keyboard ? null : app.state.mixer.styleParts[sIdx])
+  const mixer = $derived(app.state.mixer)
+
+  const name = $derived(k?.name ?? s?.name ?? '')
+  const voice = $derived(k ? partVoice(k) : styleVoice(s?.voice ?? null))
+  const selected = $derived(ui.selectedPart === part)
+  const colour = $derived(PART_COLORS[part])
+  const isOn = $derived(k ? k.on : (s?.on ?? false))
+  /** The lamp: a keyboard part lights while it sounds (Left playing Manual Bass too). */
+  const lit = $derived(k ? k.sounding : !!s && s.on && !s.mutedByManualBass && (mixer.styleSolo === null || mixer.styleSolo === sIdx))
+  const isSolo = $derived(k ? mixer.partSolo === part : mixer.styleSolo === sIdx)
+
   const panText = (v: number) => (v === 64 ? 'C' : v < 64 ? `L${64 - v}` : `R${v - 64}`)
-  const setEq = (change: Partial<PartEq>) => eq?.onchange(withEq(eq.value, change))
+
+  function select() {
+    ui.selectedPart = part
+    if (keyboard) app.send({ type: 'selectPart', part })
+  }
+  function send(which: PartSend, v: number) {
+    if (keyboard) app.send({ type: 'setPartSend', part, send: which, value: v })
+    else app.send({ type: 'setStylePartSend', part: sIdx, send: which, value: v })
+  }
+  function volume(v: number) {
+    if (keyboard) app.send({ type: 'setPartVolume', part, volume: v })
+    else app.send({ type: 'setStylePartVolume', part: sIdx, volume: v })
+  }
+  function toggle() {
+    if (keyboard) app.send({ type: 'togglePart', part })
+    else app.send({ type: 'toggleStylePart', part: sIdx })
+  }
+  function solo() {
+    if (keyboard) app.send({ type: 'setPartSolo', part: isSolo ? null : part })
+    else app.send({ type: 'setStyleSolo', part: isSolo ? null : sIdx })
+  }
+  /** A Style part's double-click on a send hands its sends back to the style. */
+  const styleReset = $derived(keyboard ? null : () => app.send({ type: 'resetStylePartSends', part: sIdx }))
+  const own = (which: PartSend) => !!s?.sendsSet.includes(which)
 </script>
 
-<div class="strip" class:unused class:knobs={fx !== null || fxRow}>
-  <div class="ch" use:tip={unused ? 'launchkey.fader_unused' : channel === null ? faderTip : 'mixer.channel'}>
-    {#if channel !== null}<span class="engraved">Ch</span> <b>{channel}</b>{:else}&nbsp;{/if}
-  </div>
+<div class="strip" class:selected style:--part={colour} data-part={part}>
+  <button
+    type="button"
+    class="name"
+    aria-pressed={selected}
+    title={name}
+    use:tip={'mixer.strip.select'}
+    onclick={select}
+  >
+    <span class="colour" aria-hidden="true"></span>
+    <span class="text">{name}</span>
+  </button>
 
-  {#if fx}
-    <div class="fxcell">
-      <div class="fx" class:three={fx.pan === null}>
-        {#if fx.pan !== null}
-          <FxKnob value={fx.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={fx.onpan} />
-        {/if}
-        <FxKnob value={fx.reverb} tip={fx.style ? 'mixer.style.reverb' : 'mixer.part.reverb'} label="{name} reverb" caption="Rev" reset={fx.reverbDefault} onchange={(v) => fx.onsend('reverb', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('reverb')} />
-        <FxKnob value={fx.chorus} tip={fx.style ? 'mixer.style.chorus' : 'mixer.part.chorus'} label="{name} chorus" caption="Cho" reset={fx.style ? 10 : 0} onchange={(v) => fx.onsend('chorus', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('chorus')} />
-        <FxKnob value={fx.variation} tip={fx.style ? 'mixer.style.variation' : 'mixer.part.variation'} label="{name} delay" caption="Dly" reset={0} onchange={(v) => fx.onsend('variation', v)} onreset={fx.style?.onreset} own={fx.style?.set.includes('variation')} />
-      </div>
-      {#if eq}
-        {@const e = eq.value}
-        <div class="eq" role="group" aria-label="{name} EQ">
-          <FxKnob value={gainKnob(e.lowGain)} max={GAIN_KNOB_MAX} centre tip="mixer.part.eq_low_gain" label="{name} EQ low" caption="Low" reset={gainKnob(0)} format={(v) => dbText(knobGain(v))} onchange={(v) => setEq({ lowGain: knobGain(v) })} />
-          <FxKnob value={stepOf(LOW_STEPS, e.lowFreq)} max={LOW_STEPS.length - 1} tip="mixer.part.eq_low_freq" label="{name} EQ low frequency" caption="L Hz" reset={stepOf(LOW_STEPS, FLAT_EQ.lowFreq)} format={(v) => hzText(LOW_STEPS[v])} onchange={(v) => setEq({ lowFreq: LOW_STEPS[v] })} />
-          <FxKnob value={gainKnob(e.highGain)} max={GAIN_KNOB_MAX} centre tip="mixer.part.eq_high_gain" label="{name} EQ high" caption="High" reset={gainKnob(0)} format={(v) => dbText(knobGain(v))} onchange={(v) => setEq({ highGain: knobGain(v) })} />
-          <FxKnob value={stepOf(HIGH_STEPS, e.highFreq)} max={HIGH_STEPS.length - 1} tip="mixer.part.eq_high_freq" label="{name} EQ high frequency" caption="H Hz" reset={stepOf(HIGH_STEPS, FLAT_EQ.highFreq)} format={(v) => hzText(HIGH_STEPS[v])} onchange={(v) => setEq({ highFreq: HIGH_STEPS[v] })} />
-        </div>
-      {/if}
-      {#if insert}
-        {@const s = insert.value}
-        <div class="ins" class:off={!s.on} role="group" aria-label="{name} insert">
-          <div class="ins-left">
-            <select
-              class="ins-kind"
-              aria-label="{name} insert effect"
-              value={s.effect}
-              use:tip={'mixer.part.insert_effect'}
-              onchange={(e) => insert.oneffect(e.currentTarget.value as InsertEffect)}
-            >
-              {#each INSERT_EFFECTS as o (o.effect)}<option value={o.effect}>{o.name}</option>{/each}
-            </select>
-            <button
-              type="button"
-              class="ins-on mat-raised"
-              class:on={s.on}
-              aria-pressed={s.on}
-              aria-label="{name} insert on"
-              use:tip={'mixer.part.insert_on'}
-              onclick={() => insert.onon(!s.on)}>Ins</button
-            >
-          </div>
-          <FxKnob value={s.amount} tip="mixer.part.insert_amount" label="{name} insert amount" caption="Amt" reset={64} onchange={insert.onamount} />
-        </div>
-      {/if}
-    </div>
-  {:else if fxRow}
-    <div class="fxcell" aria-hidden="true"></div>
+  {#if keyboard}
+    <button
+      type="button"
+      class="voice"
+      title={voiceTitle(voice)}
+      aria-label="{name} voice: {voiceTitle(voice)}"
+      use:tip={'mixer.strip.voice'}
+      onclick={() => ui.openLibrary('sounds', part)}>{voiceName(voice)}</button
+    >
+  {:else}
+    <span class="voice" title={voiceTitle(voice)} use:tip={'mixer.strip.voice'}>{voiceName(voice)}</span>
   {/if}
 
-  <div class="fader">
-    <Fader {value} tip={faderTip} label={name} pickup={waiting} {hw} {lit} disabled={unused} {onchange} />
+  <!-- The part's two insert slots (from the mixer-strips contract) go here: another lane fills it. -->
+  <div class="inserts"></div>
+
+  <!-- Pan and the send minis. Room is left in this row for more send minis later (Chorus…). -->
+  <div class="knobs">
+    {#if k}
+      <FxKnob value={k.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={(v) => app.send({ type: 'setPartPan', part, pan: v })} />
+      <!-- Dry by default: a keyboard part's sends are 0 until the player or data sets one. -->
+      <FxKnob value={k.reverb} tip="mixer.part.reverb" label="{name} reverb" caption="Rev" reset={0} onchange={(v) => send('reverb', v)} />
+      <FxKnob value={k.variation} tip="mixer.part.variation" label="{name} delay" caption="Dly" reset={0} onchange={(v) => send('variation', v)} />
+    {:else if s}
+      <!-- The API has no Style part pan: keep its place so the knobs line up. -->
+      <span class="no-pan" aria-hidden="true"></span>
+      <FxKnob value={s.reverb} tip="mixer.style.reverb" label="{name} reverb" caption="Rev" reset={40} onchange={(v) => send('reverb', v)} onreset={styleReset} own={own('reverb')} />
+      <FxKnob value={s.variation} tip="mixer.style.variation" label="{name} delay" caption="Dly" reset={0} onchange={(v) => send('variation', v)} onreset={styleReset} own={own('variation')} />
+    {/if}
+  </div>
+
+  <div class="level">
+    <div class="fader">
+      {#if k}
+        <Fader value={k.volume} tip={tipFor({ type: 'setPartVolume', part, volume: 0 })} label={name} pickup={k.waiting} {hw} lit={k.sounding} onchange={volume} />
+      {:else if s}
+        <Fader value={s.volume} tip="mixer.style.volume" label={name} pickup={s.waiting} {hw} lit={lit} onchange={volume} />
+      {/if}
+    </div>
+    <div class="meter" class:idle={level === null} data-testid="meter" aria-hidden="true">
+      <div class="fill" style:transform="scaleY({level === null ? 0 : meterFill(level)})"></div>
+    </div>
   </div>
 
   <div class="buttons">
-    {#if on}
-      <HwButton tip={on.tip} led={on.led} beats={clock.beats} onclick={on.onclick} label="{name} {on.isOn ? 'on' : 'off'}">
-        {on.isOn ? 'On' : 'Off'}
-      </HwButton>
-      <button
-        type="button"
-        class="solo mat-raised"
-        class:on={solo?.isSolo}
-        aria-pressed={solo?.isSolo ?? false}
-        aria-label="Solo {name}"
-        use:tip={'mixer.solo'}
-        onclick={() => solo?.onclick()}>S</button
-      >
-    {:else if button}
-      <HwButton tip={button.tip} led={button.led} beats={clock.beats} onclick={button.onclick} label={button.label}>
-        {button.text}
-      </HwButton>
-    {/if}
-  </div>
-
-  <div class="voice" use:tip={unused ? 'launchkey.fader_unused' : 'mixer.voice'}>
-    {#if voice}
-      <span class="plays">{voice.plays}</span>
-      <span class="for">{voice.writtenFor}</span>
-    {/if}
-  </div>
-
-  <div class="badge">
-    {#if badge}<span class="tag" use:tip={badge.tip}>{badge.text}</span>{/if}
-  </div>
-
-  <div class="cpu" class:warn={cpuWarn(cpu)} data-testid="cpu">
-    {#if cpu !== null && !unused}
-      <span class="cpu-text" use:tip={cpu.summed ? 'mixer.cpu_group' : 'mixer.cpu'} aria-label="{name} CPU {pct(cpu.avg)}, peak {cpu.summed ? 'at most ' : ''}{pct(cpu.peak)}"
-        >{pct(cpu.avg)} <span class="pk">{cpu.summed ? '≤ ' : ''}pk {pct(cpu.peak)}</span></span
-      >
-      <span class="bar" aria-hidden="true"><span class="fill" style:width="{Math.min(1, cpu.avg) * 100}%"></span><span class="mark" style:left="{Math.min(1, cpu.peak) * 100}%"></span></span>
-    {/if}
+    <button
+      type="button"
+      class="on"
+      class:lit
+      aria-pressed={isOn}
+      aria-label="{name} {isOn ? 'on' : 'off'}"
+      use:tip={k ? tipFor({ type: 'togglePart', part }) : 'mixer.style.mute'}
+      onclick={toggle}
+    >
+      <span class="lamp" aria-hidden="true"></span>On
+    </button>
+    <button
+      type="button"
+      class="solo"
+      class:lit={isSolo}
+      aria-pressed={isSolo}
+      aria-label="Solo {name}"
+      use:tip={'mixer.solo'}
+      onclick={solo}>S</button
+    >
   </div>
 </div>
 
 <style>
   .strip {
-    display: grid;
-    grid-template-rows: auto minmax(13rem, 1fr) auto auto auto auto;
-    justify-items: center;
-    gap: 0.45rem;
-    min-width: 0;
-    padding: 0.5rem 0.25rem 0.4rem;
-    border-radius: var(--r-key);
-    background: linear-gradient(180deg, rgb(255 255 255 / 0.025), transparent 40%);
-    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.18);
-  }
-  /* The knob row sits between the channel and the fader. */
-  .strip.knobs {
-    grid-template-rows: auto var(--fx-h, 3.4rem) minmax(13rem, 1fr) auto auto auto auto;
-  }
-  /* #340: the track's CPU, a line and a thin bar (the tick is the worst buffer). */
-  .cpu {
-    display: grid;
-    gap: 0.15rem;
-    width: 100%;
-    min-height: 1.5rem;
-    justify-items: center;
-    font-family: var(--font-display);
-    font-size: 0.7rem;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .cpu-text {
-    white-space: nowrap;
-  }
-  .pk {
-    opacity: 0.8;
-  }
-  .cpu.warn .pk {
-    color: var(--danger);
-    opacity: 1;
-  }
-  .bar {
-    position: relative;
-    width: 80%;
-    height: 3px;
-    border-radius: 2px;
-    background: rgb(0 0 0 / 0.3);
-  }
-  .fill {
-    position: absolute;
-    inset: 0 auto 0 0;
-    border-radius: 2px;
-    background: var(--accent);
-  }
-  .cpu.warn .fill {
-    background: var(--danger);
-  }
-  .mark {
-    position: absolute;
-    top: -1px;
-    width: 1px;
-    height: 5px;
-    background: var(--ink);
-    opacity: 0.6;
-  }
-  /* The knob row: the sends, and on a keyboard part the EQ under them (#247). */
-  .fxcell {
-    display: grid;
-    align-content: start;
-    gap: 0.25rem;
-    width: 100%;
-    height: var(--fx-h, 3.4rem);
-  }
-  .fx,
-  .eq {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.1rem;
-    width: 100%;
-    align-items: start;
-  }
-  .eq {
-    padding-top: 0.2rem;
-    border-top: 1px solid var(--seam);
-  }
-  .fx.three {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  /* The insert slot: the effect and its switch, beside the amount knob. */
-  .ins {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.2rem;
-    width: 100%;
-    padding-top: 0.2rem;
-    border-top: 1px solid var(--seam);
-  }
-  .ins.off .ins-kind,
-  .ins.off :global(.knob) {
-    opacity: 0.6;
-  }
-  .ins-left {
-    display: grid;
-    gap: 0.2rem;
-    min-width: 0;
-  }
-  .ins-kind {
-    min-width: 0;
-    width: 100%;
-    min-height: 1.5rem;
-    font: inherit;
-    font-size: 0.7rem;
-  }
-  .ins-on {
-    height: 1.5rem;
-    padding: 0 0.35em;
-    border-radius: 5px;
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 0.75rem;
-    color: var(--muted);
-  }
-  .ins-on.on {
-    color: var(--accent-ink);
-    background: var(--accent);
-    box-shadow: 0 0 6px var(--accent);
-  }
-  .unused {
-    opacity: 0.55;
-  }
-  .ch {
-    font-family: var(--font-display);
-    font-size: 0.85rem;
-    color: var(--ink);
-    white-space: nowrap;
-  }
-  .ch b {
-    font-weight: 700;
-  }
-  .fader {
-    height: 100%;
-    min-height: 0;
-    width: 100%;
+    container-type: inline-size;
     display: flex;
-    justify-content: center;
-    font-size: 0.95rem;
-  }
-  .buttons {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.25rem;
-    width: 100%;
-    min-height: 2.1rem;
-    font-size: 0.9rem;
-  }
-  .buttons :global(.btn) {
+    flex-direction: column;
+    gap: 0.3rem;
     min-width: 0;
+    height: 100%;
+    padding: 0 0.2rem 0.3rem;
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: inset 0 0 0 1px var(--line);
+    overflow: hidden;
   }
-  .solo {
-    height: 2.1em;
-    min-width: 1.9em;
-    padding: 0 0.35em;
-    border-radius: 5px;
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 0.9em;
-    color: var(--muted);
+  /* The selected part: a lit accent edge. */
+  .strip.selected {
+    box-shadow:
+      inset 0 0 0 1px var(--accent),
+      0 0 8px color-mix(in srgb, var(--accent) 45%, transparent);
   }
-  /* The Genos lights a soloed channel purple. */
-  .solo.on {
-    color: #fff;
-    background: var(--solo);
-    box-shadow: 0 0 8px var(--solo);
+
+  button {
+    font: inherit;
+    color: inherit;
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
   }
-  .voice {
+  .name {
     display: grid;
-    width: 100%;
-    min-height: 2.3rem;
+    gap: 0.2rem;
+    margin: 0 -0.2rem;
+    min-width: 0;
+    padding-bottom: 0.1rem;
     text-align: center;
-    line-height: 1.15;
   }
-  .plays,
-  .for {
+  .colour {
+    display: block;
+    height: 4px;
+    background: var(--part);
+  }
+  .selected .colour {
+    box-shadow: 0 0 6px var(--part);
+  }
+  .text,
+  .voice {
+    display: block;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .plays {
+  .text {
+    padding: 0 0.2rem;
     font-family: var(--font-display);
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--ink);
   }
-  .for {
+  .selected .text {
+    color: var(--accent);
+  }
+  .voice {
+    width: 100%;
     font-family: var(--font-display);
+    font-size: 0.72rem;
+    line-height: 1.2;
+    text-align: center;
+    color: var(--muted);
+  }
+  button.voice:hover {
+    color: var(--ink);
+  }
+  /* Reserved for the two insert slots. */
+  .inserts {
+    flex: none;
+    height: 1.1rem;
+  }
+  .knobs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.05rem;
+    align-items: start;
+  }
+  .no-pan {
+    display: block;
+  }
+  .level {
+    flex: 1 1 auto;
+    /* Shorter with the row's details shown; the fader takes whatever height is left. */
+    min-height: 4.5rem;
+    display: flex;
+    justify-content: center;
+    gap: 0.2rem;
+  }
+  /* The fader scales with the strip (82 px wide: full size; 56 px: about two thirds). */
+  .fader {
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    font-size: clamp(0.6rem, 16cqi, 0.85rem);
+  }
+  /* A shorter least track than the Fader's own, so a whole strip fits under the row's
+     details; it still grows to the strip's full height without them. */
+  .fader :global(.track) {
+    min-height: 4.5em;
+  }
+  /* The name is on the strip's head already. */
+  .fader :global(.name) {
+    display: none;
+  }
+  .meter {
+    position: relative;
+    flex: none;
+    width: 5px;
+    margin: 1.6rem 0 0.4rem;
+    border-radius: 2px;
+    background: var(--lamp-off);
+    overflow: hidden;
+  }
+  .meter.idle {
+    opacity: 0.45;
+  }
+  .fill {
+    position: absolute;
+    inset: 0;
+    transform-origin: bottom;
+    background: linear-gradient(0deg, #3fd67a 0 70%, #ffd23f 70% 90%, #ff5a5a 90%);
+    will-change: transform;
+  }
+  .buttons {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.2rem;
+  }
+  .on,
+  .solo {
+    height: 1.5rem;
+    border-radius: 4px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line);
+    font-family: var(--font-display);
+    font-weight: 600;
     font-size: 0.75rem;
     color: var(--muted);
   }
-  .badge {
-    min-height: 1.1rem;
+  .on {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-width: 0;
   }
-  .tag {
-    display: inline-block;
-    font-family: var(--font-display);
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    padding: 0 0.35em;
-    border-radius: 3px;
-    color: var(--accent-ink);
-    background: var(--accent);
+  .lamp {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: var(--lamp-off);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .on.lit {
+    color: var(--ink);
+  }
+  .on.lit .lamp {
+    background: var(--part);
+    box-shadow: 0 0 6px var(--part);
+  }
+  .solo {
+    min-width: 1.5rem;
+    padding: 0 0.3rem;
+  }
+  /* The Genos lights a soloed channel purple. */
+  .solo.lit {
+    color: #fff;
+    background: var(--solo);
+    box-shadow: 0 0 8px var(--solo);
   }
 </style>

@@ -52,6 +52,8 @@ Audited 2026-09-26 against `develop` at e54b512.
 | Track ◀/▶ style | `stepStyle` | browser/Browser.svelte |
 | Shift+Track ◀/▶ previous/next Quick Rack | `stepQuickRack` | the Quick Racks bar |
 | Knob Assign ▲/▼ | `stepKnobPage` | **MISSING** |
+| Shift+encoder page ▼ [ACMP] | `toggleAcmp` | TransportBar "ACMP" |
+| Shift+encoder page ▲ Organ Rotary Slow/Fast (▲ lit while fast) | `triggerFunction` `rotaryFast`, which runs `toggleRotaryFast` | Launchkey mirror "Rotary" (beside Shift); effects/Effects.svelte "Rotary fast" |
 
 ## Faders
 
@@ -82,6 +84,15 @@ Audited 2026-09-26 against `develop` at e54b512.
 | Pan | part pans, effect returns | `setPartPan` / `setEffectReturn` | Mixer |
 | Effects | part Reverb/Chorus sends | `setPartSend` | mixer/Strip.svelte |
 | FX | effect parameters, delay time | `setEffectParam` | Mixer |
+| Rack (controller map) | a part's insert slot 1–2 on/off (`partInsertOn`) | `setStripInsertOn` | the part's channel strip (mixer rework) |
+| Rack (controller map) | a part's insert setting 1–4 (`partInsertSetting`) | `setStripInsertSetting` | the part's channel strip |
+| Rack (controller map) | a part's send 4–6 level (`partSend`, sends 1–3 are the Reverb/Chorus/Delay sends) | `setStripSend` | the part's channel strip |
+| Rack (controller map) | a part's delay send (`partDelay`) | `setPartSend` (`variation`) | mixer/Strip.svelte |
+| Rack (controller map) | rotary speed (`rotaryFast`) | `setRotaryFast` | effects/Effects.svelte "Rotary fast" |
+
+Panel faders 1–4 on the Volume layer run the same targets (`moveRackFader`): a level or
+setting across its range, a switch on from 64. The Rack drawer's controller map editor
+assigns them (`setRackControl`).
 
 ## Pedal and controller functions
 
@@ -101,6 +112,7 @@ function with its "Try" button (`triggerFunction`).
 | Quick Racks Bank ± (`snapshotBankNext`/`snapshotBankPrev`), Quick Rack 1–10 (`regist1`–`regist10`), Store (`registMemory`), Next/Previous Quick Rack (`registNext`/`registPrev`) | as the pads | the Quick Racks bar, PedalsPage. Registration Bank ±, Freeze and Sequence are no longer available. |
 | Transpose ±, part on/off, Fingered On Bass, Harmony/Arp, Chord Looper, Left Hold | as above | TransposePage, PartStrip, ChordPage, Harmony, Looper, Parts |
 | Arp Hold (pedal) | `toggleArpPedalHold` | **MISSING** (Harmony's "Arp Hold" is the panel switch `toggleArpHold`) |
+| Organ Rotary Slow/Fast (`rotaryFast`, RM p.140): Toggle flips it on each press, Hold A is fast while held, Hold B while up | `toggleRotaryFast` / `setRotaryFast` | Launchkey mirror "Rotary", effects/Effects.svelte "Rotary fast", PedalsPage "Try" |
 
 ## To add
 

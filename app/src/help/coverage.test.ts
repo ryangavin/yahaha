@@ -9,13 +9,14 @@
 
 import { render, cleanup } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../App.svelte'
 import { MockSession } from '../lib/api/mock'
 import { ui } from '../lib/store.svelte'
 import { tips } from '../lib/tooltip/tip.svelte'
 import { nav as soundNav } from '../panels/sound/nav.svelte'
 import { libraryNav } from '../panels/library/nav.svelte'
+import { channelNav } from '../panels/channel/nav.svelte'
 import { TIPS, isTipKey } from './tooltips'
 
 export const INTERACTIVE = [
@@ -154,6 +155,13 @@ const STATES: [string, Setup][] = [
   ['mixer drawer open', () => (ui.mixer = true)],
   ['mixer drawer, a plugin part', (s) => ((ui.mixer = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
   ['effects screen open', () => (ui.effects = true)],
+  ['effects screen, an added send, send 1 set by the rack', (s) => (
+    (ui.effects = true), s.send({ type: 'addSend', kind: 'phaser' }), s.send({ type: 'setRackSendOverride', send: 0, on: true })
+  )],
+  ['channel view, a keyboard part with an insert', (s) => (
+    s.send({ type: 'addSend', kind: 'room' }), s.send({ type: 'setStripInsertKind', strip: 1, slot: 1, kind: 'compressor' }), channelNav.show(1)
+  )],
+  ['channel view, a Style part', () => channelNav.show(6)],
   ['effects screen, delay free time, no inserts', (s) => (
     (ui.effects = true),
     s.send({ type: 'setEffectParam', block: 'variation', param: 'delaySync', value: 0 }),
@@ -227,6 +235,12 @@ const STATES: [string, Setup][] = [
   ['Shift layer on, fader page Style', (s) => ((ui.shiftLatched = true), s.send({ type: 'toggleFaderPage' }))],
 ]
 
+// Other files leave hover and focus state in the shared tooltip module (isolate: false).
+beforeEach(() => {
+  ;(document.activeElement as HTMLElement | null)?.blur()
+  tips.reset()
+})
+
 afterEach(() => {
   cleanup()
   ui.browser = false
@@ -239,6 +253,8 @@ afterEach(() => {
   ui.rack = false
   ui.mixer = false
   ui.effects = false
+  channelNav.close()
+  ui.selectedPart = 0
   ui.charts = false
   ui.looper = false
   ui.multipad = false

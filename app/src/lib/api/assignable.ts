@@ -108,6 +108,7 @@ export function functionCmd(id: FunctionId, st: { fingering: Fingering }): AppCm
     arpHold: { type: 'toggleArpPedalHold' },
     unison: { type: 'toggleUnison' },
     leftHold: { type: 'toggleLeftHold' },
+    rotaryFast: { type: 'toggleRotaryFast' },
   }
   return simple[id] ?? null
 }
@@ -124,6 +125,7 @@ export function functionSet(id: FunctionId, on: boolean): AppCmd | null {
   if (id === 'arpHold') return { type: 'setArpPedalHold', on }
   if (id === 'leftHold') return { type: 'setLeftHold', on }
   if (id === 'unison') return { type: 'setUnisonHeld', on }
+  if (id === 'rotaryFast') return { type: 'setRotaryFast', on }
   return null
 }
 

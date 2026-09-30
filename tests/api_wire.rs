@@ -293,12 +293,31 @@ const EVERY_CMD: &[&str] = &[
     r#"{"type":"setPartInsertOn","part":3,"on":false}"#,
     r#"{"type":"setPartInsertAmount","part":3,"amount":100}"#,
     r#"{"type":"setRotaryFast","on":true}"#,
+    r#"{"type":"toggleRotaryFast"}"#,
     r#"{"type":"setMasterCompressorOn","on":true}"#,
     r#"{"type":"setMasterCompressorPreset","preset":"punchy"}"#,
     r#"{"type":"setMasterCompressorParam","param":"output","value":-3}"#,
     r#"{"type":"setMasterEqOn","on":true}"#,
     r#"{"type":"setMasterEqPreset","preset":"loudness"}"#,
     r#"{"type":"setMasterEqBand","band":7,"gain":3,"freq":10000,"q":7,"shelf":true}"#,
+    // Channel strips and send effects (in an order a default `Strips` accepts)
+    r#"{"type":"setStripEq","strip":4,"eq":{"lowGain":2,"lowFreq":100,"highGain":0,"highFreq":8000}}"#,
+    r#"{"type":"setStripCompressorOn","strip":0,"on":true}"#,
+    r#"{"type":"setStripCompressorPreset","strip":5,"preset":"punchy"}"#,
+    r#"{"type":"setStripCompressorParam","strip":0,"param":"threshold","value":-24}"#,
+    r#"{"type":"setStripInsertKind","strip":5,"slot":1,"kind":"phaser"}"#,
+    r#"{"type":"setStripInsertOn","strip":5,"slot":1,"on":true}"#,
+    r#"{"type":"setStripInsertSetting","strip":5,"slot":1,"setting":1,"value":120}"#,
+    r#"{"type":"addSend","kind":"plate"}"#,
+    r#"{"type":"setStripSend","strip":8,"send":3,"level":50}"#,
+    r#"{"type":"setSendKind","send":3,"kind":"room"}"#,
+    r#"{"type":"setSendParam","send":2,"param":3,"value":60}"#,
+    r#"{"type":"setSendReturn","send":3,"level":80}"#,
+    r#"{"type":"setRackSendOverride","send":1,"on":true}"#,
+    r#"{"type":"removeSend","send":3}"#,
+    r#"{"type":"setStripTone","strip":0,"control":"cutoff","value":80}"#,
+    r#"{"type":"setStripMono","strip":1,"on":true}"#,
+    r#"{"type":"setStripPortamento","strip":2,"on":true,"time":40}"#,
     r#"{"type":"newRack"}"#,
     r#"{"type":"newRack","discard":true}"#,
     r#"{"type":"loadRack","id":"r5f3a2c1d-0"}"#,
@@ -403,6 +422,46 @@ fn state_fixture_round_trips_byte_for_byte() {
     assert_eq!(strip(&out), strip(LIBRARY));
 }
 
+/// An insert or send kind this build doesn't know (a newer build's) still parses, as
+/// `Unknown` with its name, and goes back out unchanged; the strips refuse to play it.
+#[test]
+fn unknown_strip_kinds_parse_and_are_refused() {
+    use yahaha::api::{InsertType, SendKind, StripCmd, Strips};
+    let json = r#"{"type":"setStripInsertKind","strip":5,"slot":1,"kind":"ringModulator"}"#;
+    let cmd: AppCmd = serde_json::from_str(json).unwrap();
+    let AppCmd::Strips(c) = &cmd else { panic!("{cmd:?}") };
+    assert_eq!(*c, StripCmd::SetStripInsertKind { strip: 5, slot: 1, kind: InsertType::Unknown("ringModulator".into()) });
+    assert_eq!(serde_json::to_string(&cmd).unwrap(), json);
+    let mut strips = Strips::default();
+    assert!(strips.apply(c).is_err());
+    assert_eq!(strips, Strips::default(), "nothing changed");
+
+    for json in [r#"{"type":"addSend","kind":"shimmer"}"#, r#"{"type":"setSendKind","send":4,"kind":"shimmer"}"#] {
+        let cmd: AppCmd = serde_json::from_str(json).unwrap();
+        let AppCmd::Strips(c) = &cmd else { panic!("{cmd:?}") };
+        assert_eq!(serde_json::to_string(&cmd).unwrap(), json);
+        assert!(Strips::default().apply(c).is_err(), "{json}");
+    }
+    // A known kind for comparison: the phaser is on the wire as "phaser".
+    let c = StripCmd::AddSend { kind: SendKind::Phaser };
+    assert_eq!(serde_json::to_string(&AppCmd::Strips(c)).unwrap(), r#"{"type":"addSend","kind":"phaser"}"#);
+}
+
+/// Every strip command in EVERY_CMD plays on a default `Strips` (the new send one after
+/// `addSend`), so the examples are ones the model accepts, not only ones that parse.
+#[test]
+fn strip_examples_are_accepted() {
+    use yahaha::api::Strips;
+    let mut strips = Strips::default();
+    let mut n = 0;
+    for json in EVERY_CMD {
+        if let AppCmd::Strips(c) = serde_json::from_str(json).unwrap() {
+            strips.apply(&c).unwrap_or_else(|e| panic!("{json}: {e}"));
+            n += 1;
+        }
+    }
+    assert_eq!(n, 17, "one of each strip command");
+}
 
 #[test]
 fn cmd_errors_keep_their_form() {

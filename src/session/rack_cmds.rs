@@ -144,7 +144,8 @@ impl Control {
 
     /// A new rack: every part on its default GM voice with a neutral mix (Right 1 on, the
     /// others off), the default split, no transpose, Harmony/Arpeggio off (its settings as
-    /// they are) and the default controller map.
+    /// they are), the default controller map, flat strips, no added send effects and no
+    /// override of sends 1-3.
     fn blank_rack(&self) -> Rack {
         let now = self.capture_rack_with(false);
         let file = self.sf_file.clone().unwrap_or_default();
@@ -163,6 +164,7 @@ impl Control {
             bend_range: crate::controllers::DEFAULT_BEND_RANGE,
             eq: Default::default(),
             insert: Default::default(),
+            strip: Default::default(),
             other: Default::default(),
         };
         Rack {
@@ -172,6 +174,8 @@ impl Control {
             harmony_arp: racks::HarmonyArpReg { on: false, ..now.harmony_arp },
             transpose: 0,
             controls: Default::default(),
+            // No added sends, and sends 1-3 the style's.
+            sends: Default::default(),
             ..now
         }
     }

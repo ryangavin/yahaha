@@ -9,18 +9,21 @@
    │              │ (pad page tabs)                                          [Multi Pads]  │
    │              │ [Shift] [▲ ▼]    [ 8 pads, top row    ] Scene›  Stop                   │
    │ 8 buttons  M │  Track  [◀ ▶]    [ 8 pads, bottom row ] Func    Play                   │
+   │              │ Sh+Enc▲ [Rotary]                                                       │
    └──────────────┴────────────────────────────────────────────────────────────────────────┘
 
-  The fader head names the rack ("Rack: <name> ●" while modified) and carries the Rack,
-  Sounds and Mixer drawer buttons; under each part fader, its sound. The pad-page
+  The fader head names the rack ("Rack: <name> ●" while modified) and carries the Rack
+  drawer, Library and Mixer buttons (Mixer shows/hides the mixer row's details); under
+  each part fader, its sound. The pad-page
   row the Multi Pads one (lib/ui/DrawerButton: small and quieter, not hardware). The eight
   knobs are in their own panel under the mirror, over the Quick Racks (panels/knobracks).
 
   Every element shows its function on the current pad/fader page and Shift layer, has a
   tooltip from the catalog, and clicking it sends exactly what the hardware sends. Every
-  size is in em: the shell (App.svelte) sets the font size (`--u`) so the surface fills
-  the window by width and height at the hardware's proportions (96em wide; 66em in the
-  stacked layout that tall windows get).
+  size is in em: the shell (App.svelte) puts the mirror in its own size container
+  (`mirror`, the slot beside the mixer row) and sets the font size (`--u`) so the surface
+  fills that slot by width and height at the hardware's proportions (96em wide; 66em in
+  the stacked layout a narrow slot gets).
 -->
 <script lang="ts">
   import { PAD_PAGES, type Pad, type PadPage, type Rgb } from '../../lib/api/types'
@@ -63,11 +66,12 @@
     <div class="faders">
       <div class="fader-head">
         <span class="engraved head-text">Faders · {#if s.mixer.faderPage === 'panel'}<b class="rackname">Rack: {rackName(s.liveRack)}{s.liveRack.modified ? ' ●' : ''}</b>{:else}Style: the band{/if}</span>
-        <!-- The drawers that detail what the faders play: your rack, the sounds, the mix. -->
+        <!-- What details the faders play: the Rack drawer, the sounds (Library), and the
+             mixer row's details (Mixer shows/hides them without closing any drawer). -->
         <nav class="drawers" aria-label="Part panels">
           <DrawerButton tip="drawer.rack" open={ui.rack} onclick={() => ui.toggleDrawer('rack')}>Rack</DrawerButton>
           <DrawerButton tip="drawer.library" open={ui.view === 'library'} onclick={() => toggleLibrary('sounds')}>Library</DrawerButton>
-          <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleDrawer('mixer')}>Mixer</DrawerButton>
+          <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => (ui.mixer = !ui.mixer)}>Mixer</DrawerButton>
         </nav>
       </div>
       <div class="fader-body"><FaderBank {surface} /></div>
@@ -96,7 +100,7 @@
       <DrawerButton tip="drawer.multipad" open={ui.multipad} onclick={() => ui.toggleDrawer('multipad')}>Multi Pads</DrawerButton>
     </div>
 
-    <!-- Shift, Pad Bank ▲ ▼ and Track ◀ ▶, stacked in two rows beside the pads. -->
+    <!-- Shift, Pad Bank ▲ ▼, Track ◀ ▶ and Rotary, stacked in three rows beside the pads. -->
     <div class="nav">
       <HwButton tip="launchkey.shift" pressed={shift} shape="square" caption="Shift" label="Shift" onclick={() => (ui.shiftLatched = !ui.shiftLatched)}>
         <span class="icon">⇧</span>
@@ -110,6 +114,11 @@
       <div class="track" role="group" aria-label="Track">
         <Control {surface} id="trackPrev" legend="◀" caption={surface.trackPrev?.name ?? ''} />
         <Control {surface} id="trackNext" legend="▶" caption={surface.trackNext?.name ?? ''} />
+      </div>
+      <!-- The organ rotary speaker's Slow/Fast: Shift + the encoder page ▲ on the hardware. -->
+      <span class="engraved rotary-label" aria-hidden="true">Shift + Enc ▲</span>
+      <div class="rotary">
+        <HwButton tip="launchkey.rotary_fast" pressed={s.effects.rotaryFast} label="Rotary Fast" onclick={() => app.send({ type: 'toggleRotaryFast' })}>Rotary</HwButton>
       </div>
     </div>
 
@@ -212,15 +221,16 @@
   .lk.on {
     color: #5fd68a;
   }
-  /* Two rows beside the pads: [Shift] [▲ ▼ page] over [Track] [◀ ▶ + the neighbouring
-     styles' names]. One narrow block, so the pads get the width. */
+  /* Three rows beside the pads: [Shift] [▲ ▼ page] over [Track] [◀ ▶ + the neighbouring
+     styles' names] over [Shift + Enc ▲] [Rotary]. One narrow block, so the pads get the
+     width. */
   .nav {
     grid-area: nav;
     display: grid;
     grid-template-columns: 3em minmax(0, 1fr);
-    grid-template-rows: auto auto;
+    grid-template-rows: auto auto auto;
     column-gap: 0.5em;
-    row-gap: 0.5em;
+    row-gap: 0.25em;
     align-content: space-between;
     align-items: start;
     padding-top: 0.35em;
@@ -253,6 +263,17 @@
     align-self: start;
     margin-top: 0.75em;
     text-align: center;
+  }
+  /* Two short lines, level with the Rotary button. */
+  .rotary-label {
+    align-self: center;
+    text-align: center;
+    line-height: 1.1;
+  }
+  /* A slimmer button, so the three rows stay no taller than the pads (the mirror's
+     measured height, --h in App.svelte, doesn't change). */
+  .rotary :global(.btn) {
+    height: 1.7em;
   }
   .side,
   .transport {
@@ -321,9 +342,9 @@
     font-size: 0.78em;
   }
 
-  /* Tall windows (the shell's stage narrower than 1.45:1): the fader bank moves under the
-     pads, so the surface is 66em wide and can grow larger. */
-  @container stage (aspect-ratio < 1.45) {
+  /* A narrow slot (the shell's `mirror` container narrower than 2.09:1, where 66em × 46.4em
+     scales larger than 96em × 26.2em): the fader bank moves under the pads. */
+  @container mirror (aspect-ratio < 2.09) {
     .device {
       grid-template-columns: 11.5em minmax(0, 1fr) 4.2em 4.2em;
       grid-template-rows: 9.5em auto auto 19em;

@@ -6,8 +6,9 @@
 //! - **Changes.** The pump compares the rack playing now (captured without plugin states,
 //!   so nothing big is read or encoded) with the last one it saw: after a command or
 //!   hardware action ([`Control::live_rack_check`]), every [`CHECK_NS`] otherwise, and on
-//!   every pump offline. Any difference (a sound,
-//!   the mix, the split, Harmony/Arp, the transpose, the controller map, or a plugin edit,
+//!   every pump offline. Any difference (a sound, the mix, a keyboard part's strip, the
+//!   send effects (added ones, and the override of sends 1-3, their settings included),
+//!   the split, Harmony/Arp, the transpose, the controller map, or a plugin edit,
 //!   `soundEdited`) sets `modified` and schedules a save. A change to a part's plugin state
 //!   (the plugin host's 30-second reads, a load finishing) schedules a save without
 //!   setting `modified`. Loading or saving a rack clears `modified` ([`Control::live_rack_clean`]).
@@ -17,8 +18,9 @@
 //!   serialized and written (atomically: a temporary file, then a rename) on a
 //!   `live-rack` thread of its own. Stopping reads the playing plugins' states (with the
 //!   plugin host's deadline), waits for that thread, and writes the rack one last time.
-//! - **Start.** `live-rack.json` is applied as a rack; its plugins load without the
-//!   in-process fallback. With no live rack yet but a `plugin-parts.json` beside it (the
+//! - **Start.** `live-rack.json` is applied as a rack (`Control::apply_rack`, which
+//!   normalizes each part's strip: the file's rack isn't read through `Rack::from_json`);
+//!   its plugins load without the in-process fallback. With no live rack yet but a `plugin-parts.json` beside it (the
 //!   parts' plugins before racks), those plugins and today's parts become the live rack,
 //!   named "Restored"; the old file is left in place and never read again once the live
 //!   rack is saved. A `live-rack.json` that can't be read is moved aside (`.bak`) and the

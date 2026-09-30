@@ -29,6 +29,7 @@ pub enum FxCmd {
     /// together.
     SetInsertsOn { on: bool },
     /// One Style part's insertion effect (0-7) on or off; until the next style.
+    /// Superseded by `setStripInsertOn` (strip 4-11, slot 0), which is this for them.
     SetPartInsertOn { part: u8, on: bool },
     /// One Style part's insertion effect amount (0-127: the distortion's drive, the
     /// compressor's squeeze, the wah's sensitivity, the tremolo's and rotary's depth); until
@@ -36,6 +37,9 @@ pub enum FxCmd {
     SetPartInsertAmount { part: u8, amount: u8 },
     /// Every rotary insert at its fast speed or its slow one (the Leslie switch).
     SetRotaryFast { on: bool },
+    /// Flip the rotary speed (fast to slow, slow to fast): the Organ Rotary Slow/Fast
+    /// button or Toggle pedal.
+    ToggleRotaryFast,
     /// The Master Compressor on or off (`EffectsState::master`).
     SetMasterCompressorOn { on: bool },
     /// The Master Compressor's type: its Compression, Texture and Output come with it.
@@ -278,6 +282,11 @@ pub struct EffectsState {
     /// The Master Compressor and Master EQ (both off by default).
     #[serde(default)]
     pub master: MasterFxState,
+    /// The send effects (the mixer rework), 1-6: sends 1-3 are `blocks` above, fed by the
+    /// style; 4-6 the ones the player added (`addSend`). Supersedes `blocks` for the new
+    /// mixer.
+    #[serde(default)]
+    pub sends: Vec<crate::api::SendState>,
 }
 
 fn yes() -> bool {
@@ -333,7 +342,7 @@ impl EffectsState {
                 }
             })
             .collect();
-        EffectsState { blocks, inserts: Vec::new(), inserts_on: true, rotary_fast: false, master: MasterFxState::default() }
+        EffectsState { blocks, inserts: Vec::new(), inserts_on: true, rotary_fast: false, master: MasterFxState::default(), sends: Vec::new() }
     }
 
     /// As a session starts: Hall, Chorus, the dotted 1/8 delay, every return 64 (0 dB);

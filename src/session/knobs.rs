@@ -3,7 +3,8 @@
 
 use super::Control;
 use crate::api::{CmdError, KnobsCmd, KnobsState};
-use crate::knobs::Now;
+use crate::fx::InsertSlot;
+use crate::knobs::{InsertNow, Now, StripNow};
 
 impl Control {
     pub(super) fn knobs_cmd(&mut self, c: KnobsCmd) -> Result<(), CmdError> {
@@ -11,14 +12,14 @@ impl Control {
             KnobsCmd::SetKnobPage { page } => self.knobs.set_page(page),
             KnobsCmd::StepKnobPage { delta } => self.knobs.set_page(self.knobs.page.step(delta)),
             KnobsCmd::TurnKnob { knob, delta } => {
-                let now = self.knobs_now();
-                if let Some(cmd) = self.knobs.turn(knob, delta, &now) {
+                let (now, strips) = (self.knobs_now(), self.strip_now());
+                if let Some(cmd) = self.knobs.turn_at(knob, delta, &now, &strips) {
                     return self.apply(cmd);
                 }
             }
             KnobsCmd::ResetKnob { knob } => {
-                let now = self.knobs_now();
-                if let Some(cmd) = self.knobs.reset(knob, &now) {
+                let (now, strips) = (self.knobs_now(), self.strip_now());
+                if let Some(cmd) = self.knobs.reset_at(knob, &now, &strips) {
                     return self.apply(cmd);
                 }
             }
@@ -53,8 +54,35 @@ impl Control {
         }
     }
 
+    /// The keyboard parts' strips the knobs and faders turn from: the strips as kept
+    /// (`Control::strips`), with insert 1 as the part's older insert says (its kind, on/off
+    /// and amount win, as `Strips::fill` makes them), and the rotary speed.
+    pub(super) fn strip_now(&self) -> StripNow {
+        let strips = self.strips.borrow();
+        let parts = &self.shared.parts;
+        let insert = |i: &InsertSlot| InsertNow { on: i.on, values: i.values, specs: i.kind.settings() };
+        StripNow {
+            inserts: [0, 1, 2, 3].map(|p| {
+                let s = &strips.strips[p];
+                let old = InsertSlot::from_part_insert(parts.insert(p));
+                let mut first = s.inserts[0].clone();
+                if first.kind != old.kind {
+                    first.set_kind(old.kind);
+                }
+                first.on = old.on;
+                if !first.kind.settings().is_empty() {
+                    first.values[0] = old.values[0];
+                }
+                [insert(&first), insert(&s.inserts[1])]
+            }),
+            sends: [0, 1, 2, 3].map(|p| strips.strips[p].sends),
+            send_count: strips.sends() as u8,
+            rotary_fast: self.fx.rotary_fast,
+        }
+    }
+
     pub(super) fn knobs_state(&self) -> KnobsState {
-        self.knobs.state(&self.knobs_now())
+        self.knobs.state_at(&self.knobs_now(), &self.strip_now())
     }
 }
 

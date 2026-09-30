@@ -144,7 +144,7 @@ impl MockSession {
                 let Some(t) = self.state.live_rack.controls.faders.get(fader as usize) else {
                     return self.message(format!("no fader {}", fader as usize + 1), true);
                 };
-                if let Some(cmd) = yahaha::knobs::fader_command(t, volume, self.state.harmony_arp.on) {
+                if let Some(cmd) = yahaha::knobs::fader_command_at(t, volume, self.state.harmony_arp.on, &self.strip_now()) {
                     self.cmd(cmd);
                 }
             }

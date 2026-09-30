@@ -175,9 +175,9 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
 | `setPartSend` | `part`, `send`: `reverb` \| `chorus` \| `variation`, `value` 0–127 | The part's reverb (CC91), chorus (CC93) or variation (CC94: the tempo delay) send depth to the effect bus (#204). |
 | `setPartEq` | `part`, `eq`: `{ lowGain, lowFreq, highGain, highFreq }` | The part's channel-strip EQ (#247): a low shelf and a high shelf, as the Genos Mixer's Part EQ. Gains in dB, −12..12; `lowFreq` 32–2000 Hz, `highFreq` 500–16000 Hz; out-of-range values are clamped. yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), before its level, pan, meters and sends. It is a tone control, not a level: a band at 0 dB is out of the signal, so a flat EQ leaves the part bit-identical. Saved with the rack (a rack without it plays flat). An OTS recall sets it from the OTS's XG part EQ (see `eq` under Keyboard parts). Example: `{"type":"setPartEq","part":0,"eq":{"lowGain":3,"lowFreq":80,"highGain":-2,"highFreq":10000}}`. |
-| `setKeyboardInsertEffect` | `part`, `effect`: `distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary` | The effect in the part's insert slot (Genos Mixer > Effect: Insertion Effect Type). yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), after its EQ and before its level, pan, meters and sends; the effect sees the part at full volume. It does not turn the slot on. Saved with the rack. Example: `{"type":"setKeyboardInsertEffect","part":0,"effect":"rotary"}`. |
-| `setKeyboardInsertOn` | `part`, `on` | The part's insert slot on or off. Off, the part plays bit-identical to no insert at all. `setInsertsOn` (the style's inserts) doesn't touch it. |
-| `setKeyboardInsertAmount` | `part`, `amount` 0–127 | The insert's amount: the distortion's drive, the compressor's squeeze, the wah's sensitivity, the tremolo's and rotary's depth. Out-of-range values are clamped. |
+| `setKeyboardInsertEffect` | `part`, `effect`: `distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary` \| `phaser` | *Superseded by `setStripInsertKind` (strip = `part`, slot 0), which still sends this; it keeps working.* The effect in the part's insert slot (Genos Mixer > Effect: Insertion Effect Type). yahaha plays it on the part's audio, whatever plays it (SoundFont or plugin), after its EQ and before its level, pan, meters and sends; the effect sees the part at full volume. It does not turn the slot on. Saved with the rack. `phaser` is accepted but plays dry until its DSP lands (the mixer rework). Example: `{"type":"setKeyboardInsertEffect","part":0,"effect":"rotary"}`. |
+| `setKeyboardInsertOn` | `part`, `on` | *Superseded by `setStripInsertOn` (strip = `part`, slot 0); still works.* The part's insert slot on or off. Off, the part plays bit-identical to no insert at all. `setInsertsOn` (the style's inserts) doesn't touch it. |
+| `setKeyboardInsertAmount` | `part`, `amount` 0–127 | *Superseded by `setStripInsertSetting` (strip = `part`, slot 0, setting 0); still works.* The insert's amount: the distortion's drive, the compressor's squeeze, the wah's sensitivity, the tremolo's and rotary's depth, the phaser's depth. Out-of-range values are clamped. |
 | `setPartSolo` | `part` 0–3 or null | Solos a keyboard part: only it sounds from the keys, even if it is switched off (Left soloed plays the left hand; another part soloed plays the whole keyboard when Left is not sounding). `null` ends it. The switches are not changed (`mixer.partSolo`). |
 
 ### Mixer, Launchkey pages, synth
@@ -440,9 +440,10 @@ scaled. A change glides in over about 30 ms.
 | `setEffectReturn` | `block`, `level` 0–127 | The block's return level: 64 = 0 dB (default), 127 = +6 dB, 0 = off (Genos). |
 | `setEffectParam` | `block`, `param`, `value` | One of the block's parameters (#236), in the parameter's own unit, clamped to its range (see the table below). A parameter of another block is refused. A change glides on the audio thread, so it never clicks. `setEffectType` puts the block's parameters back to the new type's own values. |
 | `setInsertsOn` | `on` | The style's insertion effects (#269, `effects.inserts`) on or off, all together (default on). Off, every Style part plays dry. |
-| `setPartInsertOn` | `part`, `on` | One Style part's (0–7) insertion effect on or off, until the next style. |
-| `setPartInsertAmount` | `part`, `amount` | One Style part's insertion effect amount, 0–127 (drive, squeeze, wah sensitivity, tremolo/rotary depth), until the next style. A part with no insert is refused. |
-| `setRotaryFast` | `on` | Every rotary insert at its fast speed or its slow one; it glides between them (about 1 s up, 2 s down). |
+| `setPartInsertOn` | `part`, `on` | *Superseded by `setStripInsertOn` (strip = `part` + 4, slot 0), which still sends this; it keeps working.* One Style part's (0–7) insertion effect on or off, until the next style. |
+| `setPartInsertAmount` | `part`, `amount` | *Superseded by `setStripInsertSetting` (strip = `part` + 4, slot 0, setting 0); still works.* One Style part's insertion effect amount, 0–127 (drive, squeeze, wah sensitivity, tremolo/rotary depth), until the next style. A part with no insert is refused. |
+| `setRotaryFast` | `on` | Every rotary insert at its fast speed or its slow one; it glides between them (about 1 s up, 2 s down). A Hold pedal on the assignable function `rotaryFast` ("Organ Rotary Slow/Fast", Voice, Switch) sends it: Fast while held. |
+| `toggleRotaryFast` | | Flips the rotary speed: fast to slow, slow to fast, gliding as `setRotaryFast`. The assignable function `rotaryFast` ("Organ Rotary Slow/Fast", Voice, Switch; RM p.140) runs it, from `triggerFunction` or a Toggle pedal. Example: `{"type":"toggleRotaryFast"}`. |
 | `setFollowStyle` | `block`, `on` | Whether the block follows the style's own effect type (#237). On (the default), each style load gives the block the style's type (and the delay's time, feedback and tone, the reverb's time, pre-delay and tone, and the block's return level, as the style sets them; #269), or the block's default type if the style sets none that yahaha has. `setEffectType` turns it off, so the player's choice stays through style changes. Turning it on takes the loaded style's type at once. |
 | `setBandSend` | `block`, `level` 0–127 | The block's band send, in percent: 100 = the Style parts' sends as written, 0 = none of the band, above 100 up to 127 raises them (each part's send at most the whole signal). Defaults: reverb 100, chorus 0, variation 0. |
 | `setPadSend` | `block`, `level` 0–127 | The block's Multi Pad send (#267), in percent: the same scale as `setBandSend`, on the four Multi Pads' sends (channels 5–8). Defaults: reverb 100, chorus 0, variation 0. In the built-in synth only (the MIDI port carries the pads' CCs as written). |
@@ -548,6 +549,90 @@ reach the chorus or the delay, whatever their type.
 The Variation types are starting points: each sets the note value and the ping-pong switch,
 which can then be changed like any parameter (as a Genos type loads its own settings). A
 delay longer than 2 s repeats at 2 s.
+
+### Channel strips and send effects
+
+The mixer rework: every part has a **channel strip** that runs EQ → compressor → insert 1 →
+insert 2 → sends → pan and level, and the strips feed up to six **send effects**.
+
+- **`strip`** 0–11: 0–3 the keyboard parts (Right 1, Right 2, Right 3, Left), 4–11 the Style
+  parts 0–7 (Rhythm 1 … Phrase 2). Its state is `strip` on every keyboard part and Style
+  part (StripState, under `keyboardParts`).
+- **`send`** 0–5: sends 1–3 (0–2) are always there and are the effect bus's Reverb, Chorus
+  and Variation blocks, which the style's reverb, chorus and delay sends feed; sends 4–6
+  (3–5) are the player's, added with `addSend`, and belong to the rack. Their state is
+  `effects.sends` (SendState).
+- **`slot`** 0–1: insert 1 and insert 2. On a keyboard strip, slot 0 is the part's insert
+  (`insert`); on a Style strip, it is the style's insertion effect for that part
+  (`effects.inserts`), whose kind comes from the style while the style sets one.
+
+Where an older command already does what a strip command does, the session and the dev mock
+send that older command, and keep the strip command's own settings too; the older commands
+keep working unchanged, and the two always show the same. What no older command covers (the
+strip compressor, insert 2, a Style strip's EQ, insert settings after the first, sends 4–6,
+a phaser) is kept, saved in the state and shown, but doesn't play yet: it arrives with the
+mixer rework's DSP. A refused command changes nothing and returns `Failed` with the reason.
+
+| Command | Fields | What it does |
+|---|---|---|
+| `setStripEq` | `strip`, `eq`: `{ lowGain, lowFreq, highGain, highFreq }` | The strip's EQ, clamped as `setPartEq`. On a keyboard strip it is `setPartEq` (`part` = `strip`). Example: `{"type":"setStripEq","strip":4,"eq":{"lowGain":2,"lowFreq":100,"highGain":0,"highFreq":8000}}`. |
+| `setStripCompressorOn` | `strip`, `on` | The strip's compressor on or off (default off). Example: `{"type":"setStripCompressorOn","strip":0,"on":true}`. |
+| `setStripCompressorPreset` | `strip`, `preset` `natural` \| `rich` \| `punchy` \| `electronic` \| `loud` | The strip compressor's type; its parameters come with it (see below). On/off is unchanged. Example: `{"type":"setStripCompressorPreset","strip":5,"preset":"punchy"}`. |
+| `setStripCompressorParam` | `strip`, `param` `threshold` \| `ratio` \| `attack` \| `release` \| `makeup`, `value` | One strip compressor parameter, clamped: `threshold` −48..0 dB, `ratio` 10–200 in tenths (40 = 4.0:1), `attack` 1–100 ms, `release` 10–1000 ms, `makeup` 0–24 dB. Example: `{"type":"setStripCompressorParam","strip":0,"param":"threshold","value":-24}`. |
+| `setStripInsertKind` | `strip`, `slot` 0–1, `kind` | Insert `slot` plays `kind` (see the insert kinds below; `none` empties it), its settings at the kind's defaults. On/off is unchanged. An unknown kind is refused. On a keyboard strip's slot 0 it is `setKeyboardInsertEffect` (`none`: `setKeyboardInsertOn` off). Example: `{"type":"setStripInsertKind","strip":5,"slot":1,"kind":"phaser"}`. |
+| `setStripInsertOn` | `strip`, `slot`, `on` | Insert `slot` on or off. Slot 0 is `setKeyboardInsertOn` on a keyboard strip, `setPartInsertOn` (`part` = `strip` − 4) on a Style strip. Example: `{"type":"setStripInsertOn","strip":5,"slot":1,"on":true}`. |
+| `setStripInsertSetting` | `strip`, `slot`, `setting` 0–3, `value` | One of the insert's settings (by `settings` in its InsertSlotState), clamped to its range; a setting its kind doesn't have (or an empty slot) is refused. Slot 0's setting 0 is the older amount: `setKeyboardInsertAmount` on a keyboard strip, `setPartInsertAmount` on a Style strip. Example: `{"type":"setStripInsertSetting","strip":5,"slot":1,"setting":1,"value":120}`. |
+| `setStripSend` | `strip`, `send` 0–5, `level` 0–127 | The strip's level to send `send`. A send that isn't there is refused. Sends 0–2 are `setPartSend` (`reverb`, `chorus`, `variation`) on a keyboard strip and `setStylePartSend` on a Style strip. Example: `{"type":"setStripSend","strip":8,"send":3,"level":50}`. |
+| `addSend` | `kind` | Adds a send effect (the next of sends 4–6) playing `kind` (see the send kinds below) at its defaults, returning at 64 (0 dB); every strip's level to it starts at 0. Refused when all six are there, or for an unknown kind. Example: `{"type":"addSend","kind":"plate"}`. |
+| `removeSend` | `send` 3–5 | Removes an added send effect; the ones after it move down one, with every strip's level to them. Sends 0–2 can't be removed. Example: `{"type":"removeSend","send":3}`. |
+| `setSendKind` | `send`, `kind` | The send effect's kind; its parameters go back to that kind's defaults, and its return is unchanged. Sends 0–2 take only their own block's types (send 0 `hall` \| `room` \| `stage` \| `plate`, send 1 `chorus` \| `celeste` \| `flanger`, send 2 `eighth` \| `dottedEighth` \| `quarter` \| `pingPong`) and are `setEffectType`; sends 3–5 take any kind. An unknown kind is refused. Example: `{"type":"setSendKind","send":3,"kind":"room"}`. |
+| `setSendParam` | `send`, `param` (an index into its `params`), `value` | One of the send effect's parameters, clamped; one its kind doesn't have is refused. On sends 0–2 it is `setEffectParam` (the block's parameter at that index). Example: `{"type":"setSendParam","send":2,"param":3,"value":60}`. |
+| `setSendReturn` | `send`, `level` 0–127 | The send effect's return level (64 = 0 dB). On sends 0–2 it is `setEffectReturn`. Example: `{"type":"setSendReturn","send":3,"level":80}`. |
+| `setRackSendOverride` | `send` 0–2, `on` | Whether the live rack overrides send `send`'s kind: on, the rack keeps the kind the send has now and brings it back when it loads, over the style's (`setByRack` in its SendState). Sends 3–5 are always the rack's and are refused. Example: `{"type":"setRackSendOverride","send":1,"on":true}`. |
+| `setStripTone` | `strip` 0–3, `control` `cutoff` \| `resonance` \| `attack` \| `decay` \| `release` \| `vibratoRate` \| `vibratoDepth` \| `vibratoDelay`, `value` 0–127 | One of a keyboard strip's voice settings, its filter, EG or vibrato: 64 is the voice's own. It is the part's CC74, 71, 73, 75, 72, 76, 77 or 78, the same setting an OTS or a rack sets (and the part's XG parameter for it, where an OTS set that). A Style strip (4–11) is refused. Example: `{"type":"setStripTone","strip":0,"control":"cutoff","value":80}`. |
+| `setStripMono` | `strip` 0–3, `on` | A keyboard strip's mono mode (its part's XG Mono/Poly): on, one note at a time. A Style strip is refused. Example: `{"type":"setStripMono","strip":1,"on":true}`. |
+| `setStripPortamento` | `strip` 0–3, `on`, `time` 0–127 | A keyboard strip's portamento: its part's switch (CC65) and time (CC5). A Style strip is refused. Example: `{"type":"setStripPortamento","strip":2,"on":true,"time":40}`. |
+
+**Strip compressor types** (threshold / ratio / attack / release / make-up). Editing a
+parameter keeps the type and sets `edited`.
+
+| Type | Threshold | Ratio | Attack | Release | Make-up |
+|---|---|---|---|---|---|
+| Natural (default) | −18 dB | 2.5:1 | 10 ms | 200 ms | +3 dB |
+| Rich | −20 dB | 2.0:1 | 30 ms | 400 ms | +3 dB |
+| Punchy | −24 dB | 6.0:1 | 5 ms | 120 ms | +6 dB |
+| Electronic | −22 dB | 4.0:1 | 3 ms | 100 ms | +5 dB |
+| Loud | −30 dB | 8.0:1 | 2 ms | 150 ms | +9 dB |
+
+**Insert kinds** (`kind` in `setStripInsertKind`), each with 2–4 settings, in order: name,
+range and default. The first setting is what the older single `amount` was (drive, squeeze,
+sensitivity, depth), so an older insert keeps sounding the same. A kind a newer build wrote
+(one this build doesn't know) reads back as its own name, with no settings, and plays dry.
+
+| Kind | Name | Settings |
+|---|---|---|
+| none | None | (an empty slot) |
+| distortion | Distortion | Drive 0–127 (64), Tone 0–127 (64), Output 0–127 (100) |
+| compressor | Compressor | Squeeze 0–127 (64), Attack 1–80 ms (3), Release 10–1000 ms (150), Output 0–127 (100) |
+| autoWah | Auto Wah | Sensitivity 0–127 (64), Resonance 0–127 (64), Frequency 0–127 (32) |
+| tremolo | Tremolo | Depth 0–127 (64), Note 0–7 (2 = 1/8; the note values of `delayNote`), Shape 0–127 (0) |
+| rotary | Rotary | Depth 0–127 (64), Drive 0–127 (0), Balance 0–127 (64) |
+| phaser | Phaser | Depth 0–127 (64), Rate 5–500 in 0.01 Hz (50 = 0.50 Hz), Feedback 0–90 % (40). Plays dry until its DSP lands. |
+
+**Send kinds** (`kind` in `addSend` and `setSendKind`). The reverb, chorus and delay kinds
+are the bus types of the same names (Effects, above), with that block's parameters in its
+order and each type's own values as defaults: reverb kinds `reverbTime`, `preDelay`,
+`reverbTone` ("Time", "Pre-delay", "Tone"); chorus kinds `chorusRate`, `chorusDepth` ("Rate",
+"Depth"); delay kinds `delaySync`, `delayNote`, `delayTime`, `delayFeedback`, `delayTone`,
+`pingPong` ("Tempo sync", "Note", "Time", "Feedback", "Tone", "Ping-pong"). A kind a newer
+build wrote reads back as its own name, with no parameters, and is silent.
+
+| Kind | Name | Parameters |
+|---|---|---|
+| hall, room, stage, plate | Hall, Room, Stage, Plate | The reverb's three (defaults in the reverb table above). |
+| chorus, celeste, flanger | Chorus, Celeste, Flanger | The chorus's two. |
+| eighth, dottedEighth, quarter, pingPong | Delay 1/8, Delay 1/8., Delay 1/4, Ping-Pong | The delay's six. |
+| phaser | Phaser | Depth 0–127 (64), Rate 5–500 in 0.01 Hz (50), Feedback 0–90 % (40). Silent until its DSP lands. |
 
 ### Knob Assign pages
 The Launchkey's 8 encoders as the Genos LIVE CONTROL knobs (#197; OM p.62–63, RM p.145–148;
@@ -758,15 +843,37 @@ Indices are 0-based unless a field says otherwise.
 | `playsBass` | bool | Left is playing the bass (Manual Bass). |
 | `octave` | −2..2 | The octave setting. It is not applied while `playsBass` is true. |
 | `pan` | 0–127 | Pan (CC10): 0 left, 64 centre, 127 right. 64 until something sets it (`setPartPan`, a library patch, an OTS). |
-| `reverb`, `chorus` | 0–127 | Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. They go out again after a Panic, a Reset All Controllers from the keyboard, or a new synth. |
-| `variation` | 0–127 | Variation send depth (CC94): the effect bus's tempo delay. 0 until something sets it. |
-| `eq` | PartEq | Its channel-strip EQ (`setPartEq`): `lowGain`, `highGain` (dB, −12..12) and `lowFreq`, `highFreq` (Hz). Flat (0 dB, 80 Hz, 0 dB, 10000 Hz) until something sets it. An OTS recall sets it from the OTS's XG part EQ (bass/treble gain and frequency, XG multi part 72H, 73H, 76H, 77H: 40H = 0 dB, 1 dB a step, frequencies from the XG EQ frequency table), the bands it leaves out flat; a part the OTS gives a voice but no EQ goes flat; any other part keeps its EQ. A voice change keeps it. |
-| `insert` | PartInsert | Its insert slot (`setKeyboardInsertEffect`, `setKeyboardInsertOn`, `setKeyboardInsertAmount`): `effect` (`distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary`), `on`, `amount` 0–127. Off (a distortion, amount 64) until something sets it. An OTS recall sets it from the OTS's XG Insertion Effect type for the part (block n is part n: Right 1, Right 2, Right 3, Left), mapped as the Style parts' are (`effects.inserts`): on with the effect that plays it and its amount, or off when nothing here plays that type (THRU, an EQ, a delay...); a part the OTS gives a voice but no insertion type turns it off; any other part keeps its slot. A voice change and a plugin swap keep it. |
+| `reverb`, `chorus` | 0–127 | *Superseded by `strip.sends[0]` and `[1]` (always the same values); still sent.* Reverb and chorus send depth (CC91, CC93). Until something sets them (`setPartSend`, a library patch, an OTS), Genos-like defaults sent at start: reverb 50 and chorus 10 on Right 1–3, reverb 40 and chorus 10 on Left. They go out again after a Panic, a Reset All Controllers from the keyboard, or a new synth. |
+| `variation` | 0–127 | *Superseded by `strip.sends[2]`; still sent.* Variation send depth (CC94): the effect bus's tempo delay. 0 until something sets it. |
+| `eq` | PartEq | *Superseded by `strip.eq` (always the same); still sent.* Its channel-strip EQ (`setPartEq`): `lowGain`, `highGain` (dB, −12..12) and `lowFreq`, `highFreq` (Hz). Flat (0 dB, 80 Hz, 0 dB, 10000 Hz) until something sets it. An OTS recall sets it from the OTS's XG part EQ (bass/treble gain and frequency, XG multi part 72H, 73H, 76H, 77H: 40H = 0 dB, 1 dB a step, frequencies from the XG EQ frequency table), the bands it leaves out flat; a part the OTS gives a voice but no EQ goes flat; any other part keeps its EQ. A voice change keeps it. |
+| `insert` | PartInsert | *Superseded by `strip.inserts[0]` (its kind, `on`, and its first setting as the amount); still sent.* Its insert slot (`setKeyboardInsertEffect`, `setKeyboardInsertOn`, `setKeyboardInsertAmount`): `effect` (`distortion` \| `compressor` \| `autoWah` \| `tremolo` \| `rotary` \| `phaser`; a phaser plays dry until its DSP lands), `on`, `amount` 0–127. Off (a distortion, amount 64) until something sets it. An OTS recall sets it from the OTS's XG Insertion Effect type for the part (block n is part n: Right 1, Right 2, Right 3, Left), mapped as the Style parts' are (`effects.inserts`): on with the effect that plays it and its amount, or off when nothing here plays that type (THRU, an EQ, a delay...); a part the OTS gives a voice but no insertion type turns it off; any other part keeps its slot. A voice change and a plugin swap keep it. |
 | `fader` | 0–127? | Where its Launchkey fader (Panel page, faders 1–4) physically is, as last reported. Null until that fader moves. |
 | `plugin` | PartPlugin? | The instrument plugin the part plays instead of its SoundFont voice. The key is absent when there is none. `id`, `name`, `manufacturer`, `status` (`loading` \| `playing` \| `failed` \| `muted`: still on the SoundFont, or the previous plugin, while loading; on the SoundFont after a failed load, keeping the choice so it is saved and can be retried; silent after the plugin crashed or produced bad audio), `stage` (while loading: `queued`, `instantiating`, `initializing`, `restoringState`), `error`, `outOfProcess` (runs in its own process), `inProcessFallback` (the system refused to host it in its own process, so it loaded in yahaha's process instead: a crash in it takes yahaha down; the app shows a warning badge), `cpu` (share of real time, updated once a second), `overruns` (renders slower than half the buffer, since it loaded), `recentOverruns` (those in the last 10 seconds, updated once a second: the live readout the mixer badge shows; a larger `setAudioBuffer` gives the plugin more time), `editor` (its window can be opened), `missing` (the plugin isn't installed: the last scan did not find it. The status is `failed`, the part is silent rather than on its SoundFont voice, and its mix, sound and saved state are kept; once the plugin is back and the plugins are scanned again, it loads as it was. A plugin that is installed but fails to load is not missing). Its volume is still `volume` (CC7), and its pan is CC10; the host applies both to the plugin's output. |
 | `patch` | string? | Its own sound library patch (`setPartPatch`). Null: its GM voice plays, through the program map; `voiceName` then names the patch the map sends it to, if any. |
 | `sound` | SoundTag? | What's playing (docs/sound-browser.md): `{ id, name }` of the Sound the part plays, as a Sounds catalog id, named as the library names it now (a rename or delete shows at once). A plugin that is loading, playing or muted: the preset it was given (`au:<component>#<key>`, unless its sound is another library sound, one the user saved), else its library sound (`saved:<id>`), else the bare plugin (`au:<component>`). No plugin, or one that failed (it plays the SoundFont): its own SoundFont patch (`saved:<id>`), else what the GM map resolves its voice to, the auto-fill included (`saved:<id>` or `sf:<file>:<bank>:<program>`). Absent for a GM voice nothing covers (or one the map gives a plugin sound no plugin plays). The Sounds dialog marks this row ▶; its footer reads "<name> plays <instrument> · <sound.name>". |
 | `soundEdited` | bool? | Its plugin's state no longer matches `sound`: edited in the plugin's editor, or a recalled or restored state that isn't the sound's. Absent when false. Checked by fingerprint off the audio thread: about every half second while the part's plugin window is open (so an edit there shows within about a second, and undoing it clears it), otherwise on the autosave's schedule (every 30 s) and at every explicit state read. `saveSound` or `saveSoundAs` clears it. The demo session's plugin window turns a knob when opened, and back when opened again. |
+| `strip` | StripState | Its channel strip, strip 0–3 (below). |
+
+#### StripState
+
+A part's channel strip (Channel strips and send effects, under AppCmd), on every keyboard
+part and Style part: `{ eq, comp, inserts, sends, tone, mono, portamento }`. A state
+without it reads as a flat, empty strip.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `eq` | PartEq | `setStripEq`. On a keyboard part it is always its `eq`. |
+| `comp` | PartCompState | `{ on, preset, threshold, ratio, attack, release, makeup, edited }`: `setStripCompressorOn`, `setStripCompressorPreset` and `setStripCompressorParam`. `threshold` dB −48..0, `ratio` tenths 10–200, `attack` ms 1–100, `release` ms 10–1000, `makeup` dB 0–24; `preset` the type the parameters started from and `edited` whether they now differ from it. Off at Natural by default. Kept and shown; it doesn't play yet. |
+| `inserts` | InsertSlotState[2] | Insert 1 and insert 2, each `{ kind, name, on, settings }`: `kind` the insert kind (`none` for an empty slot), `name` as shown ("Auto Wah", "None"), `on` (`setStripInsertOn`), and `settings`, its kind's 2–4 settings in order (none for an empty slot), each a SettingState. Insert 1 is the part's older insert: a keyboard part's `insert`, a Style part's entry in `effects.inserts` while the style has one for it. Insert 2 doesn't play yet. |
+| `sends` | number[6] | Its level to sends 1–6, 0–127 (0 for a send that isn't there). `sends[0..3]` are the part's `reverb`, `chorus` and `variation`. |
+| `tone` | StripTone | `{ cutoff, resonance, attack, decay, release, vibratoRate, vibratoDepth, vibratoDelay }`, each 0–127, 64 (the voice's own) by default (`setStripTone`). Read from the part's voice settings, so an OTS, a rack or a voice change shows. A Style strip's stay at 64. |
+| `mono` | bool | Its part's mono mode (`setStripMono`), from the part's voice settings. A Style strip's is false. |
+| `portamento` | Portamento | `{ on, time }`: its part's portamento switch and time 0–127 (`setStripPortamento`), from the part's voice settings. Off, 0 by default; a Style strip's stays so. |
+
+SettingState, one setting of an insert or parameter of a send effect: `{ name, value, min,
+max, default, display }`: `value` in the setting's own unit, clamped to `min`–`max`;
+`default` where its kind starts it; `display` the value as it reads ("64", "12 ms",
+"0.50 Hz", "40%", "1/8", "On", "2.4 s").
 
 ### `mixer`
 | Field | Type | Meaning |
@@ -795,8 +902,9 @@ StylePart:
 | `volume` | 0–127 | CC7. |
 | `waiting` | bool | The fader is waiting to pick up the value. |
 | `fader` | 0–127? | Where its Launchkey fader (Style page, faders 1–8) physically is. Null until it moves. |
-| `reverb`, `chorus`, `variation` | 0–127 | Its sends as they play (CC91/93/94, #268): its own where `sendsSet` lists it, else the style's (the default where the style sets none). |
+| `reverb`, `chorus`, `variation` | 0–127 | *Superseded by `strip.sends[0..3]` (always the same values); still sent.* Its sends as they play (CC91/93/94, #268): its own where `sendsSet` lists it, else the style's (the default where the style sets none). |
 | `sendsSet` | PartSend[] | The sends the player set (`setStylePartSend`); the others follow the style. |
+| `strip` | StripState | Its channel strip, strip 4–11 (see StripState under `keyboardParts`). Insert 1 is the style's insert for the part (`effects.inserts`). |
 | `voice` | Voice? | The voice the style was written for: `bankMsb`, `bankLsb`, `program` (0-based), `kit` (a drum or SFX kit), and `label` (what the synth plays, for example `≈ Finger Bass  [Yamaha 104/18/88]`). |
 
 ### `pads`
@@ -929,10 +1037,10 @@ Which button LEDs are lit, and in what colour:
 | Field | Type | Meaning |
 |---|---|---|
 | `label` | string | What it controls on this page, for example `RIGHT 1`, `BASS` or `MASTER`. Empty when unused: faders 5–8 on the Panel page, a Panel fader 1–4 the controller map sets to none, or the master fader without the synth. A Panel fader 1–4 the map gives another target shows that target's short knob name in capitals (`PANR2`, `HARMARP`, `SPLIT`). |
-| `value` | 0–127? | The level it controls (for another target, where it is in its range). Null when unused. |
-| `waiting` | bool | The level is waiting for the hardware fader (soft takeover). |
+| `value` | 0–127? | The level it controls (for another target, where it is in its range; in a send layer, the pan or send). Null when unused. |
+| `waiting` | bool | The value is waiting for the hardware fader (soft takeover). |
 | `position` | 0–127? | Where the hardware fader physically is, as last reported. It is the same physical fader on both pages. Null until it moves. |
-| `set` | AppCmd? | What moving it sends: this command with `volume` filled in (`setPartVolume`, `setStylePartVolume`, `setStyleVolume`, `setMultiPadVolume`, `setMasterVolume`, or `moveRackFader` for a Panel fader the controller map gives another target; `volume` is 0 here). Null when unused. |
+| `set` | AppCmd? | What moving it sends: this command with its value filled in, 0 here. `volume` for `setPartVolume`, `setStylePartVolume`, `setStyleVolume`, `setMultiPadVolume`, `setMasterVolume`, or `moveRackFader` for a Panel fader the controller map gives another target. In a send layer (`mixer.faderLayer` not `volume`), faders follow the layer as the hardware faders do (as a Genos slider shows and sets its Slider Assign Type's parameter): Panel faders 1–4 send `setPartPan` (`pan`) or `setPartSend` (`value`), and the Style faders `setStylePartSend` (`value`); in PAN the Style faders are unused. Panel faders 5–6 and the master stay levels. Null when unused. |
 
 #### `surface.clock`
 Everything here is about time: the playing position, and the clock the pads flash on.
@@ -1230,16 +1338,25 @@ reverb 100, chorus 0, variation 0 at start), and `params` (#236), the block's pa
 block as `{ name, effect }` (`name` the XG type, "Real Medium Hall"; `effect` the type it
 plays as, null if nothing is near it), or null when the style sets none; and `followStyle`
 (`setFollowStyle`).
-`inserts` (#269): the loaded style's insertion effects, one per Style part at most, each
+`inserts` (#269; *superseded by insert 1 of each Style part's `strip`, which shows the same
+kind, on/off and amount; still sent*): the loaded style's insertion effects, one per Style part at most, each
 `{ part, partName, name, effect, on, amount }`: `part` 0–7, `name` the XG type ("British Combo
 Classic"), `effect` what plays it here (`distortion`, `compressor`, `autoWah`, `tremolo`,
 `rotary`) or null (the part plays dry), `on` (`setPartInsertOn`), `amount` 0–127
-(`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`).
+(`setPartInsertAmount`); `insertsOn` (`setInsertsOn`); `rotaryFast` (`setRotaryFast`, `toggleRotaryFast`).
 `master`: the Master Compressor and Master EQ (see Effects), `{ compressor, eq }`.
 `compressor` is `{ on, preset, compression, texture, output, edited }`; `eq` is
 `{ on, preset, bands, edited }`, `bands` the eight `{ gain, freq, q, shelf }`, low to high.
 `preset` is the type the settings started from, and `edited` whether they now differ from
 it. Absent in an older state: both off.
+`sends` (the mixer rework): the send effects, sends 1–6 in order (3 to 6 of them), each a
+SendState `{ send, kind, name, params, returnLevel, fromStyle, setByRack }`: `send` 0–5;
+`kind` the send kind (`setSendKind`) and `name` as shown ("Hall", "Delay 1/8.");
+`params` its kind's parameters in order, each a SettingState (see StripState;
+`setSendParam`); `returnLevel` 0–127, 64 = 0 dB (`setSendReturn`); `fromStyle`, fed by the
+style's sends (sends 1–3); `setByRack`, the rack sets it (an added send, 4–6, or send 1–3
+with `setRackSendOverride` on). Sends 1–3 are `blocks` shown the new way: the same kind,
+parameters and return. Absent in an older state: none.
 
 ### `liveRack`
 The live rack (docs/racks.md): what's under the player's hands now, unsaved changes and
@@ -1365,7 +1482,8 @@ Fill In BB queued, with OTS 1 recalled. Some lists are shortened here:
 - `surface.controls` has 17 and `surface.faders` has 9.
 
 The `library`, `surface.trackPrev`/`trackNext`, the master fader and `io` show what a
-live session reports with a library folder, a Launchkey and the synth.
+live session reports with a library folder, a Launchkey and the synth. Right 1's strip has a
+phaser in insert 2 and sends to a phaser the player added as send 4 (`effects.sends`).
 
 Unabridged fixtures from `yahaha state-json` are in `tests/fixtures/`: `state.json` (SlowWalker,
 after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
@@ -1466,6 +1584,32 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "variation": 0,
       "eq": { "lowGain": 3, "lowFreq": 80, "highGain": -2, "highFreq": 10000 },
       "insert": { "effect": "rotary", "on": true, "amount": 90 },
+      "strip": {
+        "eq": { "lowGain": 3, "lowFreq": 80, "highGain": -2, "highFreq": 10000 },
+        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
+        "inserts": [
+          {
+            "kind": "rotary", "name": "Rotary", "on": true,
+            "settings": [
+              { "name": "Depth", "value": 90, "min": 0, "max": 127, "default": 64, "display": "90" },
+              { "name": "Drive", "value": 0, "min": 0, "max": 127, "default": 0, "display": "0" },
+              { "name": "Balance", "value": 64, "min": 0, "max": 127, "default": 64, "display": "64" }
+            ]
+          },
+          {
+            "kind": "phaser", "name": "Phaser", "on": true,
+            "settings": [
+              { "name": "Depth", "value": 64, "min": 0, "max": 127, "default": 64, "display": "64" },
+              { "name": "Rate", "value": 50, "min": 5, "max": 500, "default": 50, "display": "0.50 Hz" },
+              { "name": "Feedback", "value": 40, "min": 0, "max": 90, "default": 40, "display": "40%" }
+            ]
+          }
+        ],
+        "sends": [40, 0, 0, 30, 0, 0],
+        "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+        "mono": false,
+        "portamento": {"on": false, "time": 0}
+      },
       "plugin": {
         "id": "aumu dls  appl",
         "name": "DLSMusicDevice",
@@ -1502,6 +1646,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
       "insert": { "effect": "distortion", "on": false, "amount": 64 },
+      "strip": {
+        "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
+        "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
+        "sends": [40, 0, 0, 0, 0, 0],
+        "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+        "mono": false,
+        "portamento": {"on": false, "time": 0}
+      },
       "patch": null
     },
     {
@@ -1523,6 +1676,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
       "insert": { "effect": "distortion", "on": false, "amount": 64 },
+      "strip": {
+        "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
+        "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
+        "sends": [40, 0, 0, 0, 0, 0],
+        "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+        "mono": false,
+        "portamento": {"on": false, "time": 0}
+      },
       "patch": null
     },
     {
@@ -1544,6 +1706,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
       "variation": 0,
       "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
       "insert": { "effect": "distortion", "on": false, "amount": 64 },
+      "strip": {
+        "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+        "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
+        "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
+        "sends": [40, 0, 0, 0, 0, 0],
+        "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+        "mono": false,
+        "portamento": {"on": false, "time": 0}
+      },
       "patch": null
     }
   ],
@@ -1558,6 +1729,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "channel": 9,
         "on": true,
         "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
+        "strip": {
+          "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
+          "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
+          "sends": [40, 0, 0, 0, 0, 0],
+          "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+          "mono": false,
+          "portamento": {"on": false, "time": 0}
+        },
         "volume": 65,
         "waiting": false,
         "fader": null,
@@ -1568,6 +1748,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "channel": 10,
         "on": true,
         "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
+        "strip": {
+          "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
+          "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
+          "sends": [40, 0, 0, 0, 0, 0],
+          "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+          "mono": false,
+          "portamento": {"on": false, "time": 0}
+        },
         "volume": 70,
         "waiting": false,
         "fader": null,
@@ -1578,6 +1767,15 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         "channel": 11,
         "on": true,
         "mutedByManualBass": false, "reverb": 40, "chorus": 0, "variation": 0, "sendsSet": [],
+        "strip": {
+          "eq": { "lowGain": 0, "lowFreq": 80, "highGain": 0, "highFreq": 10000 },
+          "comp": { "on": false, "preset": "natural", "threshold": -18, "ratio": 25, "attack": 10, "release": 200, "makeup": 0, "edited": false },
+          "inserts": [{ "kind": "none", "name": "None", "on": false, "settings": [] }, { "kind": "none", "name": "None", "on": false, "settings": [] }],
+          "sends": [40, 0, 0, 0, 0, 0],
+          "tone": {"cutoff":64,"resonance":64,"attack":64,"decay":64,"release":64,"vibratoRate":64,"vibratoDepth":64,"vibratoDelay":64},
+          "mono": false,
+          "portamento": {"on": false, "time": 0}
+        },
         "volume": 74,
         "waiting": false,
         "fader": null,
@@ -2026,7 +2224,47 @@ after `"C Am F G7"`) and `library.json` (`corpus/MOX_v2`).
         ],
         "edited": false
       }
-    }
+    },
+    "sends": [
+      {
+        "send": 0, "kind": "hall", "name": "Hall",
+        "params": [
+          { "name": "Time", "value": 24, "min": 3, "max": 100, "default": 24, "display": "2.4 s" },
+          { "name": "Pre-delay", "value": 22, "min": 0, "max": 200, "default": 22, "display": "22 ms" },
+          { "name": "Tone", "value": 45, "min": 10, "max": 200, "default": 45, "display": "4.5 kHz" }
+        ],
+        "returnLevel": 64, "fromStyle": true, "setByRack": false
+      },
+      {
+        "send": 1, "kind": "chorus", "name": "Chorus",
+        "params": [
+          { "name": "Rate", "value": 55, "min": 5, "max": 500, "default": 55, "display": "0.55 Hz" },
+          { "name": "Depth", "value": 22, "min": 0, "max": 50, "default": 22, "display": "2.2 ms" }
+        ],
+        "returnLevel": 64, "fromStyle": true, "setByRack": false
+      },
+      {
+        "send": 2, "kind": "dottedEighth", "name": "Delay 1/8.",
+        "params": [
+          { "name": "Tempo sync", "value": 1, "min": 0, "max": 1, "default": 1, "display": "On" },
+          { "name": "Note", "value": 4, "min": 0, "max": 7, "default": 4, "display": "1/8." },
+          { "name": "Time", "value": 375, "min": 10, "max": 2000, "default": 375, "display": "375 ms" },
+          { "name": "Feedback", "value": 38, "min": 0, "max": 90, "default": 38, "display": "38%" },
+          { "name": "Tone", "value": 50, "min": 10, "max": 200, "default": 50, "display": "5.0 kHz" },
+          { "name": "Ping-pong", "value": 0, "min": 0, "max": 1, "default": 0, "display": "Off" }
+        ],
+        "returnLevel": 64, "fromStyle": true, "setByRack": false
+      },
+      {
+        "send": 3, "kind": "phaser", "name": "Phaser",
+        "params": [
+          { "name": "Depth", "value": 64, "min": 0, "max": 127, "default": 64, "display": "64" },
+          { "name": "Rate", "value": 50, "min": 5, "max": 500, "default": 50, "display": "0.50 Hz" },
+          { "name": "Feedback", "value": 40, "min": 0, "max": 90, "default": 40, "display": "40%" }
+        ],
+        "returnLevel": 64, "fromStyle": false, "setByRack": true
+      }
+    ]
   },
   "home": { "mains": [], "progress": { "running": false, "bar": 1, "beat": 1, "bars": null, "beatsPerBar": 4, "fraction": 0.0 }, "ots": null, "bandSends": [] },
   "liveRack": {

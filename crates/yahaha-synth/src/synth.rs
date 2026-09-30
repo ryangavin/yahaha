@@ -49,6 +49,8 @@ mod routing;
 pub mod xg_part;
 #[cfg(test)]
 mod sound_tests;
+#[cfg(test)]
+mod strip_tests;
 mod stream;
 mod voicing;
 pub use rack::Rack;
@@ -719,17 +721,19 @@ pub struct AudioCore {
     /// The sound library's program map (#103; None: every channel plays its GM voice on
     /// the main SoundFont, as before).
     router: Option<Router>,
-    /// The shared effect bus (#204) and its send buses (see `Rack::render`): the playing
-    /// rack's, then the fading one's.
+    /// The shared effect bus (#204) and its six sends (see `Rack::render`: buses 1-3, then
+    /// sends 4-6): the playing rack's, then the fading one's.
     fx: yahaha_fx::fx::FxBus,
     sends: Vec<f32>,
     sends2: Vec<f32>,
-    /// Each channel's send controllers (CC91/93/94) as last sent, the gains they make, and
-    /// the gains the racks have now: the keyboard parts' glide to theirs (a knob or fader
-    /// turning a send never zippers), the others' are set at once.
+    /// Each channel's send controllers (CC91/93/94) as last sent, its sends 4-6
+    /// (`FxControl::strip_send`) as last applied, the gains they make (`send_targets`),
+    /// and the gains the racks have now: the keyboard parts' glide to theirs (a knob or
+    /// fader turning a send never zippers), the others' are set at once.
     send_cc: [[u8; yahaha_fx::fx::BUSES]; 16],
-    send_target: [[f32; yahaha_fx::fx::BUSES]; 16],
-    send_gains: [[f32; yahaha_fx::fx::BUSES]; 16],
+    strip_send: [[u8; yahaha_fx::fx::ADDED_SENDS]; 16],
+    send_target: [[f32; yahaha_fx::fx::SENDS]; 16],
+    send_gains: [[f32; yahaha_fx::fx::SENDS]; 16],
     /// The racks' send gains need setting again (a send changed, a rack came in).
     sends_dirty: bool,
     /// A keyboard part's send gain is still gliding to its target.
@@ -750,6 +754,10 @@ pub struct AudioCore {
     /// publication they came from), for the racks and the plugin rack.
     eq_seen: [u32; parts::COUNT],
     eq: [yahaha_fx::fx::part_eq::EqCoeffs; parts::COUNT],
+    /// The Style parts' EQ coefficients (channels 9-16, `FxControl::style_eq`) as last
+    /// taken, the same way.
+    style_eq_seen: [u32; 8],
+    style_eq: [yahaha_fx::fx::part_eq::EqCoeffs; 8],
     /// The Master Compressor and Master EQ, after the effect returns.
     master_fx: yahaha_fx::fx::master::MasterDsp,
 }
@@ -777,6 +785,8 @@ impl AudioCore {
         parts.set_sample_rate(sample_rate);
         // The Master EQ's too.
         control.fx.master.set_sample_rate(sample_rate.max(1) as f32);
+        // And the Style parts' EQs.
+        control.fx.set_style_eq_rate(sample_rate.max(1));
         let core = AudioCore {
             rack,
             swap_rx,
@@ -806,11 +816,12 @@ impl AudioCore {
             passed: Vec::new(),
             router: None,
             fx: yahaha_fx::fx::FxBus::new(sample_rate),
-            sends: vec![0f32; 2 * yahaha_fx::fx::BUSES * 8192],
-            sends2: vec![0f32; 2 * yahaha_fx::fx::BUSES * 8192],
+            sends: vec![0f32; 2 * yahaha_fx::fx::SENDS * 8192],
+            sends2: vec![0f32; 2 * yahaha_fx::fx::SENDS * 8192],
             send_cc: [yahaha_fx::fx::DEFAULT_SENDS; 16],
-            send_target: [[0f32; yahaha_fx::fx::BUSES]; 16],
-            send_gains: [[0f32; yahaha_fx::fx::BUSES]; 16],
+            strip_send: [[0; yahaha_fx::fx::ADDED_SENDS]; 16],
+            send_target: [[0f32; yahaha_fx::fx::SENDS]; 16],
+            send_gains: [[0f32; yahaha_fx::fx::SENDS]; 16],
             sends_dirty: true,
             sends_gliding: false,
             legacy: false,
@@ -821,6 +832,8 @@ impl AudioCore {
             sample_rate: sample_rate.max(1) as f32,
             eq_seen: [yahaha_fx::fx::part_eq::EqCell::UNSEEN; parts::COUNT],
             eq: [yahaha_fx::fx::part_eq::EqCoeffs::FLAT; parts::COUNT],
+            style_eq_seen: [yahaha_fx::fx::part_eq::EqCell::UNSEEN; 8],
+            style_eq: [yahaha_fx::fx::part_eq::EqCoeffs::FLAT; 8],
             master_fx: yahaha_fx::fx::master::MasterDsp::new(sample_rate.max(1) as f32),
         };
         (core, RackSwap { tx: swap_tx, old: old_rx, kits: kits_link }, Some(link))
@@ -866,6 +879,9 @@ impl AudioCore {
             for (p, c) in self.eq.iter().enumerate() {
                 new.set_eq(parts::CHANNEL[p], c);
             }
+            for (p, c) in self.style_eq.iter().enumerate() {
+                new.set_eq(8 + p as u8, c);
+            }
             self.sends_dirty = true;
             self.fading = self.rack.replace(new);
             self.last_master = 255;
@@ -882,6 +898,19 @@ impl AudioCore {
             if let Some(c) = self.parts.eq_cell(p).read(&mut self.eq_seen[p]) {
                 self.eq[p] = c;
                 let ch = parts::CHANNEL[p];
+                if let Some(rack) = self.rack.as_mut() {
+                    rack.set_eq(ch, &c);
+                }
+                #[cfg(feature = "plugins")]
+                self.plugins.set_eq(ch, &c);
+            }
+        }
+        // The Style parts' EQs (channels 9-16), published by the control side into
+        // `FxControl::style_eq`.
+        for p in 0..8 {
+            if let Some(c) = ctl.fx.style_eq[p].read(&mut self.style_eq_seen[p]) {
+                self.style_eq[p] = c;
+                let ch = 8 + p as u8;
                 if let Some(rack) = self.rack.as_mut() {
                     rack.set_eq(ch, &c);
                 }
@@ -1059,23 +1088,22 @@ impl AudioCore {
                 }
             }
         }
+        // Each channel's sends 4-6 (its strip's, `FxControl::strip_send`).
+        for (own, a) in self.strip_send.iter_mut().zip(&ctl.fx.strip_send) {
+            for (v, a) in own.iter_mut().zip(a) {
+                let x = a.load(Relaxed);
+                if *v != x {
+                    *v = x;
+                    self.sends_dirty = true;
+                }
+            }
+        }
         if self.sends_dirty {
             self.sends_dirty = false;
             self.sends_gliding = true;
-            for (ch, (g, cc)) in self.send_target.iter_mut().zip(&self.send_cc).enumerate() {
-                *g = if legacy {
-                    [0.0; yahaha_fx::fx::BUSES]
-                } else if yahaha_fx::fx::BAND_CHANNELS.contains(&ch) {
-                    let own = self.part_send[ch - yahaha_fx::fx::BAND_CHANNELS.start];
-                    std::array::from_fn(|b| match own[b] {
-                        yahaha_fx::fx::SEND_STYLE => yahaha_fx::fx::band_send_gain(cc[b], self.band_scale[b]),
-                        v => yahaha_fx::fx::send_gain(v),
-                    })
-                } else if yahaha_fx::fx::PAD_CHANNELS.contains(&ch) {
-                    std::array::from_fn(|b| yahaha_fx::fx::band_send_gain(cc[b], self.pad_scale[b]))
-                } else {
-                    cc.map(yahaha_fx::fx::send_gain)
-                };
+            let scales = SendScales { band: &self.band_scale, pad: &self.pad_scale, part_send: &self.part_send };
+            for (ch, g) in self.send_target.iter_mut().enumerate() {
+                *g = send_targets(ch, &self.send_cc[ch], &self.strip_send[ch], &scales, legacy);
             }
         }
         if self.sends_gliding {
@@ -1086,10 +1114,11 @@ impl AudioCore {
         }
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         let (left2, right2) = (&mut self.left2[..frames], &mut self.right2[..frames]);
-        let sends = &mut self.sends[..2 * yahaha_fx::fx::BUSES * frames];
-        // Each channel's insert (#269; a keyboard part's own slot), run by whatever plays
-        // the part: the SoundFont rack on its stem, the plugin rack on the plugin's output.
-        // The other side's fades out (an insert off is not run at all).
+        let sends = &mut self.sends[..2 * yahaha_fx::fx::SENDS * frames];
+        // Each channel's strip (#269; compressor, insert 1 = a Style part's insert or a
+        // keyboard part's own slot, insert 2), run by whatever plays the part: the
+        // SoundFont rack on its stem, the plugin rack on the plugin's output. The other
+        // side's fades out (a stage off is not run at all).
         let mut ins = yahaha_fx::fx::InsertSettings::channels(&ctl.fx);
         for p in 0..parts::COUNT {
             let ch = parts::CHANNEL[p] as usize;
@@ -1098,12 +1127,42 @@ impl AudioCore {
         for (ch, s) in ins.iter_mut().enumerate() {
             let plugin = active >> ch & 1 == 1;
             #[cfg(feature = "plugins")]
-            self.plugins.set_insert(ch as u8, if plugin && !self.legacy { *s } else { yahaha_fx::fx::InsertSettings { kind: yahaha_fx::fx::InsertKind::None, ..*s } });
+            {
+                // Insert 1 with its strip's settings 2-4, as `set_strips` gives the
+                // SoundFont side.
+                let mut p = *s;
+                for (r, v) in p.rest.iter_mut().zip(ctl.fx.strips.first_rest(ch)) {
+                    if v != yahaha_fx::fx::KIND_DEFAULT {
+                        *r = v;
+                    }
+                }
+                if !plugin || self.legacy {
+                    p.kind = yahaha_fx::fx::InsertKind::None;
+                }
+                self.plugins.set_insert(ch as u8, p);
+            }
             if plugin {
                 s.kind = yahaha_fx::fx::InsertKind::None;
             }
         }
         self.inserts.set(&ins);
+        self.inserts.set_strips(&ctl.fx.strips);
+        // A plugin channel's compressor and insert 2 run in the plugin rack; the SoundFont
+        // side's insert 2 there is off (fading out), as its insert 1 is.
+        let mut second = *self.inserts.second();
+        for (ch, s) in second.iter_mut().enumerate() {
+            let plugin = active >> ch & 1 == 1;
+            #[cfg(feature = "plugins")]
+            if plugin && !self.legacy {
+                self.plugins.set_strip(ch as u8, ctl.fx.strips.comp(ch), *s);
+            } else {
+                self.plugins.set_strip(ch as u8, yahaha_fx::fx::PartComp::default(), yahaha_fx::fx::InsertSettings { kind: yahaha_fx::fx::InsertKind::None, ..*s });
+            }
+            if plugin {
+                s.kind = yahaha_fx::fx::InsertKind::None;
+            }
+        }
+        self.inserts.set_second(&second);
         if let Some(rack) = self.rack.as_mut() {
             rack.set_timing(prof);
         }
@@ -1133,7 +1192,7 @@ impl AudioCore {
             }
         }
         if let Some(mut f) = self.fading.take() {
-            let sends2 = &mut self.sends2[..2 * yahaha_fx::fx::BUSES * frames];
+            let sends2 = &mut self.sends2[..2 * yahaha_fx::fx::SENDS * frames];
             f.render(left2, right2, sends2, &self.unmetered, Some((1.0, 0.0)), None);
             for i in 0..frames {
                 left[i] += left2[i];
@@ -1154,7 +1213,7 @@ impl AudioCore {
             // Their sends too, at the master gain the SoundFont's carry (its channels'
             // mix includes it).
             let g = master_gain(master);
-            let gains: [[f32; yahaha_fx::fx::BUSES]; 16] = std::array::from_fn(|ch| self.send_gains[ch].map(|x| x * g));
+            let gains: [[f32; yahaha_fx::fx::SENDS]; 16] = std::array::from_fn(|ch| self.send_gains[ch].map(|x| x * g));
             self.plugins.render_add_sends(left2, right2, Some((&mut *sends, &gains)));
             for i in 0..frames {
                 left[i] += left2[i] * g;
@@ -1190,7 +1249,7 @@ impl AudioCore {
         }
         ctl.cpu.record(&track_ns, (frames as f64 * 1e9 / self.sample_rate as f64) as u64);
         if !self.legacy {
-            self.fx.process_add(sends, frames, left, right, &ctl.fx);
+            self.fx.process_add_slots(sends, yahaha_fx::fx::SENDS, frames, left, right, &ctl.fx);
         }
         // The Master Compressor and Master EQ on the whole mix, returns included (off: not
         // run). Not on the metronome, as on the Genos: the click comes after.
@@ -1227,12 +1286,49 @@ impl AudioCore {
     }
 }
 
+/// What scales the sends of the band and the Multi Pads: the band and pad send scales
+/// (#236, #267, as they glide) and the Style parts' own sends (#268).
+struct SendScales<'a> {
+    band: &'a [f32; yahaha_fx::fx::BUSES],
+    pad: &'a [f32; yahaha_fx::fx::BUSES],
+    part_send: &'a [[u8; yahaha_fx::fx::BUSES]; 8],
+}
+
+/// Channel `ch`'s six send gains (#204): buses 1-3 from its send controllers (`cc`,
+/// CC91/93/94), a Style part's scaled by the band send scale unless its own send replaces
+/// the controller, a Multi Pad's by the pad send scale; sends 4-6 from its strip's
+/// (`strip`, 0-127), never scaled. All 0 in `legacy`.
+fn send_targets(
+    ch: usize,
+    cc: &[u8; yahaha_fx::fx::BUSES],
+    strip: &[u8; yahaha_fx::fx::ADDED_SENDS],
+    scales: &SendScales,
+    legacy: bool,
+) -> [f32; yahaha_fx::fx::SENDS] {
+    use yahaha_fx::fx::{BAND_CHANNELS, BUSES, PAD_CHANNELS, SEND_STYLE, SENDS, band_send_gain, send_gain};
+    if legacy {
+        return [0.0; SENDS];
+    }
+    let buses: [f32; BUSES] = if BAND_CHANNELS.contains(&ch) {
+        let own = scales.part_send[ch - BAND_CHANNELS.start];
+        std::array::from_fn(|b| match own[b] {
+            SEND_STYLE => band_send_gain(cc[b], scales.band[b]),
+            v => send_gain(v),
+        })
+    } else if PAD_CHANNELS.contains(&ch) {
+        std::array::from_fn(|b| band_send_gain(cc[b], scales.pad[b]))
+    } else {
+        cc.map(send_gain)
+    };
+    std::array::from_fn(|s| if s < BUSES { buses[s] } else { send_gain(strip[s - BUSES]) })
+}
+
 /// Glide each send scale (`scales`, gains) a step `k` towards its control value
 /// (`targets`, 0-127 %), snapping when close. True: one moved.
 /// The racks' send gains a buffer on towards their targets: the keyboard parts' glide
 /// (`k` of the way, as the band scales), every other channel's is set at once. True while
 /// any is still on its way.
-fn glide_sends(gains: &mut [[f32; yahaha_fx::fx::BUSES]; 16], targets: &[[f32; yahaha_fx::fx::BUSES]; 16], k: f32) -> bool {
+fn glide_sends(gains: &mut [[f32; yahaha_fx::fx::SENDS]; 16], targets: &[[f32; yahaha_fx::fx::SENDS]; 16], k: f32) -> bool {
     let mut moving = false;
     for (ch, (g, t)) in gains.iter_mut().zip(targets).enumerate() {
         let keys = parts::part_of_channel(ch as u8).is_some();
@@ -2025,20 +2121,74 @@ mod rack_tests {
     /// never zippers); a Style part's is set at once.
     #[test]
     fn keyboard_part_sends_glide() {
-        let mut gains = [[0f32; yahaha_fx::fx::BUSES]; 16];
+        let mut gains = [[0f32; yahaha_fx::fx::SENDS]; 16];
         let mut targets = gains;
         targets[parts::CHANNEL[parts::RIGHT1] as usize][yahaha_fx::fx::REVERB] = 1.0;
+        targets[parts::CHANNEL[parts::RIGHT1] as usize][yahaha_fx::fx::SENDS - 1] = 1.0;
         targets[10][yahaha_fx::fx::REVERB] = 1.0;
+        targets[10][yahaha_fx::fx::BUSES] = 1.0;
         assert!(glide_sends(&mut gains, &targets, 0.25));
         assert_eq!(gains[10][yahaha_fx::fx::REVERB], 1.0, "a Style part: at once");
+        assert_eq!(gains[10][yahaha_fx::fx::BUSES], 1.0, "its send 4 too");
         assert_eq!(gains[0][yahaha_fx::fx::REVERB], 0.25, "Right 1: on its way");
+        assert_eq!(gains[0][yahaha_fx::fx::SENDS - 1], 0.25, "its send 6 too");
         let mut n = 1;
         while glide_sends(&mut gains, &targets, 0.25) {
             n += 1;
             assert!(n < 100);
         }
         assert_eq!(gains[0][yahaha_fx::fx::REVERB], 1.0);
+        assert_eq!(gains[0][yahaha_fx::fx::SENDS - 1], 1.0);
         assert!(n > 5, "{n} buffers");
+    }
+
+    /// Sends 1-3 of a Style part as before (its CC times the band send scale, or its own
+    /// send unscaled); sends 4-6 from its strip only, whatever the band or pad scale or the
+    /// part's own send; all 0 in legacy.
+    #[test]
+    fn a_style_parts_six_send_gains() {
+        use yahaha_fx::fx::{BUSES, SEND_STYLE, SENDS, band_send_gain, send_gain};
+        let band = [1.0, 0.5, 0.25];
+        let pad = [0.1, 0.2, 0.3];
+        let mut part_send = [[SEND_STYLE; BUSES]; 8];
+        part_send[2][1] = 90;
+        let scales = SendScales { band: &band, pad: &pad, part_send: &part_send };
+        let cc = [100, 64, 127];
+        let strip = [0, 64, 127];
+        let g = send_targets(10, &cc, &strip, &scales, false);
+        assert_eq!(g[0], band_send_gain(100, 1.0));
+        assert_eq!(g[1], send_gain(90), "its own send, not scaled");
+        assert_eq!(g[2], band_send_gain(127, 0.25));
+        assert_eq!(g[BUSES..], [0.0, send_gain(64), 1.0], "the strip's sends as set");
+        // No scale or own send reaches sends 4-6.
+        let (flat, none) = ([0.0; BUSES], [[0; BUSES]; 8]);
+        let other = SendScales { band: &flat, pad: &flat, part_send: &none };
+        assert_eq!(send_targets(10, &cc, &strip, &other, false)[BUSES..], g[BUSES..]);
+        assert_eq!(send_targets(10, &cc, &strip, &other, false)[..BUSES], [0.0; BUSES]);
+        // A pad's buses scale by the pad scale, its sends 4-6 not; a keyboard part's never.
+        let p = send_targets(5, &cc, &strip, &scales, false);
+        assert_eq!(p[..BUSES], [band_send_gain(100, 0.1), band_send_gain(64, 0.2), band_send_gain(127, 0.3)]);
+        assert_eq!(p[BUSES..], g[BUSES..]);
+        assert_eq!(send_targets(0, &cc, &strip, &scales, false), [send_gain(100), send_gain(64), 1.0, 0.0, send_gain(64), 1.0]);
+        assert_eq!(send_targets(10, &cc, &strip, &scales, true), [0.0; SENDS], "legacy: no sends");
+    }
+
+    /// A channel's strip sends reach the racks' gains on the next buffer, and legacy
+    /// takes them away.
+    #[test]
+    fn strip_sends_set_the_send_gains() {
+        let (_tx, rx) = RingBuffer::<Msg>::new(4);
+        let ctl = Arc::new(SynthControl::new(0));
+        let (mut core, _swap, _link) = AudioCore::new(None, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+        let mut out = vec![0f32; 256];
+        core.process(&mut out);
+        assert_eq!(core.send_gains[10][yahaha_fx::fx::BUSES..], [0.0; yahaha_fx::fx::ADDED_SENDS]);
+        ctl.fx.strip_send[10][1].store(127, Relaxed);
+        core.process(&mut out);
+        assert_eq!(core.send_gains[10][yahaha_fx::fx::BUSES + 1], 1.0, "a Style part: at once");
+        ctl.fx.legacy.store(true, Relaxed);
+        core.process(&mut out);
+        assert_eq!(core.send_gains[10], [0.0; yahaha_fx::fx::SENDS]);
     }
 
     #[test]
@@ -2170,6 +2320,52 @@ mod rack_tests {
         let rms = |v: &[f32]| (v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32).sqrt();
         let tail = dry.len() / 2;
         assert!(rms(&wet[tail..]) < rms(&dry[tail..]) * 0.9, "compressed: {} vs {}", rms(&wet[tail..]), rms(&dry[tail..]));
+    }
+
+    /// A Style part's EQ (`FxControl::style_eq`) plays on its channel's stem: a high-shelf
+    /// cut on Style part 0 (channel 9) changes the output of a chord there, and flat (set,
+    /// or set back) is bit-identical to never set. Another part's cut leaves channel 9 as
+    /// it is.
+    #[test]
+    fn a_style_part_eq_plays_on_its_channel_and_flat_is_bit_identical() {
+        use yahaha_fx::fx::part_eq::PartEq;
+        let font = tiny_font();
+        let render = |setup: &dyn Fn(&SynthControl)| -> Vec<f32> {
+            let rack = Some(Box::new(Rack::new(&font, 48_000).unwrap()));
+            let (mut tx, rx) = RingBuffer::<Msg>::new(64);
+            let ctl = Arc::new(SynthControl::new(0));
+            let (mut core, _swap, _link) = AudioCore::new(rack, vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+            setup(&ctl);
+            for k in [60u8, 64, 67, 72] {
+                tx.push([0x98, k, 127]).unwrap();
+            }
+            let mut all = Vec::new();
+            let mut out = vec![0f32; 256];
+            for _ in 0..40 {
+                core.process(&mut out);
+                all.extend_from_slice(&out);
+            }
+            all
+        };
+        let cut = PartEq { high_gain: -12, high_freq: 1_000, ..PartEq::FLAT };
+        let dry = render(&|_| {});
+        assert!(dry.iter().any(|x| *x != 0.0), "the chord sounds");
+        assert_eq!(render(&|c| c.fx.set_style_eq(0, PartEq::FLAT)), dry, "flat: bit-identical");
+        assert_eq!(
+            render(&|c| {
+                c.fx.set_style_eq(0, cut);
+                c.fx.set_style_eq(0, PartEq::FLAT);
+            }),
+            dry,
+            "set back to flat: bit-identical"
+        );
+        assert_eq!(render(&|c| c.fx.set_style_eq(3, cut)), dry, "another part's EQ: not on channel 9");
+        let wet = render(&|c| c.fx.set_style_eq(0, cut));
+        let diff: f32 = wet.iter().zip(&dry).map(|(a, b)| (a - b).abs()).sum();
+        assert!(diff > 1.0, "the cut changes the output: {diff}");
+        // A high-shelf cut makes the signal smoother: less sample-to-sample change.
+        let rough = |v: &[f32]| v.windows(3).map(|w| (w[2] - w[0]).abs()).sum::<f32>();
+        assert!(rough(&wet) < rough(&dry) * 0.95, "less top: {} vs {}", rough(&wet), rough(&dry));
     }
 
     /// #269: a Style part's insertion effect. A sustained note on channel 12 with a
