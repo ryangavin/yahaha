@@ -1,30 +1,34 @@
 <!--
-  The layout shell: the app bar, the stage (display, mixer line, registration row,
+  The layout shell: the app bar, the stage (display, hand surface, mixer row, Quick Racks,
   keyboard) and the panels that open around it. Each lives in its own folder under
   src/panels/.
 
   ┌ app bar: yahaha [transport: Start · Sync · Intro · Ending · Tempo · 13.1] ⚙ ? ☾ ┐
   │ quick nav (lib/nav.ts)                                                   │
-  │ ┌ stage ──────────────────────────────────────────────────────────────┐   │
-  │ │ display (panels/leadsheet): now · bar cells / chart · next          │   │
-  │ │   takes the height the rows below leave (about half the window)    │ ┌ drawer ┐
-  │ ├ mixer line ─────────────────────────────────────────┬──────────────┤ │ rack   │
-  │ │ mixer row (panels/mixer/MixerRow): 12 strips ·master│ Launchkey    │ │effects │
-  │ │   (its details below the strips while ui.mixer)     │ mirror       │ │settings│
-  │ ├─────────────────────────────────────────────────────┴──────────────┤ │  …     │
-  │ │ knobs + Quick Racks (panels/knobracks), one panel, 8 shared columns:│ │        │
-  │ │   ◀ Knobs ▶ · knobs 1–8 / ◀ Bank A ▶ · Quick Racks 1–8 · Store      │ │        │
+  │ ┌ stage, five rows, each the full width ──────────────────────────────┐   │
+  │ │ display (panels/leadsheet, or panels/channel's Channel view):       │   │
+  │ │   now · bar cells / chart · next; takes the height the rows below   │ ┌ drawer ┐
+  │ │   leave (about half the window on a tall one)                       │ │ rack   │
+  │ ├ hand surface ───────────────────────────────────────────────────────┤ │effects │
+  │ │ the Launchkey mirror (panels/launchkey), one flat row: 8 knobs over │ │settings│
+  │ │   the 16 pads, with the side buttons, as under your hands           │ │  …     │
+  │ ├ mixer row ──────────────────────────────────────────────────────────┤ │        │
+  │ │ mixer row (panels/mixer/MixerRow): its bar · 12 strips · master     │ │        │
+  │ │   (with ui.mixer its details show too, in the display's place)      │ │        │
+  │ ├ Quick Racks ────────────────────────────────────────────────────────┤ │        │
+  │ │ Quick Racks row (panels/knobracks): ◀ Bank A ▶ · racks 1–8 · Store  │ │        │
+  │ ├─────────────────────────────────────────────────────────────────────┤ │        │
   │ │ keyboard strip (panels/keystrip): chord tones · the keys            │ │        │
   │ └─────────────────────────────────────────────────────────────────────┘ │        │
   │ status line                                                             │        │
   │ help footer (lib/tooltip): the hovered control's entry · last Launchkey  └────────┘
   └──────────────────────────────────────────────────────────────────────────┘
   Each drawer opens from a small button on the stage by what it details (lib/ui/DrawerButton):
-  Rack and Library on the fader head (its Mixer button shows the mixer row's details, as
-  Alt+M does); Multi Pads by the pad-page tabs; Charts by the lead-sheet lane;
-  Harmony/Arp and Chord Looper on the keyboard strip's cheek; Effects from the quick nav
-  and the mixer row; the style name on the display opens the browser (as touching it
-  does on the Genos).
+  Rack and Library on the mixer bar, beside the loaded rack's name (its Mixer button shows
+  the mixer row's details, as Alt+M does); Multi Pads by the pad-page tabs; Charts by the
+  lead-sheet lane; Harmony/Arp and Chord Looper on the keyboard strip's cheek; Effects from
+  the quick nav and the mixer row; the style name on the display opens the browser (as
+  touching it does on the Genos).
   Library (panels/library, `ui.view`): a page in place of the whole stage, from the
   header's Stage | Library switch (Alt+B); drawers open over it too.
   Browser: centred modal. Drawers and the browser end above the help footer
@@ -32,16 +36,14 @@
 
   Scaling, CSS only: the app fills the window exactly (no page scroll). The stage is a
   size container (`stage`); the stack inside sets its font size to --u, the smaller of
-  its width / 96 and its height / 64 (7–15px), and the registration row and the keyboard
-  strip are sized in em of it. The mixer line has a set height that MixerRow fills
-  (220–280px; 62% of the stage while its details show); the display takes what's left.
-  Across the mixer line the mirror gives way first: the row asks for 66rem and the mirror
-  for 18rem (growing into any spare width), and the mirror shrinks 50× faster, down to
-  13rem; only then do the strips narrow. The mirror's slot is its own size container
-  (`mirror`): the mirror sets its --u to the largest that fits the slot, in its wide
-  layout (96em × 26.2em) or, when the slot is narrower than 2.09:1, its stacked one
-  (66em × 46.4em, faders under the pads). The help footer has a fixed height (taller in
-  help mode), so hovering never moves the stage.
+  its width / 96 and its height / 64 (7–15px), and the hand surface's slot, the Quick
+  Racks row and the keyboard strip are sized in em of it. The mixer row has a set height
+  that MixerRow fills (268–280px; with its details shown it takes the display's place
+  instead); the display takes what's left, and on a short window the hand surface gives
+  way first, down to its least height. The hand surface's slot is its own size container
+  (`hand`): the mirror sets its --u to the largest that fits the slot at the surface's
+  proportions (76em × 18em, centred). The help footer has a fixed height (taller in help
+  mode), so hovering never moves the stage.
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte'
@@ -126,13 +128,12 @@
             <LeadSheet />
           {/if}
         </div>
-        <!-- The mixer row, always shown, with the Launchkey mirror beside it. A strip's
-             name opens or closes its Channel view (seen before the strip handles it). -->
-        <div class="mixer-line" class:details={ui.mixer}>
-          <div class="mixer-slot" onclickcapture={(e) => channelNav.stripClick(e)}><MixerRow /></div>
-          <div class="mirror-slot"><div class="mirror"><Launchkey /></div></div>
-        </div>
-        <!-- The knobs over the Quick Racks, knob n above rack n. -->
+        <!-- The hand surface: the Launchkey mirror, knobs over pads, in one flat row. -->
+        <div class="hand-slot" class:details={ui.mixer} use:tip={'stage.hand_surface'}><div class="mirror"><Launchkey /></div></div>
+        <!-- The mixer row, always shown. A strip's name opens or closes its Channel view
+             (seen before the strip handles it). -->
+        <div class="mixer-slot" class:details={ui.mixer} onclickcapture={(e) => channelNav.stripClick(e)}><MixerRow /></div>
+        <!-- The Quick Racks row. -->
         <KnobRackPanel />
         <div class="strip-slot"><KeyStrip /></div>
       </div>
@@ -174,10 +175,10 @@
   }
 
   /* ── The stage ───────────────────────────────────────────────────────────────────────
-     The stack's font size --u: the registration row (panels/knobracks, 7.37em tall) and
-     the keyboard strip (7.6em) are sized in it. Width / 96 keeps the knob columns in their
-     old proportions; height / 64 keeps those two rows to about a quarter of the stage, so
-     the display gets the rest after the mixer line. */
+     The stack's font size --u: the hand surface's slot (13em, at least 7em), the Quick
+     Racks row (panels/knobracks) and the keyboard strip (7.6em) are sized in it. Width / 96
+     keeps the rack columns in their old proportions; height / 64 keeps those rows to about
+     half the stage with the mixer row, so the display gets the rest. */
   .stage {
     container: stage / size;
     flex: 1;
@@ -193,71 +194,62 @@
     flex-direction: column;
     gap: 0.7em;
   }
+  /* The display takes what the other rows leave, and keeps at least 4em of it: on a short
+     window the hand surface gives up its height for it. */
   .display-slot {
     flex: 1 1 0;
-    min-height: 0;
-  }
-  /* The mixer row and the mirror beside it, in rem (not --u). A set height that MixerRow
-     fills (it lays its strips out in whatever height it gets): 268–280px, the least a
-     strip needs whole. With the details shown (ui.mixer) the display steps aside and the
-     line takes its place (the bar and each strip's details sit straight above the strips);
-     on a short window the strips scroll inside the row. The mirror fits into the same
-     height. */
-  .mixer-line {
-    flex: none;
-    height: clamp(16.75rem, 38cqh, 17.5rem);
-    display: flex;
-    gap: 0.6rem;
-    font-size: 1rem;
-  }
-  .mixer-line.details {
-    flex: 1 1 0;
-    height: auto;
-    min-height: 16.75rem;
+    min-height: 4em;
   }
   .display-slot.hidden {
     display: none;
   }
-  /* The mirror gives way first here too: with the details shown the row takes the whole
-     line, so its bar fits in fewer lines. */
-  .mixer-line.details .mirror-slot {
-    display: none;
-  }
-  .mixer-line.details .mixer-slot {
-    flex: 1 1 auto;
-  }
-  /* The row asks for 12 strips of ~80px plus the master; it only narrows once the mirror
-     is at its least width (flex-shrink 1 against the mirror's 50). */
-  .mixer-slot {
-    flex: 0 1 66rem;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .mirror-slot {
-    container: mirror / size;
-    flex: 1 50 18rem;
-    min-width: 13rem;
+  /* The hand surface: a full-width slot, 13em of the stack's --u tall (195px on a big
+     window); on a short one it is the row that shrinks, down to 7em (55px at 1024×700).
+     It is its own size container, so the mirror sizes itself in em of it. */
+  .hand-slot {
+    container: hand / size;
+    flex: 0 1 13em;
+    min-height: 7em;
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
   }
-  /* The mirror's own --u: the largest that fits the slot at the surface's proportions.
-     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked (66em wide);
-     --h has a little headroom so it never spills out of the slot. */
+  /* With the mixer's details shown, the hand surface keeps only its least height and the
+     mixer row takes the rest. */
+  .hand-slot.details {
+    flex-basis: 7em;
+  }
+  /* The mirror's own --u: the largest that fits the slot at the surface's proportions,
+     76em × 18em: 8 knobs over the 16 pads with Shift, Pad Bank, Track and Rotary on the
+     left and Scene/Function, Stop/Play on the right (today's 96em less the ~20em fader
+     bank; the status display goes too). A full-width row is wider than 76:18 on most
+     windows, so the mirror is limited by height and centred. */
   .mirror {
-    --w: 96;
-    --h: 26.2;
+    --w: 76;
+    --h: 18;
     --u: min(100cqw / var(--w), 100cqh / var(--h));
     font-size: var(--u);
     width: calc(var(--w) * 1em);
     flex: none;
   }
-  @container mirror (aspect-ratio < 2.09) {
-    .mirror {
-      --w: 66;
-      --h: 46.4;
-    }
+  /* The mixer row, in rem (not --u). A set height that MixerRow fills (it lays its strips
+     out in whatever height it gets): 268–280px, the least a strip needs whole. With the
+     details shown (ui.mixer) the display steps aside and the row takes its place (the bar
+     and each strip's details sit straight above the strips); on a short window the strips
+     scroll inside the row. */
+  .mixer-slot {
+    flex: none;
+    height: clamp(16.75rem, 38cqh, 17.5rem);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    font-size: 1rem;
+  }
+  .mixer-slot.details {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 16.75rem;
   }
   .strip-slot {
     flex: none;

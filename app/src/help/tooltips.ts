@@ -2167,6 +2167,33 @@ const catalog = {
     launchkey: null,
   },
 
+  // ── Stage layout A (the five-row stage): begin ──────────────────────────
+  // The hand surface row, the strips' hardware fader badges and the mixer bar's rack name.
+  // The mixer bar's Rack, Library and Mixer buttons keep `drawer.rack`, `drawer.library`
+  // and `drawer.mixer`; its layer selector keeps `mixer.layer`. Other blocks go elsewhere.
+  'stage.hand_surface': {
+    title: 'Launchkey',
+    body: 'The Launchkey under your hands: its eight knobs over the sixteen pads, with Shift, Pad Bank, Track and the side buttons, each showing what it does on the current pad page and Shift layer. Clicking one does what pressing it does.',
+    genos: null,
+    keys: [],
+    launchkey: 'The knobs, the pads and the buttons around them',
+  },
+  'stage.fader_badge': {
+    title: 'Hardware fader',
+    body: 'The Launchkey fader this strip is on: F1–F8 for faders 1–8 (and the button under it), M for the master fader, on the current fader page (Panel or Style) and Shift layer. No badge: no fader reaches this strip on this page.',
+    genos: null,
+    keys: [],
+    launchkey: 'Faders 1–8 and the master fader',
+  },
+  'stage.rack_name': {
+    title: 'Rack',
+    body: 'The loaded rack\'s name, with ● while it has changes you haven\'t saved. On the Panel fader page the faders play its keyboard parts.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  // ── Stage layout A: end ─────────────────────────────────────────────────
+
   // ── Settings and audio ──────────────────────────────────────────────────
   'settings.open': {
     title: 'Settings',
