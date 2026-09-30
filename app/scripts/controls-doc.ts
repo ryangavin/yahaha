@@ -36,6 +36,7 @@ const GROUPS: [string, string][] = [
   ['sound', 'Sound library'],
   ['padpage', 'Launchkey pad pages'],
   ['launchkey', 'Launchkey'],
+  ['stage', 'Stage layout: hand surface, fader badges, mixer bar'],
   ['lead', 'Lead-sheet band'],
   ['keystrip', 'Keyboard strip'],
   ['chart', 'iReal Pro chart player'],

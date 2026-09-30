@@ -605,6 +605,14 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Part sound** | The sound this keyboard part plays: ● when its plugin has unsaved edits, ⚠ when its plugin is missing. Click to open Library › Sounds with this part as the target. | Voice name (Home screen) | — | — |
 | **Sound** | Hold it and the pads act and light as the Racks page, from any page: tap a rack pad to load it, or Store to put the live rack there. Let go and the pads go back to the page you were on. White while held. | — | — | Panel or Style fader page: button under fader 6 (hold) |
 
+## Stage layout: hand surface, fader badges, mixer bar
+
+| control | what it does | Genos | key | Launchkey |
+|---|---|---|---|---|
+| **Launchkey** | The Launchkey under your hands: its eight knobs over the sixteen pads, with Shift, Pad Bank, Track and the side buttons, each showing what it does on the current pad page and Shift layer. Clicking one does what pressing it does. | — | — | The knobs, the pads and the buttons around them |
+| **Hardware fader** | The Launchkey fader this strip is on: F1–F8 for faders 1–8 (and the button under it), M for the master fader, on the current fader page (Panel or Style) and Shift layer. No badge: no fader reaches this strip on this page. | — | — | Faders 1–8 and the master fader |
+| **Rack** | The loaded rack's name, with ● while it has changes you haven't saved. On the Panel fader page the faders play its keyboard parts. | — | — | — |
+
 ## Lead-sheet band
 
 | control | what it does | Genos | key | Launchkey |
