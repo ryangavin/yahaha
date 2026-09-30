@@ -25,6 +25,23 @@ pub enum SettingsCmd {
     SetAudioBuffer { frames: u32 },
 }
 
+/// The settings kept in `<data>/settings.json` and restored at start. Besides these, it
+/// keeps the Setup pad page's switches, which the state shows where they act: the
+/// fingering type and Chord Detection Area (`chord.fingering`, `chord.upper`), OTS Link
+/// (`ots.link`) and Stop ACMP (`transport.stopAcmpMode`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsState {
+    /// The order of pad pages 2-5 (`setPadPageOrder`); Sections is always page 1.
+    pub pad_pages: Vec<crate::launchkey::Page>,
+}
+
+impl Default for SettingsState {
+    fn default() -> SettingsState {
+        SettingsState { pad_pages: crate::launchkey::PageOrder::DEFAULT.movable().collect() }
+    }
+}
+
 /// MIDI and audio.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

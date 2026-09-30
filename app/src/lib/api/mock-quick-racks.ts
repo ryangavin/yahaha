@@ -12,7 +12,7 @@ export interface QuickCtx {
   message: (text: string, error?: boolean) => void
 }
 
-const TYPES = new Set<string>(['pressQuickRack', 'stepQuickRackBank', 'toggleQuickRackStore', 'clearQuickRack', 'stepQuickRack'])
+const TYPES = new Set<string>(['pressQuickRack', 'stepQuickRackBank', 'toggleQuickRackStore', 'storeRack', 'clearQuickRack', 'stepQuickRack'])
 
 export class MockQuickRacks {
   private banks: (string | null)[][] = Array.from({ length: QUICK_BANKS }, () => Array<string | null>(QUICK_SLOTS).fill(null))
@@ -42,6 +42,12 @@ export class MockQuickRacks {
         this.store = !this.store
         this.waiting = null
         return
+      case 'storeRack':
+        // As arming Store, then pressing button `slot` of the bank on view.
+        if (cmd.slot < 0 || cmd.slot >= QUICK_SLOTS) return ctx.message(`no Quick Rack ${cmd.slot + 1}`, true)
+        this.store = true
+        this.waiting = null
+        return this.storeOn(this.bank, cmd.slot, ctx)
       case 'clearQuickRack':
         if (cmd.bank < 0 || cmd.bank >= QUICK_BANKS || cmd.slot < 0 || cmd.slot >= QUICK_SLOTS) return ctx.message(`no Quick Rack ${cmd.bank}:${cmd.slot}`, true)
         this.banks[cmd.bank][cmd.slot] = null

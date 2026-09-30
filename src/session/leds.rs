@@ -13,7 +13,7 @@ pub(super) struct Leds {
     last_leds: [(u8, Option<Led>); 16],
     last_rgb: [Option<(u8, u8, u8)>; 16],
     last_fader_btns: Option<(FaderPage, FaderLayer, u8, u8, launchkey::PanelLamps)>,
-    last_nav: Option<(Page, bool)>,
+    last_nav: Option<(Page, launchkey::PageOrder, bool)>,
     /// The encoder page ▲ light (Organ Rotary Slow/Fast).
     last_rotary: Option<bool>,
     buf: Vec<[u8; 3]>,
@@ -56,13 +56,13 @@ impl Leds {
             }
             self.last_fader_btns = Some(fb);
         }
-        if self.last_nav != Some((pnl.page, styles)) {
+        if self.last_nav != Some((pnl.page, pnl.order, styles)) {
             self.buf.clear();
-            launchkey::nav_button_msgs(pnl.page, styles, &mut self.buf);
+            launchkey::nav_button_msgs(pnl.page, pnl.order, styles, &mut self.buf);
             for m in &self.buf {
                 self.out.push(m);
             }
-            self.last_nav = Some((pnl.page, styles));
+            self.last_nav = Some((pnl.page, pnl.order, styles));
         }
         if self.last_rotary != Some(pnl.rotary_fast) {
             self.buf.clear();

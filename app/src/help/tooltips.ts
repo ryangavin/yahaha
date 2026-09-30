@@ -28,13 +28,14 @@ export interface Tip {
 }
 
 const P1 = 'Pad page 1 (Sections)'
-const P2 = 'Pad page 2 (Chord/Setup)'
-const P3 = 'Pad page 3 (OTS/Parts)'
-const P4 = 'Pad page 4 (Quick Racks)'
-const P5 = 'Pad page 5 (Multi Pads)'
+// Pages 2–5 in the default order (Settings › Launchkey can reorder them).
+const P2 = 'Pad page 2 (Racks)'
+const P3 = 'Pad page 3 (Chord)'
+const P4 = 'Pad page 4 (Multi Pads)'
+const P5 = 'Pad page 5 (Setup)'
 const pad = (page: string, row: 'top' | 'bottom', n: number) => `${page}, ${row} row, pad ${n}`
 
-// The Multi Pad buttons (the drawer's, and pad page 5's, one entry per pad).
+// The Multi Pad buttons (the drawer's, and pad page 4's, one entry per pad).
 const MP_PAD = {
   title: 'Multi Pad',
   body: 'Plays the pad\'s phrase from the top (keys Shift+Z, X, C, V): at once when the band is stopped, at the next bar line while it plays. With pads in Synchro Start standby, pressing one of them starts them all. Blue: has data; red: playing; flashing red: waiting for Synchro Start; amber: waiting for the bar line.',
@@ -52,7 +53,7 @@ const MP_STOP = {
   genos: '[STOP] + pad',
   keys: [],
 }
-// The Quick Rack buttons 1–8 (the bar's, the drawer's and pad page 4's).
+// The Quick Rack buttons 1–8 (the bar's, the drawer's and pad page 2's).
 const QUICK_BUTTON = {
   body: 'Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead.',
 }
@@ -134,14 +135,14 @@ const catalog = {
     body: 'With Sync Start off and the band stopped, a chord you hold sounds on bass and pad voices. This switches it off, or back on in the mode you picked in Settings (Style at first).',
     genos: 'Stop Accompaniment',
     keys: ['h'],
-    launchkey: pad(P2, 'bottom', 2),
+    launchkey: pad(P3, 'bottom', 2),
   },
   'transport.fade': {
     title: 'Fade In/Out',
     body: 'Stopped, it arms a fade in: the next start comes up from silence. Playing, the band fades out and stops, and stays silent for the hold time before its volume comes back (only the style fades, not what you play). The fade times are in Settings › Style.',
     genos: 'Fade In/Out (Assignable)',
     keys: ['F'],
-    launchkey: `${pad(P3, 'top', 6)}; Shift + Stop button`,
+    launchkey: 'Shift + Stop button',
   },
   'transport.section_reset': {
     title: 'Section Reset',
@@ -155,7 +156,7 @@ const catalog = {
     body: 'While on, each chord you play restarts the Main and loops its first few beats (the Retrigger length) until you change section or turn it off. Only Mains retrigger.',
     genos: 'Style Retrigger (RtgOnOff)',
     keys: ['~'],
-    launchkey: pad(P2, 'bottom', 8),
+    launchkey: pad(P3, 'bottom', 8),
   },
   'transport.unison': {
     title: 'Unison',
@@ -470,10 +471,10 @@ const catalog = {
   // ── Chord detection ─────────────────────────────────────────────────────
   'fingering.select': {
     title: 'Fingering type',
-    body: 'How your left hand\'s chords are read. The pads on page 2 pick one directly.',
+    body: 'How your left hand\'s chords are read. The pads on the Setup page pick one directly.',
     genos: 'Fingering Type',
     keys: ['f'],
-    launchkey: `${P2}, top row, pads 1–7`,
+    launchkey: `${P5}, top row, pads 1–7`,
   },
   'fingering.next': {
     title: 'Next fingering type',
@@ -487,63 +488,63 @@ const catalog = {
     body: 'One key plays a major chord. Add a black key to its left for minor, a white key for 7th, both for m7.',
     genos: 'Single Finger',
     keys: [],
-    launchkey: pad(P2, 'top', 1),
+    launchkey: pad(P5, 'top', 1),
   },
   'fingering.fingered': {
     title: 'Fingered',
     body: 'Play the whole chord. The bass is always the chord\'s root.',
     genos: 'Fingered',
     keys: [],
-    launchkey: pad(P2, 'top', 2),
+    launchkey: pad(P5, 'top', 2),
   },
   'fingering.fingered_on_bass': {
     title: 'Fingered On Bass',
     body: 'Like Fingered, but the lowest note you play becomes the bass, so you can play slash chords.',
     genos: 'Fingered On Bass',
     keys: [],
-    launchkey: pad(P2, 'top', 3),
+    launchkey: pad(P5, 'top', 3),
   },
   'fingering.multi_finger': {
     title: 'Multi Finger',
     body: 'Reads Single Finger and Fingered shapes both, without switching.',
     genos: 'Multi Finger',
     keys: [],
-    launchkey: pad(P2, 'top', 4),
+    launchkey: pad(P5, 'top', 4),
   },
   'fingering.ai_fingered': {
     title: 'AI Fingered',
     body: 'Like Fingered, but fewer than three keys can still give a chord, guessed from the chord before. The lowest key is the bass: hold a chord note and add a key below it for a slash chord (C, then B+C is C/B).',
     genos: 'AI Fingered',
     keys: [],
-    launchkey: pad(P2, 'top', 5),
+    launchkey: pad(P5, 'top', 5),
   },
   'fingering.full_keyboard': {
     title: 'Full Keyboard',
     body: 'Chords are read across the whole keyboard, even split between your hands.',
     genos: 'Full Keyboard',
     keys: [],
-    launchkey: pad(P2, 'top', 6),
+    launchkey: pad(P5, 'top', 6),
   },
   'fingering.ai_full_keyboard': {
     title: 'AI Full Keyboard',
     body: 'Full Keyboard with AI Fingered\'s guessing from fewer keys. 9th, 11th and 13th chords can\'t be played.',
     genos: 'AI Full Keyboard',
     keys: [],
-    launchkey: pad(P2, 'top', 7),
+    launchkey: pad(P5, 'top', 7),
   },
   'detection.upper': {
     title: 'Chord detection: Upper / Lower',
     body: 'Lower: your left hand plays the chords. Upper: your right hand does (as Fingered*), and your left hand is free for a bass line.',
     genos: 'Chord Detection Area',
     keys: ['d'],
-    launchkey: pad(P2, 'top', 8),
+    launchkey: pad(P5, 'top', 8),
   },
   'detection.manual_bass': {
     title: 'Manual Bass',
     body: 'In Upper, mutes the style\'s Bass and gives its voice to Left, so your left hand plays the bass. Left stays on while it\'s on. Dark in Lower, where it isn\'t available.',
     genos: 'Manual Bass',
     keys: ['D'],
-    launchkey: pad(P2, 'bottom', 1),
+    launchkey: pad(P3, 'bottom', 1),
   },
   'detection.left_hold': {
     title: 'Left Hold',
@@ -564,14 +565,14 @@ const catalog = {
     body: 'Moves the split point down one key.',
     genos: 'Split Point',
     keys: ['['],
-    launchkey: pad(P2, 'bottom', 3),
+    launchkey: pad(P3, 'bottom', 3),
   },
   'split.up': {
     title: 'Split +',
     body: 'Moves the split point up one key.',
     genos: 'Split Point',
     keys: [']'],
-    launchkey: pad(P2, 'bottom', 4),
+    launchkey: pad(P3, 'bottom', 4),
   },
 
   // ── Transpose ───────────────────────────────────────────────────────────
@@ -587,14 +588,14 @@ const catalog = {
     body: 'Moves your keys and the chord the style follows down a semitone. The pad lights while it\'s below zero.',
     genos: 'TRANSPOSE − (Keyboard)',
     keys: [';'],
-    launchkey: pad(P2, 'bottom', 5),
+    launchkey: pad(P3, 'bottom', 5),
   },
   'transpose.keyboard_up': {
     title: 'Keyboard transpose +',
     body: 'Moves your keys and the chord the style follows up a semitone. The pad lights while it\'s above zero.',
     genos: 'TRANSPOSE + (Keyboard)',
     keys: ["'"],
-    launchkey: pad(P2, 'bottom', 6),
+    launchkey: pad(P3, 'bottom', 6),
   },
   'transpose.master_down': {
     title: 'Master transpose −',
@@ -615,7 +616,7 @@ const catalog = {
     body: 'Puts Keyboard and Master transpose back to 0. The pad lights while either isn\'t 0.',
     genos: 'TRANSPOSE − and + together',
     keys: ['/'],
-    launchkey: pad(P2, 'bottom', 7),
+    launchkey: pad(P3, 'bottom', 7),
   },
 
   // ── One Touch Settings ──────────────────────────────────────────────────
@@ -624,32 +625,32 @@ const catalog = {
     body: 'A sound setup for your own hands that the style\'s author picked to suit it: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds (or loads the rack of yours chosen for it), and the band doesn\'t change. Dark if the style has none.',
     genos: 'ONE TOUCH SETTING 1',
     keys: ['shift+1'],
-    launchkey: pad(P3, 'top', 1),
+    launchkey: pad(P2, 'bottom', 1),
   },
   'ots.2': {
     title: 'OTS 2',
     body: 'The style\'s second suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. If you chose one of your racks for it (OTS rack), that rack loads instead.',
     genos: 'ONE TOUCH SETTING 2',
     keys: ['shift+2'],
-    launchkey: pad(P3, 'top', 2),
+    launchkey: pad(P2, 'bottom', 2),
   },
   'ots.3': {
     title: 'OTS 3',
     body: 'The style\'s third suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. If you chose one of your racks for it (OTS rack), that rack loads instead.',
     genos: 'ONE TOUCH SETTING 3',
     keys: ['shift+3'],
-    launchkey: pad(P3, 'top', 3),
+    launchkey: pad(P2, 'bottom', 3),
   },
   'ots.4': {
     title: 'OTS 4',
     body: 'The style\'s fourth suggested setup for your hands: the voice, on/off, volume and octave of Right 1–3 and Left. Pressing it swaps your keyboard sounds, and the band doesn\'t change. If you chose one of your racks for it (OTS rack), that rack loads instead.',
     genos: 'ONE TOUCH SETTING 4',
     keys: ['shift+4'],
-    launchkey: pad(P3, 'top', 4),
+    launchkey: pad(P2, 'bottom', 4),
   },
   'ots.rack': {
     title: 'OTS rack',
-    body: 'What this OTS button loads while this style is loaded: the style\'s own setup, or one of your racks instead. The choice is kept for this style in your data folder (the style file isn\'t touched), and pad page 3, the pedals and OTS Link follow it. Style\'s own puts it back.',
+    body: 'What this OTS button loads while this style is loaded: the style\'s own setup, or one of your racks instead. The choice is kept for this style in your data folder (the style file isn\'t touched), and the Racks pad page, the pedals and OTS Link follow it. Style\'s own puts it back.',
     genos: null,
     keys: [],
     launchkey: null,
@@ -659,7 +660,7 @@ const catalog = {
     body: 'When on, your hands\' sounds follow the band: pressing Main A, B, C or D also recalls OTS 1, 2, 3 or 4. Changing style recalls the setting for the Main that\'s playing.',
     genos: 'OTS LINK',
     keys: ['F10'],
-    launchkey: `${pad(P3, 'top', 5)}; Shift + Pad Bank ▼`,
+    launchkey: `${pad(P5, 'bottom', 1)}; Shift + Pad Bank ▼`,
   },
 
   // ── Keyboard parts ──────────────────────────────────────────────────────
@@ -668,70 +669,70 @@ const catalog = {
     body: 'Turns Right 1 on or off. Right parts that are on sound together, which is how you layer voices.',
     genos: 'PART ON/OFF RIGHT 1',
     keys: ['5'],
-    launchkey: `${pad(P3, 'bottom', 1)}; Panel fader page: button under fader 1`,
+    launchkey: 'Panel fader page: button under fader 1',
   },
   'part.right2.on': {
     title: 'Right 2 on/off',
     body: 'Turns Right 2 on or off. Turn on Right 1 and Right 2 together to layer, for example piano and strings.',
     genos: 'PART ON/OFF RIGHT 2',
     keys: ['6'],
-    launchkey: `${pad(P3, 'bottom', 2)}; Panel fader page: button under fader 2`,
+    launchkey: 'Panel fader page: button under fader 2',
   },
   'part.right3.on': {
     title: 'Right 3 on/off',
     body: 'Turns Right 3 on or off, a third layer for the right hand.',
     genos: 'PART ON/OFF RIGHT 3',
     keys: ['7'],
-    launchkey: `${pad(P3, 'bottom', 3)}; Panel fader page: button under fader 3`,
+    launchkey: 'Panel fader page: button under fader 3',
   },
   'part.left.on': {
     title: 'Left on/off',
     body: 'Turns the Left voice on or off: your left hand plays it below the split. It can\'t be turned off while Manual Bass is on.',
     genos: 'PART ON/OFF LEFT',
     keys: ['8', 'l'],
-    launchkey: `${pad(P3, 'bottom', 4)}; Panel fader page: button under fader 4; Shift + Pad Bank ▲`,
+    launchkey: 'Panel fader page: button under fader 4; Shift + Pad Bank ▲',
   },
   'part.right1.select': {
     title: 'Edit Right 1',
     body: 'Picks Right 1 as the part whose voice Voice −/+ changes.',
     genos: 'Part select (Right 1)',
     keys: ['F1'],
-    launchkey: `${pad(P3, 'bottom', 5)}; Panel fader page: Shift + button under fader 1`,
+    launchkey: 'Panel fader page: Shift + button under fader 1',
   },
   'part.right2.select': {
     title: 'Edit Right 2',
     body: 'Picks Right 2 as the part whose voice Voice −/+ changes.',
     genos: 'Part select (Right 2)',
     keys: ['F2'],
-    launchkey: `${pad(P3, 'bottom', 6)}; Panel fader page: Shift + button under fader 2`,
+    launchkey: 'Panel fader page: Shift + button under fader 2',
   },
   'part.right3.select': {
     title: 'Edit Right 3',
     body: 'Picks Right 3 as the part whose voice Voice −/+ changes.',
     genos: 'Part select (Right 3)',
     keys: ['F3'],
-    launchkey: `${pad(P3, 'bottom', 7)}; Panel fader page: Shift + button under fader 3`,
+    launchkey: 'Panel fader page: Shift + button under fader 3',
   },
   'part.left.select': {
     title: 'Edit Left',
     body: 'Picks Left as the part whose voice Voice −/+ changes.',
     genos: 'Part select (Left)',
     keys: ['F4'],
-    launchkey: `${pad(P3, 'bottom', 8)}; Panel fader page: Shift + button under fader 4`,
+    launchkey: 'Panel fader page: Shift + button under fader 4',
   },
   'part.voice_down': {
     title: 'Voice −',
-    body: 'Steps the selected part (the lit Edit pad) to the previous voice.',
+    body: 'Steps the selected part to the previous voice.',
     genos: 'Voice select',
     keys: ['9'],
-    launchkey: pad(P3, 'top', 7),
+    launchkey: null,
   },
   'part.voice_up': {
     title: 'Voice +',
-    body: 'Steps the selected part (the lit Edit pad) to the next voice.',
+    body: 'Steps the selected part to the next voice.',
     genos: 'Voice select',
     keys: ['0'],
-    launchkey: pad(P3, 'top', 8),
+    launchkey: null,
   },
   'part.octave_down': {
     title: 'Octave −',
@@ -977,10 +978,10 @@ const catalog = {
   },
   'part.plugin_reload': {
     title: 'Reload plugin',
-    body: 'Loads the selected part\'s plugin again, with its saved sound, after it stopped working or failed to load. The Launchkey button lights red while there is one to reload.',
+    body: 'Loads the selected part\'s plugin again, with its saved sound, after it stopped working or failed to load.',
     genos: null,
     keys: ['s'],
-    launchkey: 'Panel fader page: button under fader 6',
+    launchkey: null,
   },
   'part.plugin_in_process': {
     title: 'Run in process',
@@ -2085,25 +2086,9 @@ const catalog = {
     app_keys: ['PgDn', 'PgUp'],
     launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
   },
-  'padpage.chord_setup': {
-    title: 'Pad page 2: Chord/Setup',
-    body: 'Fingering types, Upper/Lower, Manual Bass, Stop ACMP, split and transpose. All cyan.',
-    genos: null,
-    keys: ['tab', 'shift+tab'],
-    app_keys: ['PgDn', 'PgUp'],
-    launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
-  },
-  'padpage.ots_parts': {
-    title: 'Pad page 3: OTS/Parts',
-    body: 'OTS 1–4 and OTS Link, voice −/+, keyboard parts on/off and which part to edit. All magenta.',
-    genos: null,
-    keys: ['tab', 'shift+tab'],
-    app_keys: ['PgDn', 'PgUp'],
-    launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
-  },
   'padpage.prev': {
     title: 'Pad Bank ▲',
-    body: 'Goes to the previous pad page, stopping at page 1, so a few presses always take you home. Lit in the page\'s colour when there\'s a page to go to. With Shift: Left on/off.',
+    body: 'Goes to the previous pad page in your page order, stopping at page 1, so a few presses always take you home. Lit in the page\'s colour when there\'s a page to go to. With Shift: Left on/off.',
     genos: null,
     keys: ['shift+tab'],
     app_keys: ['PgUp'],
@@ -2111,7 +2096,7 @@ const catalog = {
   },
   'padpage.next': {
     title: 'Pad Bank ▼',
-    body: 'Goes to the next pad page, stopping at page 4. Lit in the page\'s colour when there\'s a page to go to. With Shift: OTS Link on/off.',
+    body: 'Goes to the next pad page in your page order, stopping at the last. Lit in the page\'s colour when there\'s a page to go to. With Shift: OTS Link on/off.',
     genos: null,
     keys: ['tab'],
     app_keys: ['PgDn'],
@@ -2249,28 +2234,28 @@ const catalog = {
     body: 'Fingering type, chord detection area (Lower or Upper) and Manual Bass.',
     genos: 'Menu › Split & Fingering',
     keys: [],
-    launchkey: `${P2}, top row (fingering, Upper) and bottom row, pad 1 (Manual Bass)`,
+    launchkey: `${P5}, top row (fingering, Upper); ${P3}, bottom row, pad 1 (Manual Bass)`,
   },
   'settings.tab.split': {
     title: 'Settings: Split point',
     body: 'Where the keyboard divides between the chord section and the right hand.',
     genos: 'Menu › Split & Fingering › Split Point',
     keys: [],
-    launchkey: `${P2}, bottom row, pads 3–4`,
+    launchkey: `${P3}, bottom row, pads 3–4`,
   },
   'settings.tab.transpose': {
     title: 'Settings: Transpose',
     body: 'Keyboard and Master transpose, in semitones.',
     genos: 'Menu › Transpose',
     keys: [],
-    launchkey: `${P2}, bottom row, pads 5–7`,
+    launchkey: `${P3}, bottom row, pads 5–7`,
   },
   'settings.tab.style': {
     title: 'Settings: Style',
     body: 'How the band starts, stops and fills: Sync Start/Stop, Auto Fill and Stop Accompaniment.',
     genos: 'Menu › Style Setting',
     keys: [],
-    launchkey: `${P1} (Sync Start, Sync Stop, Auto Fill); ${P2}, bottom row, pad 2 (Stop ACMP)`,
+    launchkey: `${P1} (Sync Start, Sync Stop, Auto Fill); ${P3}, bottom row, pad 2 (Stop ACMP); ${P5}, bottom row, pads 2–3 (Stop ACMP mode)`,
   },
   'settings.tab.lock': {
     title: 'Settings: Parameter Lock',
@@ -2305,7 +2290,7 @@ const catalog = {
     body: 'Drag the marker, or click a key, to set the split (C3 = middle C). Keys at and below it are Left and the chord section, keys above it play Right 1–3. With focus, ←/→ move it a key and PgUp/PgDn an octave.',
     genos: 'Split Point (Style + Left)',
     keys: ['[', ']'],
-    launchkey: `${P2}, bottom row, pads 3–4`,
+    launchkey: `${P3}, bottom row, pads 3–4`,
   },
   'settings.section_timing': {
     title: 'Section change timing: to Main',
@@ -2340,14 +2325,14 @@ const catalog = {
     body: 'A chord you play with the band stopped (Sync Start off) sounds on the style\'s own Bass and Pad voices.',
     genos: 'Stop ACMP: Style',
     keys: [],
-    launchkey: null,
+    launchkey: `${pad(P5, 'bottom', 2)} (ACMP STYLE)`,
   },
   'settings.stop_acmp_fixed': {
     title: 'Stop Accompaniment: Fixed',
     body: 'A chord you play with the band stopped (Sync Start off) sounds on a fixed Finger Bass and Warm Pad, whatever the style. The style\'s own voices come back when the band starts.',
     genos: 'Stop ACMP: Fixed',
     keys: [],
-    launchkey: null,
+    launchkey: `${pad(P5, 'bottom', 3)} (ACMP FIXED)`,
   },
   'settings.tempo_change': {
     title: 'Tempo on style change',
@@ -2513,48 +2498,48 @@ const catalog = {
 
   // ── Quick Racks ─────────────────────────────────────────────────────────
   // The one-press rack buttons (docs/racks.md), where the Genos has Registration Memory.
-  'quick.1': { ...QUICK_BUTTON, title: 'Quick Rack 1', genos: 'REGISTRATION MEMORY [1]', keys: ['Q'], launchkey: pad(P4, 'top', 1) },
-  'quick.2': { ...QUICK_BUTTON, title: 'Quick Rack 2', genos: 'REGISTRATION MEMORY [2]', keys: ['W'], launchkey: pad(P4, 'top', 2) },
-  'quick.3': { ...QUICK_BUTTON, title: 'Quick Rack 3', genos: 'REGISTRATION MEMORY [3]', keys: ['E'], launchkey: pad(P4, 'top', 3) },
-  'quick.4': { ...QUICK_BUTTON, title: 'Quick Rack 4', genos: 'REGISTRATION MEMORY [4]', keys: ['R'], launchkey: pad(P4, 'top', 4) },
-  'quick.5': { ...QUICK_BUTTON, title: 'Quick Rack 5', genos: 'REGISTRATION MEMORY [5]', keys: ['T'], launchkey: pad(P4, 'top', 5) },
-  'quick.6': { ...QUICK_BUTTON, title: 'Quick Rack 6', genos: 'REGISTRATION MEMORY [6]', keys: ['Y'], launchkey: pad(P4, 'top', 6) },
-  'quick.7': { ...QUICK_BUTTON, title: 'Quick Rack 7', genos: 'REGISTRATION MEMORY [7]', keys: ['U'], launchkey: pad(P4, 'top', 7) },
-  'quick.8': { ...QUICK_BUTTON, title: 'Quick Rack 8', genos: 'REGISTRATION MEMORY [8]', keys: ['I'], launchkey: pad(P4, 'top', 8) },
+  'quick.1': { ...QUICK_BUTTON, title: 'Quick Rack 1', genos: 'REGISTRATION MEMORY [1]', keys: ['Q'], launchkey: pad(P2, 'top', 1) },
+  'quick.2': { ...QUICK_BUTTON, title: 'Quick Rack 2', genos: 'REGISTRATION MEMORY [2]', keys: ['W'], launchkey: pad(P2, 'top', 2) },
+  'quick.3': { ...QUICK_BUTTON, title: 'Quick Rack 3', genos: 'REGISTRATION MEMORY [3]', keys: ['E'], launchkey: pad(P2, 'top', 3) },
+  'quick.4': { ...QUICK_BUTTON, title: 'Quick Rack 4', genos: 'REGISTRATION MEMORY [4]', keys: ['R'], launchkey: pad(P2, 'top', 4) },
+  'quick.5': { ...QUICK_BUTTON, title: 'Quick Rack 5', genos: 'REGISTRATION MEMORY [5]', keys: ['T'], launchkey: pad(P2, 'top', 5) },
+  'quick.6': { ...QUICK_BUTTON, title: 'Quick Rack 6', genos: 'REGISTRATION MEMORY [6]', keys: ['Y'], launchkey: pad(P2, 'top', 6) },
+  'quick.7': { ...QUICK_BUTTON, title: 'Quick Rack 7', genos: 'REGISTRATION MEMORY [7]', keys: ['U'], launchkey: pad(P2, 'top', 7) },
+  'quick.8': { ...QUICK_BUTTON, title: 'Quick Rack 8', genos: 'REGISTRATION MEMORY [8]', keys: ['I'], launchkey: pad(P2, 'top', 8) },
   'quick.store': {
     title: 'Store',
     body: 'Arms Store: the next Quick Rack button you press gets the live rack, replacing what it held. The buttons flash while it waits; a rack with unsaved changes, or one never saved, is saved first. Press Store again to cancel.',
     genos: 'MEMORY',
     keys: ['F5'],
-    launchkey: pad(P4, 'bottom', 5),
+    launchkey: pad(P2, 'bottom', 7),
   },
   'quick.prev': {
     title: 'Previous rack',
     body: 'Loads the rack on the stored button before the lit one in the bank on view (with none lit, the last). It stops at the first; with unsaved changes it asks first.',
     genos: 'Registration − (foot pedal)',
     keys: ['F7'],
-    launchkey: `${pad(P4, 'bottom', 7)}; Shift + < Track button`,
+    launchkey: 'Shift + < Track button',
   },
   'quick.next': {
     title: 'Next rack',
     body: 'Loads the rack on the stored button after the lit one in the bank on view (with none lit, the first). It stops at the last; with unsaved changes it asks first.',
     genos: 'Registration + (foot pedal)',
     keys: ['F8'],
-    launchkey: `${pad(P4, 'bottom', 8)}; Shift + Track > button`,
+    launchkey: 'Shift + Track > button',
   },
   'quick.bank_prev': {
     title: 'Bank −',
-    body: 'Shows the previous bank of eight Quick Racks (B to A, say) on these buttons and pad page 4. Nothing loads until you press one.',
+    body: 'Shows the previous bank of eight Quick Racks (B to A, say) on these buttons and the Racks pad page. Nothing loads until you press one.',
     genos: null,
     keys: ['O'],
-    launchkey: pad(P4, 'bottom', 1),
+    launchkey: pad(P2, 'bottom', 5),
   },
   'quick.bank_next': {
     title: 'Bank +',
-    body: 'Shows the next bank of eight Quick Racks (A to B, say, up to H) on these buttons and pad page 4. Nothing loads until you press one.',
+    body: 'Shows the next bank of eight Quick Racks (A to B, say, up to H) on these buttons and the Racks pad page. Nothing loads until you press one.',
     genos: null,
     keys: ['P'],
-    launchkey: pad(P4, 'bottom', 2),
+    launchkey: pad(P2, 'bottom', 6),
   },
   'quick.bank': {
     title: 'Quick Racks bank',
@@ -2592,17 +2577,9 @@ const catalog = {
     launchkey: null,
   },
   'padpage.multi_pads': {
-    title: 'Pad page 5: Multi Pads',
+    title: 'Pad page 4: Multi Pads',
     body: 'Multi Pads 1–4 in the Genos lamp colours (blue has data, red playing, flashing red Synchro Start standby, amber waiting for the bar line) and STOP on the top row; SELECT + pad (Synchro Start) and STOP + pad on the bottom row. The other pads are yellow.',
     genos: 'MULTI PAD CONTROL',
-    keys: ['tab', 'shift+tab'],
-    app_keys: ['PgDn', 'PgUp'],
-    launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
-  },
-  'padpage.quick_racks': {
-    title: 'Pad page 4: Quick Racks',
-    body: 'Quick Racks 1–8 of the bank on view on the top row (red loaded, blue stored, dark empty; all flashing while Store is armed); Bank −/+, Store and Rack −/+ on the bottom row. The other pads are orange.',
-    genos: null,
     keys: ['tab', 'shift+tab'],
     app_keys: ['PgDn', 'PgUp'],
     launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
@@ -2953,7 +2930,7 @@ const catalog = {
     body: 'Opens the Rack: Right 1–3 and Left with their sounds and mix, the split, Harmony/Arp, transpose, the controller map and the style\'s One Touch Settings. Alt+O too.',
     genos: 'PART ON/OFF, Voice Setting, ONE TOUCH SETTING',
     keys: [],
-    launchkey: 'Pad page 3 (OTS/Parts) has the part and OTS controls',
+    launchkey: 'Panel fader page buttons 1–4 turn the parts on and off; Pad page 2 (Racks) has the OTS buttons',
   },
   'rack.save': {
     title: 'Save rack',
@@ -3104,10 +3081,10 @@ const catalog = {
   },
   'rack.part': {
     title: 'Keyboard part',
-    body: 'Makes this part the one you edit: Voice −/+ and Library act on it, as the Launchkey\'s EDIT pads do. Clicking anywhere in the part does the same.',
+    body: 'Makes this part the one you edit: Voice −/+ and Library act on it, as Shift + its Panel fader button does on the Launchkey. Clicking anywhere in the part does the same.',
     genos: 'PART SELECT',
     keys: [],
-    launchkey: 'Pad page 3 (OTS/Parts), bottom row, pads 5–8 (EDIT R1…L)',
+    launchkey: 'Panel fader page: Shift + buttons under faders 1–4',
   },
   'rack.sound': {
     title: 'Sound',
@@ -3195,28 +3172,28 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
-  'multipad.pad': { ...MP_PAD, keys: ['Z', 'X', 'C', 'V'], launchkey: `${P5}, top row, pads 1–4` },
-  'multipad.pad1': { ...MP_PAD, keys: ['Z'], launchkey: pad(P5, 'top', 1) },
-  'multipad.pad2': { ...MP_PAD, keys: ['X'], launchkey: pad(P5, 'top', 2) },
-  'multipad.pad3': { ...MP_PAD, keys: ['C'], launchkey: pad(P5, 'top', 3) },
-  'multipad.pad4': { ...MP_PAD, keys: ['V'], launchkey: pad(P5, 'top', 4) },
+  'multipad.pad': { ...MP_PAD, keys: ['Z', 'X', 'C', 'V'], launchkey: `${P4}, top row, pads 1–4` },
+  'multipad.pad1': { ...MP_PAD, keys: ['Z'], launchkey: pad(P4, 'top', 1) },
+  'multipad.pad2': { ...MP_PAD, keys: ['X'], launchkey: pad(P4, 'top', 2) },
+  'multipad.pad3': { ...MP_PAD, keys: ['C'], launchkey: pad(P4, 'top', 3) },
+  'multipad.pad4': { ...MP_PAD, keys: ['V'], launchkey: pad(P4, 'top', 4) },
   'multipad.stop_all': {
     title: 'Stop all pads',
     body: 'Stops every Multi Pad at once and cancels Synchro Start standby. The band keeps playing, and on the Launchkey it lights while a pad plays or waits. Key: Shift+B.',
     genos: 'MULTI PAD CONTROL [STOP]',
     keys: ['B'],
-    launchkey: pad(P5, 'top', 5),
+    launchkey: pad(P4, 'top', 5),
   },
-  'multipad.stop': { ...MP_STOP, launchkey: `${P5}, bottom row, pads 5–8` },
-  'multipad.stop1': { ...MP_STOP, launchkey: pad(P5, 'bottom', 5) },
-  'multipad.stop2': { ...MP_STOP, launchkey: pad(P5, 'bottom', 6) },
-  'multipad.stop3': { ...MP_STOP, launchkey: pad(P5, 'bottom', 7) },
-  'multipad.stop4': { ...MP_STOP, launchkey: pad(P5, 'bottom', 8) },
-  'multipad.arm': { ...MP_ARM, launchkey: `${P5}, bottom row, pads 1–4` },
-  'multipad.arm1': { ...MP_ARM, launchkey: pad(P5, 'bottom', 1) },
-  'multipad.arm2': { ...MP_ARM, launchkey: pad(P5, 'bottom', 2) },
-  'multipad.arm3': { ...MP_ARM, launchkey: pad(P5, 'bottom', 3) },
-  'multipad.arm4': { ...MP_ARM, launchkey: pad(P5, 'bottom', 4) },
+  'multipad.stop': { ...MP_STOP, launchkey: `${P4}, bottom row, pads 5–8` },
+  'multipad.stop1': { ...MP_STOP, launchkey: pad(P4, 'bottom', 5) },
+  'multipad.stop2': { ...MP_STOP, launchkey: pad(P4, 'bottom', 6) },
+  'multipad.stop3': { ...MP_STOP, launchkey: pad(P4, 'bottom', 7) },
+  'multipad.stop4': { ...MP_STOP, launchkey: pad(P4, 'bottom', 8) },
+  'multipad.arm': { ...MP_ARM, launchkey: `${P4}, bottom row, pads 1–4` },
+  'multipad.arm1': { ...MP_ARM, launchkey: pad(P4, 'bottom', 1) },
+  'multipad.arm2': { ...MP_ARM, launchkey: pad(P4, 'bottom', 2) },
+  'multipad.arm3': { ...MP_ARM, launchkey: pad(P4, 'bottom', 3) },
+  'multipad.arm4': { ...MP_ARM, launchkey: pad(P4, 'bottom', 4) },
   'multipad.repeat': {
     title: 'Repeat',
     body: 'On: the pad loops until you stop it. Off: it plays once. The bank file sets it; a change here lasts until another bank loads.',
@@ -3493,7 +3470,7 @@ const catalog = {
   },
   'library.style_rack_load': {
     title: 'Load OTS',
-    body: 'Recalls this OTS button, as pad page 3 does: the rack of yours chosen for it, or the style\'s own setup. Loading a rack asks first if the live rack has unsaved changes.',
+    body: 'Recalls this OTS button, as the Racks pad page does: the rack of yours chosen for it, or the style\'s own setup. Loading a rack asks first if the live rack has unsaved changes.',
     genos: 'ONE TOUCH SETTING 1–4',
     keys: [],
     launchkey: null,
@@ -3827,7 +3804,7 @@ const catalog = {
     body: 'Where the left-hand section ends (C3 = middle C). Drag the marker, or focus it and use the arrow keys, to move it one key at a time.',
     genos: 'Split Point (Style + Left)',
     keys: ['[', ']'],
-    launchkey: `${pad(P2, 'bottom', 3)} and 4`,
+    launchkey: `${pad(P3, 'bottom', 3)} and 4`,
   },
   'keystrip.range': {
     title: 'Keyboard size',
@@ -3973,6 +3950,70 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
+
+  // --- Eyes-free contract (docs/eyes-free.md) ---
+  // The five pad pages (Sections fixed, the rest in the player's order), the Sound hold,
+  // swap mode, storing a rack from the pads, and sound numbers.
+  'padpage.racks': {
+    title: 'Pad page 2: Racks',
+    body: 'Quick Racks 1–8 of the bank on view on the top row (red loaded, blue stored, dark empty; all flashing while Store is armed); OTS 1–4, Bank −/+ and Store on the bottom row. Hold Sound to show this page from any page. The other pads are orange.',
+    genos: 'REGISTRATION MEMORY, ONE TOUCH SETTING',
+    keys: ['tab', 'shift+tab'],
+    app_keys: ['PgDn', 'PgUp'],
+    launchkey: 'Pad Bank ▲ / ▼ (left of the pads); hold Sound (Panel or Style fader page: button under fader 6)',
+  },
+  'padpage.chord': {
+    title: 'Pad page 3: Chord',
+    body: 'The chord switches you reach for mid-song, on the bottom row: Manual Bass, Stop ACMP, Split −/+, Keyboard transpose −/+ and reset, and Retrigger. The top row is dark; all cyan.',
+    genos: null,
+    keys: ['tab', 'shift+tab'],
+    app_keys: ['PgDn', 'PgUp'],
+    launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
+  },
+  'padpage.setup': {
+    title: 'Pad page 5: Setup',
+    body: 'The set-and-forget switches, each kept in your settings: the fingering types and Upper on the top row; OTS Link and the Stop ACMP mode (Style or Fixed) on the bottom row. All pink.',
+    genos: null,
+    keys: ['tab', 'shift+tab'],
+    app_keys: ['PgDn', 'PgUp'],
+    launchkey: 'Pad Bank ▲ / ▼ (left of the pads)',
+  },
+  'launchkey.sound': {
+    title: 'Sound',
+    body: 'Hold it and the pads act and light as the Racks page, from any page: tap a rack pad to load it, or Store to put the live rack there. Let go and the pads go back to the page you were on. White while held.',
+    genos: null,
+    keys: [],
+    launchkey: 'Panel or Style fader page: button under fader 6 (hold)',
+  },
+  'part.swap': {
+    title: 'Swap sound',
+    body: 'Hold a part\'s Panel fader button and turn knob 1 to step that part\'s sound by number, live, keeping its mix; knobs 2–8 are its mix. Let go to keep the sound: dialling back is the cancel. A hold that turns no knob is a tap, which turns the part on or off.',
+    genos: null,
+    keys: [],
+    launchkey: 'Panel fader page: hold the button under fader 1–4 and turn knob 1',
+  },
+  'quick.store_rack': {
+    title: 'Store rack',
+    body: 'Puts the live rack on this Quick Rack button of the bank on view, replacing what it held, as Store then the button does. A rack with unsaved changes, or one never saved, is saved first.',
+    genos: 'MEMORY + REGISTRATION MEMORY',
+    keys: [],
+    launchkey: 'Hold Sound and tap a rack pad (Pad page 2 (Racks), top row)',
+  },
+  'settings.pad_pages': {
+    title: 'Pad page order',
+    body: 'Which pad pages Pad Bank ▲/▼ step through after Sections, and in what order. Leave a page out to skip it; hold Sound still shows Racks. Kept in your settings.',
+    genos: null,
+    keys: [],
+    launchkey: 'Pad Bank ▲ / ▼ follow it',
+  },
+  'sound.number': {
+    title: 'Sound number',
+    body: 'Each sound in the Library has a number: what swap mode dials and the Launchkey display shows (R1: 23 Rhodes Soft). The numbers stay put while the Library is unchanged.',
+    genos: null,
+    keys: [],
+    launchkey: 'Swap mode: knob 1 steps through them',
+  },
+  // --- end eyes-free contract ---
 } satisfies Record<string, Tip>
 
 export type TipKey = keyof typeof catalog

@@ -1319,7 +1319,29 @@
     "page": "sections",
     "pageName": "Sections",
     "pageNumber": 1,
-    "pageCount": 4,
+    "pageCount": 5,
+    "pages": [
+      {
+        "page": "sections",
+        "name": "Sections"
+      },
+      {
+        "page": "racks",
+        "name": "Racks"
+      },
+      {
+        "page": "chord",
+        "name": "Chord"
+      },
+      {
+        "page": "multiPads",
+        "name": "Multi Pads"
+      },
+      {
+        "page": "setup",
+        "name": "Setup"
+      }
+    ],
     "pads": [
       {
         "note": 96,
@@ -1765,6 +1787,9 @@
   },
   "surface": {
     "shift": false,
+    "layer": {
+      "type": "none"
+    },
     "controls": [
       {
         "id": "padBankUp",
@@ -1791,7 +1816,7 @@
         "label": "PAGE ▼",
         "action": {
           "type": "setPadPage",
-          "page": "chordSetup"
+          "page": "racks"
         },
         "shiftLabel": "OTS LINK",
         "shiftAction": {
@@ -2031,7 +2056,7 @@
       {
         "id": "faderButton6",
         "cc": 42,
-        "label": "",
+        "label": "SOUND",
         "action": null,
         "shiftLabel": "",
         "shiftAction": null,
@@ -3334,5 +3359,13 @@
     "store": false,
     "storeWaiting": null,
     "readOnly": false
+  },
+  "settings": {
+    "padPages": [
+      "racks",
+      "chord",
+      "multiPads",
+      "setup"
+    ]
   }
 }

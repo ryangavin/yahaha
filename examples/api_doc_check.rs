@@ -1,6 +1,6 @@
 //! Checks the JSON examples in docs/app-api.md against the app API's Rust types: every
 //! `{"type": ...}` object written out in the doc must parse as an `AppCmd` (or else an
-//! `Event`) and serialize back to the same JSON, and the doc's example `AppState` must do
+//! `Event`, or the Launchkey surface's `Layer`) and serialize back to the same JSON, and the doc's example `AppState` must do
 //! the same as an `AppState`.
 //!
 //! The doc is read at run time from the path given, never compiled in, so a docs-only
@@ -16,6 +16,7 @@
 use std::process::ExitCode;
 
 use serde_json::Value;
+use yahaha::launchkey::Layer;
 use yahaha::{AppCmd, AppState, Event};
 
 fn main() -> ExitCode {
@@ -75,10 +76,12 @@ fn check(doc: &str) -> Result<Found, Vec<String>> {
                     Ok(out) => problems.push(format!("{text}: comes back from Event as {out}")),
                     Err(e) => problems.push(format!("{text}: Event won't serialize: {e}")),
                 },
+                // The Launchkey surface's layer (`surface.layer`) is `type`-tagged too.
+                Err(_) if serde_json::from_value::<Layer>(v.clone()).is_ok_and(|l| serde_json::to_value(l).is_ok_and(|out| out == v)) => {}
                 Err(e) => {
                     // Report why it isn't a command, which is what almost every example is.
                     let why = serde_json::from_value::<AppCmd>(v).unwrap_err();
-                    problems.push(format!("{text}: neither AppCmd ({why}) nor Event ({e})"));
+                    problems.push(format!("{text}: neither AppCmd ({why}) nor Event ({e}) nor a surface layer"));
                 }
             }
         }

@@ -16,14 +16,14 @@ use crate::engine::{shift_key, AuditionPos, Button, ChangeRules, ChartPlan, Char
 use crate::multipad::MultiPadPlayer;
 use crate::fingering::{self, Fingering};
 use crate::harmony::{self, HarmonySettings};
-use crate::launchkey::{self, Action, Control, Page, Touch};
+use crate::launchkey::{self, Action, Control, Layer, Page, PageOrder, Touch};
 use crate::looper::ChordSeq;
 use crate::midi::{for_each_message, InputHandler};
 use crate::parts::{self, FaderLayer, FaderPage, FaderRoute, Parts};
 use crate::rt::{self, Histogram, PacketSink, Wakeup};
 use crate::theory::{Chord, Recognizer, CANCEL, ONE_PLUS_EIGHT, ONE_PLUS_FIVE};
 use rtrb::{Consumer, Producer, RingBuffer};
-use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU32, AtomicU64, AtomicU8, Ordering::*};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering::*};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug)]
@@ -174,6 +174,13 @@ pub struct Shared {
     /// Launchkey pad page (`launchkey::Page::to_u8`): set by the Pad Bank buttons on the
     /// input thread and Tab on the UI thread, read by both.
     pub page: AtomicU8,
+    /// The player's order of pad pages 2-5 (`PageOrder::to_bits`; Sections is always
+    /// first): Pad Bank ▲/▼ and Tab walk it. The control side stores it from the settings.
+    pub page_order: AtomicU16,
+    /// The held control's layer (`launchkey::Layer::to_u8`): Sound held (the pads are the
+    /// Racks page), or swap mode on a keyboard part. The input thread sets it; the control
+    /// side reads it for the pads' LEDs and the state.
+    pub layer: AtomicU8,
     /// Time spent in engine.process / in the CoreMIDI send, per wake.
     pub flush_lat: Histogram,
     pub work_lat: Histogram,
@@ -240,6 +247,8 @@ impl Shared {
             last_unmapped: AtomicU32::new(0),
             touched: AtomicU32::new(0),
             page: AtomicU8::new(0),
+            page_order: AtomicU16::new(PageOrder::DEFAULT.to_bits()),
+            layer: AtomicU8::new(Layer::None.to_u8()),
             flush_lat: Histogram::new(),
             work_lat: Histogram::new(),
             spin_ns: AtomicU64::new(150_000),
@@ -283,6 +292,16 @@ impl Shared {
     /// do this; a compare-and-swap keeps either from losing the other's change.
     pub fn step_page(&self, f: impl Fn(Page) -> Page) {
         let _ = self.page.fetch_update(Relaxed, Relaxed, |p| Some(f(Page::from_u8(p)).to_u8()));
+    }
+
+    /// The player's pad page order (Sections first).
+    pub fn page_order(&self) -> PageOrder {
+        PageOrder::from_bits(self.page_order.load(Relaxed))
+    }
+
+    /// The held control's layer.
+    pub fn layer(&self) -> Layer {
+        Layer::from_u8(self.layer.load(Relaxed))
     }
 
     /// Manual Bass in effect: Upper detection mode with the Manual Bass setting on.
@@ -416,6 +435,8 @@ pub fn fingered_star(mask: u16, c: Chord) -> Option<Chord> {
 
 mod kbdfx;
 mod pipeline;
+mod sound_hold;
+mod swap;
 pub use kbdfx::{right_parts, type_index, FxConfig, FxKey, FxMode, KbdFx, ACMP, ASSIGNS, FX_RING};
 pub use pipeline::{Note, Processor, ALL_RIGHT};
 use pipeline::{Harmonized, PATH_PLAIN};
@@ -607,6 +628,11 @@ pub struct Input {
     ctl_claimed: bool,
     /// The pedal switches as last shown (a change wakes the control side).
     shown_switches: u8,
+    /// The Panel fader button 1-4 (a keyboard part, 0-3) held down without Shift: a tap
+    /// toggles the part on release; a knob turned during the hold is swap mode (`swap`).
+    held_part: Option<u8>,
+    /// A knob turned during `held_part`'s hold (the release is not a tap).
+    hold_turned: bool,
 }
 
 impl Input {
@@ -646,6 +672,8 @@ impl Input {
             pedal_edges: [0; MAX_KEY_SOURCES],
             ctl_claimed: false,
             shown_switches: 0,
+            held_part: None,
+            hold_turned: false,
         }
     }
 
@@ -919,10 +947,19 @@ impl Input {
                 }
                 return;
             }
-            // An encoder: a knob on the Knob Assign page (the control side runs it).
+            // An encoder: a knob on the Knob Assign page (the control side runs it), or,
+            // while a Panel part button is held, swap mode on that part.
             if let Some((knob, delta)) = launchkey::encoder(m[0], cc, v) {
                 self.touch(Touch::Knob(knob));
-                self.act(Action::Knob(knob, delta));
+                if let Some(part) = self.held_part {
+                    self.hold_turned = true;
+                    self.set_layer(Layer::Swap { part });
+                    if let Some(a) = swap::knob(part, knob, delta) {
+                        self.act(a);
+                    }
+                } else {
+                    self.act(Action::Knob(knob, delta));
+                }
                 return;
             }
             if launchkey::FADER_CC.contains(&cc) {
@@ -995,10 +1032,11 @@ impl Input {
                 return;
             }
             if launchkey::FADER_BTN_CC.contains(&cc) {
+                let index = cc - launchkey::FADER_BTN_CC.start();
                 if v > 0 {
-                    let index = cc - launchkey::FADER_BTN_CC.start();
                     self.fader_button(index);
-                    self.touch(Touch::FaderButton { index, shift: self.shift });
+                } else {
+                    self.fader_button_up(index);
                 }
                 return;
             }
@@ -1011,8 +1049,9 @@ impl Input {
             match launchkey::cc_control(cc, self.shift) {
                 Some(Control::Page(d)) if v > 0 => {
                     // Here, not on the control side: the next pad press must already
-                    // read the new page.
-                    self.shared.step_page(|p| p.step(d));
+                    // read the new page. The player's page order is the walk.
+                    let order = self.shared.page_order();
+                    self.shared.step_page(|p| order.step(p, d));
                     self.ctl_signal = true;
                     self.touch(Touch::Button { cc, shift: self.shift });
                 }
@@ -1034,7 +1073,12 @@ impl Input {
                 // is up, whatever release we missed.
                 self.set_shift(false);
                 let page = Page::from_u8(self.shared.page.load(Relaxed));
-                if let Some(a) = launchkey::pad_action(page, m[1]) {
+                // Sound held: the pads are the Racks page, from any page (`sound_hold`).
+                let action = match self.shared.layer() {
+                    Layer::Sound => sound_hold::pad(page, m[1]),
+                    layer => launchkey::pad_action(page, layer, m[1]),
+                };
+                if let Some(a) = action {
                     self.touch(Touch::Pad(m[1]));
                     self.act(a);
                 }
@@ -1044,44 +1088,94 @@ impl Input {
         }
     }
 
-    /// A button under fader `i` (0..8), or under the master fader (8): the fader page
-    /// toggle. On the Panel page the buttons turn Right 1-3 and Left on/off (Shift: select
-    /// the part for the voice keys) and button 5 is HARMONY/ARPEGGIO; on the Style page
-    /// they mute the Style parts.
+    /// A button under fader `i` (0..8) went down, or under the master fader (8): the fader
+    /// page toggle. On the Panel page buttons 1-4 are Right 1-3 and Left: a tap turns the
+    /// part on/off (on release, `fader_button_up`), a hold with a knob turned is swap mode,
+    /// and Shift + button selects the part for the voice keys. Button 5 is
+    /// HARMONY/ARPEGGIO. Button 6 is Sound on both pages: held, the pads are the Racks page
+    /// (`sound_hold`). On the Style page the buttons mute the Style parts (Shift + 6: part 6).
     fn fader_button(&mut self, i: u8) {
+        let shift = self.shift;
         let parts = &self.shared.parts;
-        if i == 8 && self.shift {
+        if i == 8 && shift {
             // Shift + the master fader's button: the next fader layer (VOL, PAN, REV, CHO,
             // DLY). The next fader move must already go to it.
             parts.step_fader_layer(1);
             self.signal = true;
             self.ctl_signal = true;
-            return;
-        }
-        if i == 8 {
+        } else if i == 8 {
             // Here rather than on the control side: the next fader move must already go
             // to the new page. The engine rebinds the Style faders on its next wake
             // (`Parts::take_rebind`).
             parts.toggle_fader_page();
             self.signal = true;
             self.ctl_signal = true;
+        } else if i == launchkey::SOUND_FADER_BTN && !shift {
+            // Page-independent: the input thread reads the button, not the fader page.
+            let l = sound_hold::press(self.shared.layer());
+            self.set_layer(l);
+        } else {
+            match parts.fader_page() {
+                FaderPage::Panel if (i as usize) < parts::COUNT && shift => self.act(Action::SelectPart(i)),
+                FaderPage::Panel if (i as usize) < parts::COUNT => {
+                    // A hold starts; it acts on release (a tap) or on a knob (swap mode).
+                    // A second part button during a hold does nothing.
+                    if self.held_part.is_none() {
+                        self.held_part = Some(i);
+                        self.hold_turned = false;
+                    }
+                    return;
+                }
+                FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
+                // LEFT HOLD on/off (#202).
+                FaderPage::Panel if i == launchkey::LEFT_HOLD_FADER_BTN => self.act(Action::Assign(crate::controllers::Function::LeftHold)),
+                // The CHORD LOOPER: ON/OFF, Shift: REC/STOP (#201).
+                FaderPage::Panel if i == launchkey::LOOPER_FADER_BTN => {
+                    let f = if shift { crate::controllers::Function::ChordLooperRec } else { crate::controllers::Function::ChordLooperOnOff };
+                    self.act(Action::Assign(f))
+                }
+                // Shift + Sound on the Panel page: nothing.
+                FaderPage::Panel => {}
+                FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
+            }
+        }
+        self.touch(Touch::FaderButton { index: i, shift });
+    }
+
+    /// A button under fader `i` (0..8) went up: the Sound hold ends, and a held part button
+    /// is a tap (the part on/off) or ends swap mode. No allocation.
+    fn fader_button_up(&mut self, i: u8) {
+        if i == launchkey::SOUND_FADER_BTN {
+            // Whatever Shift and the fader page are by now.
+            let l = sound_hold::release(self.shared.layer());
+            self.set_layer(l);
             return;
         }
-        match parts.fader_page() {
-            FaderPage::Panel if (i as usize) < parts::COUNT && self.shift => self.act(Action::SelectPart(i)),
-            // Left is refused under Manual Bass; its LED stays lit, as the bass sounds.
-            FaderPage::Panel if (i as usize) < parts::COUNT => self.act(Action::PartOnOff(i)),
-            FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => self.act(Action::ToggleHarmonyArp),
-            FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => self.act(Action::ReloadPlugin),
-            // LEFT HOLD on/off (#202).
-            FaderPage::Panel if i == launchkey::LEFT_HOLD_FADER_BTN => self.act(Action::Assign(crate::controllers::Function::LeftHold)),
-            // The CHORD LOOPER: ON/OFF, Shift: REC/STOP (#201).
-            FaderPage::Panel if i == launchkey::LOOPER_FADER_BTN => {
-                let f = if self.shift { crate::controllers::Function::ChordLooperRec } else { crate::controllers::Function::ChordLooperOnOff };
-                self.act(Action::Assign(f))
-            }
-            FaderPage::Panel => {}
-            FaderPage::Style => self.act(Action::Button(Button::TogglePart(i))),
+        if self.held_part != Some(i) {
+            return;
+        }
+        self.held_part = None;
+        if !self.hold_turned {
+            // A tap. Left is refused under Manual Bass; its LED stays lit, as the bass
+            // sounds.
+            self.act(Action::PartOnOff(i));
+            self.touch(Touch::FaderButton { index: i, shift: false });
+            return;
+        }
+        self.hold_turned = false;
+        if self.shared.layer() == (Layer::Swap { part: i }) {
+            self.set_layer(Layer::None);
+        }
+        if let Some(a) = swap::commit(i) {
+            self.act(a);
+        }
+    }
+
+    /// The held control's layer changed (or not): the state follows.
+    fn set_layer(&mut self, l: Layer) {
+        let v = l.to_u8();
+        if self.shared.layer.swap(v, Relaxed) != v {
+            self.ctl_signal = true;
         }
     }
 
@@ -2484,7 +2578,8 @@ mod tests {
         assert_eq!(parts.volume(parts::RIGHT2), 64);
         input.pad_msg(&[0xB0, 12, 30]); // fader 8: unused on Panel
         assert!(cmds.pop().is_err(), "nothing reaches the Style parts");
-        input.pad_msg(&[0xB0, 40, 127]); // button 4: Left on/off
+        input.pad_msg(&[0xB0, 40, 127]); // button 4: Left on/off, on release
+        input.pad_msg(&[0xB0, 40, 0]);
         assert_eq!(acts.pop(), Ok(Action::PartOnOff(3)));
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
         input.pad_msg(&[0xB0, 39, 127]); // Shift + button 3: select Right 3
@@ -2492,8 +2587,11 @@ mod tests {
         assert_eq!(acts.pop(), Ok(Action::SelectPart(2)));
         input.pad_msg(&[0xB0, 41, 127]); // button 5: HARMONY/ARPEGGIO
         assert_eq!(acts.pop(), Ok(Action::ToggleHarmonyArp));
-        input.pad_msg(&[0xB0, 42, 127]); // button 6: reload the selected part's plugin
-        assert_eq!(acts.pop(), Ok(Action::ReloadPlugin));
+        input.pad_msg(&[0xB0, 42, 127]); // button 6: Sound, a hold (no plugin reload)
+        assert_eq!(shared.layer(), Layer::Sound);
+        input.pad_msg(&[0xB0, 42, 0]);
+        assert_eq!(shared.layer(), Layer::None);
+        assert!(acts.pop().is_err());
         input.pad_msg(&[0xB0, 43, 127]); // button 7: Left Hold
         assert_eq!(acts.pop(), Ok(Action::Assign(crate::controllers::Function::LeftHold)));
         input.pad_msg(&[0xB0, 44, 127]); // button 8: Chord Looper ON/OFF, Shift: REC/STOP
@@ -2680,21 +2778,19 @@ mod tests {
         assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Intro(0)))));
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 0]); // release does nothing
-        assert_eq!(page(), Page::ChordSetup);
+        assert_eq!(page(), Page::Racks);
         input.pad_msg(&[0x90, 97, 100]);
-        assert_eq!(acts.pop(), Ok(Action::Fingering(Fingering::Fingered)));
+        assert_eq!(acts.pop(), Ok(Action::QuickRack(1)));
         input.pad_msg(&[0x90, 113, 100]);
-        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::StopAcmp))));
+        assert_eq!(acts.pop(), Ok(Action::Ots(1)));
         input.pad_msg(&[0x90, 113, 0]); // pad release
         assert!(cmds.pop().is_err() && acts.pop().is_err());
 
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        assert_eq!(page(), Page::QuickRacks);
+        assert_eq!(page(), Page::Chord);
         input.pad_msg(&[0x90, 113, 100]);
-        assert_eq!(acts.pop(), Ok(Action::QuickRackBank(1)));
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::StopAcmp))));
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
         assert_eq!(page(), Page::MultiPads);
         // Multi Pads go straight to the engine, as the section pads do.
         input.pad_msg(&[0x90, 97, 100]);
@@ -2706,22 +2802,27 @@ mod tests {
         assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::Arm(2)))));
         assert!(matches!(cmds.pop(), Ok(Cmd::MultiPad(PadCmd::Stop(3)))));
         assert!(acts.pop().is_err());
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]); // stops at the last page
+        assert_eq!(page(), Page::Setup);
+        input.pad_msg(&[0x90, 97, 100]);
+        assert_eq!(acts.pop(), Ok(Action::Fingering(Fingering::Fingered)));
+        input.pad_msg(&[0x90, 112, 100]);
+        assert_eq!(acts.pop(), Ok(Action::ToggleOtsLink));
         input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
-        assert_eq!(page(), Page::OtsParts);
-        input.pad_msg(&[0x90, 114, 100]);
-        assert_eq!(acts.pop(), Ok(Action::PartOnOff(2)));
-        input.pad_msg(&[0x90, 99, 100]);
-        assert_eq!(acts.pop(), Ok(Action::Ots(3)));
+        assert_eq!(page(), Page::Chord);
 
         // Shift + ▲ toggles the Left part and leaves the page alone.
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
         input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
         assert_eq!(acts.pop(), Ok(Action::PartOnOff(3)));
-        assert_eq!(page(), Page::OtsParts);
+        assert_eq!(page(), Page::Chord);
         input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
-        assert_eq!(page(), Page::ChordSetup);
+        assert_eq!(page(), Page::Racks);
+        input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
+        assert_eq!(page(), Page::Chord);
 
         // Track buttons change style on any page.
         input.pad_msg(&[0xB0, launchkey::TRACK_RIGHT_CC, 127]);
@@ -2733,7 +2834,7 @@ mod tests {
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_B0_35_7F);
         input.pad_msg(&[0x99, 36, 90]); // a Drum-mode pad
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
-        input.pad_msg(&[0x90, 119, 100]); // Retrigger on page 2
+        input.pad_msg(&[0x90, 119, 100]); // Retrigger on the Chord page
         assert_eq!(shared.last_unmapped.load(Relaxed), 0x01_99_24_5A);
         assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Retrigger))));
         // Shift + Play / Stop: Section Reset / Fade; Shift + Scene: Retrigger shorter.
@@ -2787,7 +2888,7 @@ mod tests {
         assert_eq!(shared.last_unmapped.load(Relaxed), 0, "not reported as unmapped either");
         // The same numbers on channel 1 are the buttons.
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::ChordSetup);
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Racks);
     }
 
     /// A lost Shift release doesn't stick: a pad note (the firmware keeps Shift + pad for
@@ -2802,7 +2903,7 @@ mod tests {
         assert_eq!(acts.pop(), Ok(Action::ToggleOtsLink));
         input.pad_msg(&[0x90, 96, 100]);
         input.pad_msg(&[0xB0, launchkey::PAD_DOWN_CC, 127]);
-        assert_eq!(page(), Page::ChordSetup, "a pad press cleared Shift");
+        assert_eq!(page(), Page::Racks, "a pad press cleared Shift");
 
         input.pad_msg(&[0xB6, launchkey::SHIFT_CC, 127]); // Shift reported on channel 7 counts too
         input.pad_msg(&[0xB0, launchkey::PAD_UP_CC, 127]);
@@ -2817,15 +2918,142 @@ mod tests {
     #[test]
     fn page_steps_from_either_side() {
         let shared = Shared::new(54);
-        shared.step_page(|p| p.step(1));
-        shared.step_page(|p| p.cycle(1));
-        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::OtsParts);
-        shared.step_page(|p| p.step(1));
-        shared.step_page(|p| p.step(1));
-        shared.step_page(|p| p.step(1));
-        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::MultiPads);
-        shared.step_page(|p| p.cycle(1));
+        let order = shared.page_order();
+        assert_eq!(order, PageOrder::DEFAULT);
+        shared.step_page(|p| order.step(p, 1));
+        shared.step_page(|p| order.cycle(p, 1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Chord);
+        shared.step_page(|p| order.step(p, 1));
+        shared.step_page(|p| order.step(p, 1));
+        shared.step_page(|p| order.step(p, 1));
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Setup);
+        shared.step_page(|p| order.cycle(p, 1));
         assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
+    }
+
+    /// Pad Bank ▲/▼ walk the player's page order, not the enum's.
+    #[test]
+    fn pad_bank_walks_the_page_order() {
+        let (mut input, shared, _cmds, _acts) = pads_rig();
+        let order = PageOrder::new(&[Page::Setup, Page::Racks]).expect("a valid order");
+        shared.page_order.store(order.to_bits(), Relaxed);
+        assert_eq!(shared.page_order(), order);
+        let page = || Page::from_u8(shared.page.load(Relaxed));
+        let bank = |input: &mut Input, cc: u8| input.pad_msg(&[0xB0, cc, 127]);
+        bank(&mut input, launchkey::PAD_DOWN_CC);
+        assert_eq!(page(), Page::Setup);
+        bank(&mut input, launchkey::PAD_DOWN_CC);
+        assert_eq!(page(), Page::Racks);
+        bank(&mut input, launchkey::PAD_DOWN_CC);
+        assert_eq!(page(), Page::Racks, "stops at the last page in the order");
+        bank(&mut input, launchkey::PAD_UP_CC);
+        assert_eq!(page(), Page::Setup);
+        bank(&mut input, launchkey::PAD_UP_CC);
+        assert_eq!(page(), Page::Sections);
+    }
+
+    /// The display touch last recorded.
+    fn touched(shared: &Shared) -> Option<Touch> {
+        Touch::unpack(shared.touched.load(Relaxed))
+    }
+
+    /// A Panel part button acts on release when no knob turned during the hold: a tap
+    /// toggles the part, and the display hears of it then.
+    #[test]
+    fn part_button_tap_toggles_on_release() {
+        let (mut input, shared, mut cmds, mut acts) = pads_rig();
+        input.pad_msg(&[0xB0, 38, 0]); // a release with no press: nothing
+        input.pad_msg(&[0xB0, 38, 127]); // button 2: Right 2
+        assert!(acts.pop().is_err(), "nothing on the press");
+        assert_eq!(touched(&shared), None);
+        assert_eq!(shared.layer(), Layer::None);
+        input.pad_msg(&[0xB0, 38, 0]);
+        assert_eq!(acts.pop(), Ok(Action::PartOnOff(1)));
+        assert_eq!(touched(&shared), Some(Touch::FaderButton { index: 1, shift: false }));
+        assert_eq!(shared.layer(), Layer::None);
+        input.pad_msg(&[0xB0, 38, 0]); // a second release: nothing
+        assert!(acts.pop().is_err() && cmds.pop().is_err());
+        // Shift + button: select the part, on the press, and the release is nothing.
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
+        input.pad_msg(&[0xB0, 39, 127]);
+        assert_eq!(acts.pop(), Ok(Action::SelectPart(2)));
+        input.pad_msg(&[0xB0, 39, 0]);
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
+        assert!(acts.pop().is_err());
+    }
+
+    /// Swap mode: a knob turned while a part button is held sets the layer, knob 1 steps
+    /// the part's sound, knobs 2-8 leave the Knob Assign page alone, and the release is not
+    /// a tap and ends the layer.
+    #[test]
+    fn hold_and_knob_swaps_the_sound() {
+        let (mut input, shared, mut cmds, mut acts) = pads_rig();
+        let knob0 = *launchkey::ENCODER_CC.start();
+        input.pad_msg(&[0xB0, 38, 127]); // hold Right 2
+        input.pad_msg(&[launchkey::ENCODER_STATUS, knob0, 65]);
+        assert_eq!(shared.layer(), Layer::Swap { part: 1 });
+        assert_eq!(acts.pop(), Ok(Action::SwapSound { part: 1, step: 1 }));
+        assert_eq!(touched(&shared), Some(Touch::Knob(0)));
+        input.pad_msg(&[launchkey::ENCODER_STATUS, knob0, 62]);
+        assert_eq!(acts.pop(), Ok(Action::SwapSound { part: 1, step: -2 }));
+        for k in 1..8 {
+            input.pad_msg(&[launchkey::ENCODER_STATUS, knob0 + k, 65]);
+        }
+        input.pad_msg(&[0xB0, 38, 0]);
+        assert_eq!(shared.layer(), Layer::None);
+        while let Ok(a) = acts.pop() {
+            assert!(!matches!(a, Action::Knob(..) | Action::PartOnOff(_)), "{a:?} during a swap");
+        }
+        assert!(cmds.pop().is_err());
+        // After the release the knobs are the Knob Assign page's again.
+        input.pad_msg(&[launchkey::ENCODER_STATUS, knob0 + 2, 65]);
+        assert_eq!(acts.pop(), Ok(Action::Knob(2, 1)));
+        assert_eq!(shared.layer(), Layer::None);
+    }
+
+    /// Hold Sound (fader button 6) on either fader page: the pads act as the Racks page
+    /// from any page while it is held.
+    #[test]
+    fn sound_hold_turns_the_pads_into_racks() {
+        use crate::engine::Button;
+        let (mut input, shared, mut cmds, mut acts) = pads_rig();
+        let sound = launchkey::FADER_BTN_CC.start() + launchkey::SOUND_FADER_BTN;
+        let master_btn = *launchkey::FADER_BTN_CC.end();
+        assert_eq!(Page::from_u8(shared.page.load(Relaxed)), Page::Sections);
+        for fader_page in [FaderPage::Panel, FaderPage::Style] {
+            assert_eq!(shared.parts.fader_page(), fader_page);
+            input.pad_msg(&[0xB0, sound, 127]);
+            assert_eq!(shared.layer(), Layer::Sound, "{fader_page:?}");
+            assert!(acts.pop().is_err() && cmds.pop().is_err(), "no plugin reload, no Style mute");
+            input.pad_msg(&[0x90, 97, 100]);
+            assert_eq!(acts.pop(), Ok(Action::QuickRack(1)));
+            input.pad_msg(&[0x90, 112, 100]);
+            assert_eq!(acts.pop(), Ok(Action::Ots(0)));
+            assert!(cmds.pop().is_err(), "not the Sections pads");
+            input.pad_msg(&[0xB0, sound, 0]);
+            assert_eq!(shared.layer(), Layer::None);
+            // Let go: the page's own pads again.
+            input.pad_msg(&[0x90, 96, 100]);
+            assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::Intro(0)))));
+            input.pad_msg(&[0xB0, master_btn, 127]);
+        }
+    }
+
+    /// On the Style fader page, Shift + button 6 mutes Style part 6 (Pad) and holds nothing.
+    #[test]
+    fn style_page_shift_sound_mutes_part_6() {
+        use crate::engine::Button;
+        let (mut input, shared, mut cmds, mut acts) = pads_rig();
+        shared.parts.set_fader_page(FaderPage::Style);
+        let sound = launchkey::FADER_BTN_CC.start() + launchkey::SOUND_FADER_BTN;
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 127]);
+        input.pad_msg(&[0xB0, sound, 127]);
+        assert!(matches!(cmds.pop(), Ok(Cmd::Button(Button::TogglePart(5)))));
+        assert_eq!(shared.layer(), Layer::None);
+        input.pad_msg(&[0xB0, sound, 0]);
+        input.pad_msg(&[0xB0, launchkey::SHIFT_CC, 0]);
+        assert_eq!(shared.layer(), Layer::None);
+        assert!(acts.pop().is_err() && cmds.pop().is_err());
     }
 }
 

@@ -7,7 +7,7 @@ import Launchkey from './Launchkey.svelte'
 import { neighbours } from '../../lib/surface'
 import { PAD_PAGES } from '../../lib/api/types'
 
-function setup(page?: 'chordSetup' | 'otsParts') {
+function setup(page?: 'chord' | 'racks') {
   const session = new MockSession({ manual: true, demo: true })
   app.attach(session)
   if (page) session.send({ type: 'setPadPage', page })
@@ -45,10 +45,10 @@ describe('Launchkey mirror', () => {
 
   it('follows the pad page', () => {
     const { session } = setup()
-    session.send({ type: 'setPadPage', page: 'otsParts' })
+    session.send({ type: 'setPadPage', page: 'racks' })
     flushSync()
-    expect(pad(96).textContent).toContain('OTS 1')
-    expect(pad(96).dataset.tip).toBe('ots.1')
+    expect(pad(112).textContent).toContain('OTS 1')
+    expect(pad(112).dataset.tip).toBe('ots.1')
   })
 
   it('the Rotary button (Shift + encoder ▲ on the hardware) toggles the rotary speed and lights while fast', async () => {
@@ -81,7 +81,7 @@ describe('Launchkey mirror', () => {
     await fireEvent.click(down())
     await fireEvent.click(down())
     await fireEvent.click(down())
-    expect(session.state.pads.page).toBe('multiPads')
+    expect(session.state.pads.page).toBe('setup')
   })
 
   it('the Shift layer turns Pad Bank into Left on/off and OTS Link, and fader buttons into Edit', async () => {

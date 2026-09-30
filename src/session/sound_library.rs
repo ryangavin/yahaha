@@ -1659,13 +1659,15 @@ impl Control {
                 }
             })
             .collect();
+        let numbers = numbers(lib);
         SoundLibraryState {
             patches: lib
                 .patches
                 .iter()
-                .map(|p| {
+                .zip(numbers)
+                .map(|(p, number)| {
                     let note = patches::unavailable_reason(p, &avail);
-                    PatchInfo { patch: p.into(), available: note.is_none(), note }
+                    PatchInfo { patch: p.into(), available: note.is_none(), note, number }
                 })
                 .collect(),
             categories: Category::ALL.iter().map(|&c| CategoryInfo { id: c, label: c.label().to_string() }).collect(),
@@ -1725,6 +1727,28 @@ impl Control {
 
 fn from_fields(id: String, f: PatchFields) -> Patch {
     Patch { id, name: f.name, category: f.category, tags: f.tags, favourite: f.favourite, source: f.source }
+}
+
+/// Sound numbers (docs/eyes-free.md): each library sound's 1-based number, by its index in
+/// `lib.patches`, what swap mode dials and the display and the Library show. The contract
+/// numbers them in the library's own order. TODO(lane A): favourites 1-n, then the
+/// Library's category order.
+pub(crate) fn numbers(lib: &SoundLibrary) -> Vec<u32> {
+    (1..=lib.patches.len() as u32).collect()
+}
+
+/// Sound `id`'s number (None: not in the library).
+#[allow(dead_code)] // swap mode (lane B) reads it
+pub(crate) fn number_of(lib: &SoundLibrary, id: &str) -> Option<u32> {
+    let i = lib.patches.iter().position(|p| p.id == id)?;
+    numbers(lib).get(i).copied()
+}
+
+/// The sound numbered `n` (None: no sound has it).
+#[allow(dead_code)] // swap mode (lane B) reads it
+pub(crate) fn at_number(lib: &SoundLibrary, n: u32) -> Option<&Patch> {
+    let i = numbers(lib).iter().position(|&m| m == n)?;
+    lib.patches.get(i)
 }
 
 #[cfg(test)]

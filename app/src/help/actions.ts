@@ -24,7 +24,7 @@ export const QUICK: TipKey[] = ['quick.1', 'quick.2', 'quick.3', 'quick.4', 'qui
 const MP_PAD: TipKey[] = ['multipad.pad1', 'multipad.pad2', 'multipad.pad3', 'multipad.pad4']
 const MP_ARM: TipKey[] = ['multipad.arm1', 'multipad.arm2', 'multipad.arm3', 'multipad.arm4']
 const MP_STOP: TipKey[] = ['multipad.stop1', 'multipad.stop2', 'multipad.stop3', 'multipad.stop4']
-const PAGE: Record<string, TipKey> = { sections: 'padpage.sections', chordSetup: 'padpage.chord_setup', otsParts: 'padpage.ots_parts', quickRacks: 'padpage.quick_racks', multiPads: 'padpage.multi_pads' }
+const PAGE: Record<string, TipKey> = { sections: 'padpage.sections', racks: 'padpage.racks', chord: 'padpage.chord', multiPads: 'padpage.multi_pads', setup: 'padpage.setup' }
 
 /** The catalog entry for a command; an unused pad (null) has its own. */
 export function tipFor(cmd: AppCmd | null): TipKey {
@@ -319,5 +319,10 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'duplicateRack':
     case 'deleteRack': return 'drawer.rack'
     case 'setEffectParam': return ({ reverbTime: 'fx.param.reverb_time', preDelay: 'fx.param.pre_delay', reverbTone: 'fx.param.reverb_tone', delaySync: 'fx.param.delay_sync', delayNote: 'fx.param.delay_note', delayTime: 'fx.param.delay_time', delayFeedback: 'fx.param.delay_feedback', delayTone: 'fx.param.delay_tone', pingPong: 'fx.param.ping_pong', chorusRate: 'fx.param.chorus_rate', chorusDepth: 'fx.param.chorus_depth' } as const)[cmd.param]
+    // --- Eyes-free contract (docs/eyes-free.md) ---
+    case 'setPadPageOrder': return 'settings.pad_pages'
+    case 'swapSound': return 'part.swap'
+    case 'storeRack': return 'quick.store_rack'
+    // --- end eyes-free contract ---
   }
 }

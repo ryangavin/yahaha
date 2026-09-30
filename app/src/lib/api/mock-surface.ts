@@ -3,7 +3,8 @@
 // browser mock sends what the engine sends. Mock only: the UI reads `state.surface`.
 
 import type { AppCmd, AppState, ClockState, ControlId, FaderLayer, Level, LibraryList, PartSend, Rgb, SurfaceControl, SurfaceFader, SurfaceState } from './types'
-import { PAD_PAGES, STYLE_PART_NAMES } from './types'
+import type { Layer, PadPage } from './types'
+import { STYLE_PART_NAMES } from './types'
 import { neighbours } from './constants'
 import { MockKnobs, faderRoute, rackFn } from './mock-knobs'
 
@@ -50,7 +51,8 @@ const PALETTE: Record<number, [Rgb, Level]> = {
   [DIM_RED]: [[127, 0, 0], 'dim'],
   [DIM_YELLOW]: [[127, 127, 0], 'dim'],
 }
-const PAGE_COLOUR = [WHITE, CYAN, PINK, ORANGE]
+/** Each pad page's colour (src/launchkey.rs `Page::colour`). */
+const PAGE_COLOUR: Record<PadPage, number> = { sections: WHITE, racks: ORANGE, chord: CYAN, multiPads: YELLOW, setup: PINK }
 /** The Panel fader page's colour (bright, dim) in each fader layer (src/launchkey.rs `layer_colour`). */
 const LAYER_COLOUR: Record<FaderLayer, [number, number]> = {
   volume: [BLUE, DIM_BLUE],
@@ -65,8 +67,9 @@ const LAYER_SEND: Record<FaderLayer, PartSend | null> = { volume: null, pan: nul
 
 /** The Panel-page fader button (0-based) that is the HARMONY/ARPEGGIO switch (src/launchkey.rs). */
 const HARM_ARP_FADER_BTN = 4
-/** The Panel-page fader button that reloads the selected part's plugin (src/launchkey.rs). */
-const PLUGIN_FADER_BTN = 5
+/** The fader button that is Sound, on both fader pages (src/launchkey.rs `SOUND_FADER_BTN`):
+ * hold it and the pads act and light as the Racks page. */
+const SOUND_FADER_BTN = 5
 /** The Panel-page fader button that is the CHORD LOOPER: ON/OFF, Shift REC/STOP (src/launchkey.rs). */
 const LOOPER_FADER_BTN = 7
 /** The Panel-page fader button that is LEFT HOLD (src/launchkey.rs). */
@@ -85,11 +88,17 @@ export interface MockHardware {
 
 /** The surface as the engine reports it (src/session.rs `surface`). */
 export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): SurfaceState {
-  const page = PAD_PAGES.findIndex((p) => p.id === s.pads.page)
+  // The page order Pad Bank ▲/▼ walk (`PageOrder::step`: stops at the ends; from a page
+  // left out, steps from Sections).
+  const order: PadPage[] = ['sections', ...s.settings.padPages]
+  const page = Math.max(0, order.indexOf(s.pads.page))
+  // The held control's layer: the mock has no hardware to hold, so it stays as it is.
+  const held: Layer = s.surface?.layer ?? { type: 'none' }
+  const soundHeld = held.type === 'sound'
   const styles = lib.entries.filter((e) => e.status !== 'error').length > 1
   const racks = s.quickRacks.buttons.some((b) => !!b.rack)
   const style = s.mixer.faderPage === 'style'
-  const pageColour = PAGE_COLOUR[page]
+  const pageColour = PAGE_COLOUR[s.pads.page]
   const [layerOn, layerOff] = LAYER_COLOUR[s.mixer.faderLayer]
 
   const control = (
@@ -106,13 +115,13 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
     }
   }
   const toPage = (d: number): AppCmd | null => {
-    const to = Math.max(0, Math.min(PAD_PAGES.length - 1, page + d))
-    return to === page ? null : { type: 'setPadPage', page: PAD_PAGES[to].id }
+    const to = Math.max(0, Math.min(order.length - 1, page + d))
+    return to === page ? null : { type: 'setPadPage', page: order[to] }
   }
 
   const controls: SurfaceControl[] = [
     control('padBankUp', 106, 'PAGE ▲', toPage(-1), page > 0 ? pageColour : OFF, { label: 'LEFT', action: { type: 'togglePart', part: 3 } }),
-    control('padBankDown', 107, 'PAGE ▼', toPage(1), page < PAD_PAGES.length - 1 ? pageColour : OFF, { label: 'OTS LINK', action: { type: 'toggleOtsLink' } }),
+    control('padBankDown', 107, 'PAGE ▼', toPage(1), page < order.length - 1 ? pageColour : OFF, { label: 'OTS LINK', action: { type: 'toggleOtsLink' } }),
     control('trackPrev', 103, '◀ STYLE', styles ? { type: 'stepStyle', delta: -1 } : null, styles ? WHITE : OFF,
       // Shift + Track: the previous/next Quick Rack in the bank on view, when it holds any.
       { label: '◀ RACK', action: racks ? { type: 'stepQuickRack', delta: -1 } : null }),
@@ -126,7 +135,16 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
   for (let i = 0; i < 8; i++) {
     const id = `faderButton${i + 1}` as ControlId
     const cc = 37 + i
-    if (style) {
+    if (i === SOUND_FADER_BTN) {
+      // Sound, on both fader pages: a hold (the input thread reads it), so no action; the
+      // app shows the Racks page with setPadPage. White while held. With Shift on the Style
+      // page it mutes Style part 6 (Pad), as the plain press did before.
+      const shift = style
+        ? { label: 'PAD', action: { type: 'toggleStylePart', part: i } as AppCmd }
+        : { label: '', action: null }
+      const b = control(id, cc, 'SOUND', null, soundHeld ? WHITE : DIM_WHITE, shift)
+      controls.push({ ...b, label: 'SOUND' })
+    } else if (style) {
       const p = s.mixer.styleParts[i]
       const on = p.on && !p.mutedByManualBass
       controls.push(control(id, cc, STYLE_PART_NAMES[i].toUpperCase(), { type: 'toggleStylePart', part: i }, on ? GREEN : DIM_GREEN))
@@ -137,10 +155,6 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
       }))
     } else if (i === HARM_ARP_FADER_BTN) {
       controls.push(control(id, cc, 'HARM/ARP', { type: 'toggleHarmonyArp' }, s.harmonyArp.on ? PURPLE : DIM_PURPLE))
-    } else if (i === PLUGIN_FADER_BTN) {
-      // Red while the selected part's plugin stopped or failed to load: press to reload it.
-      const st = s.keyboardParts.find((k) => k.selected)?.plugin?.status
-      controls.push(control(id, cc, 'PLUGIN', { type: 'reloadPartPlugin', part: null }, st === 'muted' || st === 'failed' ? RED : OFF))
     } else if (i === LEFT_HOLD_FADER_BTN) {
       controls.push(control(id, cc, 'L HOLD', { type: 'toggleLeftHold' }, s.chord.leftHold ? ORANGE : DIM_ORANGE))
     } else if (i === LOOPER_FADER_BTN) {
@@ -203,7 +217,7 @@ export function mockSurface(s: AppState, lib: LibraryList, hw: MockHardware): Su
   )
 
   const near = neighbours(lib, s.library.position)
-  return { shift: false, controls, faders, trackPrev: near.prev, trackNext: near.next, clock: hw.clock }
+  return { shift: false, layer: held, controls, faders, trackPrev: near.prev, trackNext: near.next, clock: hw.clock }
 }
 
 /** ClockState read at `t` (ms): bar, beat and phase moved on (the engine's `ClockState::at`). */

@@ -2,7 +2,7 @@
 //! clock), as `live::Input` runs it and `Leds` lights it.
 
 use super::Control;
-use crate::api::{ns_to_ms, AppCmd, ChordCmd, ClockState, HarmonyArpCmd, LooperCmd, MixerCmd, Neighbour, PadsCmd, PartSend, PartsCmd, PluginCmd, RackCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
+use crate::api::{ns_to_ms, AppCmd, ChordCmd, ClockState, HarmonyArpCmd, LooperCmd, MixerCmd, Neighbour, PadsCmd, PartSend, PartsCmd, RackCmd, SurfaceControl, SurfaceFader, SurfaceState, STYLE_PART_NAMES};
 use crate::launchkey::{self, Action, Panel};
 use crate::library::Library;
 use crate::parts::{self, FaderPage, FaderRoute};
@@ -19,11 +19,11 @@ impl Control {
         let quick_racks = self.quick_panel().stored != 0;
         let fader_page = kp.fader_page();
         let style_on = launchkey::style_lit(self.snap.parts, manual_bass_active);
-        let colours = launchkey::button_colours(page, styles, fader_page, kp.fader_layer(), pnl.parts_on, style_on, pnl.lamps());
+        let colours = launchkey::button_colours(page, pnl.order, styles, fader_page, kp.fader_layer(), pnl.parts_on, style_on, pnl.lamps());
         let act = |cc: u8, shift: bool| -> Option<AppCmd> {
             match cc_control(cc, shift)? {
                 C::Page(d) => {
-                    let to = page.step(d);
+                    let to = pnl.order.step(page, d);
                     (to != page).then_some(AppCmd::Pads(PadsCmd::SetPadPage { page: to }))
                 }
                 C::Act(Action::Style(_)) if !styles => None,
@@ -82,8 +82,12 @@ impl Control {
                 FaderPage::Panel if i == launchkey::HARM_ARP_FADER_BTN => {
                     push(id, cc, "HARM/ARP", Some(AppCmd::HarmonyArp(HarmonyArpCmd::ToggleHarmonyArp)), None)
                 }
-                FaderPage::Panel if i == launchkey::PLUGIN_FADER_BTN => {
-                    push(id, cc, "PLUGIN", Some(AppCmd::Plugins(PluginCmd::ReloadPartPlugin { part: None })), None)
+                // Sound, on both fader pages: a hold, so no command (labelled below). On the
+                // Style page Shift + it mutes the sixth Style part, the plain press before.
+                FaderPage::Panel if i == launchkey::SOUND_FADER_BTN => push(id, cc, "", None, Some(("", None))),
+                FaderPage::Style if i == launchkey::SOUND_FADER_BTN => {
+                    let name = STYLE_PART_NAMES[i as usize].to_uppercase();
+                    push(id, cc, "", None, Some((&name, Some(AppCmd::Mixer(MixerCmd::ToggleStylePart { part: i })))));
                 }
                 FaderPage::Panel if i == launchkey::LEFT_HOLD_FADER_BTN => push(id, cc, "L HOLD", Some(AppCmd::Chord(ChordCmd::ToggleLeftHold)), None),
                 FaderPage::Panel if i == launchkey::LOOPER_FADER_BTN => {
@@ -104,6 +108,12 @@ impl Control {
         let layer = kp.fader_layer();
         let master = if layer == crate::parts::FaderLayer::Volume { master.to_string() } else { format!("{master} {}", layer.short()) };
         push("masterButton".into(), *launchkey::FADER_BTN_CC.end(), &master, Some(AppCmd::Mixer(MixerCmd::ToggleFaderPage)), Some(("LAYER", Some(AppCmd::Mixer(MixerCmd::StepFaderLayer { delta: 1 })))));
+        // Sound is held, not pressed: it has a label but no command (`layer` shows the hold;
+        // the app reaches the Racks page it shows with `setPadPage`).
+        let sound_cc = launchkey::FADER_BTN_CC.start() + launchkey::SOUND_FADER_BTN;
+        if let Some(c) = controls.iter_mut().find(|c| c.cc == sound_cc) {
+            c.label = "SOUND".into();
+        }
 
         // The faders: the parts they control on this page, and where they physically are.
         // Panel faders 1-4 in the Volume layer follow the live rack's controller map. In a
@@ -203,6 +213,7 @@ impl Control {
 
         SurfaceState {
             shift: shared.shift.load(Relaxed),
+            layer: pnl.layer,
             controls,
             faders,
             track_prev: neighbour(&self.published, self.cur, -1),

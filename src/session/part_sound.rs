@@ -7,6 +7,18 @@ use crate::parts;
 use crate::patches::SoundTag;
 
 impl Control {
+    /// `swapSound`: step keyboard part `part`'s sound by `step` sound numbers
+    /// (`sound_library::number_of` / `at_number`), keeping its mix. The contract's stub:
+    /// it checks the part and changes nothing yet. TODO(lane B, docs/eyes-free.md "Swap
+    /// mode"): dial the sound live.
+    pub(super) fn swap_sound(&mut self, part: u8, step: i32) -> Result<(), crate::api::CmdError> {
+        if part as usize >= parts::COUNT {
+            return self.fail(format!("no keyboard part {part}"));
+        }
+        let _ = step;
+        Ok(())
+    }
+
     /// Put plugin `id` with `state` (base64; None: its default preset) on part `p`:
     /// nothing when it already plays that plugin with that state (playing or loading);
     /// else load it as `setPartPlugin` does (the part's library patch ends). Ok(true) when

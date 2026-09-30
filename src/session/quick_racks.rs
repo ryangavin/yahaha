@@ -84,6 +84,15 @@ impl Control {
                 self.quick.waiting = None;
                 Ok(())
             }
+            // As Store then the button (lane C builds hold Sound + tap on it).
+            QuickRackCmd::StoreRack { slot } => {
+                if slot as usize >= SLOTS {
+                    return self.fail(format!("no Quick Rack {}", slot as usize + 1));
+                }
+                self.quick.store = true;
+                self.quick.waiting = None;
+                self.store_quick(self.quick.bank, slot)
+            }
             QuickRackCmd::ClearQuickRack { bank, slot } => {
                 if bank as usize >= BANKS || slot as usize >= SLOTS {
                     return self.fail(format!("no Quick Rack {bank}:{slot}"));

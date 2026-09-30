@@ -102,6 +102,9 @@ export interface PatchInfo extends Patch {
   /** It plays itself; false: the SoundFont fallback (`note` says why). */
   available: boolean
   note: string | null
+  /** Its sound number, 1-based: what swap mode (`swapSound`) dials, what the Launchkey
+   * display and the Library show. Stable while the library is unchanged. */
+  number: number
 }
 
 export interface ProgramMap {
