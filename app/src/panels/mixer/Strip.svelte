@@ -1,7 +1,8 @@
 <!--
   One compact strip of the always-visible mixer row (MixerRow.svelte). All 12 parts are
   equal: strip 0–3 the keyboard parts (Right 1–3, Left), 4–11 the Style parts. Top to
-  bottom: the part's colour and name (selects the part), its voice, the reserved insert
+  bottom: the part's colour and name (selects the part), its voice (a keyboard part's with
+  ⚠ plugin missing and ● sound edited, as the Launchkey fader bank showed), the reserved insert
   slot, the layer tag and the hardware fader badge, the fader with its meter, then On and
   Solo. Everything comes from the engine's state; the strip only sends commands.
   The fader shows the mixer's fader layer (`mixer.faderLayer`, stepped from the mixer bar
@@ -19,6 +20,7 @@
   import type { TipKey } from '../../help/tooltips'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
+  import { isMissing, soundLabel } from '../rack/rack'
   import { isKeyboard, meterFill, PART_COLORS, stylePartOf } from './parts'
   import { partVoice, styleVoice, voiceName, voiceTitle } from './voice'
 
@@ -52,6 +54,9 @@
   const isOn = $derived(k ? k.on : (s?.on ?? false))
   /** The lamp: a keyboard part lights while it sounds (Left playing Manual Bass too). */
   const lit = $derived(k ? k.sounding : !!s && s.on && !s.mutedByManualBass && (mixer.styleSolo === null || mixer.styleSolo === sIdx))
+  /** The sound's marks (keyboard parts): its plugin is missing, its sound is edited. */
+  const missing = $derived(!!k && isMissing(k))
+  const marked = $derived(!!k && (missing || !!k.soundEdited))
   const isSolo = $derived(k ? mixer.partSolo === part : mixer.styleSolo === sIdx)
 
   const panText = (v: number) => (v === 64 ? 'C' : v < 64 ? `L${64 - v}` : `R${v - 64}`)
@@ -125,14 +130,21 @@
     <span class="text">{name}</span>
   </button>
 
-  {#if keyboard}
+  {#if k}
+    <!-- A keyboard part's sound, with the marks the Launchkey fader bank showed: ⚠ its
+         plugin is missing, ● its sound is edited from the rack. -->
     <button
       type="button"
       class="voice"
+      class:marked
+      class:edited={k.soundEdited}
+      class:missing
       title={voiceTitle(voice)}
-      aria-label="{name} voice: {voiceTitle(voice)}"
-      use:tip={'mixer.strip.voice'}
-      onclick={() => ui.openLibrary('sounds', part)}>{voiceName(voice)}</button
+      aria-label="{name} sound: {soundLabel(k)}"
+      use:tip={marked ? 'launchkey.fader_sound' : 'mixer.strip.voice'}
+      onclick={() => ui.openLibrary('sounds', part)}
+      >{#if missing}<span class="mark" data-mark="missing" aria-hidden="true">⚠</span>{/if}<span class="vname">{voiceName(voice)}</span
+      >{#if k.soundEdited}<span class="mark" data-mark="edited" aria-hidden="true">●</span>{/if}</button
     >
   {:else}
     <span class="voice" title={voiceTitle(voice)} use:tip={'mixer.strip.voice'}>{voiceName(voice)}</span>
@@ -277,6 +289,26 @@
   }
   button.voice:hover {
     color: var(--ink);
+  }
+  /* With a mark, only the name is cut short: the marks always show. */
+  .voice.marked {
+    display: flex;
+    justify-content: center;
+    gap: 0.15rem;
+  }
+  .vname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mark {
+    flex: none;
+  }
+  .voice.edited {
+    color: var(--accent);
+  }
+  .voice.missing {
+    color: var(--danger, #e66);
   }
   /* Reserved for the two insert slots. */
   .inserts {
