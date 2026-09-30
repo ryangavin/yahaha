@@ -608,23 +608,115 @@ describe('eyes-free contract (docs/eyes-free.md)', () => {
     }
   })
 
-  it('storeRack stores the live rack on that button of the bank on view, as Store then the button', () => {
+  it('storeRack stores in one step: a new rack named from its sounds, the saved one as is, the lit one overwritten', () => {
     const m = new MockSession({ manual: true })
     m.send({ type: 'stepQuickRackBank', delta: 1 })
-    // A never-saved rack waits for the save, as pressing an armed button does.
+    const base = m.state.keyboardParts.filter((p) => p.on).map((p) => p.voiceName).filter((n, i, a) => a.findIndex((x) => x.toLowerCase() === n.toLowerCase()) === i).join(' + ')
+    expect(base).not.toBe('')
+    // Never saved: saved as a new rack named from the sounds of the parts that are on.
+    m.send({ type: 'toggleQuickRackStore' })
     m.send({ type: 'storeRack', slot: 2 })
-    expect(m.state.quickRacks.storeWaiting).toBe(2)
-    m.send({ type: 'saveRackAs', name: 'Ballad' })
-    expect(m.state.quickRacks.buttons[2]).toMatchObject({ name: 'Ballad', loaded: true })
-    expect(m.state.quickRacks.store).toBe(false)
-    // A saved rack goes straight on, overwriting.
-    m.send({ type: 'storeRack', slot: 2 })
+    expect(m.state.quickRacks).toMatchObject({ store: false, storeWaiting: null, bank: 1 })
+    expect(m.state.quickRacks.buttons[2]).toMatchObject({ name: base, loaded: true })
+    expect(m.state.liveRack).toMatchObject({ name: base, modified: false })
+    const id = m.state.liveRack.id
+    expect(id).not.toBeNull()
+    // Saved and unmodified: it goes on as it is, no new rack.
     m.send({ type: 'storeRack', slot: 7 })
-    expect(m.state.quickRacks.buttons.map((b) => b.name)).toEqual(['', '', 'Ballad', '', '', '', '', 'Ballad'])
-    expect(m.state.quickRacks.bank).toBe(1)
+    expect(m.state.quickRacks.buttons.map((b) => b.rack)).toEqual([null, null, id, null, null, null, null, id])
+    expect(m.state.racks.length).toBe(1)
+    // Modified, on the lit button: that rack takes the changes.
+    m.send({ type: 'setPartVolume', part: 0, volume: 33 })
+    expect(m.state.liveRack.modified).toBe(true)
+    m.send({ type: 'storeRack', slot: 2 })
+    expect(m.state.liveRack).toMatchObject({ id, modified: false })
+    expect(m.state.racks.length).toBe(1)
+    // Modified, elsewhere: a new rack, its name counted up.
+    m.send({ type: 'setPartVolume', part: 0, volume: 44 })
+    m.send({ type: 'storeRack', slot: 5 })
+    expect(m.state.quickRacks.buttons[5]).toMatchObject({ name: `${base} 2`, loaded: true })
+    expect(m.state.liveRack.id).not.toBe(id)
+    expect(m.state.racks.length).toBe(2)
     m.send({ type: 'clearMessage' })
     m.send({ type: 'storeRack', slot: 8 })
     expect(m.state.message?.error).toBe(true)
+  })
+
+  it('setLayer sound: the pads are the Racks page from any page; lit and empty Quick Rack pads store', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'storeRack', slot: 0 }) // the live rack, lit on 1
+    m.send({ type: 'storeRack', slot: 1 })
+    m.send({ type: 'newRack' }) // 1 and 2 now stored, not lit
+    m.send({ type: 'storeRack', slot: 3 }) // a new rack, lit on 4
+    m.send({ type: 'setPadPage', page: 'setup' })
+    m.send({ type: 'setLayer', layer: { type: 'sound' } })
+    expect(m.state.surface.layer).toEqual({ type: 'sound' })
+    expect(m.state.pads).toMatchObject({ page: 'setup', pageName: 'Racks', pageNumber: 5 })
+    const quick = () => m.state.pads.pads.slice(0, 8).map((p) => p.action)
+    expect(quick()).toEqual([
+      { type: 'pressQuickRack', slot: 0 }, { type: 'pressQuickRack', slot: 1 }, { type: 'storeRack', slot: 2 }, { type: 'storeRack', slot: 3 },
+      ...[4, 5, 6, 7].map((slot) => ({ type: 'storeRack', slot })),
+    ])
+    expect(m.state.pads.pads[8].label).toBe('OTS 1')
+    // Store armed: the pads press as usual.
+    m.send({ type: 'toggleQuickRackStore' })
+    expect(quick()).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((slot) => ({ type: 'pressQuickRack', slot })))
+    m.send({ type: 'toggleQuickRackStore' })
+    // Released: the page on view again.
+    m.send({ type: 'setLayer', layer: { type: 'none' } })
+    expect(m.state.surface.layer).toEqual({ type: 'none' })
+    expect(m.state.pads).toMatchObject({ page: 'setup', pageName: 'Setup', pageNumber: 5 })
+    expect(m.state.pads.pads[0].label).not.toBe('QUICK 1')
+    // Not under the hold, the Racks page's pads press.
+    m.send({ type: 'setPadPage', page: 'racks' })
+    expect(quick()).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((slot) => ({ type: 'pressQuickRack', slot })))
+  })
+
+  it('setLayer swap: the knobs are the part\'s (its sound, then its mix) until released; a bad part is refused', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setLayer', layer: { type: 'swap', part: 2 } })
+    expect(m.state.surface.layer).toEqual({ type: 'swap', part: 2 })
+    expect(m.state.knobs).toMatchObject({ page: 'style', pageName: 'Swap R3', pageNumber: 1 })
+    expect(m.state.knobs.knobs[0]).toEqual({ function: 'swapSound', name: 'Right 3 Sound', short: 'Sound', value: '-', level: null })
+    expect(m.state.knobs.knobs.map((k) => k.function)).toEqual(['swapSound', 'partVolume', 'partPan', 'partReverb', 'partChorus', 'partDelay', 'insertSetting', 'partSend'])
+    // The part's own numbered sound reads "number name".
+    const patch = m.state.soundLibrary.patches[0]
+    m.send({ type: 'setPartPatch', part: 2, id: patch.id })
+    expect(m.state.knobs.knobs[0].value).toBe(`${patch.number} ${patch.name}`)
+    // turnKnob goes to the part: level 2 per step, pan; knob 1 is swapSound's (no error).
+    const [vol, pan] = [m.state.keyboardParts[2].volume, m.state.keyboardParts[2].pan]
+    m.send({ type: 'turnKnob', knob: 1, delta: -1 })
+    m.send({ type: 'turnKnob', knob: 2, delta: 1 })
+    expect([m.state.keyboardParts[2].volume, m.state.keyboardParts[2].pan]).toEqual([vol - 2, Math.min(127, pan + 2)])
+    m.send({ type: 'clearMessage' })
+    m.send({ type: 'turnKnob', knob: 0, delta: 1 })
+    expect(m.state.message).toBeNull()
+    m.send({ type: 'setLayer', layer: { type: 'none' } })
+    expect(m.state.knobs).toMatchObject({ page: 'style', pageName: 'Style' })
+    expect(m.state.knobs.knobs[0].function).toBe('dynamics')
+    m.send({ type: 'setLayer', layer: { type: 'swap', part: 4 } })
+    expect(m.state.message?.error).toBe(true)
+    expect(m.state.surface.layer).toEqual({ type: 'none' })
+  })
+
+  it('turnSwapKnob turns swap mode\'s knob whatever the page; a bad part or knob is refused', () => {
+    const m = new MockSession({ manual: true })
+    m.send({ type: 'setKnobPage', page: 'delay' })
+    const p = () => m.state.keyboardParts[1]
+    const [pan, rev, cho, dly] = [p().pan, p().reverb, p().chorus, p().variation]
+    m.send({ type: 'turnSwapKnob', part: 1, knob: 2, delta: -1 })
+    m.send({ type: 'turnSwapKnob', part: 1, knob: 3, delta: 2 })
+    m.send({ type: 'turnSwapKnob', part: 1, knob: 4, delta: 3 })
+    m.send({ type: 'turnSwapKnob', part: 1, knob: 5, delta: 1 })
+    expect([p().pan, p().reverb, p().chorus, p().variation]).toEqual([Math.max(0, pan - 2), rev + 4, cho + 6, dly + 2])
+    expect(m.state.knobs).toMatchObject({ page: 'delay', pageName: 'Delay' })
+    m.send({ type: 'turnSwapKnob', part: 1, knob: 0, delta: 1 })
+    expect(m.state.message).toBeNull()
+    for (const [part, knob] of [[4, 0], [0, 8]]) {
+      m.send({ type: 'clearMessage' })
+      m.send({ type: 'turnSwapKnob', part, knob, delta: 1 })
+      expect(m.state.message?.error, `${part}:${knob}`).toBe(true)
+    }
   })
 
   it('swapSound checks the part (a no-op otherwise, for now); patches are numbered 1..', () => {

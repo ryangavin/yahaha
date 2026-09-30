@@ -170,7 +170,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `selectPart` | `part` | The part that `stepVoice` edits. |
 | `setPartVoice` | `part`, `program` 0–127 | GM program. Selecting a voice replaces the part's voice: a plugin picked for the part (`setPartPlugin`) ends and is no longer saved, and its library patch goes (with a plugin that patch plays). |
 | `stepVoice` | `delta` | Previous or next voice for the selected part. Like `setPartVoice`, it ends a plugin picked for the part. |
-| `swapSound` | `part` 0–3, `step` | Swap mode (docs/eyes-free.md): steps keyboard part `part`'s sound by `step` sound numbers (`soundLibrary.patches[].number`), live, keeping the part's mix, as `replacePartSound` does. On the Launchkey: hold the part's Panel fader button (1–4) and turn knob 1; knobs 2–8 are the part's mix while held (`surface.layer`), and releasing commits. Refused (`Failed`) for a part outside 0–3. Not built yet: it checks `part` and changes nothing (the swap-mode lane fills it in). Example: `{"type":"swapSound","part":0,"step":1}`. |
+| `swapSound` | `part` 0–3, `step` | Swap mode (docs/eyes-free.md): steps keyboard part `part`'s sound by `step` sound numbers (`soundLibrary.patches[].number`), live, keeping the part's mix, as `replacePartSound` does. On the Launchkey: hold the part's Panel fader button (1–4) and turn knob 1; knobs 2–8 are the part's mix while held (`surface.layer`), and releasing commits. It steps live and stops at the first and last number (no wrap); a part with no numbered sound (a font preset or plugin not in the library) dials from before 1, so +1 lands on 1. A plugin sound loads when it is landed on. The sound library file is written once, when swap mode ends, not on every step. Refused (`Failed`) for a part outside 0–3, or with no sounds in the library. Example: `{"type":"swapSound","part":0,"step":1}`. |
 | `setPartVolume` | `part`, `volume` 0–127 | The part's CC7. The Launchkey fader has to reach it before it takes over. |
 | `setPartOctave` | `part`, `octave` −2..2 | Octave shift. |
 | `setPartPan` | `part`, `pan` 0–127 | The part's pan (CC10; 64 = centre), sent on its channel to the MIDI port and the synth. |
@@ -189,6 +189,7 @@ Style Section Reset, the Fade In/Out times and the Style Retrigger length. The s
 | `setFaderLayer` | `layer`: `volume` \| `pan` \| `reverb` \| `chorus` \| `delay` | The fader layer (the mixer's VOL · PAN · REV · CHO · DLY): what the faders move across the parts. Volume: each part's CC7 (as always). A send layer: Panel faders 1–4 move Right 1–3 and Left's pan / CC91 / CC93 / CC94 (as `setPartPan` / `setPartSend`, with soft takeover); Style faders 1–8 move the Style parts' reverb / chorus / delay sends (as `setStylePartSend`, with soft takeover; the Style parts have no pan, so PAN leaves them alone). Faders 5–6 on the Panel page stay the Style and Multi Pad levels, and the master fader stays the master. On the Launchkey, **Shift + the master fader's button** steps the layer; the button alone still switches the page. |
 | `stepFaderLayer` | `delta` | The next/previous fader layer, wrapping (VOL → PAN → REV → CHO → DLY → VOL). |
 | `setPadPage` | `page`: `sections` \| `racks` \| `chord` \| `multiPads` \| `setup` | The Launchkey pad page (see [`pads`](#pads)). Refused (`Failed`, with a message) for a page left out of the page order (`setPadPageOrder`). The old names are still read: `otsParts`, `quickRacks` and `registration` as `racks`, `chordSetup` as `chord`. |
+| `setLayer` | `layer`: Layer | The app's mirror of the Launchkey's holds (parity; see [`surface`](#surface) `layer`): `{"type":"sound"}` does what holding Sound (Panel fader button 6) does: the pads act and light as the Racks page from any page (`pads.pageName` "Racks", `pads.page` unchanged), and a tap on the lit or an empty Quick Rack pad captures the live rack (`storeRack`). `{"type":"swap","part":1}` is a part's Panel fader button held with a knob turned: the knobs are that part's (`knobs.pageName` "Swap R1"…, and `turnKnob` acts as `turnSwapKnob`). `{"type":"none"}` releases either, as the Launchkey's release does (leaving swap mode commits it). Refused (`Failed`) for a part outside 0–3. Example: `{"type":"setLayer","layer":{"type":"swap","part":1}}`. |
 | `cyclePadPage` | `delta` | Steps the pad page through the page order (`pads.pages`), wrapping. |
 | `setPadPageOrder` | `pages`: Page[] | The order of pad pages 2–5 (Settings › Launchkey), for example `{"type":"setPadPageOrder","pages":["racks","chord","multiPads","setup"]}` (the default). Sections is always page 1; Pad Bank ▲/▼ (which stop at either end) and `cyclePadPage` walk Sections, then `pages`. A page left out can't be paged to, but holding Sound still shows the Racks pads. On a page left out, the pads go to Sections. Refused (`Failed`) if `pages` names `sections`, names a page twice, or has more than four; nothing changes. Saved in `settings.json` (`settings.padPages`). |
 | `setMasterVolume` | `volume` 0–127 | Synth master (100 = unity). Fails when the synth is off. |
@@ -657,7 +658,8 @@ set with `setRackControl`). With the default map it is the page it replaced (`pa
 | `setKnobPage` | `page` `style` \| `rack` \| `pan` \| `reverb` \| `chorus` \| `delay` | The Knob Assign page. The old name `parts` is read as `rack`. One page per effect: knobs 1–4 are Right 1, Right 2, Right 3 and Left's send to it (`setPartSend`, CC91/93/94), knob 8 its return (`setEffectReturn`), knobs 5–7 its parameters (`setEffectParam`, #236): `reverb` Time, Pre-delay, Tone; `chorus` Rate, Depth, (none); `delay` Time, Feedback, Tone. A parameter turn pins its block to the player's own (`followStyle` off, #237). The old names `effects` and `fx` are read as `reverb` and `delay`. |
 | `stepKnobPage` | `delta` | Steps the page, stopping at the first and last (the encoder page buttons ▲/▼). |
 | `resetKnob` | `knob` 0–7 | Puts a knob's function back to its default (the app's double-click): Dynamics to 127, part and Harmony volumes 100, Metronome 90, pan centre, sends dry (0), returns 64, Swing 0, Retrigger off at 1/8, Track Mute all on, Tempo the style's (`resetTempo`), an effect parameter its current type's own, Harmony/Arpeggio off, the split point F#2. No Assign does nothing. |
-| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. An effect parameter moves its own step (reverb time 0.1 s, pre-delay 2 ms, tones 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms); the Delay Time knob steps the note value every 3 steps with tempo sync on, or 10 ms a step with it off. Harmony/Arpeggio switches every 3 steps (right: on); the split point moves a semitone a step (24–96). A knob with No Assign does nothing. |
+| `turnKnob` | `knob` 0–7, `delta` | Turns a knob `delta` steps (positive: clockwise). Levels move 2 a step, tempo 1 BPM; Retrigger Rate and On/Off switch every 3 steps (right: shorter, on); Track Mute A/B move their position 4 a step. An effect parameter moves its own step (reverb time 0.1 s, pre-delay 2 ms, tones 200 Hz, feedback 2%, chorus rate 0.02 Hz and depth 0.1 ms); the Delay Time knob steps the note value every 3 steps with tempo sync on, or 10 ms a step with it off. Harmony/Arpeggio switches every 3 steps (right: on); the split point moves a semitone a step (24–96). A knob with No Assign does nothing. In swap mode (`surface.layer` `swap`) it acts as `turnSwapKnob` for that part. |
+| `turnSwapKnob` | `part` 0–3, `knob` 0–7, `delta` | Swap mode's knob, as the Launchkey turns it while the part's Panel fader button (1–4) is held, whatever the Knob Assign page, and outside swap mode too: knob 1 (index 0) steps the part's sound by number (`swapSound`, `delta` numbers); knobs 2–8 its mix: level, pan, reverb, chorus, delay, insert 1's amount and send 4 (levels 2 a step, as `turnKnob`). Refused (`Failed`) for a part outside 0–3 or a knob outside 0–7. Example: `{"type":"turnSwapKnob","part":2,"knob":1,"delta":-3}`. |
 
 ### Sound catalog
 One list of every sound for the Sound Browser (#117): every preset of every `.sf2` in the
@@ -720,7 +722,7 @@ a button of the bank on view, 0–7.
 | `pressQuickRack` | `slot`, `discard`? | Not armed: loads the button's rack as `loadRack` does, with the same guard (`{"kind":"unsavedChanges"}` and `liveRack.prompt`; `discard: true` switches anyway). Armed (`toggleQuickRackStore`): stores the live rack on the button and disarms. A live rack with unsaved changes, or never saved, isn't stored yet: `quickRacks.storeWaiting` holds the button until `saveRack` / `saveRackAs` succeeds, which stores the saved rack there. Fails for an empty button, or one whose rack is gone. Slots 8 and 9 run on into the next bank's 1 and 2 (the `regist9`/`regist10` pedal functions). |
 | `stepQuickRackBank` | `delta` | Bank −/+: views the previous/next bank. It stops at A and at H. |
 | `toggleQuickRackStore` | | Store: arms or disarms it for the next press. Disarming lets a waiting button go. |
-| `storeRack` | `slot` 0–7 | Stores the live rack on button `slot` of the bank on view, overwriting what is there: Store, then that button, in one command (`pressQuickRack` while armed, with the same wait for a save). On the Launchkey it is to be hold Sound (Panel fader button 6) and tap a Racks pad in the top row (the Racks lane builds that; until then a tap there under Sound loads, as on the Racks page). Refused (`Failed`) for a slot outside 0–7. Example: `{"type":"storeRack","slot":0}`. |
+| `storeRack` | `slot` 0–7 | Captures the live rack on button `slot` of the bank on view in one step, with no arming and no save dialog. On the lit button (the live rack's own rack) that rack is overwritten with the live rack (saved, as `saveRack`). On any other button a saved, unmodified live rack goes on as it is; otherwise the live rack is saved as a new rack named from its on parts' sounds ("Rhodes Soft + Strings", numbered if taken) and goes on. Store armed clears. On the Launchkey: hold Sound (Panel fader button 6) and tap the lit or an empty Quick Rack pad; a pad holding another rack recalls it. Refused (`Failed`) for a slot outside 0–7. Example: `{"type":"storeRack","slot":0}`. |
 | `clearQuickRack` | `bank` 0–7, `slot` 0–7 | Empties a button. |
 | `stepQuickRack` | `delta`, `discard`? | Previous/next rack in the bank on view: the stored button before/after the lit one (from none, + the first and − the last; it stops at either end), loaded as `pressQuickRack` loads. Fails when the bank has no racks. |
 
@@ -765,7 +767,10 @@ The session owns the Launchkey, so it works the same whichever client is running
   walk the page order (`settings.padPages`). The holds are read there too: Sound (fader
   button 6, either fader page) and a Panel fader button 1–4 held while a knob turns
   (swap mode) set `surface.layer`; a Panel fader button 1–4 toggles its part on release
-  when no knob turned. A Panel fader 1–4
+  when no knob turned. In swap mode the knobs are the held part's (`turnSwapKnob`). Under
+  Sound, a tap on the lit or an empty Quick Rack pad captures the live rack there
+  (`storeRack`, one step, no dialog); a pad holding another rack recalls it. The app
+  mirrors both holds with `setLayer`. A Panel fader 1–4
   that the live rack's controller map gives another target than its own part's level
   becomes `moveRackFader` (Volume layer; none does nothing); the map reaches the MIDI
   thread as a fixed table, updated when it changes.
@@ -953,8 +958,10 @@ row 112–119.
 
 **Hold Sound** (Panel fader button 6, on either fader page): while it is held the pads act
 and light as the Racks page, whatever page is on view (`surface.layer` is `sound`).
-`page` stays the page on view. (To come with the Racks lane: a tap on a top-row pad while
-Sound is held stores the live rack there, `storeRack`.)
+`page` stays the page on view. A tap on the lit or an empty Quick Rack pad while Sound is
+held captures the live rack there in one step (`storeRack`: the lit rack is overwritten,
+otherwise it is saved as a new rack named from its sounds; no dialog); a pad holding another
+rack recalls it. The app holds Sound with `setLayer`.
 
 #### Pad
 | Field | Type | Meaning |
@@ -1335,14 +1342,19 @@ Style Dynamics: `{ control, level, touch, accent, accentThreshold, accentMode, a
 ### `knobs`
 The Knob Assign page: `{ page, pageName, pageNumber, pageCount, knobs }`.
 - `page`: `style` (the default), `rack` (the live rack's controller map), `pan`, `reverb`, `chorus` or `delay`. `pageNumber` is 1-based.
+- In swap mode (`surface.layer` `swap`) the knobs are the held part's (`turnSwapKnob`):
+  `pageName` is "Swap R1", "Swap R2", "Swap R3" or "Swap L", while `page` and `pageNumber`
+  stay the page the knobs go back to. Knob 1's `function` is `swapSound`, its `value` the
+  sound's number and name ("23 Rhodes Soft") or "-" for a sound with no number; knobs 2–8
+  are the part's mix.
 - `knobs`: always eight, knob 1 first: `{ function, name, short, value, level }`.
   - `function`: `none`, `dynamics`, `retriggerRate`, `retriggerOnOff`, `trackMuteA`,
     `trackMuteB`, `tempo`, `swing`, `partVolume`, `harmonyVolume`, `metronomeVolume`, `partPan`,
     `partReverb`, `partChorus`, `partDelay`, `fxReturn` (an effect block's return level; the `pan` page's
     knobs 5–7 are Reverb, Chorus and Delay Return), `fxParam` (an effect parameter, #236; the
     `name` says which, "Reverb Time"), `delayTime` (the delay's note value, or its ms with
-    tempo sync off), `harmonyArp` (the HARMONY/ARPEGGIO switch) or `splitPoint` (its value
-    a note name, "F#2").
+    tempo sync off), `harmonyArp` (the HARMONY/ARPEGGIO switch), `splitPoint` (its value
+    a note name, "F#2") or `swapSound` (swap mode's knob 1, below).
   - `name` is the full name ("Dynamics Control"); `short` is up to 8 characters ("DynCtrl",
     "---" for No Assign), as the Genos Live Control view and the Launchkey display show it.
   - `value`: the value as text ("64", "1/8", "On", "3 of 8", "All", "120 BPM", a pan "L20" /

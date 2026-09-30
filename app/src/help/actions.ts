@@ -323,6 +323,8 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setPadPageOrder': return 'settings.pad_pages'
     case 'swapSound': return 'part.swap'
     case 'storeRack': return 'quick.store_rack'
+    case 'turnSwapKnob': return 'part.swap'
+    case 'setLayer': return cmd.layer.type === 'swap' ? 'part.swap' : 'launchkey.sound'
     // --- end eyes-free contract ---
   }
 }

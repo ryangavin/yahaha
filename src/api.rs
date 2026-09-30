@@ -272,7 +272,11 @@ impl From<Action> for AppCmd {
             Action::ToggleHarmonyArp => HarmonyArpCmd::ToggleHarmonyArp.into(),
             Action::ReloadPlugin => PluginCmd::ReloadPartPlugin { part: None }.into(),
             Action::SwapSound { part, step } => PartsCmd::SwapSound { part, step: step as i32 }.into(),
+            Action::SwapKnob { part, knob, delta } => KnobsCmd::TurnSwapKnob { part, knob, delta }.into(),
             Action::StoreRack(slot) => QuickRackCmd::StoreRack { slot }.into(),
+            // The press as a command; the hardware path (`Control::apply_hardware`) first
+            // decides capture (`storeRack`) or recall from the buttons, not the layer.
+            Action::QuickRackHeld(slot) => QuickRackCmd::PressQuickRack { slot, discard: false }.into(),
             Action::MultiPad(c) => MultiPadCmd::from(c).into(),
             Action::Knob(knob, delta) => KnobsCmd::TurnKnob { knob, delta }.into(),
             Action::KnobPage(delta) => KnobsCmd::StepKnobPage { delta }.into(),

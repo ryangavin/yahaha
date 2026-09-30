@@ -471,3 +471,66 @@ fn store_rack_saves_the_live_rack_as_it_goes() {
     drop(s);
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// The capture race (#488): a tap under the Sound hold arrives as `QuickRackHeld`, and
+/// captures or recalls from that alone, even when the hold was let go (the layer back at
+/// None) before the control side ran it. With Store armed it stores as Store does.
+#[test]
+fn a_held_tap_captures_although_the_hold_is_let_go_by_then() {
+    let d = dir("held-race");
+    let s = session(&d);
+    let ballad = rack_on(&s, "Ballad", 60, 0);
+    let loud = rack_on(&s, "Loud", 20, 1);
+    let racks = s.state().racks.len();
+    assert_eq!(s.state().surface.layer, launchkey::Layer::None, "no hold any more");
+
+    // The lit pad (Loud, 2): its rack takes the changes.
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 33 }).unwrap();
+    s.hardware(Action::QuickRackHeld(1)).unwrap();
+    let st = s.state();
+    assert_eq!((st.live_rack.id.as_deref(), st.live_rack.modified), (Some(loud.as_str()), false), "saved over Loud");
+    assert_eq!(st.racks.len(), racks);
+
+    // An empty pad (4): the changed live rack is saved as a new rack and put there.
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 44 }).unwrap();
+    s.hardware(Action::QuickRackHeld(3)).unwrap();
+    let st = s.state();
+    let new = st.quick_racks.buttons[3].rack.clone().expect("stored");
+    assert!(new != loud && new != ballad);
+    assert_eq!((st.live_rack.id.as_deref(), st.racks.len()), (Some(new.as_str()), racks + 1));
+
+    // A pad holding another rack (Ballad, 1): recalled, not stored over.
+    s.hardware(Action::QuickRackHeld(0)).unwrap();
+    let st = s.state();
+    assert_eq!((st.live_rack.id.as_deref(), st.keyboard_parts[0].volume), (Some(ballad.as_str()), 60));
+    assert_eq!(st.quick_racks.buttons[0].rack.as_deref(), Some(ballad.as_str()));
+
+    // Store armed: the held tap is Store's press (the saved live rack on the button).
+    s.send(QuickRackCmd::ToggleQuickRackStore).unwrap();
+    s.hardware(Action::QuickRackHeld(5)).unwrap();
+    let q = quick_state(&s);
+    assert_eq!((q.buttons[5].rack.as_deref(), q.store), (Some(ballad.as_str()), false));
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A plain Quick Rack press (`Action::QuickRack`) never captures, even with the layer at
+/// Sound: the lit pad loads its rack again (the changes kept as a Recovered rack), an
+/// empty one has nothing to load.
+#[test]
+fn a_plain_press_under_the_sound_layer_only_loads() {
+    let d = dir("plain-under-sound");
+    let s = session(&d);
+    rack_on(&s, "Loud", 20, 1);
+    s.send(PadsCmd::SetLayer { layer: launchkey::Layer::Sound }).unwrap();
+    assert_eq!(s.state().surface.layer, launchkey::Layer::Sound);
+    s.send(PartsCmd::SetPartVolume { part: 0, volume: 33 }).unwrap();
+    assert!(s.hardware(Action::QuickRack(3)).is_err(), "an empty button: nothing to load");
+    assert_eq!(quick_state(&s).buttons[3].rack, None, "no capture");
+    s.hardware(Action::QuickRack(1)).unwrap();
+    let st = s.state();
+    assert_eq!((volume(&s, 0), st.live_rack.modified), (20, false), "Loud loaded as saved, not saved over");
+    assert!(st.racks.iter().any(|r| r.name == format!("{RECOVERED}Loud")), "the changes kept aside");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}

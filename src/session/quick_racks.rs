@@ -14,12 +14,14 @@
 //!   rack came from (lit), its changes are saved over that rack. Anywhere else, a saved rack
 //!   with no changes goes on as it is; otherwise it is saved as a new rack named from its
 //!   sounds ("Rhodes Soft + Strings"). Under the hold, a pad holding another rack recalls
-//!   it, as the Racks page does.
+//!   it, as the Racks page does. The input thread reads the hold when the pad goes down
+//!   and sends `Action::QuickRackHeld`; `Control::apply_hardware` decides from that and the
+//!   buttons alone, never from the layer (which may have been let go by then).
 //! - A button names a rack by id, so a rename keeps it; deleting a rack empties its buttons.
 
 use super::{Control, Session};
 use crate::api::{CmdError, QuickRackButton, QuickRackCmd, QuickRacksState, RackCmd, RackPrompt};
-use crate::launchkey::{Action, Layer, QuickPanel};
+use crate::launchkey::{Action, QuickPanel};
 use std::collections::BTreeMap;
 use crate::racks::quick::{self, QuickRacks, BANKS, SLOTS};
 use std::path::{Path, PathBuf};
@@ -79,11 +81,6 @@ impl Control {
                 };
                 if self.quick.store {
                     return self.store_quick(bank, slot);
-                }
-                // Hold Sound + tap: the lit pad or an empty one captures the live rack.
-                // The input thread sends the Racks page's press; the hold is read here.
-                if self.hardware && bank == self.quick.bank && self.shared.layer() == Layer::Sound && self.sound_tap_captures(slot) {
-                    return self.quick_rack_cmd(QuickRackCmd::StoreRack { slot });
                 }
                 self.load_quick(bank, slot, discard)
             }
@@ -309,9 +306,21 @@ impl Control {
     }
 
     /// A Launchkey pad or button, or a pedal: its command, run as the hardware (no dialog).
+    ///
+    /// A Quick Rack pad tapped under the Sound hold comes as `Action::QuickRackHeld`: the
+    /// input thread read the hold when the pad went down, so nothing here reads
+    /// `Shared::layer`, which may have moved on since (the hold let go before the pump
+    /// ran). With Store not armed, the lit pad or an empty one captures the live rack
+    /// (`storeRack`); otherwise it is the plain press (a recall, or the armed Store).
     pub(super) fn apply_hardware(&mut self, a: Action) -> Result<(), CmdError> {
         self.hardware = true;
-        let r = self.apply(a.into());
+        let cmd = match a {
+            Action::QuickRackHeld(slot) if !self.quick.store && (slot as usize) < SLOTS && self.sound_tap_captures(slot) => {
+                QuickRackCmd::StoreRack { slot }.into()
+            }
+            a => a.into(),
+        };
+        let r = self.apply(cmd);
         self.hardware = false;
         r
     }

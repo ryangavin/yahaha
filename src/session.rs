@@ -657,6 +657,7 @@ impl Control {
         self.pump_ots_link();
         self.pump_pedal_releases();
         self.pump_settings();
+        self.pump_swap_end();
         while self.old_rx.pop().is_ok() {} // drop old styles here, off the RT thread
         while self.old_audition_rx.pop().is_ok() {}
         self.pump_sound_font();

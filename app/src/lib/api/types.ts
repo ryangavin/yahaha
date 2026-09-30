@@ -149,6 +149,11 @@ export type AppCmd =
    * Racks). Refused if `pages` names Sections, names a page twice, or has more than
    * four. Saved in `settings.json`; on a page left out, the pads go to Sections. */
   | { type: 'setPadPageOrder'; pages: PadPage[] }
+  /** The held control's layer (`surface.layer`), for the app's mirror of the Launchkey:
+   * `sound` holds Sound (the pads are the Racks page, from any page), `swap` holds keyboard
+   * part `part`'s Panel fader button with a knob turned (swap mode), `none` releases
+   * either, as the Launchkey's button release does. Refused for a part outside 0-3. */
+  | { type: 'setLayer'; layer: Layer }
   | { type: 'setMasterVolume'; volume: number }
   // One Touch Settings
   | { type: 'recallOts'; index: number }
@@ -413,8 +418,11 @@ export type QuickRackCmd =
   | { type: 'stepQuickRackBank'; delta: number }
   /** Store: arm (or disarm) it for the next button press. Disarming lets a waiting button go. */
   | { type: 'toggleQuickRackStore' }
-  /** Store the live rack on button `slot` (0-7) of the bank on view, overwriting what is
-   * there, as Store then the button does (hold Sound + tap a Racks pad). */
+  /** Store the live rack on button `slot` (0-7) of the bank on view in one step (hold
+   * Sound + tap the lit or an empty Racks pad): on the live rack's own (lit) button it
+   * overwrites that rack with the live rack; elsewhere a saved, unmodified live rack goes
+   * on as it is, otherwise the live rack is saved as a new rack named from the sounds of
+   * its parts that are on ("Rhodes Soft + Strings"). Clears Store armed. */
   | { type: 'storeRack'; slot: number }
   /** Empty button `slot` of bank `bank` (0 = A). */
   | { type: 'clearQuickRack'; bank: number; slot: number }
@@ -618,6 +626,11 @@ export type KnobsCmd =
   | { type: 'turnKnob'; knob: number; delta: number }
   /** Knob `knob` back to its function's default (a double-click): Dynamics max, sends dry, pan centre. */
   | { type: 'resetKnob'; knob: number }
+  /** Swap mode (docs/eyes-free.md): turn knob `knob` (0-7) of keyboard part `part` (0-3)
+   * by `delta` steps, as the Launchkey does while the part's Panel fader button is held:
+   * knob 1 steps the part's sound by number (`swapSound`), knobs 2-8 its mix (level, pan,
+   * reverb, chorus, delay, insert 1's amount, send 4). Whatever the Knob Assign page. */
+  | { type: 'turnSwapKnob'; part: number; knob: number; delta: number }
 
 export type KnobPage = 'style' | 'rack' | 'pan' | 'reverb' | 'chorus' | 'delay'
 export type KnobFunction =
@@ -649,6 +662,8 @@ export type KnobFunction =
   | 'partSend'
   /** The rotary speaker's speed: right fast, left slow. */
   | 'rotaryFast'
+  /** Swap mode's knob 1: steps the held part's sound by number (`swapSound`). */
+  | 'swapSound'
 
 /** The Knob Assign page and its eight knobs. */
 export interface KnobsState {

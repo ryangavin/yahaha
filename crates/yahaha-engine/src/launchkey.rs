@@ -503,9 +503,17 @@ pub enum Action {
     RackFader(u8, u8),
     /// Swap mode: step keyboard part `part`'s sound by `step` numbers (PartsCmd::SwapSound).
     SwapSound { part: u8, step: i8 },
+    /// Swap mode: knob `knob` (1-7; knob 0 is `SwapSound`) of keyboard part `part` turned
+    /// `delta` steps: the part's mix (KnobsCmd::TurnSwapKnob).
+    SwapKnob { part: u8, knob: u8, delta: i8 },
     /// Store the live rack on Quick Rack `slot` (0-7) of the bank on view
     /// (QuickRackCmd::StoreRack).
     StoreRack(u8),
+    /// Quick Rack pad `slot` (0-7) of the bank on view tapped while Sound is held
+    /// (`Layer::Sound`, decided on the input thread): the control side captures the live
+    /// rack on the lit or an empty button (`storeRack`) and recalls any other, with no
+    /// look at the layer, which may have changed by then.
+    QuickRackHeld(u8),
 }
 
 /// What a pad does on a page under a layer: the pads of `layer.pads(page)`.
