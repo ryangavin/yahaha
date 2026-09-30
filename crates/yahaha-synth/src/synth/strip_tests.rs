@@ -58,14 +58,18 @@ fn style_render(buffers: usize) -> (u64, f64) {
 /// Every strip at its defaults (no compressor, no insert 2, no send to 4-6): the output is
 /// bit-identical to the synth's before the strips were wired in. The hash was taken on
 /// that code (origin/fx/strip-dsp, 0e2deebb) on macOS/aarch64; libm may round differently
-/// on other targets, so only there is it compared.
+/// on other targets, so only there is it compared: only CI's macOS job covers the hash.
+/// Elsewhere the test still renders and checks the style sounds, and prints that the hash
+/// was not compared.
 #[test]
-fn default_strips_leave_the_output_bit_identical() {
+fn default_strips_leave_the_output_bit_identical_hash_on_macos_aarch64_only() {
     let (h, e) = style_render(200);
     assert!(e > 1.0, "the style sounds: {e}");
     eprintln!("style render hash: {h:#018x}");
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     assert_eq!(h, 0x7e32_651d_731f_44e6, "bit-identical to before the strips");
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    println!("SKIPPED: golden hash not compared on this target (only macOS/aarch64 pins it); got {h:#018x}");
 }
 
 /// Buffers of 256 frames in a `note_render`, and the one the note is let go at.
@@ -142,6 +146,49 @@ fn the_strip_chain_runs_on_a_soundfont_stem() {
     // And on another channel only: this one is untouched.
     let elsewhere = note_render(0, |c| c.fx.strips.set_second(3, &InsertSlot::of(InsertType::Distortion)));
     assert!(bits(&dry) == bits(&elsewhere), "another channel's insert 2 changed this one");
+}
+
+/// A channel a plugin plays: its SoundFont stem is silent and its strip runs in the plugin
+/// rack, so the SoundFont side's compressor there, on in the strip, settles and then does
+/// no work (the channel leaves the chain's mask). Once the plugin lets go, it runs on the
+/// SoundFont stem again.
+#[cfg(feature = "plugins")]
+#[test]
+fn a_plugin_channels_soundfont_compressor_does_no_work() {
+    use crate::plugin::{LoadConfig, PluginHost, PluginId, Swap};
+    use yahaha_core::route::Source;
+    use yahaha_fx::fx::PartComp;
+    use yahaha_fx::fx::master::CompPreset;
+    let font = tiny_font_with(&[(CUTOFF, 6000), (RELEASE, -2084)]);
+    let rack = Box::new(Rack::new(&font, 48_000).unwrap());
+    let (_tx, rx) = RingBuffer::<Msg>::new(16);
+    let ctl = Arc::new(SynthControl::new(0));
+    ctl.fx.strips.set_comp(0, &PartComp::of(true, CompPreset::Loud));
+    let (mut core, _swap, link) = AudioCore::new(Some(rack), vec![rx], Arc::new(Parts::new()), ctl.clone(), 48_000, 2);
+    let mut link = link.unwrap();
+    let mut out = vec![0f32; 512];
+    core.process(&mut out);
+    assert_eq!(core.inserts.mask() & 1, 1, "on the SoundFont stem, the compressor runs");
+    let dls = PluginHost::new(None).load(&PluginId::DLS, LoadConfig { sample_rate: 48_000.0, max_frames: 256, ..Default::default() }).expect("Apple's DLSMusicDevice");
+    link.assign(0, dls, Swap::default()).ok().unwrap();
+    ctl.routes.set(0, Source::Plugin);
+    let mut buffers = 0;
+    while core.inserts.mask() & 1 != 0 {
+        core.process(&mut out);
+        buffers += 1;
+        assert!(buffers < 50, "the SoundFont side's compressor never stopped on a plugin channel");
+    }
+    for _ in 0..10 {
+        core.process(&mut out);
+        assert_eq!(core.inserts.mask() & 1, 0, "no compressor work on a plugin channel's stem");
+    }
+    // The plugin lets go: the compressor runs on the SoundFont stem again.
+    link.clear(0, 0);
+    ctl.routes.set(0, Source::SoundFont(0));
+    for _ in 0..4 {
+        core.process(&mut out);
+    }
+    assert_eq!(core.inserts.mask() & 1, 1, "back on the SoundFont, the compressor runs again");
 }
 
 /// Send 4 as a Hall reverb (the three buses' sends and returns at 0): a part whose send 4 is

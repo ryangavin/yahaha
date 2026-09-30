@@ -13,9 +13,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 /// MIDI channels.
 pub const CHANNELS: usize = 16;
 
-/// The effect bus's send buses: Reverb (CC91), Chorus (CC93), Variation (CC94).
-/// `fx::BUSES` re-exports it.
-pub const BUSES: usize = 3;
+/// The effect bus's sends, a counter row each: the three buses, Reverb (CC91), Chorus
+/// (CC93) and Variation (CC94), then the player's sends 4-6. fx asserts it equals its
+/// `SENDS` (its own `BUSES` is the three buses).
+pub const BUSES: usize = 6;
 
 /// The audio callback's stages, as [`Perf::stage`] indexes them.
 pub const STAGES: [&str; 8] = ["midi", "band", "keys", "extra", "fade", "plugins", "fx", "out"];
@@ -155,8 +156,8 @@ pub struct Perf {
     pub channel_peak: [AtomicU32; CHANNELS],
     /// Channels playing a plugin (bit per channel), as of the last callback.
     pub plugin_mask: AtomicU32,
-    /// The effect bus's blocks (reverb, chorus, variation): time per callback and output
-    /// peak.
+    /// The effect bus's sends (reverb, chorus, variation, sends 4-6): time per callback
+    /// and output peak after the return gain, while one runs.
     pub bus: [Cost; BUSES],
     pub bus_peak: [AtomicU32; BUSES],
     /// The Style parts' insertion effects (#269, by part 0-7): time per callback and

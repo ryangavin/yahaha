@@ -198,9 +198,10 @@ impl SendFx {
     }
 
     /// Run on `n` frames of its send (`il`, `ir`) and **add** its return into `left` /
-    /// `right`. RT-safe.
+    /// `right`. RT-safe. Returns its output peak after the return gain, for the
+    /// performance view, when its kind ran; `None` with no kind, or idle with no input.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn process_add(&mut self, il: &[f32], ir: &[f32], n: usize, left: &mut [f32], right: &mut [f32], ctl: &SendControl, bpm: f32) {
+    pub(super) fn process_add(&mut self, il: &[f32], ir: &[f32], n: usize, left: &mut [f32], right: &mut [f32], ctl: &SendControl, bpm: f32) -> Option<f32> {
         let code = ctl.kind.load(Relaxed);
         let code = if Engine::of_code(code).is_some() { code } else { 0 };
         let active = Engine::of_code(self.kind);
@@ -229,7 +230,7 @@ impl SendFx {
                 _ => self.switch(code),
             }
         }
-        let Some(e) = Engine::of_code(self.kind) else { return };
+        let Some(e) = Engine::of_code(self.kind) else { return None };
         let param = |i: usize, p: Param| p.clamp(ctl.params[i].load(Relaxed));
         // While the old kind fades out it keeps the params it already has: the control
         // holds the new kind's, which apply from the next buffer, as the new kind ramps in.
@@ -261,7 +262,7 @@ impl SendFx {
             if !input {
                 self.gain = target;
                 self.fade_in = false;
-                return;
+                return None;
             }
         }
         self.fade_in = false;
@@ -276,10 +277,12 @@ impl SendFx {
             right[k] += wr * g;
         }
         self.tails[t].update(input, peak, n);
+        let out = peak * target;
         if fading {
             self.switch(code);
             self.fade_in = true;
         }
+        Some(out)
     }
 }
 
