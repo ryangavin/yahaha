@@ -83,10 +83,18 @@ function sf(id: string, name: string, bank: number, program: number, extra: Part
   }
 }
 
-/** Sound numbers, 1-based: for now the library's order (patches[i].number == i + 1; lane A
- * of docs/eyes-free.md puts the favourites first). */
-function number(patches: PatchInfo[]) {
-  patches.forEach((p, i) => (p.number = i + 1))
+/** Sound numbers, 1-based (docs/eyes-free.md, "Sound numbers"), as the engine's
+ * (src/session/sound_library.rs): favourites first, then the rest; within each, category
+ * (the Genos order), then name ignoring case, then the name as written, then the patch's
+ * place in the library. */
+export function number(patches: PatchInfo[]) {
+  const cats = Object.keys(CATEGORY_LABELS) as PatchCategory[]
+  const lower = (s: string) => s.toLowerCase()
+  const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+  patches
+    .map((p, i) => ({ p, i }))
+    .sort((x, y) => Number(y.p.favourite) - Number(x.p.favourite) || cats.indexOf(x.p.category) - cats.indexOf(y.p.category) || cmp(lower(x.p.name), lower(y.p.name)) || cmp(x.p.name, y.p.name) || x.i - y.i)
+    .forEach(({ p }, n) => (p.number = n + 1))
 }
 
 /** A small curated library, as a player might have built it. */
