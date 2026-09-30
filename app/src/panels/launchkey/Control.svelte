@@ -20,6 +20,7 @@
     caption,
     shape = 'rect',
     showFunction = false,
+    pressed,
   }: {
     surface: SurfaceState
     id: ControlId
@@ -30,6 +31,8 @@
     shape?: 'rect' | 'square'
     /** Engrave the control's current function under it, and keep the legend on the face. */
     showFunction?: boolean
+    /** A held button that is down now (Sound, while the state's layer says so). */
+    pressed?: boolean
   } = $props()
 
   const c = $derived(surface.controls.find((x) => x.id === id)!)
@@ -44,6 +47,7 @@
   beats={clock.beats}
   label={now.label || legend}
   {shape}
+  {pressed}
   caption={showFunction ? now.label : caption}
   onclick={() => now.action && app.send(now.action)}
 >
