@@ -27,8 +27,7 @@
   Rack and Library on the mixer bar, beside the loaded rack's name (its Mixer button shows
   the mixer row's details, as Alt+M does); Multi Pads by the pad-page tabs; Charts by the
   lead-sheet lane; Harmony/Arp and Chord Looper on the keyboard strip's cheek; Effects from
-  the quick nav and the mixer row; the style name on the display opens the browser (as
-  touching it does on the Genos).
+  the quick nav and the mixer row; Styles in the quick nav opens the browser.
   Library (panels/library, `ui.view`): a page in place of the whole stage, from the
   header's Stage | Library switch (Alt+B); drawers open over it too.
   Browser: centred modal. Drawers and the browser end above the help footer
@@ -221,26 +220,27 @@
     flex-basis: 7em;
   }
   /* The mirror's own --u: the largest that fits the slot at the surface's proportions,
-     76em × 18em: 8 knobs over the 16 pads with Shift, Pad Bank, Track and Rotary on the
-     left and Scene/Function, Stop/Play on the right (today's 96em less the ~20em fader
-     bank; the status display goes too). A full-width row is wider than 76:18 on most
-     windows, so the mirror is limited by height and centred. */
+     105em × 10em: one flat row with the 8 knobs beside the 16 pads, Shift, Pad Bank, Track
+     and Rotary on the left and Scene/Function, Stop/Play on the right (no fader bank, no
+     status display). If a row is wider than 105:10 the mirror is limited by height and
+     centred. */
   .mirror {
-    --w: 76;
-    --h: 18;
+    --w: 105;
+    --h: 10;
     --u: min(100cqw / var(--w), 100cqh / var(--h));
     font-size: var(--u);
     width: calc(var(--w) * 1em);
     flex: none;
   }
   /* The mixer row, in rem (not --u). A set height that MixerRow fills (it lays its strips
-     out in whatever height it gets): 268–280px, the least a strip needs whole. With the
+     out in whatever height it gets): at least 235px, a whole strip (200px) plus the bar's
+     one line and the gap, growing to 280px on a tall window. With the
      details shown (ui.mixer) the display steps aside and the row takes its place (the bar
      and each strip's details sit straight above the strips); on a short window the strips
      scroll inside the row. */
   .mixer-slot {
     flex: none;
-    height: clamp(16.75rem, 38cqh, 17.5rem);
+    height: clamp(14.75rem, 38cqh, 17.5rem);
     min-height: 0;
     display: flex;
     flex-direction: column;
