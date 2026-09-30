@@ -446,7 +446,6 @@ describe('Stage: sound names on the part strips', () => {
   it('names each part\'s sound on its strip, the bar names the rack; a click opens the picker', async () => {
     const session = new MockSession({ manual: true, demo: false })
     render(App, { props: { session } })
-    ui.mixer = true
     flushSync()
     expect(names().map((b) => b.textContent)).toEqual(session.state.keyboardParts.map((p) => p.voiceName))
     expect(rackHead()).toContain('Rack: Untitled rack')

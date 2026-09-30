@@ -52,11 +52,8 @@ describe('drawer buttons on the stage', () => {
 
   const BAR = '.bar[aria-label="Mixer"]'
 
-  it('drawer.rack sits in the mixer bar (with the details shown) and toggles its drawer', async () => {
+  it('drawer.rack sits in the mixer bar and toggles its drawer', async () => {
     setup()
-    expect(document.querySelector(BAR)).toBeNull()
-    ui.mixer = true
-    flushSync()
     const b = btn(`${BAR} .drawer-btn[data-tip="drawer.rack"]`)
     expect(b.getAttribute('aria-pressed')).toBe('false')
     await fireEvent.click(b)
@@ -73,7 +70,6 @@ describe('drawer buttons on the stage', () => {
     render(App, { props: { session } })
     session.send({ type: 'selectPart', part: 2 })
     session.advance(16)
-    ui.mixer = true
     flushSync()
     await fireEvent.click(btn(`${BAR} .drawer-btn[data-tip="drawer.library"]`))
     flushSync()
