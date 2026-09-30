@@ -461,15 +461,15 @@ impl MockSound {
         let fonts = FONTS.map(String::from);
         // The GM map for the style playing, through the engine's own resolution.
         let gm_map = patches::gm_map_rows(&lib, style.map(|_| key.as_str()), &auto);
+        let numbers = sound_numbers(&self.patches);
         st.sound_library = SoundLibraryState {
             patches: self
                 .patches
                 .iter()
-                .enumerate()
-                .map(|(i, p)| {
+                .zip(numbers)
+                .map(|(p, number)| {
                     let note = patches::unavailable_reason(p, &fonts);
-                    // Sound numbers: the library's order for now (lane A: favourites first).
-                    PatchInfo { patch: p.into(), available: note.is_none(), note, number: i as u32 + 1 }
+                    PatchInfo { patch: p.into(), available: note.is_none(), note, number }
                 })
                 .collect(),
             categories: Category::ALL.iter().map(|&c| CategoryInfo { id: c, label: c.label().into() }).collect(),
@@ -492,6 +492,23 @@ impl MockSound {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sound numbers as the engine's: favourites first, then category (Genos order), name
+    /// ignoring case, name as written, library index.
+    #[test]
+    fn sound_numbers_put_favourites_first_then_category_then_name() {
+        let p = |name: &str, category, favourite| Patch { category, favourite, ..sf(name, name, 0, 0) };
+        let patches = vec![
+            p("zeta", Category::Piano, false),
+            p("Bass", Category::Bass, false),
+            p("Organ", Category::Organ, true),
+            p("alpha", Category::Piano, false),
+            p("Alpha", Category::Piano, false),
+            p("Alpha", Category::Piano, false), // a tie, broken by the library index
+            p("Grand", Category::Piano, true),
+        ];
+        assert_eq!(sound_numbers(&patches), vec![6, 7, 2, 5, 3, 4, 1]);
+    }
 
     /// `exportSoundPreset` as the engine: a plugin sound with a state exports, a second
     /// export of the name needs `overwrite` (#307); no state, a SoundFont sound or an
@@ -531,4 +548,22 @@ mod tests {
         update(&mut m, &mut st, PatchSource::plugin("aumu dls  appl", ""));
         assert_eq!(m.patches[i].source, PatchSource::plugin("aumu dls  appl", ""), "another plugin starts with none");
     }
+}
+
+/// Sound numbers (docs/eyes-free.md, "Sound numbers"), as `src/session/sound_library.rs`'s
+/// `numbers`: each patch's 1-based number, by its index. Favourites first, then the rest;
+/// within each, category (the Genos order), then name ignoring case, then the name as
+/// written, then the patch's place in the library.
+fn sound_numbers(patches: &[Patch]) -> Vec<u32> {
+    let lower = |p: &Patch| p.name.chars().flat_map(char::to_lowercase).collect::<String>();
+    let mut order: Vec<usize> = (0..patches.len()).collect();
+    order.sort_by(|&i, &j| {
+        let (a, b) = (&patches[i], &patches[j]);
+        b.favourite.cmp(&a.favourite).then(a.category.cmp(&b.category)).then_with(|| lower(a).cmp(&lower(b))).then_with(|| a.name.cmp(&b.name)).then(i.cmp(&j))
+    });
+    let mut numbers = vec![0; patches.len()];
+    for (n, i) in order.into_iter().enumerate() {
+        numbers[i] = n as u32 + 1;
+    }
+    numbers
 }

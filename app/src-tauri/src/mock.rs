@@ -3914,13 +3914,16 @@ mod tests {
         assert_eq!(m.state.pads.pads[8].action, Some(AppCmd::Ots(OtsCmd::ToggleOtsLink)));
     }
 
-    /// Sound numbers: 1.. in the library's order (lane A orders favourites first).
+    /// Sound numbers: favourites first, then the rest; within each by category, then name.
     #[test]
-    fn sound_library_patches_are_numbered_in_order() {
+    fn sound_library_patches_are_numbered_favourites_first() {
         let m = MockSession::new();
-        let p = &m.state.sound_library.patches;
-        assert!(!p.is_empty());
+        let mut p: Vec<_> = m.state.sound_library.patches.iter().collect();
+        assert!(p.iter().any(|p| p.patch.favourite) && p.iter().any(|p| !p.patch.favourite));
+        p.sort_by_key(|p| p.number);
         assert!(p.iter().enumerate().all(|(i, p)| p.number == i as u32 + 1));
+        let key = |p: &&PatchInfo| (!p.patch.favourite, p.patch.category, p.patch.name.to_lowercase());
+        assert!(p.windows(2).all(|w| key(&w[0]) <= key(&w[1])), "{:?}", p.iter().map(|p| &p.patch.name).collect::<Vec<_>>());
     }
 
     /// Knob Assign pages (#197): a turn runs its function's command, as the session's.

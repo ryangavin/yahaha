@@ -3,6 +3,25 @@ import { describe, expect, it } from 'vitest'
 import { MockSession } from './mock'
 import { parsePluginId, parsePresetId, pluginCategory, presetId } from './sounds'
 import { visibleSounds } from '../../panels/sounds/model'
+import { number } from './mock-sound-library'
+import type { PatchCategory, PatchInfo } from './sound-library'
+
+describe('sound numbers (docs/eyes-free.md)', () => {
+  it('favourites first, then category (Genos order), name ignoring case, name as written, index', () => {
+    const p = (name: string, category: PatchCategory, favourite: boolean) => ({ id: name, name, category, favourite, number: 0 }) as unknown as PatchInfo
+    const patches = [
+      p('zeta', 'piano', false),
+      p('Bass', 'bass', false),
+      p('Organ', 'organ', true),
+      p('alpha', 'piano', false),
+      p('Alpha', 'piano', false),
+      p('Alpha', 'piano', false),
+      p('Grand', 'piano', true),
+    ]
+    number(patches)
+    expect(patches.map((x) => x.number)).toEqual([6, 7, 2, 5, 3, 4, 1])
+  })
+})
 
 describe('sound catalog (#117)', () => {
   it('ids round-trip, even with a colon in the file', () => {

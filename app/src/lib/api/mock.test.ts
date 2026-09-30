@@ -635,7 +635,7 @@ describe('eyes-free contract (docs/eyes-free.md)', () => {
     expect(m.state.keyboardParts[0].program).toBe(program)
     m.send({ type: 'swapSound', part: 4, step: 1 })
     expect(m.state.message?.error).toBe(true)
-    expect(m.state.soundLibrary.patches.map((p) => p.number)).toEqual(m.state.soundLibrary.patches.map((_, i) => i + 1))
+    expect(m.state.soundLibrary.patches.map((p) => p.number).sort((a, b) => a - b)).toEqual(m.state.soundLibrary.patches.map((_, i) => i + 1))
   })
 
   it('fader button 6 is Sound on both fader pages; the Racks page pads', () => {
