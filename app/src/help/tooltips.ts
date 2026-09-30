@@ -4014,6 +4014,51 @@ const catalog = {
     launchkey: 'Swap mode: knob 1 steps through them',
   },
   // --- end eyes-free contract ---
+
+  // --- Eyes-free lane D: Settings › Launchkey (docs/eyes-free.md) ---
+  'settings.tab.launchkey': {
+    title: 'Settings: Launchkey',
+    body: 'The pad page order: which pad pages Pad Bank ▲/▼ step through after Sections, and in what order.',
+    genos: null,
+    keys: [],
+    launchkey: 'Pad Bank ▲ / ▼ follow the order',
+  },
+  'settings.pad_pages.up': {
+    title: 'Move page up',
+    body: 'Moves this pad page one place earlier in the order, so Pad Bank ▼ reaches it sooner. Kept in your settings.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'settings.pad_pages.down': {
+    title: 'Move page down',
+    body: 'Moves this pad page one place later in the order. Kept in your settings.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'settings.pad_pages.remove': {
+    title: 'Leave page out',
+    body: 'Takes this pad page out of the order: Pad Bank ▲/▼ and Tab skip it. If the pads are showing it, they go back to Sections. Hold Sound still shows Racks.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'settings.pad_pages.add': {
+    title: 'Add page back',
+    body: 'Puts a pad page you left out back into the order, last.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  'settings.pad_pages.reset': {
+    title: 'Default page order',
+    body: 'Puts every pad page back in the default order: Sections, Racks, Chord, Multi Pads, Setup.',
+    genos: null,
+    keys: [],
+    launchkey: null,
+  },
+  // --- end eyes-free lane D ---
 } satisfies Record<string, Tip>
 
 export type TipKey = keyof typeof catalog

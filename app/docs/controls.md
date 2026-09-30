@@ -720,6 +720,12 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Rescan styles** | Reads the style folders again, picking up files you added, changed or removed. The band keeps playing. | — | — | — |
 | **Pedals and wheels** | The sustain pedal and footswitches, what each pedal does, and which parts the pedal and the wheels reach. | Assignable, Controller | — | — |
 | **Pad page order** | Which pad pages Pad Bank ▲/▼ step through after Sections, and in what order. Leave a page out to skip it; hold Sound still shows Racks. Kept in your settings. | — | — | Pad Bank ▲ / ▼ follow it |
+| **Settings: Launchkey** | The pad page order: which pad pages Pad Bank ▲/▼ step through after Sections, and in what order. | — | — | Pad Bank ▲ / ▼ follow the order |
+| **Move page up** | Moves this pad page one place earlier in the order, so Pad Bank ▼ reaches it sooner. Kept in your settings. | — | — | — |
+| **Move page down** | Moves this pad page one place later in the order. Kept in your settings. | — | — | — |
+| **Leave page out** | Takes this pad page out of the order: Pad Bank ▲/▼ and Tab skip it. If the pads are showing it, they go back to Sections. Hold Sound still shows Racks. | — | — | — |
+| **Add page back** | Puts a pad page you left out back into the order, last. | — | — | — |
+| **Default page order** | Puts every pad page back in the default order: Sections, Racks, Chord, Multi Pads, Setup. | — | — | — |
 
 ## Audio
 
