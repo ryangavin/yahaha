@@ -30,7 +30,8 @@ export function applyUrlParams(search = location.search) {
   if (open === 'sound') ui.openLibrary('map')
   if (open === 'quick') ui.openLibrary('racks')
   if (open === 'parts') ui.toggleDrawer('rack') // the Rack panel's old name
-  if (open === 'settings' || open === 'rack' || open === 'mixer' || open === 'effects' || open === 'charts' || open === 'looper' || open === 'multipad' || open === 'harmony') ui.toggleDrawer(open)
+  if (open === 'mixer') ui.mixer = true // the mixer row's Details layer, not a drawer
+  if (open === 'settings' || open === 'rack' || open === 'effects' || open === 'charts' || open === 'looper' || open === 'multipad' || open === 'harmony') ui.toggleDrawer(open)
   if (p.get('shift') === '1') ui.shiftLatched = true
   const key = p.get('tip')
   if (key && isTipKey(key)) {

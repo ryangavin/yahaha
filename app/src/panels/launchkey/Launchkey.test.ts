@@ -5,6 +5,7 @@ import { MockSession, LIBRARY } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import Launchkey from './Launchkey.svelte'
 import { neighbours } from '../../lib/surface'
+import { PAD_PAGES } from '../../lib/api/types'
 
 function setup(page?: 'chordSetup' | 'otsParts') {
   const session = new MockSession({ manual: true, demo: true })
@@ -19,6 +20,8 @@ afterEach(() => {
   cleanup()
   app.detach()
   ui.shiftLatched = false
+  ui.mixer = false
+  ui.view = 'stage'
 })
 
 const pad = (note: number) => document.querySelector<HTMLButtonElement>(`.pad[data-note="${note}"]`)!
@@ -175,6 +178,36 @@ describe('Launchkey mirror', () => {
     expect(btn.dataset.tip).toBe('section.main_c')
     btn.click()
     expect(session.state.transport.queued).toBe('Main C')
+  })
+
+  it('the Mixer button shows the mixer details, returning to the stage from Library', async () => {
+    setup()
+    const mixer = () => document.querySelector<HTMLButtonElement>('[data-tip="drawer.mixer"]')!
+    ui.mixer = false
+    ui.view = 'library'
+    flushSync()
+    await fireEvent.click(mixer())
+    expect(ui.view).toBe('stage')
+    expect(ui.mixer).toBe(true)
+    await fireEvent.click(mixer())
+    expect(ui.mixer).toBe(false)
+  })
+
+  it('keeps every pad-page name and the connection text in the markup (the compact layout only hides them visually)', () => {
+    setup()
+    const tabs = [...document.querySelectorAll('[role="tab"]')]
+    expect(tabs.map((t) => t.querySelector('.pname')?.textContent)).toEqual(PAD_PAGES.map((p) => p.name))
+    expect(document.querySelector('.lk')!.getAttribute('data-tip')).toBe('launchkey.status')
+    expect(document.querySelector('.lk .lk-text')!.textContent).toMatch(/Launchkey/)
+  })
+
+  it('under Shift a button carries both its Shift function and its printed legend', () => {
+    setup()
+    ui.shiftLatched = true
+    flushSync()
+    const up = document.querySelector('[aria-label="Pad Bank"] .btn')!
+    expect(up.querySelector('.fn')?.textContent).toBeTruthy()
+    expect(up.querySelector('.legend')?.textContent).toBe('▲')
   })
 
   it('marks where the hardware fader is while a level waits for it', () => {

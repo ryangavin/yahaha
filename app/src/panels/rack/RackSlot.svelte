@@ -76,6 +76,14 @@
   const setInsertOn = (slot: number) => app.send({ type: 'setStripInsertOn', strip: index, slot, on: !strip.inserts[slot].on })
   const setInsertSetting = (slot: number, setting: number, value: number) => app.send({ type: 'setStripInsertSetting', strip: index, slot, setting, value })
   const toggleInsert = (slot: number) => (openInsert = openInsert === slot ? null : slot)
+  // The popover belongs to the part being edited: when another part becomes the edited one
+  // (a click on another slot, the Launchkey's EDIT pads, a strip name), it closes. Keyed on
+  // the edited part's index, so it runs only when that changes, and not when this slot
+  // itself becomes the edited part (the click that opened the popover selected it).
+  const edited = $derived(app.state.keyboardParts.findIndex((p) => p.selected))
+  $effect(() => {
+    if (edited !== index) openInsert = null
+  })
   function popKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       e.stopPropagation()

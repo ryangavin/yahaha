@@ -152,8 +152,8 @@ const STATES: [string, Setup][] = [
     click('rack.map')
   }],
   ['rack drawer, Right 2 loading a plugin',(s) => ((ui.rack = true), s.send({ type: 'setPartPlugin', part: 1, id: 'aumu samp appl', state: null }))],
-  ['mixer drawer open', () => (ui.mixer = true)],
-  ['mixer drawer, a plugin part', (s) => ((ui.mixer = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
+  ['mixer details open', () => (ui.mixer = true)],
+  ['mixer details, a plugin part', (s) => ((ui.mixer = true), s.send({ type: 'setPartPlugin', part: 0, id: 'aumu dls  appl', state: null }), s.advance(1000))],
   ['effects screen open', () => (ui.effects = true)],
   ['effects screen, an added send, send 1 set by the rack', (s) => (
     (ui.effects = true), s.send({ type: 'addSend', kind: 'phaser' }), s.send({ type: 'setRackSendOverride', send: 0, on: true })
@@ -171,12 +171,12 @@ const STATES: [string, Setup][] = [
   ['harmony drawer open', () => (ui.harmony = true)],
   ['harmony drawer, arpeggio on, Fixed velocity', (s) => ((ui.harmony = true), s.send({ type: 'setArpPattern', index: 2 }), s.send({ type: 'setArpVelocity', mode: 'fixed', velocity: 90 }), s.send({ type: 'toggleHarmonyArp' }))],
   ['harmony drawer, Echo type', (s) => ((ui.harmony = true), s.send({ type: 'setHarmonyType', index: 20 }))],
-  ['mixer drawer, the Master editor open', () => {
+  ['mixer details, the Master editor open', () => {
     ui.mixer = true
     flushSync()
     click('fx.master_edit')
   }],
-  ['mixer drawer open, Style tab',(s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
+  ['mixer details open, Style tab',(s) => ((ui.mixer = true), s.send({ type: 'setFaderPage', page: 'style' }))],
   ['charts drawer, nothing imported', () => (ui.charts = true)],
   ['charts drawer, a playlist, chart mode playing', (s) => ((ui.charts = true), s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],
   ['chart in the lead-sheet band', (s) => (s.send({ type: 'importCharts', text: 'irealb://demo' }), s.send({ type: 'setChartMode', on: true }))],

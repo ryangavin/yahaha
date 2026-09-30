@@ -2033,13 +2033,6 @@ const catalog = {
     keys: [],
     launchkey: null,
   },
-  'mixer.voice': {
-    title: 'Voice',
-    body: 'Keyboard parts: the GM voice the part plays. Style parts: the Yamaha voice (bank MSB/LSB/program) the style was written for, and after ≈ the nearest voice the built-in synth plays for it.',
-    genos: 'Mixer › Voice',
-    keys: [],
-    launchkey: null,
-  },
   'mixer.cpu': {
     title: 'Track CPU',
     body: 'How much of each audio buffer this track takes to render over the last second (its SoundFont voices, filter and insert effect, or its plugin), where 100% is the whole buffer. "pk" is its slowest single buffer, red past half the buffer, where dropouts start. A larger audio buffer (Settings) gives a heavy plugin more room.',
@@ -2049,7 +2042,7 @@ const catalog = {
   },
   'mixer.cpu_group': {
     title: 'Group CPU',
-    body: 'How much of each audio buffer this group\'s tracks take together to render over the last second, where 100% is the whole buffer; red past half the buffer. "≤ pk" adds up each track\'s slowest single buffer. Those need not happen in the same buffer, so it is only an upper bound and never turns the strip red: open the group\'s tab to see each track\'s own peak.',
+    body: 'How much of each audio buffer this group\'s tracks take together to render over the last second, where 100% is the whole buffer; red past half the buffer. "≤ pk" adds up each track\'s slowest single buffer. Those need not happen in the same buffer, so it is only an upper bound and never turns the readout red; each strip\'s own CPU shows its track\'s real peak.',
     genos: null,
     keys: [],
     launchkey: null,

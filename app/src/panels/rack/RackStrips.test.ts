@@ -85,6 +85,20 @@ describe('Rack slot: the part\'s strip', () => {
     expect(head()).toContain('● modified')
   })
 
+  it('the reverb and chorus sends send setPartSend and show in the strip\'s sends 1 and 2', async () => {
+    const { session, sent } = setup()
+    await fireEvent.keyDown(inSlot('Right 3', 'mixer.part.reverb'), { key: 'End' })
+    flushSync()
+    expect(sent).toContainEqual({ type: 'setPartSend', part: 2, send: 'reverb', value: 127 })
+    expect(session.state.keyboardParts[2].reverb).toBe(127)
+    expect(session.state.keyboardParts[2].strip.sends[0]).toBe(127)
+    await fireEvent.keyDown(inSlot('Right 3', 'mixer.part.chorus'), { key: 'End' })
+    flushSync()
+    expect(sent).toContainEqual({ type: 'setPartSend', part: 2, send: 'chorus', value: 127 })
+    expect(session.state.keyboardParts[2].chorus).toBe(127)
+    expect(session.state.keyboardParts[2].strip.sends[1]).toBe(127)
+  })
+
   it('the compressor turns on and takes a type', async () => {
     const { session, sent } = setup()
     await fireEvent.click(inSlot('Right 1', 'mixer.strip.comp'))

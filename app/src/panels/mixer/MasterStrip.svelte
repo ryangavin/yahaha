@@ -35,7 +35,7 @@
   <div class="headroom" use:tip={'mixer.master'}>
     {#if mixer.master === null}Synth off{:else}100 = unity{/if}
   </div>
-  <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => (ui.mixer = !ui.mixer)}>Details</DrawerButton>
+  <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleMixer()}>Details</DrawerButton>
 </div>
 
 <style>

@@ -182,16 +182,19 @@ describe('Effects screen', () => {
     expect(card('Style inserts').textContent).toContain('The style has no insertion effects.')
   })
 
-  it('opens from the quick nav\'s Effects button and closes the Mixer', () => {
+  it('opens from the quick nav\'s Effects button over the mixer details, and Esc closes it first', () => {
     ui.mixer = true
     const nav = NAV.find((n) => n.tip === 'nav.effects')!
     expect(nav.key).toBe('alt+e')
     nav.toggle()
     expect(nav.open()).toBe(true)
     expect(ui.effects).toBe(true)
-    expect(ui.mixer).toBe(false)
+    expect(ui.mixer).toBe(true)
     expect(ui.escape()).toBe(true)
     expect(ui.effects).toBe(false)
+    expect(ui.mixer).toBe(true)
+    expect(ui.escape()).toBe(true)
+    expect(ui.mixer).toBe(false)
   })
 
   it('every control has a tooltip, with the delay\'s tempo sync on and off', async () => {
