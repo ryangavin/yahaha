@@ -1,12 +1,19 @@
 <!--
-  The bar across the top of the mixer row: everything the old Mixer drawer had above its
-  strips, in one or two wrapping lines.
+  The bar across the top of the mixer row. Always (one line, from the Launchkey mirror's
+  old fader head):
+  - What the faders play: on the Panel page the loaded rack's name ("Rack: <name>", ● while
+    it has unsaved changes), on the Style page "Style: the band".
+  - Rack (its drawer), Library (the sounds) and Mixer (shows/hides the details below, as
+    Alt+M and the master column's Details do; never closes a drawer).
+  - The fader layer (VOL/PAN/REV/CHO/DLY): what the Launchkey faders move, and what the
+    strips show.
+  With the details shown (`ui.mixer`), everything the old Mixer drawer had above its
+  strips follows, in one or two wrapping lines:
 
   - Page tabs Panel/Style: the tab IS the Launchkey fader page (`state.mixer.faderPage`),
     so switching sends `setFaderPage` and the Launchkey's page button switches the tab.
     All twelve strips stay visible either way; the page only says which ones the eight
     Launchkey faders move. The lamp beside it is the Launchkey's page button light.
-  - The fader layer (VOL/PAN/REV/CHO/DLY): what the Launchkey faders move.
   - MIDI out port; CPU of every track together and the plugin instances (#340, #407),
     from the meters the row reads.
   - Metronome (on, bell, its own volume: the built-in synth's click, never on the port).
@@ -24,12 +31,14 @@
   import { FADER_LAYERS, type FaderLayer, type FaderPage, type Meters, type TrackMuteOrder } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { css } from '../../lib/leds'
+  import { toggleLibrary } from '../../lib/nav'
   import { surfaceOf } from '../../lib/surface'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
   import { CPU_WARN, cpuOf, cpuWarn, pct, type TrackCpu } from './cpu'
+  import { rackName } from '../rack/rack'
 
   let { meters }: { meters: Meters | null } = $props()
 
@@ -41,6 +50,7 @@
 
   const mixer = $derived(app.state.mixer)
   const page = $derived(mixer.faderPage)
+  const rack = $derived(app.state.liveRack)
   const metronome = $derived(app.state.metronome)
   const effects = $derived(app.state.effects.blocks)
   const outPort = $derived(app.state.io.outputPort)
@@ -88,6 +98,24 @@
 {/snippet}
 
 <div class="bar" role="group" aria-label="Mixer">
+  <!-- What the faders play, and the panels that detail it (was the mirror's fader head). -->
+  <div class="group head">
+    <span class="engraved rack-name" data-testid="rack-name" use:tip={'stage.rack_name'}
+      >{#if page === 'panel'}<b>Rack: {rackName(rack)}{rack.modified ? ' ●' : ''}</b>{:else}Style: the band{/if}</span
+    >
+    <nav class="group drawers" aria-label="Part panels">
+      <DrawerButton tip="drawer.rack" open={ui.rack} onclick={() => ui.toggleDrawer('rack')}>Rack</DrawerButton>
+      <DrawerButton tip="drawer.library" open={ui.view === 'library'} onclick={() => toggleLibrary('sounds')}>Library</DrawerButton>
+      <DrawerButton tip="drawer.mixer" open={ui.mixer} onclick={() => ui.toggleMixer()}>Mixer</DrawerButton>
+    </nav>
+  </div>
+  <div class="group layers" role="group" aria-label="Fader layer">
+    {#each FADER_LAYERS as l (l)}
+      <Toggle on={mixer.faderLayer === l} tip="mixer.layer" onclick={() => app.send({ type: 'setFaderLayer', layer: l })}>{LAYER_NAMES[l]}</Toggle>
+    {/each}
+  </div>
+
+  {#if ui.mixer}
   <div class="tabs" role="tablist" aria-label="Mixer page (the Launchkey fader page)">
     {#each TABS as t (t.id)}
       <button
@@ -111,11 +139,6 @@
     <span class="lamp" aria-hidden="true" style:--led={pageLed ? css(pageLed.rgb) : 'transparent'}></span>
     Launchkey faders: {page === 'panel' ? 'Panel' : 'Style'}
   </span>
-  <div class="group layers" role="group" aria-label="Fader layer">
-    {#each FADER_LAYERS as l (l)}
-      <Toggle on={mixer.faderLayer === l} tip="mixer.layer" onclick={() => app.send({ type: 'setFaderLayer', layer: l })}>{LAYER_NAMES[l]}</Toggle>
-    {/each}
-  </div>
 
   <div class="group level">
     <span class="engraved">Style</span>
@@ -199,6 +222,7 @@
   </div>
 
   <span class="info" use:tip={'mixer.info'}><b>A fader is its channel’s CC 7</b>, no hidden gain</span>
+  {/if}
 </div>
 
 <style>
@@ -223,6 +247,24 @@
   }
   .bar :global(.drawer-btn) {
     height: 2.2em;
+  }
+  .head {
+    gap: 0.6rem;
+    min-width: 0;
+  }
+  /* A long rack name shortens rather than wrapping the bar. */
+  .rack-name {
+    max-width: 16rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rack-name b {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .drawers {
+    gap: 0.35em;
   }
   .tabs {
     display: flex;

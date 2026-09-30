@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MockSession } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import { isTipKey } from '../../help/tooltips'
@@ -44,9 +44,85 @@ afterEach(() => {
   ui.rack = false
   ui.settings = false
   ui.view = 'stage'
+  ui.libraryTab = 'sounds'
 })
 
-describe('MixerBar', () => {
+describe('MixerBar, always shown', () => {
+  const rackText = () => q('[data-testid="rack-name"]').textContent!.trim()
+
+  it('names the loaded rack on the Panel page, ● while modified, and the band on the Style page', async () => {
+    const s = attach()
+    render(MixerBar, { meters: null })
+    expect(q('[data-testid="rack-name"]').dataset.tip).toBe('stage.rack_name')
+    expect(rackText()).toBe('Rack: Untitled rack')
+    // The mock marks the rack modified from its second publish on.
+    s.advance(16)
+    s.send({ type: 'setPartVolume', part: 0, volume: 12 })
+    s.advance(16)
+    flushSync()
+    expect(s.state.liveRack.modified).toBe(true)
+    expect(rackText()).toBe('Rack: Untitled rack ●')
+    s.send({ type: 'toggleFaderPage' })
+    s.advance(16)
+    flushSync()
+    expect(rackText()).toBe('Style: the band')
+  })
+
+  it('Rack opens the Rack drawer, Library the sounds page, Mixer the details (and back)', async () => {
+    attach()
+    render(MixerBar, { meters: null })
+    const btn = (key: string) => q<HTMLButtonElement>(`button[data-tip="${key}"]`)
+    expect(ui.rack).toBe(false)
+    await fireEvent.click(btn('drawer.rack'))
+    expect(ui.rack).toBe(true)
+    flushSync()
+    expect(btn('drawer.rack').getAttribute('aria-pressed')).toBe('true')
+
+    ui.libraryTab = 'racks'
+    await fireEvent.click(btn('drawer.library'))
+    expect(ui.view).toBe('library')
+    expect(ui.libraryTab).toBe('sounds')
+    flushSync()
+    expect(btn('drawer.library').getAttribute('aria-pressed')).toBe('true')
+    await fireEvent.click(btn('drawer.library'))
+    expect(ui.view).toBe('stage')
+
+    expect(document.querySelector('[role="tablist"]')).toBeNull()
+    await fireEvent.click(btn('drawer.mixer'))
+    expect(ui.mixer).toBe(true)
+    flushSync()
+    expect(btn('drawer.mixer').getAttribute('aria-pressed')).toBe('true')
+    expect(document.querySelector('[role="tablist"]')).not.toBeNull()
+    await fireEvent.click(btn('drawer.mixer'))
+    expect(ui.mixer).toBe(false)
+    // Opening the details never closed the drawer.
+    expect(ui.rack).toBe(true)
+  })
+
+  it('the layer selector shows without the details and sends setFaderLayer', async () => {
+    const s = attach()
+    render(MixerBar, { meters: null })
+    const layer = (n: string) => qa<HTMLButtonElement>('[data-tip="mixer.layer"]').find((b) => b.textContent?.includes(n))!
+    expect(qa('[data-tip="mixer.layer"]').map((b) => b.textContent?.trim())).toEqual(['VOL', 'PAN', 'REV', 'CHO', 'DLY'])
+    await fireEvent.click(layer('DLY'))
+    expect(s.state.mixer.faderLayer).toBe('delay')
+    flushSync()
+    expect(layer('DLY').getAttribute('aria-checked')).toBe('true')
+    expect(layer('VOL').getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('every control has a tooltip, details hidden', () => {
+    attach()
+    render(MixerBar, { meters: METERS })
+    expect(untipped(document.body)).toEqual([])
+  })
+})
+
+describe('MixerBar, details shown', () => {
+  beforeEach(() => {
+    ui.mixer = true
+  })
+
   it('the page tabs send setFaderPage, so the Launchkey follows, and follow the Launchkey', async () => {
     const s = attach()
     render(MixerBar, { meters: null })
