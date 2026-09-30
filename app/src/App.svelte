@@ -38,9 +38,9 @@
   Across the mixer line the mirror gives way first: the row asks for 66rem and the mirror
   for 18rem (growing into any spare width), and the mirror shrinks 50× faster, down to
   13rem; only then do the strips narrow. The mirror's slot is its own size container
-  (`mirror`): the mirror sets its --u to the largest that fits the slot, in its wide
-  layout (96em × 26.2em) or, when the slot is narrower than 2.09:1, its stacked one
-  (66em × 46.4em, faders under the pads). The help footer has a fixed height (taller in
+  (`mirror`): narrower than 3:1 (the usual case) the mirror takes its compact layout,
+  which fills the slot at --u = the smaller of its height / 30 and its width / 24;
+  a wider slot gets the full surface, at the largest --u that fits 96em × 26.2em. The help footer has a fixed height (taller in
   help mode), so hovering never moves the stage.
 -->
 <script lang="ts">
@@ -243,8 +243,8 @@
     justify-content: center;
   }
   /* The mirror's own --u: the largest that fits the slot at the surface's proportions.
-     Measured from the rendered mirror: 26.00em tall wide, 46.17em stacked (66em wide);
-     --h has a little headroom so it never spills out of the slot. */
+     Measured from the rendered mirror: 26.00em tall; --h has a little headroom so it
+     never spills out of the slot. */
   .mirror {
     --w: 96;
     --h: 26.2;
@@ -253,10 +253,13 @@
     width: calc(var(--w) * 1em);
     flex: none;
   }
-  @container mirror (aspect-ratio < 2.09) {
+  /* Narrower than 3:1 (the slot beside the mixer row, always, bar a very wide window) the
+     mirror takes its compact layout, which fills the slot: 30em tall, at least 24em wide. */
+  @container mirror (aspect-ratio < 3) {
     .mirror {
-      --w: 66;
-      --h: 46.4;
+      --u: min(100cqh / 30, 100cqw / 24);
+      width: 100%;
+      height: 100%;
     }
   }
   .strip-slot {

@@ -201,4 +201,59 @@
   .right .set {
     color: var(--accent);
   }
+
+  /* The compact mirror (Launchkey.svelte): style over tempo · position · section on the
+     left, the chord right of them, and the fingering, detection, split and transpose in
+     one line underneath. */
+  @container mirror (aspect-ratio < 3) {
+    .screen {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.2em 0.6em;
+      padding: 0.35em 0.6em;
+      border-radius: 0.4em;
+    }
+    .left {
+      flex-flow: row wrap;
+      align-items: center;
+      column-gap: 0.6em;
+      row-gap: 0.1em;
+    }
+    .style {
+      flex: 1 0 100%;
+      font-size: 1.1em;
+    }
+    .tempo {
+      font-size: 1em;
+    }
+    .bar {
+      font-size: 1.1em;
+      min-width: 0;
+    }
+    .beats {
+      gap: 0.2em;
+    }
+    .sections {
+      font-size: 0.9em;
+      min-height: 0;
+    }
+    .name {
+      font-size: 2.3em;
+    }
+    .fingered {
+      font-size: 0.75em;
+      min-height: 0;
+    }
+    .right {
+      grid-column: 1 / -1;
+      flex-flow: row wrap;
+      align-items: baseline;
+      column-gap: 0.7em;
+      row-gap: 0;
+      font-size: 0.8em;
+      text-align: left;
+    }
+    .right > :first-child {
+      font-size: 1em;
+    }
+  }
 </style>

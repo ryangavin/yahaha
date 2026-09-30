@@ -14,7 +14,8 @@
     Style part's sends back to the style's, #268).
   - Style volume (#199) and Multi Pad volume (#196): Panel faders 5 and 6 on the
     Launchkey, scales on the Style parts' and the pads' CC 7. ↕ while the level waits for
-    its Launchkey fader.
+    its Launchkey fader. Beside each, that group's CPU: its tracks' together, red by the
+    average only, since the summed peak is an upper bound (cpu.ts).
   - Effects…: opens the Effects screen, with what each shared block plays.
   The Harmony/Arpeggio switch the drawer drew under Panel fader 5 lives on the Harmony
   drawer (and J, and the Launchkey's fader button 5).
@@ -28,7 +29,7 @@
   import DrawerButton from '../../lib/ui/DrawerButton.svelte'
   import Toggle from '../../lib/ui/Toggle.svelte'
   import HSlider from '../settings/HSlider.svelte'
-  import { CPU_WARN, pct } from './cpu'
+  import { CPU_WARN, cpuOf, cpuWarn, pct, type TrackCpu } from './cpu'
 
   let { meters }: { meters: Meters | null } = $props()
 
@@ -46,6 +47,10 @@
   const surface = $derived(surfaceOf(app.state, app.library))
   const pageLed = $derived(surface.controls.find((c) => c.id === 'masterButton') ?? null)
   const cpuTotal = $derived(meters && meters.channels.length > 0 ? meters.cpu : null)
+  // The Style's and the Multi Pads' tracks together, beside their group volumes (#340):
+  // each strip below shows its own track's; a pad has no strip.
+  const styleCpu = $derived(cpuOf(meters, mixer.styleParts.map((p) => p.channel)))
+  const padCpu = $derived(cpuOf(meters, app.state.multiPad.pads.map((p) => p.channel)))
 
   // Style Track Mute is a knob: the engine keeps only the parts' switches it sets, so the
   // knob's position and order are this bar's. Choosing an order sends nothing, so parts
@@ -69,6 +74,18 @@
     document.getElementById(`mixer-tab-${next}`)?.focus()
   }
 </script>
+
+{#snippet groupCpu(name: string, cpu: TrackCpu | null, testid: string)}
+  {#if cpu !== null}
+    <span
+      class="gcpu"
+      class:warn={cpuWarn(cpu)}
+      data-testid={testid}
+      use:tip={'mixer.cpu_group'}
+      aria-label="{name} CPU {pct(cpu.avg)}, peak at most {pct(cpu.peak)}">{pct(cpu.avg)} <span class="pk">≤ pk {pct(cpu.peak)}</span></span
+    >
+  {/if}
+{/snippet}
 
 <div class="bar" role="group" aria-label="Mixer">
   <div class="tabs" role="tablist" aria-label="Mixer page (the Launchkey fader page)">
@@ -106,6 +123,7 @@
       <HSlider value={mixer.styleVolume} tip="mixer.style_level" label="Style volume" onchange={(v) => app.send({ type: 'setStyleVolume', volume: v })} />
     </div>
     {#if mixer.styleVolumeWaiting}<span class="wait" data-testid="style-waiting" use:tip={'mixer.style_level'}>↕</span>{/if}
+    {@render groupCpu('Style', styleCpu, 'style-cpu')}
   </div>
   <div class="group level">
     <span class="engraved">M.Pad</span>
@@ -113,6 +131,7 @@
       <HSlider value={mixer.multiPadVolume} tip="mixer.pad_level" label="Multi Pad volume" onchange={(v) => app.send({ type: 'setMultiPadVolume', volume: v })} />
     </div>
     {#if mixer.multiPadVolumeWaiting}<span class="wait" data-testid="pad-waiting" use:tip={'mixer.pad_level'}>↕</span>{/if}
+    {@render groupCpu('Multi Pad', padCpu, 'pad-cpu')}
   </div>
 
   <div class="group trackmute">
@@ -293,6 +312,17 @@
     font-variant-numeric: tabular-nums;
   }
   .load .warn b {
+    color: var(--danger);
+  }
+  .gcpu {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .gcpu .pk {
+    color: var(--muted);
+  }
+  .gcpu.warn {
     color: var(--danger);
   }
   .info {

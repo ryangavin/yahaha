@@ -43,10 +43,25 @@
   caption={caption ?? (shifted ? now.label : undefined)}
   onclick={() => now.action && app.send(now.action)}
 >
-  {#if showLabel || shifted}<span class="fn" class:shift={shifted}>{now.label}</span>{:else}<span class="legend">{legend}</span>{/if}
+  {#if showLabel}<span class="fn" class:shift={shifted}>{now.label}</span>
+  {:else if shifted}<span class="fn shift swap">{now.label}</span><span class="legend compact" aria-hidden="true">{legend}</span>
+  {:else}<span class="legend">{legend}</span>{/if}
 </HwButton>
 
 <style>
+  .compact {
+    display: none;
+  }
+  /* The compact mirror (Launchkey.svelte) keeps the printed legend on the face under
+     Shift too; the Shift function is the caption under the button. */
+  @container mirror (aspect-ratio < 3) {
+    .swap {
+      display: none;
+    }
+    .compact {
+      display: inline;
+    }
+  }
   .legend {
     font-size: 1.05em;
     line-height: 1;

@@ -134,4 +134,50 @@
     padding-left: 0.4em;
     border-left: 1px solid var(--seam);
   }
+
+  /* The compact mirror (Launchkey.svelte): nine narrow strips in whatever height is left;
+     the readout, the travel and the button fit the strip's width, and a sound name takes
+     one line (its tooltip and the Library have it whole). */
+  @container mirror (aspect-ratio < 3) {
+    .bank,
+    .strip {
+      gap: 0.2em;
+    }
+    .strip {
+      min-height: 0;
+    }
+    .master {
+      padding-left: 0.2em;
+    }
+    .sname {
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+      height: 1.2em;
+      font-size: 0.72em;
+    }
+    .strip :global(.fader) {
+      gap: 0.2em;
+      min-height: 0;
+    }
+    .strip :global(.readout) {
+      width: 100%;
+      max-width: 2.9em;
+      height: 1.35em;
+      font-size: 0.85em;
+    }
+    .strip :global(.track) {
+      width: 100%;
+      max-width: 2.4em;
+      min-height: 2.5em;
+    }
+    .strip :global(.name) {
+      max-width: 100%;
+      font-size: 0.72em;
+      letter-spacing: 0;
+    }
+    .strip :global(.btn) {
+      min-width: 0;
+      height: 1.4em;
+    }
+  }
 </style>

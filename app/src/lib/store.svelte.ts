@@ -314,11 +314,24 @@ class UiStore {
     return this.shiftLatched || this.shiftHeld
   }
 
-  /** Open one side drawer (closing the others), or close it if it's open. */
-  toggleDrawer(d: 'rack' | 'mixer' | 'effects' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony') {
+  /** Open one side drawer (closing the others), or close it if it's open. The mixer's
+   * Details layer isn't a drawer: it stays as it was. */
+  toggleDrawer(d: 'rack' | 'effects' | 'settings' | 'charts' | 'looper' | 'multipad' | 'harmony') {
     const open = !this[d]
-    this.rack = this.mixer = this.effects = this.settings = this.charts = this.looper = this.multipad = this.harmony = false
+    this.rack = this.effects = this.settings = this.charts = this.looper = this.multipad = this.harmony = false
     this[d] = open
+  }
+
+  /** Show or hide the mixer row's Details layer (Alt+M, the master strip's Details, the
+   * Launchkey mirror's Mixer). The row lives on Stage, so from Library this goes to Stage
+   * and shows the details, so that something visible happens. */
+  toggleMixer() {
+    if (this.view === 'library') {
+      this.view = 'stage'
+      this.mixer = true
+    } else {
+      this.mixer = !this.mixer
+    }
   }
 
   /** Show Library, on `tab` (else the last one) and loading into `part` (else the last one). */
@@ -356,12 +369,13 @@ class UiStore {
     if (this.browser) return !(this.browser = false)
     if (this.settings) return !(this.settings = false)
     if (this.rack) return !(this.rack = false)
-    if (this.mixer) return !(this.mixer = false)
     if (this.effects) return !(this.effects = false)
     if (this.charts) return !(this.charts = false)
     if (this.looper) return !(this.looper = false)
     if (this.multipad) return !(this.multipad = false)
     if (this.harmony) return !(this.harmony = false)
+    // The mixer's Details layer sits under the drawers, so they close first.
+    if (this.mixer) return !(this.mixer = false)
     // Library is a page, not an overlay: Esc goes back to Stage once nothing is open over it.
     if (this.view === 'library') {
       this.view = 'stage'
