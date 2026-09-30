@@ -159,6 +159,54 @@ describe('Mixer strip', () => {
     expect(soloOf(3).getAttribute('aria-pressed')).toBe('false')
   })
 
+  it('a long press on a keyboard part\'s On holds swap for it (setLayer), latched until On is clicked again', async () => {
+    const { session, send } = setup()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const on = session.state.keyboardParts[1].on
+      const press = async (ms: number) => {
+        await fireEvent.pointerDown(onOf(1), { button: 0, pointerId: 1 })
+        vi.advanceTimersByTime(ms)
+        await fireEvent.pointerUp(onOf(1), { button: 0, pointerId: 1 })
+        await fireEvent.click(onOf(1), { detail: 1 })
+        flushSync()
+      }
+      await press(400)
+      expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'setLayer', layer: { type: 'swap', part: 1 } }])
+      expect(session.state.surface.layer).toEqual({ type: 'swap', part: 1 })
+      expect(session.state.keyboardParts[1].on).toBe(on)
+      expect(onOf(1).dataset.swap).toBe('true')
+      send.mockClear()
+      // A click on the lit On lets go, without toggling the part.
+      await press(50)
+      expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'setLayer', layer: { type: 'none' } }])
+      expect(session.state.surface.layer).toEqual({ type: 'none' })
+      expect(session.state.keyboardParts[1].on).toBe(on)
+      expect(onOf(1).dataset.swap).toBeUndefined()
+      send.mockClear()
+      // A plain click toggles the part, as before.
+      await press(50)
+      expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'togglePart', part: 1 }])
+      expect(session.state.keyboardParts[1].on).toBe(!on)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a Style part\'s On has no swap hold', async () => {
+    const { send } = setup()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await fireEvent.pointerDown(onOf(6), { button: 0, pointerId: 1 })
+      vi.advanceTimersByTime(400)
+      await fireEvent.pointerUp(onOf(6), { button: 0, pointerId: 1 })
+      await fireEvent.click(onOf(6), { detail: 1 })
+      expect(send.mock.calls.map((c) => c[0])).toEqual([{ type: 'toggleStylePart', part: 2 }])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('Solo on a Style part sends setStyleSolo with its Style part index, and again clears it', async () => {
     const { session, send } = setup()
     await fireEvent.click(soloOf(9))
