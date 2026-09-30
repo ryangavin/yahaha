@@ -487,3 +487,7 @@ impl Control {
         SettingsState { pad_pages: self.shared.page_order().movable().collect() }
     }
 }
+
+#[cfg(test)]
+#[path = "settings_tests.rs"]
+mod tests;
