@@ -823,25 +823,85 @@ fn an_update_without_state_keeps_the_stored_plugin_state() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
-/// Sound numbers (docs/eyes-free.md): every library sound has one, 1-based, the state
-/// shows it, and `number_of` and `at_number` agree with each other and with the state.
-#[test]
-fn every_sound_has_a_number() {
-    let data = folder("numbers");
-    let s = gen_session(&data);
-    let ids: Vec<String> = ["Piano", "Bass", "Pad"].iter().enumerate().map(|(i, n)| add(&s, n, 0, i as u8)).collect();
+/// Each patch's number as the state shows it, by patch id, after checking that `number_of`
+/// and `at_number` agree with the state and round-trip for every number, and that the
+/// numbers are exactly 1..=n.
+fn numbers_by_id(s: &Session) -> std::collections::HashMap<String, u32> {
     let st = s.state();
-    let numbers: Vec<u32> = st.sound_library.patches.iter().map(|p| p.number).collect();
-    assert_eq!(numbers, [1, 2, 3]);
     let ctl = s.inner.lock();
     let lib = &ctl.sound.lib;
-    for (p, id) in st.sound_library.patches.iter().zip(&ids) {
-        assert_eq!(super::number_of(lib, id), Some(p.number));
-        assert_eq!(super::at_number(lib, p.number).map(|x| x.id.as_str()), Some(id.as_str()));
+    let n = st.sound_library.patches.len() as u32;
+    let mut seen: Vec<u32> = st.sound_library.patches.iter().map(|p| p.number).collect();
+    seen.sort_unstable();
+    assert_eq!(seen, (1..=n).collect::<Vec<_>>());
+    for p in &st.sound_library.patches {
+        assert_eq!(super::number_of(lib, &p.patch.id), Some(p.number), "{}", p.patch.name);
+        assert_eq!(super::at_number(lib, p.number).map(|x| x.id.as_str()), Some(p.patch.id.as_str()));
+    }
+    for k in 1..=n {
+        let id = &super::at_number(lib, k).unwrap().id;
+        assert_eq!(super::number_of(lib, id), Some(k));
     }
     assert_eq!(super::number_of(lib, "nope"), None);
-    assert!(super::at_number(lib, 0).is_none() && super::at_number(lib, 4).is_none());
-    drop(ctl);
+    assert!(super::at_number(lib, 0).is_none() && super::at_number(lib, n + 1).is_none());
+    st.sound_library.patches.iter().map(|p| (p.patch.id.clone(), p.number)).collect()
+}
+
+/// Sound numbers (docs/eyes-free.md): with no favourites they follow the Library's order,
+/// category (the Genos order) then name ignoring case, not the order the sounds were
+/// added in; starring a sound makes it number 1 and moves what came before it down one,
+/// and unstarring puts every number back, at once in the state.
+#[test]
+fn sound_numbers_put_favourites_first_then_the_librarys_order() {
+    let data = folder("numbers");
+    let s = gen_session(&data);
+    // Added in the reverse of their numbers: index order would number them 1, 2, 3, 4.
+    let pad = add(&s, "Zither Pad", 0, 88);
+    let sax = add(&s, "Alto Sax", 0, 65);
+    let upright = add(&s, "Upright Piano", 0, 0);
+    let bright = add(&s, "bright Piano", 0, 1);
+    let n = numbers_by_id(&s);
+    assert_eq!([n[&bright], n[&upright], n[&sax], n[&pad]], [1, 2, 3, 4]);
+
+    // A favourite comes first; the sounds before it move down one, those after it stay.
+    s.send(SoundLibraryCmd::SetPatchFavourite { id: sax.clone(), favourite: true }).unwrap();
+    let n = numbers_by_id(&s);
+    assert_eq!([n[&sax], n[&bright], n[&upright], n[&pad]], [1, 2, 3, 4]);
+
+    // Favourites among themselves keep the Library's order too.
+    s.send(SoundLibraryCmd::SetPatchFavourite { id: upright.clone(), favourite: true }).unwrap();
+    let n = numbers_by_id(&s);
+    assert_eq!([n[&upright], n[&sax], n[&bright], n[&pad]], [1, 2, 3, 4]);
+
+    // Unstarring both gives back the numbers without favourites.
+    for id in [&sax, &upright] {
+        s.send(SoundLibraryCmd::SetPatchFavourite { id: id.clone(), favourite: false }).unwrap();
+    }
+    let n = numbers_by_id(&s);
+    assert_eq!([n[&bright], n[&upright], n[&sax], n[&pad]], [1, 2, 3, 4]);
+
+    // Moving a patch in the library doesn't renumber: the Library doesn't show that order.
+    s.send(SoundLibraryCmd::MovePatch { id: pad.clone(), to: 0 }).unwrap();
+    assert_eq!(numbers_by_id(&s)[&pad], 4);
+
+    // Removing a sound renumbers those after it.
+    s.send(SoundLibraryCmd::DeletePatch { id: upright.clone() }).unwrap();
+    let n = numbers_by_id(&s);
+    assert_eq!([n[&bright], n[&sax], n[&pad]], [1, 2, 3]);
+    drop(s);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// Sounds with the same category and name (a duplicate) still get a number each, in the
+/// library's order, and round-trip.
+#[test]
+fn duplicate_sounds_get_a_number_each() {
+    let data = folder("numbers-dup");
+    let s = gen_session(&data);
+    let a = add(&s, "Piano", 0, 0);
+    let b = add(&s, "Piano", 0, 0);
+    let n = numbers_by_id(&s);
+    assert_eq!([n[&a], n[&b]], [1, 2]);
     drop(s);
     let _ = std::fs::remove_dir_all(&data);
 }

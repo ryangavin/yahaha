@@ -90,6 +90,7 @@
 
 <section class="edit" aria-label="Edit {patch.name}">
   <div class="line">
+    <span class="num" aria-label="Sound number {patch.number}" use:tip={'sound.number'}>{patch.number}</span>
     <input bind:this={nameEl} class="name mat-well" aria-label="Sound name" value={patch.name} spellcheck="false" use:tip={'sound.name'} onchange={(e) => commitName(e.currentTarget)} onkeydown={nameKey} />
     <select aria-label="Category of {patch.name}" value={patch.category} use:tip={'sound.edit_category'} onchange={(e) => (app.send({ type: 'setSoundCategory', id: `saved:${patch.id}`, category: e.currentTarget.value as PatchCategory }), onback())}>
       {#each CATS as c (c)}<option value={c}>{CATEGORY_LABELS[c]}</option>{/each}
@@ -152,6 +153,14 @@
   .name {
     font-family: var(--font-display);
     font-weight: 600;
+  }
+  .num {
+    min-width: 2.2rem;
+    text-align: right;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
   }
   .src {
     overflow: hidden;

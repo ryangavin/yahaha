@@ -21,7 +21,7 @@
   import type { GmMapRow } from '../../lib/api/types'
   import { moveCursor } from '../browser/model'
   import { inMySounds } from '../sounds/instruments'
-  import { instrumentOf, patchesById } from '../sounds/model'
+  import { instrumentOf, patchesById, soundNumber } from '../sounds/model'
   import SoundEdit from '../sounds/SoundEdit.svelte'
   import { BADGE_LABEL, PART_SHORT, badgeOf, instrumentNames, libraryCategories, librarySounds, playingByPart, type SourceChip } from './model'
   import { libraryNav as f } from './nav.svelte'
@@ -224,6 +224,7 @@
               {@const e = entries[i]}
               {@const on = partsOn(e.id)}
               {@const b = badgeOf(e)}
+              {@const n = soundNumber(e, byId)}
               <!-- svelte-ignore a11y_click_events_have_key_events (the list and the search take ↑ ↓ and Enter) -->
               <div
                 class="row"
@@ -238,6 +239,7 @@
                 onclick={() => (play(i), box?.focus())}
               >
                 <span class="mark" aria-hidden="true">{on.includes(part) ? '▶' : ''}</span>
+                {#if n !== null}<span class="num" use:tip={'sound.number'}>{n}</span>{:else}<span class="num"></span>{/if}
                 <span class="name">{e.name}{#if on.length}<span class="on"> · {on.map((x) => PART_SHORT[x]).join(', ')}</span>{/if}</span>
                 <span class="in">{#if e.plugin?.lastError}<span class="warn" title={e.plugin.lastError}>⚠ </span>{/if}{rowInst(i)}</span>
                 <span class="badge {b}">{BADGE_LABEL[b]}</span>
@@ -421,7 +423,7 @@
     top: 0;
     height: 34px;
     display: grid;
-    grid-template-columns: 1rem minmax(8rem, 1.5fr) minmax(0, 1fr) 5.4rem 1.6rem;
+    grid-template-columns: 1rem 2.2rem minmax(8rem, 1.5fr) minmax(0, 1fr) 5.4rem 1.6rem;
     align-items: center;
     column-gap: 0.6rem;
     padding: 0 0.4rem 0 0.6rem;
@@ -440,6 +442,11 @@
   .row.playing .name,
   .mark {
     color: var(--accent);
+  }
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--screen-dim);
   }
   .name,
   .in {

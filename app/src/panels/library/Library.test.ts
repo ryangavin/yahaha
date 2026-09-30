@@ -201,6 +201,26 @@ describe('Library › Sounds', () => {
     expect(tipped('sound.duplicate')).toHaveLength(1)
     expect(q('.details')!.textContent).toContain('Right 1 of the live rack')
   })
+
+  it('a saved sound\'s row and details show its number; a font preset\'s row shows none', async () => {
+    await setup()
+    // 42, not its place in the library: the row shows the state's number. (The mock
+    // renumbers on every state it sends, so this sets the state the app holds.)
+    app.state.soundLibrary.patches.find((p) => p.id === 'stage-grand')!.number = 42
+    ui.openLibrary('sounds', 0)
+    flushSync()
+    const grand = rows().find((r) => r.querySelector('.name')!.firstChild!.textContent === 'Stage Grand')!
+    expect(grand, 'the Stage Grand row').toBeTruthy()
+    expect(grand.querySelector('.num')!.textContent).toBe('42')
+    expect(grand.querySelector('.num')!.getAttribute('data-tip')).toBe('sound.number')
+    // Right 1 plays Stage Grand, so its details are open: the number is beside the name.
+    expect(q('.details .num')!.textContent).toBe('42')
+    libraryNav.source = 'soundFont'
+    flushSync()
+    expect(rows().length).toBeGreaterThan(0)
+    expect(rows()[0].querySelector('.num')!.textContent).toBe('')
+    expect(rows()[0].querySelector('.num')!.hasAttribute('data-tip')).toBe(false)
+  })
 })
 
 describe('Library › Save as…', () => {

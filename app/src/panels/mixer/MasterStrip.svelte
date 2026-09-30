@@ -15,11 +15,19 @@
 
   const mixer = $derived(app.state.mixer)
   /** Launchkey fader 9 is the master. */
-  const hw = $derived(surfaceOf(app.state, app.library).faders[8]?.position ?? null)
+  const fader9 = $derived(surfaceOf(app.state, app.library).faders[8])
+  const hw = $derived(fader9?.position ?? null)
+  /** Its badge: M while the master fader moves the master (not without the synth). */
+  const onFader = $derived(fader9?.set?.type === 'setMasterVolume')
 </script>
 
 <div class="master">
-  <div class="name engraved">Master</div>
+  <div class="head">
+    <div class="name engraved">Master</div>
+    {#if onFader}
+      <span class="badge" use:tip={'stage.fader_badge'}>M</span>
+    {/if}
+  </div>
   <MasterFx />
   <div class="fader">
     <Fader
@@ -44,15 +52,33 @@
     grid-template-rows: auto auto minmax(8rem, 1fr) auto auto;
     justify-items: center;
     gap: 0.3rem;
+    flex: 1 1 auto;
     min-width: 4.5rem;
     height: 100%;
     padding: 0.3rem 0.25rem;
     border-left: 1px solid var(--seam);
     color: var(--ink);
   }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
   .name {
     font-family: var(--font-display);
     font-size: 0.8rem;
+  }
+  /* Launchkey fader 9, as the strips' F1–F8 badges. */
+  .badge {
+    padding: 0 0.22rem;
+    border-radius: 3px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.6rem;
+    line-height: 0.95rem;
+    color: var(--ink);
   }
   .fader {
     height: 100%;
