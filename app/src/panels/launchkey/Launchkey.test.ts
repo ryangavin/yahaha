@@ -303,20 +303,23 @@ describe('Launchkey mirror: page order and held layers', () => {
     expect(pad(96).dataset.tip).toBe('quick.store_rack')
   })
 
-  it('the Sound button sends what the hardware button sends on the layer showing', async () => {
-    const { session } = setup()
-    // Panel page: a hold, no command.
-    const before = JSON.stringify(session.state.mixer)
-    await fireEvent.click(soundButton())
-    expect(JSON.stringify(session.state.mixer)).toBe(before)
-    // Style page with Shift: it mutes the sixth Style part, as on the hardware.
-    session.send({ type: 'toggleFaderPage' })
+  it('the Sound button sends exactly faderButton6\'s action from the state, and Shift its shift action', async () => {
+    const session = new MockSession({ manual: true, demo: true })
+    const st = structuredClone(session.state)
+    st.surface.layer = { type: 'sound' }
+    const b6 = st.surface.controls.find((c) => c.id === 'faderButton6')!
+    b6.action = { type: 'toggleStylePart', part: 2 }
+    b6.shiftAction = { type: 'toggleStylePart', part: 5 }
+    const sent = withState(st)
+    const b = () => document.querySelector<HTMLButtonElement>('.sound button')!
+    expect(b().getAttribute('aria-pressed')).toBe('true')
+    await fireEvent.click(b())
+    expect(sent).toEqual([{ type: 'toggleStylePart', part: 2 }])
     ui.shiftLatched = true
     flushSync()
-    const on = session.state.mixer.styleParts[5].on
-    const b = document.querySelector<HTMLButtonElement>('.sound button')!
-    await fireEvent.click(b)
-    expect(session.state.mixer.styleParts[5].on).toBe(!on)
+    await fireEvent.click(b())
+    expect(sent).toEqual([{ type: 'toggleStylePart', part: 2 }, { type: 'toggleStylePart', part: 5 }])
+    ui.shiftLatched = false
   })
 
   it('in swap mode knob 1 is the part\'s sound, and turning it steps the sound as the hardware\'s knob 1 does', async () => {

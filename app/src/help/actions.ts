@@ -21,6 +21,7 @@ const PART_SELECT: TipKey[] = ['part.right1.select', 'part.right2.select', 'part
 const PART_VOLUME: TipKey[] = ['mixer.panel.right1', 'mixer.panel.right2', 'mixer.panel.right3', 'mixer.panel.left']
 const OTS: TipKey[] = ['ots.1', 'ots.2', 'ots.3', 'ots.4']
 export const QUICK: TipKey[] = ['quick.1', 'quick.2', 'quick.3', 'quick.4', 'quick.5', 'quick.6', 'quick.7', 'quick.8']
+const QUICK_PAD: TipKey[] = ['quick.pad1', 'quick.pad2', 'quick.pad3', 'quick.pad4', 'quick.pad5', 'quick.pad6', 'quick.pad7', 'quick.pad8']
 const MP_PAD: TipKey[] = ['multipad.pad1', 'multipad.pad2', 'multipad.pad3', 'multipad.pad4']
 const MP_ARM: TipKey[] = ['multipad.arm1', 'multipad.arm2', 'multipad.arm3', 'multipad.arm4']
 const MP_STOP: TipKey[] = ['multipad.stop1', 'multipad.stop2', 'multipad.stop3', 'multipad.stop4']
@@ -155,7 +156,7 @@ export function tipFor(cmd: AppCmd | null): TipKey {
     case 'setSectionReset': return 'settings.section_reset'
     case 'setSectionTempo': return 'settings.section_tempo'
     // Quick Racks
-    case 'pressQuickRack': return QUICK[cmd.slot % 8]
+    case 'pressQuickRack': return QUICK_PAD[cmd.slot % 8]
     case 'stepQuickRackBank': return cmd.delta < 0 ? 'quick.bank_prev' : 'quick.bank_next'
     case 'toggleQuickRackStore': return 'quick.store'
     case 'clearQuickRack': return 'quick.clear'

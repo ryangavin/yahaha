@@ -53,9 +53,13 @@ const MP_STOP = {
   genos: '[STOP] + pad',
   keys: [],
 }
-// The Quick Rack buttons 1–8 (the bar's, the drawer's and pad page 2's).
+// The Quick Rack buttons 1–8 on the bar and the drawer: a long-press or right-click stores.
 const QUICK_BUTTON = {
   body: 'Loads the rack on this button of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead; so does a long-press or right-click.',
+}
+// The same buttons as pads (the Racks pad page and its mirror): no long-press.
+const QUICK_PAD = {
+  body: 'Loads the rack on this pad of the bank on view (A–H), asking first if the live rack has unsaved changes. Blue when it holds a rack, red when that rack is loaded, dark when empty. With Store armed, stores the live rack here instead.',
 }
 
 const catalog = {
@@ -2506,6 +2510,14 @@ const catalog = {
   'quick.6': { ...QUICK_BUTTON, title: 'Quick Rack 6', genos: 'REGISTRATION MEMORY [6]', keys: ['Y'], launchkey: pad(P2, 'top', 6) },
   'quick.7': { ...QUICK_BUTTON, title: 'Quick Rack 7', genos: 'REGISTRATION MEMORY [7]', keys: ['U'], launchkey: pad(P2, 'top', 7) },
   'quick.8': { ...QUICK_BUTTON, title: 'Quick Rack 8', genos: 'REGISTRATION MEMORY [8]', keys: ['I'], launchkey: pad(P2, 'top', 8) },
+  'quick.pad1': { ...QUICK_PAD, title: 'Quick Rack 1', genos: 'REGISTRATION MEMORY [1]', keys: ['Q'], launchkey: pad(P2, 'top', 1) },
+  'quick.pad2': { ...QUICK_PAD, title: 'Quick Rack 2', genos: 'REGISTRATION MEMORY [2]', keys: ['W'], launchkey: pad(P2, 'top', 2) },
+  'quick.pad3': { ...QUICK_PAD, title: 'Quick Rack 3', genos: 'REGISTRATION MEMORY [3]', keys: ['E'], launchkey: pad(P2, 'top', 3) },
+  'quick.pad4': { ...QUICK_PAD, title: 'Quick Rack 4', genos: 'REGISTRATION MEMORY [4]', keys: ['R'], launchkey: pad(P2, 'top', 4) },
+  'quick.pad5': { ...QUICK_PAD, title: 'Quick Rack 5', genos: 'REGISTRATION MEMORY [5]', keys: ['T'], launchkey: pad(P2, 'top', 5) },
+  'quick.pad6': { ...QUICK_PAD, title: 'Quick Rack 6', genos: 'REGISTRATION MEMORY [6]', keys: ['Y'], launchkey: pad(P2, 'top', 6) },
+  'quick.pad7': { ...QUICK_PAD, title: 'Quick Rack 7', genos: 'REGISTRATION MEMORY [7]', keys: ['U'], launchkey: pad(P2, 'top', 7) },
+  'quick.pad8': { ...QUICK_PAD, title: 'Quick Rack 8', genos: 'REGISTRATION MEMORY [8]', keys: ['I'], launchkey: pad(P2, 'top', 8) },
   'quick.store': {
     title: 'Store',
     body: 'Arms Store: the next Quick Rack button you press gets the live rack, replacing what it held. The buttons flash while it waits; a rack with unsaved changes, or one never saved, is saved first. Press Store again to cancel.',
