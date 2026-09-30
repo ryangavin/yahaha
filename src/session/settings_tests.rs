@@ -27,16 +27,14 @@ fn write(data: &Path, json: &str) {
 #[test]
 fn a_settings_file_starts_the_session_with_its_switches_and_order() {
     let data = testing::data_dir("settings-file");
-    write(
-        &data,
-        r#"{
+    let json = r#"{
   "padPages": ["setup", "multiPads", "racks"],
   "fingering": "aiFingered",
   "upper": true,
   "otsLink": true,
   "stopAcmpMode": "style"
-}"#,
-    );
+}"#;
+    write(&data, json);
     let s = start(&data);
     let st = s.state();
     assert_eq!(st.chord.fingering, Fingering::AiFingered);
@@ -72,7 +70,7 @@ fn a_settings_file_starts_the_session_with_its_switches_and_order() {
     // Nothing changed, so the file is left as it was written.
     drop(s);
     let text = std::fs::read_to_string(data.join("settings.json")).unwrap();
-    assert!(text.contains("\"aiFingered\"") && text.contains("\"multiPads\""), "{text}");
+    assert_eq!(text, json, "the file was rewritten");
     let _ = std::fs::remove_dir_all(&data);
 }
 
