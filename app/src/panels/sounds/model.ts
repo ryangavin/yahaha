@@ -89,6 +89,13 @@ export function patchesById(patches: PatchInfo[]): Map<string, PatchInfo> {
   return new Map(patches.map((p) => [`saved:${p.id}`, p]))
 }
 
+/** An entry's sound number (docs/eyes-free.md, "Sound numbers"): the state's `number` of
+ * the library patch it is, null for anything else (a font preset, a plugin). Never the
+ * list position: the engine owns the order. */
+export function soundNumber(e: Pick<SoundEntry, 'id'>, byId: ReadonlyMap<string, PatchInfo>): number | null {
+  return byId.get(e.id)?.number ?? null
+}
+
 /** The categories in the Genos order, each with how many of `entries` it holds. */
 export function categoryCounts(entries: SoundEntry[]): { id: PatchCategory; label: string; count: number }[] {
   const n = new Map<PatchCategory, number>()

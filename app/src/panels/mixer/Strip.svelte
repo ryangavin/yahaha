@@ -2,17 +2,23 @@
   One compact strip of the always-visible mixer row (MixerRow.svelte). All 12 parts are
   equal: strip 0–3 the keyboard parts (Right 1–3, Left), 4–11 the Style parts. Top to
   bottom: the part's colour and name (selects the part), its voice, the reserved insert
-  slot, Pan and the small REV and DLY sends, the fader (the channel's CC 7, with the
-  soft-takeover mark and the Launchkey ghost) with its meter, then On and Solo.
-  Everything comes from the engine's state; the strip only sends commands.
+  slot, the layer tag and the hardware fader badge, the fader with its meter, then On and
+  Solo. Everything comes from the engine's state; the strip only sends commands.
+  The fader shows the mixer's fader layer (`mixer.faderLayer`, stepped from the mixer bar
+  or the Launchkey): VOL is the channel's CC 7 as always (no tag); PAN, REV, CHO and DLY
+  move the part's pan or send instead, tagged small above the fader, with the value in the
+  readout (pan as L/C/R). A Style part has no pan: its fader is unused in PAN. In PAN and
+  the send layers a double-click puts the value back (pan to centre, a keyboard part's
+  send to 0, a Style part's sends back to the style's). The soft-takeover mark and the
+  Launchkey ghost follow the layer too.
 -->
 <script lang="ts">
-  import type { PartSend } from '../../lib/api/types'
+  import type { FaderLayer, PartSend } from '../../lib/api/types'
   import { app, ui } from '../../lib/store.svelte'
   import { tipFor } from '../../help/actions'
+  import type { TipKey } from '../../help/tooltips'
   import { tip } from '../../lib/tooltip/tip.svelte'
   import Fader from '../../lib/ui/Fader.svelte'
-  import FxKnob from './FxKnob.svelte'
   import { isKeyboard, meterFill, PART_COLORS, stylePartOf } from './parts'
   import { partVoice, styleVoice, voiceName, voiceTitle } from './voice'
 
@@ -20,6 +26,7 @@
     part,
     level = null,
     hw = null,
+    badge = null,
   }: {
     /** Strip index: 0–3 the keyboard parts, 4–11 the Style parts (Rhythm 1 … Phrase 2). */
     part: number
@@ -28,6 +35,8 @@
     /** Where the Launchkey fader for this part physically is (0–127), only while the
      *  Launchkey's live fader page maps to it; null otherwise. */
     hw?: number | null
+    /** The Launchkey fader this part is on, on the current page ("F1"–"F8"); null: none. */
+    badge?: string | null
   } = $props()
 
   const keyboard = $derived(isKeyboard(part))
@@ -70,6 +79,37 @@
   /** A Style part's double-click on a send hands its sends back to the style. */
   const styleReset = $derived(keyboard ? null : () => app.send({ type: 'resetStylePartSends', part: sIdx }))
   const own = (which: PartSend) => !!s?.sendsSet.includes(which)
+
+  const LAYER_TAG: Record<FaderLayer, string> = { volume: 'VOL', pan: 'PAN', reverb: 'REV', chorus: 'CHO', delay: 'DLY' }
+  const LAYER_SEND: Record<FaderLayer, PartSend | null> = { volume: null, pan: null, reverb: 'reverb', chorus: 'chorus', delay: 'variation' }
+  const LAYER_WORD: Record<FaderLayer, string> = { volume: '', pan: ' pan', reverb: ' reverb', chorus: ' chorus', delay: ' delay' }
+
+  const layer = $derived<FaderLayer>(mixer.faderLayer ?? 'volume')
+  /** In PAN and the send layers: this part's fader hasn't reached the value yet. */
+  const sendWaiting = $derived(k ? (mixer.sendWaiting & (1 << part)) !== 0 : (mixer.styleSendWaiting & (1 << sIdx)) !== 0)
+
+  /** What the fader shows and moves in a layer other than VOL; null in VOL. */
+  const alt = $derived.by((): {
+    value: number
+    tip: TipKey
+    /** The readout's text in place of the number (pan as L/C/R). */
+    text: string | null
+    disabled: boolean
+    own: boolean
+    set: (v: number) => void
+    reset: () => void
+  } | null => {
+    if (layer === 'volume') return null
+    if (layer === 'pan') {
+      if (k) return { value: k.pan, tip: 'mixer.part.pan', text: panText(k.pan), disabled: false, own: false, set: (v) => app.send({ type: 'setPartPan', part, pan: v }), reset: () => app.send({ type: 'setPartPan', part, pan: 64 }) }
+      // The API has no Style part pan: the fader is unused here, as on the Launchkey.
+      return { value: 64, tip: 'mixer.layer', text: '—', disabled: true, own: false, set: () => {}, reset: () => {} }
+    }
+    const which = LAYER_SEND[layer]!
+    if (k) return { value: k[which], tip: tipFor({ type: 'setPartSend', part, send: which, value: 0 }), text: null, disabled: false, own: false, set: (v) => send(which, v), reset: () => send(which, 0) }
+    if (s) return { value: s[which], tip: `mixer.style.${which}`, text: null, disabled: false, own: own(which), set: (v) => send(which, v), reset: () => styleReset?.() }
+    return null
+  })
 </script>
 
 <div class="strip" class:selected style:--part={colour} data-part={part}>
@@ -101,29 +141,34 @@
   <!-- The part's two insert slots (from the mixer-strips contract) go here: another lane fills it. -->
   <div class="inserts"></div>
 
-  <!-- Pan and the send minis. Room is left in this row for more send minis later (Chorus…). -->
-  <div class="knobs">
-    {#if k}
-      <FxKnob value={k.pan} tip="mixer.part.pan" label="{name} pan" caption="Pan" reset={64} centre format={panText} onchange={(v) => app.send({ type: 'setPartPan', part, pan: v })} />
-      <!-- Dry by default: a keyboard part's sends are 0 until the player or data sets one. -->
-      <FxKnob value={k.reverb} tip="mixer.part.reverb" label="{name} reverb" caption="Rev" reset={0} onchange={(v) => send('reverb', v)} />
-      <FxKnob value={k.variation} tip="mixer.part.variation" label="{name} delay" caption="Dly" reset={0} onchange={(v) => send('variation', v)} />
-    {:else if s}
-      <!-- The API has no Style part pan: keep its place so the knobs line up. -->
-      <span class="no-pan" aria-hidden="true"></span>
-      <FxKnob value={s.reverb} tip="mixer.style.reverb" label="{name} reverb" caption="Rev" reset={40} onchange={(v) => send('reverb', v)} onreset={styleReset} own={own('reverb')} />
-      <FxKnob value={s.variation} tip="mixer.style.variation" label="{name} delay" caption="Dly" reset={0} onchange={(v) => send('variation', v)} onreset={styleReset} own={own('variation')} />
+  <!-- The fader layer showing (none in VOL) and the Launchkey fader this part is on. -->
+  <div class="tags">
+    {#if alt}
+      <span class="layer" class:own={alt.own} data-layer={layer}>{LAYER_TAG[layer]}</span>
+    {/if}
+    {#if badge}
+      <span class="badge" use:tip={'stage.fader_badge'}>{badge}</span>
     {/if}
   </div>
 
   <div class="level">
-    <div class="fader">
-      {#if k}
-        <Fader value={k.volume} tip={tipFor({ type: 'setPartVolume', part, volume: 0 })} label={name} pickup={k.waiting} {hw} lit={k.sounding} onchange={volume} />
-      {:else if s}
-        <Fader value={s.volume} tip="mixer.style.volume" label={name} pickup={s.waiting} {hw} lit={lit} onchange={volume} />
-      {/if}
-    </div>
+    {#if alt}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="fader" class:text={alt.text !== null} ondblclick={alt.reset}>
+        <Fader value={alt.value} tip={alt.tip} label="{name}{LAYER_WORD[layer]}" pickup={sendWaiting} {hw} lit={k ? k.sounding : lit} disabled={alt.disabled} onchange={alt.set} />
+        {#if alt.text !== null}
+          <span class="fmt glow-text" class:dim={!(k ? k.sounding : lit) || alt.disabled} aria-hidden="true">{alt.text}</span>
+        {/if}
+      </div>
+    {:else}
+      <div class="fader">
+        {#if k}
+          <Fader value={k.volume} tip={tipFor({ type: 'setPartVolume', part, volume: 0 })} label={name} pickup={k.waiting} {hw} lit={k.sounding} onchange={volume} />
+        {:else if s}
+          <Fader value={s.volume} tip="mixer.style.volume" label={name} pickup={s.waiting} {hw} lit={lit} onchange={volume} />
+        {/if}
+      </div>
+    {/if}
     <div class="meter" class:idle={level === null} data-testid="meter" aria-hidden="true">
       <div class="fill" style:transform="scaleY({level === null ? 0 : meterFill(level)})"></div>
     </div>
@@ -182,6 +227,12 @@
     padding: 0;
     cursor: pointer;
   }
+  /* Only the fader gives way to a short row: the rows above and below keep their height. */
+  .name,
+  .voice,
+  .buttons {
+    flex: none;
+  }
   .name {
     display: grid;
     gap: 0.2rem;
@@ -232,14 +283,42 @@
     flex: none;
     height: 1.1rem;
   }
-  .knobs {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.05rem;
-    align-items: start;
+  /* The layer tag (left) and the hardware fader badge (right): small, one line. */
+  .tags {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.2rem;
+    height: 0.95rem;
+    min-width: 0;
+    padding: 0 0.1rem;
   }
-  .no-pan {
-    display: block;
+  .layer {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.62rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  /* A Style part's own send (#268): not the style's. */
+  .layer.own {
+    color: var(--accent);
+  }
+  .layer.own::after {
+    content: '•';
+  }
+  .badge {
+    margin-left: auto;
+    padding: 0 0.22rem;
+    border-radius: 3px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.6rem;
+    line-height: 0.95rem;
+    color: var(--ink);
   }
   .level {
     flex: 1 1 auto;
@@ -251,16 +330,41 @@
   }
   /* The fader scales with the strip (82 px wide: full size; 56 px: about two thirds). */
   .fader {
+    position: relative;
     min-width: 0;
     height: 100%;
     display: flex;
     justify-content: center;
     font-size: clamp(0.6rem, 16cqi, 0.85rem);
   }
-  /* A shorter least track than the Fader's own, so a whole strip fits under the row's
-     details; it still grows to the strip's full height without them. */
+  /* PAN: the readout's text (L/C/R) laid over the Fader's own number, in the same box
+     (the Fader's readout: 0.95em type, 1.45em high, at the top). */
+  .fader.text :global(.readout .glow-text) {
+    visibility: hidden;
+  }
+  .fmt {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1.45em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.95em;
+    color: var(--screen-ink);
+    pointer-events: none;
+  }
+  .fmt.dim {
+    color: var(--screen-dim);
+  }
+  /* A shorter least track than the Fader's own, so the readout and the track fit the
+     level's least height (4.5rem) and a whole strip stands in 200 px; it still grows to
+     the strip's full height when there's room. */
   .fader :global(.track) {
-    min-height: 4.5em;
+    min-height: 3.6em;
   }
   /* The name is on the strip's head already. */
   .fader :global(.name) {
