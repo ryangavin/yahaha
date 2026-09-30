@@ -18,8 +18,12 @@ use std::sync::atomic::Ordering::Relaxed;
 
 impl Control {
     pub(super) fn strips_cmd(&mut self, c: StripCmd) -> Result<(), CmdError> {
-        // The older commands run first; a strip error is still returned after them
-        // (for example a setting on an empty or setting-less insert).
+        // A command the strips refuse (for example a setting on an empty or setting-less
+        // insert) changes nothing: the older commands don't run either.
+        if let Err(e) = self.strips.get_mut().check(&c) {
+            return self.fail(e);
+        }
+        // The older commands run first.
         for old in c.legacy() {
             self.apply(old)?;
         }
@@ -93,10 +97,18 @@ impl Control {
     }
 
     /// Send effect `i` (0-2, a bus) as it plays now: its block's type, parameters and
-    /// return level.
+    /// return level. A block type with no send kind (none today) keeps the kind the strips
+    /// last showed, and says so on stderr: never a panic on the control thread.
     pub(super) fn style_send_slot(&self, i: usize) -> SendSlot {
         let block = FxBlock::ALL[i];
-        let kind = crate::fx::SendKind::of_bus(i, block.type_index(self.fx.effect[i])).expect("every bus type is a send kind");
+        let kind = match crate::fx::SendKind::of_bus(i, block.type_index(self.fx.effect[i])) {
+            Some(k) => k,
+            None => {
+                let shown = self.strips.borrow().style_sends[i].kind.clone();
+                eprintln!("send {}: {:?} has no send kind; keeping {}", i + 1, self.fx.effect[i], shown.name());
+                shown
+            }
+        };
         let mut params = [0; crate::fx::SEND_PARAMS];
         for (o, p) in params.iter_mut().zip(crate::fx::Param::of_block(i)) {
             *o = self.fx.params[p.index()];
@@ -198,6 +210,10 @@ mod tests {
         s.inner.lock().shared.parts.set_tone(2, t, []);
         s.advance(1_000_000);
         assert_eq!(s.state().keyboard_parts[2].strip.tone.release, 100);
+        // An OTS that sets only the XG parameter: it is sent last, so it plays and shows.
+        s.inner.lock().shared.parts.set_tone(2, [None; crate::parts::TONE], [(0x08, ToneControl::Release.xg(), 30)]);
+        s.advance(1_000_000);
+        assert_eq!(s.state().keyboard_parts[2].strip.tone.release, 30);
         assert!(s.send(StripCmd::SetStripMono { strip: 6, on: true }).is_err(), "a Style strip has no voice settings");
     }
 
@@ -209,9 +225,32 @@ mod tests {
         assert_eq!(s.state().keyboard_parts[0].strip.inserts[0].kind, InsertType::None);
     }
 
+    /// Every type a bus plays is a send kind, so `style_send_slot` never needs its
+    /// fallback today.
+    #[test]
+    fn every_bus_type_is_a_send_kind() {
+        for (i, b) in crate::api::FxBlock::ALL.iter().enumerate().take(3) {
+            for (n, t) in b.types().iter().enumerate() {
+                assert!(SendKind::of_bus(i, n as u8).is_some(), "{b:?} {t:?}");
+                assert_eq!(b.type_index(*t), n as u8);
+            }
+        }
+    }
+
+    /// A refused setting on an empty insert 1 changes nothing: the older amount command
+    /// doesn't run, so the slot doesn't come back as an off distortion.
     #[test]
     fn a_setting_on_an_empty_insert_is_refused() {
         let s = session();
+        let before = s.state().keyboard_parts[0].insert;
         assert!(s.send(StripCmd::SetStripInsertSetting { strip: 0, slot: 0, setting: 0, value: 10 }).is_err());
+        let st = s.state();
+        assert_eq!(st.keyboard_parts[0].strip.inserts[0].kind, InsertType::None);
+        assert_eq!(st.keyboard_parts[0].insert, before, "the older slot is untouched");
+        // Emptied by the player, too.
+        s.send(StripCmd::SetStripInsertKind { strip: 1, slot: 0, kind: InsertType::Tremolo }).unwrap();
+        s.send(StripCmd::SetStripInsertKind { strip: 1, slot: 0, kind: InsertType::None }).unwrap();
+        assert!(s.send(StripCmd::SetStripInsertSetting { strip: 1, slot: 0, setting: 0, value: 99 }).is_err());
+        assert_eq!(s.state().keyboard_parts[1].strip.inserts[0].kind, InsertType::None);
     }
 }

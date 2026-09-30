@@ -11,8 +11,8 @@
 //! What older commands already cover goes through them ([`StripCmd::legacy`]): a
 //! keyboard strip's EQ, sends 1-3 and insert 1, a Style strip's sends 1-3 and its style
 //! insert's on/off and amount, sends 1-3's kinds, parameters and returns. The rest is
-//! kept in [`Strips`] and shown in the state; nothing plays it yet (the mixer rework's
-//! lanes). A keyboard strip's voice settings (filter, EG, vibrato, mono, portamento) are
+//! kept in [`Strips`], shown in the state, and played from there (`session::strips`). A
+//! command [`Strips::check`] refuses sends no older command either. A keyboard strip's voice settings (filter, EG, vibrato, mono, portamento) are
 //! its part's, which the session sets ([`StripCmd::part_tone`]) and reads back
 //! ([`VoiceSettings::of`]).
 
@@ -198,20 +198,21 @@ pub struct VoiceSettings {
 pub const XG_MONO_POLY: (u8, u8) = (0x08, 0x05);
 
 impl VoiceSettings {
-    /// From `Parts::tone(p)` and `Parts::xg(p)`: each controller, else the XG part
-    /// parameter that is the same setting.
+    /// From `Parts::tone(p)` and `Parts::xg(p)`: each XG part parameter, else the
+    /// controller that is the same setting. The XG one wins because `Parts::send_tone`
+    /// sends it after the controllers, so it is what plays.
     pub fn of(tone: [Option<u8>; crate::parts::TONE], xg: &[(u8, u8, u8)]) -> VoiceSettings {
         let xg_of = |nn: u8| xg.iter().find(|&&(hh, n, _)| (hh, n) == (0x08, nn)).map(|x| x.2);
         let mut t = StripTone::default();
         for c in ToneControl::ALL {
-            if let Some(v) = tone[c.index()].or(xg_of(c.xg())) {
+            if let Some(v) = xg_of(c.xg()).or(tone[c.index()]) {
                 t.set(c, v);
             }
         }
         let mono = xg_of(XG_MONO_POLY.1) == Some(0);
-        // The controllers, else the XG part's Portamento Switch (67H) and Time (68H).
-        let on = tone[crate::parts::PORTAMENTO].map(|v| v >= 64).or(xg_of(0x67).map(|v| v > 0)).unwrap_or(false);
-        let time = tone[crate::parts::PORTAMENTO_TIME].or(xg_of(0x68)).unwrap_or(0).min(127);
+        // The XG part's Portamento Switch (67H) and Time (68H), else the controllers.
+        let on = xg_of(0x67).map(|v| v > 0).or(tone[crate::parts::PORTAMENTO].map(|v| v >= 64)).unwrap_or(false);
+        let time = xg_of(0x68).or(tone[crate::parts::PORTAMENTO_TIME]).unwrap_or(0).min(127);
         VoiceSettings { tone: t, mono, portamento: Portamento { on, time } }
     }
 }
@@ -533,6 +534,13 @@ impl Strips {
         self.added.get_mut(s - STYLE_SENDS).ok_or_else(|| format!("no send {} (there are {n})", s + 1))
     }
 
+    /// Whether [`Strips::apply`] would take `c`, changing nothing. Err: why it would be
+    /// refused. The session and the dev mock ask before they send the older commands
+    /// ([`StripCmd::legacy`]), so a refused command doesn't reach the older state either.
+    pub fn check(&self, c: &StripCmd) -> Result<(), String> {
+        self.clone().apply(c)
+    }
+
     /// Play a command here. Err: why it was refused (nothing changed).
     pub fn apply(&mut self, c: &StripCmd) -> Result<(), String> {
         match c {
@@ -758,6 +766,14 @@ mod tests {
         let v = VoiceSettings::of(t, &[(0x08, 0x05, 0), (0x08, 0x68, 40), (0x08, 0x18, 99)]);
         assert_eq!((v.tone.attack, v.tone.cutoff, v.mono, v.portamento), (20, 99, true, Portamento { on: true, time: 40 }));
         assert_eq!(VoiceSettings::of([None; crate::parts::TONE], &[]), VoiceSettings::default());
+        // An OTS that sets only the XG parameters over older controllers: the XG ones play
+        // (`Parts::send_tone` sends them last), so the strip shows them.
+        let mut t = [None; crate::parts::TONE];
+        t[crate::parts::RELEASE] = Some(10);
+        t[crate::parts::PORTAMENTO] = Some(127);
+        t[crate::parts::PORTAMENTO_TIME] = Some(5);
+        let v = VoiceSettings::of(t, &[(0x08, ToneControl::Release.xg(), 90), (0x08, 0x67, 0), (0x08, 0x68, 70)]);
+        assert_eq!((v.tone.release, v.portamento), (90, Portamento { on: false, time: 70 }));
     }
 
     #[test]

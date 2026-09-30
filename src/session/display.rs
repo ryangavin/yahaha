@@ -108,6 +108,10 @@ pub(super) fn display_text(t: Touch, st: &AppState) -> Option<Text> {
             if cc == launchkey::KNOB_DOWN_CC && shift {
                 return Some((s("Buttons"), s("ACMP"), if st.transport.acmp { s("On") } else { s("Off") }));
             }
+            // Shift + encoder page ▲: the rotary speaker's speed.
+            if cc == launchkey::KNOB_UP_CC && shift {
+                return Some((s("Buttons"), s("ROTARY"), if st.effects.rotary_fast { s("Fast") } else { s("Slow") }));
+            }
             // The encoder page buttons are the knobs' KNOB ASSIGN.
             if cc == launchkey::KNOB_UP_CC || cc == launchkey::KNOB_DOWN_CC {
                 return Some((s("Knobs"), s("KNOB ASSIGN"), st.knobs.page_name.clone()));
@@ -267,6 +271,10 @@ mod tests {
         // The encoder page button.
         s.midi_in(Port::Pads, &[0xB0, launchkey::KNOB_DOWN_CC, 127]);
         assert_eq!(shown(&s), text("Knobs", "KNOB ASSIGN", "Rack"));
+        // Shift + ▲: the rotary speed, not the knob page.
+        s.midi_in(Port::Pads, &[0xB0, launchkey::SHIFT_CC, 127, 0xB0, launchkey::KNOB_UP_CC, 127, 0xB0, launchkey::SHIFT_CC, 0]);
+        assert_eq!(shown(&s), text("Buttons", "ROTARY", "Fast"));
+        assert_eq!(s.state().knobs.page_name, "Rack", "the page stays");
         // A pad page button, then a Chord/Setup pad.
         s.midi_in(Port::Pads, &[0xB0, launchkey::PAD_DOWN_CC, 127]);
         assert_eq!(shown(&s), text("Buttons", "PAGE ▼", "Chord/Setup"));
