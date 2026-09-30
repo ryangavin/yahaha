@@ -5,8 +5,9 @@ import { MockSession } from '../../lib/api/mock'
 import { app, ui, type SoundPick } from '../../lib/store.svelte'
 import SoundPicker from './SoundPicker.svelte'
 
-async function setup(onpick: (id: string) => void = () => {}) {
+async function setup(onpick: (id: string) => void = () => {}, before?: (s: MockSession) => void) {
   const session = new MockSession({ manual: true, demo: false })
+  before?.(session)
   app.attach(session)
   app.sounds = await session.sounds()
   const pick: SoundPick = { title: 'Piano family', value: 'stage-grand', onpick }
@@ -43,6 +44,17 @@ describe('the sound picker for a map rule', () => {
     expect(got).toBeTruthy()
     expect(app.sounds.entries.find((e) => e.id === got)?.name).toBe(next)
     expect(ui.soundPick).toBe(null)
+  })
+
+  it('a library sound shows its number beside its name; a font preset shows none', async () => {
+    // 42, not its place in the library: the row shows the state's number.
+    await setup(undefined, (s) => (s.state.soundLibrary.patches.find((p) => p.id === 'stage-grand')!.number = 42))
+    const num = active().querySelector('.num')!
+    expect(num.textContent).toBe('42')
+    expect(num.getAttribute('data-tip')).toBe('sound.number')
+    const font = rows().find((r) => app.sounds.entries[Number(r.id.slice('sound-'.length))].source === 'soundFont')!
+    expect(font, 'a font preset row').toBeTruthy()
+    expect(font.querySelector('.num')!.textContent).toBe('')
   })
 
   it('a click picks; it has no tabs, audition, save or edit controls', async () => {

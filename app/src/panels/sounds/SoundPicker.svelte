@@ -22,7 +22,7 @@
   import { tip, tips } from '../../lib/tooltip/tip.svelte'
   import Overlay from '../../lib/ui/Overlay.svelte'
   import { moveCursor } from '../browser/model'
-  import { SOURCE_BADGE, allSoundIds, categoryCounts, instruments, mapSlots, visibleSounds, type SoundView } from './model'
+  import { SOURCE_BADGE, allSoundIds, categoryCounts, instruments, mapSlots, patchesById, soundNumber, visibleSounds, type SoundView } from './model'
 
   let { pick }: { pick: SoundPick } = $props()
 
@@ -43,6 +43,7 @@
   const listingPresets = $derived(app.state.sounds?.listingPresets)
   const listing = $derived(new Set(listingPresets ?? []))
   const slots = $derived(mapSlots(gmMap))
+  const byId = $derived(patchesById(patches))
   const allIds = $derived(allSoundIds(ctx))
   const allCount = $derived(entries.reduce((n, e) => n + (allIds.has(e.id) ? 1 : 0), 0))
   const cats = $derived(categoryCounts(entries.filter((e) => allIds.has(e.id))))
@@ -212,6 +213,7 @@
           <div class="rows" id="sounds-list" role="listbox" tabindex="-1" aria-label="Sounds" style:height="{rows.length * ROW}px">
             {#each slice as i, k (entries[i].id)}
               {@const e = entries[i]}
+              {@const n = soundNumber(e, byId)}
               <!-- svelte-ignore a11y_click_events_have_key_events (the filter field drives the list: ↑/↓, Enter) -->
               <div
                 class="row"
@@ -227,6 +229,7 @@
               >
                 <button type="button" class="star" class:on={e.favourite} tabindex="-1" aria-label={e.favourite ? 'Unstar' : 'Star'} aria-pressed={e.favourite} use:tip={'sounds.favourite'} onclick={(ev) => (ev.stopPropagation(), star(i))}>{e.favourite ? '★' : '☆'}</button>
                 <span class="mark" aria-hidden="true">{e.id === playing ? '▶' : ''}</span>
+                {#if n !== null}<span class="num" use:tip={'sound.number'}>{n}</span>{:else}<span class="num"></span>{/if}
                 <span class="name">{e.name}</span>
                 <span class="badge {e.source}">{SOURCE_BADGE[e.source]}</span>
                 <span class="detail">{view.kind === 'all' || view.kind === 'category' ? slotText(e.id) : ''}{e.detail}{#if e.plugin?.lastError}<span class="warn" title={e.plugin.lastError}> ⚠ {e.plugin.lastError}</span>{/if}</span>
@@ -363,7 +366,7 @@
     top: 0;
     height: 36px;
     display: grid;
-    grid-template-columns: 1.8rem 1rem minmax(8rem, 1.4fr) 3.2rem minmax(0, 1fr);
+    grid-template-columns: 1.8rem 1rem 2.2rem minmax(8rem, 1.4fr) 3.2rem minmax(0, 1fr);
     align-items: center;
     column-gap: 0.6rem;
     padding: 0 0.5rem 0 0.25rem;
@@ -382,6 +385,11 @@
   .row.playing .name,
   .mark {
     color: var(--accent);
+  }
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--screen-dim);
   }
   .name,
   .detail {
