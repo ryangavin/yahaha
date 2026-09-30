@@ -58,14 +58,18 @@ fn style_render(buffers: usize) -> (u64, f64) {
 /// Every strip at its defaults (no compressor, no insert 2, no send to 4-6): the output is
 /// bit-identical to the synth's before the strips were wired in. The hash was taken on
 /// that code (origin/fx/strip-dsp, 0e2deebb) on macOS/aarch64; libm may round differently
-/// on other targets, so only there is it compared.
+/// on other targets, so only there is it compared: only CI's macOS job covers the hash.
+/// Elsewhere the test still renders and checks the style sounds, and prints that the hash
+/// was not compared.
 #[test]
-fn default_strips_leave_the_output_bit_identical() {
+fn default_strips_leave_the_output_bit_identical_hash_on_macos_aarch64_only() {
     let (h, e) = style_render(200);
     assert!(e > 1.0, "the style sounds: {e}");
     eprintln!("style render hash: {h:#018x}");
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     assert_eq!(h, 0x7e32_651d_731f_44e6, "bit-identical to before the strips");
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    println!("SKIPPED: golden hash not compared on this target (only macOS/aarch64 pins it); got {h:#018x}");
 }
 
 /// Buffers of 256 frames in a `note_render`, and the one the note is let go at.

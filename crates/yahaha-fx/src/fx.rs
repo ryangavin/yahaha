@@ -418,6 +418,9 @@ impl FxBus {
 }
 
 #[cfg(test)]
+mod golden_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
