@@ -9,7 +9,7 @@ import { partSound, type PartSoundOf } from '../../lib/api/part-sound'
 import partSoundCases from '../../../../tests/fixtures/part_sound_cases.json'
 import type { FontPreset, GmMapRow, Patch, PluginOrigin } from '../../lib/api/sound-library'
 import type { PluginStatus } from '../../lib/api/types'
-import { categoryCounts, instrumentName, instruments, nowPlaying, playingId, visibleSounds } from './model'
+import { categoryCounts, instrumentName, instruments, nowPlaying, patchesById, playingId, soundNumber, visibleSounds } from './model'
 
 describe('sound catalog model', () => {
   const e = (id: string, category: 'piano' | 'bass', favourite = false, detail = 'A.sf2') => ({ id, name: id, category, source: id.startsWith('saved:') ? ('saved' as const) : ('soundFont' as const), detail, favourite, recent: false, plugin: null })
@@ -27,6 +27,14 @@ describe('sound catalog model', () => {
     expect(visibleSounds(catalog, { kind: 'favourites' }, '')).toEqual([0])
     expect(instruments(catalog).map((i) => i.id)).toEqual(['sf:A.sf2', 'sf:B.sf2'])
     expect(categoryCounts(catalog.entries).find((c) => c.id === 'piano')?.count).toBe(3)
+  })
+
+  it('a library sound has the state\'s number; a font preset has none', () => {
+    const byId = patchesById([{ ...patch, number: 23 }])
+    // 23, not its place in the catalog (4th) or the library (1st).
+    expect(soundNumber(catalog.entries[3], byId)).toBe(23)
+    expect(soundNumber(catalog.entries[0], byId)).toBe(null)
+    expect(soundNumber({ id: 'saved:gone' }, byId)).toBe(null)
   })
 
   it('what a part plays, and its instrument', () => {
