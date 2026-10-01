@@ -1,0 +1,127 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+import palette from './palette.css?raw'
+import scale from './scale.css?raw'
+import dark from './dark.css?raw'
+import light from './light.css?raw'
+import { useEffect, useState } from 'react'
+
+<Meta title="Foundations/Tokens" />
+
+export const useTheme = () => {
+  const read = () => document.documentElement.dataset.theme ?? 'dark'
+  const [theme, setTheme] = useState(read)
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(read()))
+    observer.observe(document.documentElement, { attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  return theme
+}
+
+export const tokens = (css, prefix = '') =>
+  [...css.matchAll(/^\s*(--[\w-]+)\s*:\s*([^;]+);(?:[ \t]*\/\*\s*(.*?)\s*\*\/)?/gm)]
+    .map((m) => ({ name: m[1], value: m[2].trim(), note: m[3] ?? '' }))
+    .filter((t) => t.name.startsWith(prefix))
+
+export const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))', gap: 'var(--space-12)', margin: 'var(--space-16) 0' }
+export const label = { fontSize: 'var(--text-12)', color: 'var(--m)', lineHeight: 1.4 }
+export const name = { fontFamily: 'var(--font-mono)', fontSize: 'var(--text-12)', color: 'var(--t)' }
+
+export const Swatches = ({ css, glows = false }) => {
+  const overrides = useTheme() === 'light' ? Object.fromEntries(tokens(light).map((t) => [t.name, t.value])) : {}
+  return (
+  <div style={grid}>
+    {tokens(css)
+      .filter((t) => glows === /px/.test(t.value))
+      .map((t) => ({ ...t, value: overrides[t.name] ?? t.value, note: overrides[t.name] ? '' : t.note }))
+      .map((t) => (
+        <div key={t.name}>
+          <div
+            style={{
+              height: 40,
+              borderRadius: 'var(--radius)',
+              border: 'var(--line-width) solid var(--line)',
+              background: glows ? 'var(--btn)' : `var(${t.name})`,
+              boxShadow: glows ? `var(${t.name})` : undefined,
+            }}
+          />
+          <div style={name}>{t.name}</div>
+          <div style={label}>{t.value}{t.note ? ` · ${t.note}` : ''}</div>
+        </div>
+      ))}
+  </div>
+  )
+}
+
+export const Type = () => (
+  <div style={{ margin: 'var(--space-16) 0' }}>
+    {tokens(scale, '--text-').map((t) => (
+      <div key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-16)', borderBottom: 'var(--line-width) solid var(--line)' }}>
+        <span style={{ ...name, width: 96, flex: 'none' }}>{t.name}</span>
+        <span style={{ fontFamily: 'var(--font-sans)', fontSize: `var(${t.name})`, color: 'var(--t)', whiteSpace: 'nowrap' }}>Main B · 120 · Accomp</span>
+      </div>
+    ))}
+    {tokens(scale, '--weight-').map((t) => (
+      <div key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-16)' }}>
+        <span style={{ ...name, width: 120, flex: 'none' }}>{t.name}</span>
+        <span style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--text-18)', fontWeight: `var(${t.name})`, color: 'var(--t)' }}>Sunday Drive Pop 104</span>
+      </div>
+    ))}
+    {tokens(scale, '--font-').map((t) => (
+      <div key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-16)' }}>
+        <span style={{ ...name, width: 120, flex: 'none' }}>{t.name}</span>
+        <span style={{ fontFamily: `var(${t.name})`, fontSize: 'var(--text-18)', color: 'var(--t)' }}>Pad 1 2 3 4 · C#m7</span>
+      </div>
+    ))}
+  </div>
+)
+
+export const Sizes = ({ prefix }) => (
+  <div style={{ margin: 'var(--space-16) 0' }}>
+    {tokens(scale, prefix).map((t) => (
+      <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-16)', minHeight: 24 }}>
+        <span style={{ ...name, width: 200, flex: 'none' }}>{t.name}</span>
+        <span style={{ ...label, width: 64, flex: 'none' }}>{t.value}</span>
+        <span style={{ width: `var(${t.name})`, height: prefix === '--control-' ? `var(${t.name})` : 12, background: 'var(--a)', borderRadius: prefix === '--radius' ? `var(${t.name})` : 0 }} />
+      </div>
+    ))}
+  </div>
+)
+
+# Tokens
+
+Every token the UI library has, in the theme the toolbar shows: flip the theme to review the other one. Components use only the **roles**; the **palette** is what the themes map the roles to (`src/ui/tokens/`, see `docs/factory/storybook-axioms.md`, axioms 2 and 5).
+
+## Roles
+
+The Push canvas's own names. A swatch is the role's colour in the current theme.
+
+<Swatches css={dark} />
+
+### Glows
+
+`none` in light.
+
+<Swatches css={dark} glows />
+
+## Palette
+
+The raw colours. Only the theme files read them.
+
+<Swatches css={palette} />
+
+## Type
+
+<Type />
+
+## Spacing
+
+<Sizes prefix="--space-" />
+
+## Radius
+
+<Sizes prefix="--radius" />
+
+## Controls
+
+<Sizes prefix="--control-" />

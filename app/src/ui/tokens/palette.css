@@ -1,0 +1,61 @@
+/*
+ * Palette: the named raw colours of the Push canvas (yahaha-research/push-canvas, the board and
+ * kit `:root` lines of Stage-Dark.dc.html and Stage-Light.dc.html). Nothing but the theme files
+ * (dark.css, light.css) reads these: components use the semantic roles. When the artist's palette
+ * arrives, this file is what changes.
+ *
+ * Greys are named by lightness (percent), hues by family and step (400 bright, for dark; 600-700
+ * deep, for light).
+ */
+
+:root {
+  /* Neutral greys */
+  --black: #000000;
+  --grey-07: #111111;
+  --grey-08: #141414;
+  --grey-09: #161616;
+  --grey-15: #262626;
+  --grey-17: #2b2b2b;
+  --grey-20: #333333;
+  --grey-30: #4d4d4d;
+  --grey-35: #5a5a5a;
+  --grey-39: #646464; /* the canvas's #6e6e6e (light muted text), darkened for AA contrast */
+  --grey-55: #8c8c8c;
+  --grey-84: #d6d6d6;
+  --white: #ffffff;
+
+  /* Warm greys (the light ground) */
+  --stone-65: #a8a7a3;
+  --stone-68: #b0afab;
+  --stone-76: #c4c3bf;
+  --stone-82: #d3d2ce;
+  --stone-88: #e2e1dd;
+  --stone-89: #e4e3df;
+  --stone-94: #f2f1ee;
+
+  /* Hues */
+  --lime-400: #9fe04a;
+  --lime-700: #4f8a0e;
+  --green-400: #4fd66a;
+  --green-700: #1c8040;
+  --red-400: #e5534b;
+  --red-700: #b8322c;
+  --orange-400: #ff9a2e;
+  --orange-700: #c85f00;
+  --violet-300: #a58cff;
+  --violet-600: #5b3fd6;
+  --blue-400: #3b8eff;
+  --blue-700: #1257d6;
+  --pink-400: #ff4f9e;
+  --pink-700: #d0186f;
+  --teal-400: #16c7a6;
+  --teal-700: #008f78;
+  --gold-400: #bfb24e;
+  --gold-700: #857a1f;
+  --rose-400: #c45a5a;
+  --rose-700: #a84444;
+  --plum-400: #8f62a8;
+  --plum-600: #7a4a96;
+  --slate-400: #7a9ea6;
+  --slate-600: #4d7480;
+}
