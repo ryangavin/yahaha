@@ -1,0 +1,55 @@
+/*
+ * The dark theme, the default: semantic roles mapped onto the palette. The role names are the
+ * Push canvas's own (the board and kit `:root` lines of Stage-Dark.dc.html; KIT-DEBATE.md).
+ * Components read only these roles.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Ground, text and greys */
+  --g: var(--black); /* ground */
+  --t: var(--white); /* text, and the white "chosen" block */
+  --t2: var(--grey-84); /* secondary text */
+  --m: var(--grey-55); /* muted text, the off lamp's label */
+  --d: var(--grey-30); /* dimmed text, a disabled label */
+  --btn: var(--grey-09); /* button face, off */
+  --line: var(--grey-15); /* hairlines */
+  --past: var(--grey-20); /* past beat blocks */
+  --mbg: var(--grey-08); /* meter background */
+  --keyline: var(--black); /* white-key separator */
+  --util: var(--grey-35); /* utility pads */
+  --focus: var(--white); /* focus ring */
+
+  /* Lamps and states */
+  --lamp: var(--lime-400); /* switched-on face */
+  --lamp-ink: var(--black); /* label on the lamp face */
+  --solid-ink: var(--black); /* label on a solid record face */
+  --rec: var(--red-400); /* record red */
+  --warn: var(--orange-400); /* missing, warning */
+  --ok: var(--green-400); /* connected, running */
+
+  /* The violet accent: the style, the chord, knob arcs and values */
+  --a: var(--violet-300);
+
+  /* Part hues */
+  --r1: var(--blue-400);
+  --r2: var(--pink-400);
+  --r3: var(--orange-400);
+  --l: var(--teal-400);
+
+  /* Section hues */
+  --intro: var(--gold-400);
+  --main: var(--green-400);
+  --ending: var(--rose-400);
+  --brk: var(--plum-400);
+  --fill: var(--slate-400);
+
+  /* Glows */
+  --bg: 0 0 6px color-mix(in srgb, var(--green-400) 70%, transparent); /* running dot */
+  --ba: 0 0 18px color-mix(in srgb, var(--violet-300) 28%, transparent); /* accent text */
+  --ba2: 0 0 28px color-mix(in srgb, var(--violet-300) 28%, transparent); /* display-size chord */
+  --bw: 0 0 6px color-mix(in srgb, var(--white) 60%, transparent); /* white */
+  --bm: 0 0 18px color-mix(in srgb, var(--green-400) 30%, transparent); /* Main-hue text */
+  --bl: 0 0 6px color-mix(in srgb, var(--teal-400) 60%, transparent); /* L-zone line on the keys */
+}
