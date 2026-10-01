@@ -44,7 +44,4 @@
   /* Lines */
   --line-width: 1px; /* hairlines, outlines, the focus ring */
   --focus-offset: 2px;
-
-  /* The small code on a lit face is the face's ink at this opacity */
-  --code-opacity: 0.6;
 }

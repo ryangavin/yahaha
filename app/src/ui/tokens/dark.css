@@ -24,6 +24,7 @@
   /* Lamps and states */
   --lamp: var(--lime-400); /* switched-on face */
   --lamp-ink: var(--black); /* label on the lamp face */
+  --code-opacity: 0.6; /* the small code on the lamp face is --lamp-ink at this opacity */
   --solid-ink: var(--black); /* label on a solid record face */
   --rec: var(--red-400); /* record red */
   --warn: var(--orange-400); /* missing, warning */

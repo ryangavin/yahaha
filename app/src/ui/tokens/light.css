@@ -9,7 +9,7 @@
   --g: var(--stone-94);
   --t: var(--grey-07);
   --t2: var(--grey-17);
-  --m: var(--grey-43);
+  --m: var(--grey-39); /* the canvas's #6e6e6e, darkened to pass AA 4.5:1 on --btn */
   --d: var(--stone-68);
   --btn: var(--stone-89);
   --line: var(--stone-82);
@@ -20,7 +20,9 @@
   --focus: var(--grey-07);
 
   --lamp: var(--lime-700);
-  --lamp-ink: var(--grey-07);
+  /* Ink and code differ from the canvas (#111, code at 0.6) to pass AA 4.5:1 on the light lamp. */
+  --lamp-ink: var(--black);
+  --code-opacity: 1;
   --solid-ink: var(--white);
   --rec: var(--red-700);
   --warn: var(--orange-700);

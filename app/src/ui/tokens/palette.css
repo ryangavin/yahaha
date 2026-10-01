@@ -19,7 +19,7 @@
   --grey-20: #333333;
   --grey-30: #4d4d4d;
   --grey-35: #5a5a5a;
-  --grey-43: #6e6e6e;
+  --grey-39: #646464; /* the canvas's #6e6e6e (light muted text), darkened for AA contrast */
   --grey-55: #8c8c8c;
   --grey-84: #d6d6d6;
   --white: #ffffff;

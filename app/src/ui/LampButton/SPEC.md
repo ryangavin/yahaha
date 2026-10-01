@@ -46,11 +46,12 @@
 - **States drawn by:**
   - off: `--btn` face, `--m` label, regular weight; code `--m`.
   - on: `--lamp` face, `--lamp-ink` label, medium weight; code in `--lamp-ink` at `--code-opacity`.
-  - on, `rec`: `--rec` face, `--solid-ink` label and code.
+  - on, `rec`: `--rec` face, `--solid-ink` label and code (the code at full ink: at `--code-opacity` it fails AA on `--rec`).
   - disabled: the label turns `--d` (on or off face unchanged), default cursor, no press.
   - keyboard focus: a `--line-width` outline in `--focus`, `--focus-offset` outside the face.
   - No bar, border, glow or hover change (the kit draws none).
 - **Type:** DM Sans, sentence case as given, tabular numerals; label 14px (`md`) or 13px (`sm`, `cell`); code 12px regular, `--space-6` after the label.
+- **Contrast (AA 4.5:1, `tokens/contrast.test.ts`):** `--m` on `--btn`; `--lamp-ink` on `--lamp`, and at `--code-opacity`; `--solid-ink` on `--rec`. Disabled `--d` is exempt.
 - **Motion:** none.
 
 ### Accessibility

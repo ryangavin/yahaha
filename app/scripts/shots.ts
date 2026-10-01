@@ -4,8 +4,10 @@
 //   npm run shots -- <Name> [--url http://localhost:6006]
 //
 // Writes app/.shots/<Name>/<story>-<theme>.png and, where app/src/ui/<Name>/crops/<story>-<theme>.png
-// exists, <story>-<theme>.diff.png and a score in report.json. Exits 1 when a cropped story scores
-// over PASS_SCORE. Without --url it builds Storybook and serves the build itself. It drives the
+// exists, <story>-<theme>.diff.png and a score in report.json. It also runs axe (colour contrast
+// included, which jsdom can't check) on every story in real Chrome. Exits 1 when a cropped story
+// doesn't match its crop (a different size, or a score over PASS_SCORE) or any story has an axe
+// violation. Without --url it builds Storybook and serves the build itself. It drives the
 // system Chrome (playwright-core, no browser download); set CHROME to use another binary.
 // Chrome, the server and the build are stopped on every exit path.
 
@@ -16,9 +18,10 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Browser } from 'playwright-core'
 import { PNG } from 'pngjs'
-import { PASS_SCORE, diffImages } from './shots-diff.ts'
+import { PASS_SCORE, diffImages, matches } from './shots-diff.ts'
 
 const APP = resolve(fileURLToPath(import.meta.url), '../..')
+const AXE = join(APP, 'node_modules/axe-core/axe.min.js')
 const THEMES = ['dark', 'light'] as const
 
 type Entry = { id: string; type: string; importPath: string; exportName?: string; name: string }
@@ -31,7 +34,11 @@ type Result = {
   size: [number, number]
   cropSize?: [number, number]
   score?: number
-  pass?: boolean
+  /** Same size as the crop and score at most PASS_SCORE; absent without a crop. */
+  matchesCrop?: boolean
+  /** axe violations, as `rule: help (n nodes)`. */
+  a11y: string[]
+  pass: boolean
 }
 
 // Everything started here, stopped by cleanup() on every exit path.
@@ -183,7 +190,16 @@ async function shoot(name: string, base: string): Promise<Result[]> {
       const file = `${story}-${theme}.png`
       const shotBuffer = await page.screenshot({ path: join(outDir, file), clip: box, animations: 'disabled' })
       const shot = PNG.sync.read(shotBuffer)
-      const result: Result = { story, theme, shot: file, size: [shot.width, shot.height] }
+
+      // axe on the rendered story, colour contrast included.
+      await page.addScriptTag({ path: AXE })
+      const a11y = await page.evaluate(async () => {
+        type Axe = { run: (context: string) => Promise<{ violations: { id: string; help: string; nodes: unknown[] }[] }> }
+        const { violations } = await (window as unknown as { axe: Axe }).axe.run('#storybook-root')
+        return violations.map((v) => `${v.id}: ${v.help} (${v.nodes.length} nodes)`)
+      })
+
+      const result: Result = { story, theme, shot: file, size: [shot.width, shot.height], a11y, pass: a11y.length === 0 }
       const cropPath = join(crops, file)
       if (existsSync(cropPath)) {
         const crop = PNG.sync.read(readFileSync(cropPath))
@@ -195,12 +211,18 @@ async function shoot(name: string, base: string): Promise<Result[]> {
           diff: diffFile,
           cropSize: [crop.width, crop.height],
           score: Number(diff.score.toFixed(4)),
-          pass: diff.score <= PASS_SCORE,
+          matchesCrop: matches(diff),
         })
+        result.pass &&= matches(diff)
       }
       results.push(result)
-      const scored = result.score === undefined ? 'no crop' : `score ${result.score} ${result.pass ? 'pass' : 'FAIL'}`
-      console.log(`${file.padEnd(32)} ${result.size.join('×').padEnd(10)} ${scored}`)
+      const scored =
+        result.score === undefined
+          ? 'no crop'
+          : `score ${result.score}${result.matchesCrop ? '' : result.cropSize?.join('×') === result.size.join('×') ? ' over' : ' wrong size'}`
+      const verdict = result.pass ? 'pass' : 'FAIL'
+      console.log(`${file.padEnd(28)} ${result.size.join('×').padEnd(9)} ${scored.padEnd(24)} ${verdict}`)
+      for (const v of a11y) console.log(`    a11y ${v}`)
     }
   }
   writeFileSync(
@@ -220,7 +242,7 @@ async function main() {
   } finally {
     await cleanup()
   }
-  process.exit(results.some((r) => r.pass === false) ? 1 : 0)
+  process.exit(results.every((r) => r.pass) ? 0 : 1)
 }
 
 main().catch(async (error) => {

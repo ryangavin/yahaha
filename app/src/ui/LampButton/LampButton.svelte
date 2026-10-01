@@ -113,8 +113,10 @@
     background: var(--rec);
     color: var(--solid-ink);
   }
+  /* The code on the record face is full ink: at --code-opacity it fails AA on --rec. */
   .rec[aria-pressed='true'] .sub {
     color: var(--solid-ink);
+    opacity: 1;
   }
   .lamp[aria-disabled='true'] {
     color: var(--d);

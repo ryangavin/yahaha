@@ -16,6 +16,11 @@ export type Diff = {
   sameSize: boolean
 }
 
+/** A shot matches its crop when it's the same size and its score is at most PASS_SCORE. */
+export function matches(diff: Diff): boolean {
+  return diff.sameSize && diff.score <= PASS_SCORE
+}
+
 /** Copies `src` onto a `width` × `height` canvas at the top left; the rest stays transparent. */
 function padTo(src: PNG, width: number, height: number): PNG {
   if (src.width === width && src.height === height) return src
