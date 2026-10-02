@@ -233,6 +233,10 @@ None of these blocks building the screen; each says what the screen does until i
    (D18).
 4. **C4 · Chord held** (engine and API, new work): `chord.held: bool`, true while detection is
    unsure and the band keeps the last chord. The face is specified (D19) but not built until then.
+   Contract files: `src/api`, `docs/app-api.md`, `tests/fixtures/state.json`,
+   `app/src/lib/api/types.ts`, both mocks (`app/src/lib/api/mock.ts`, `app/src-tauri/src/mock.rs`).
+   Real-time safety: the engine publishes the held state without allocation or locks on the
+   engine and MIDI threads.
 5. **C5 · Tooltips** (`app/src/help/tooltips.ts`, `app/docs/controls.md`): new keys
    `nav.channel`, `app.health`, `metronome.settings`, `display.band_sends`; rewrite the `nav.*`
    bodies from "opens the drawer" to "shows the page"; `launchkey.fader_sound` ("opens the quick
@@ -301,8 +305,9 @@ outside the two known text differences (fixture note above).
   harmonyVolume "Harm level", metronomeVolume "Click level", swapSound "Sound"; any other
   function uses the state's `name`. The tempo knob's value drops a trailing " BPM".
 - **D7 · Meters.** The state has one level per channel, so the twin bars are RMS (left) and
-  peak (right), on a −60…0 dBFS scale, peak held 1.5 s then falling 20 dB/s. Master uses its
-  left and right peaks.
+  peak (right), on a −60…0 dBFS scale, peak held 1.5 s then falling 20 dB/s. Master has its
+  own peak and RMS per side in the `meters` frame (`meters.master` and `meters.masterRms`, each
+  [l, r], after the soft clipper), drawn the same way per side.
 - **D8 · Pan face.** In the Pan layer a strip's fill grows from the middle of the track (64) up
   for right, down for left; the cap sits at the value.
 - **D9 · Art.** One static gradient pair from tokens, the board's own. Per-style artwork and a
