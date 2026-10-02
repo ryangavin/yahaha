@@ -2,7 +2,7 @@
 
 One spec per Push board (`docs/design/push/`), each from its `spec` issue (#500 to #535). A spec is what a developer agent builds the screen from: it should never need to open the board.
 
-**Reference spec:** none yet. Stage (#500) is the first; once it lands it becomes the reference, and every later spec copies its shape. When a later run finds a better shape, the reference moves to that spec and this line says so.
+**Reference spec:** [Stage.md](Stage.md) (#500), with the shared parts in [kit.md](kit.md). Copy Stage.md's sections in its order: header (issue, boards, built from, variants, glance order), Layout (region table with boxes), one section per region of the screen's own (each control in a table: face, reads, sends, tooltip, Launchkey), States, Board fixture, Gap against today, Contract changes needed, Checks, Decisions (numbered D1…), Follow-ups. Anything drawn on more than one board goes in kit.md, not in a screen spec; a screen spec names the kit part (`kit.md` › Pad) and says only what differs. When a later run finds a better shape, the reference moves to that spec and this line says so.
 
 ## What a good spec has (first take; we revise it after each run)
 
