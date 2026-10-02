@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Style browser · Push Light</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<!--
+BOARD NOTES (not drawn)
+- Gaps lane D (GAPS-DESIGN.md): "Open file…" at the right end of the Styles header (loadStylePath), as on the dark board; it hands
+  off to the system file chooser (Prompts-More). Same markup as the dark twin.
+- Gaps phase 1 (GAPS-DESIGN.md), the shared kit: the Transport column gains the Fills pair, Fill ▲ / Fill ▼ (fillUp, fillDown;
+  tooltip: a fill, then the next Main up / down), and "Style tempo" under Tempo + / − (resetTempo; Launchkey: Tempo + and −
+  together). Full band: Reset and Fade sit side by side so both fit in the 368px column. Half band: the column's rows are 24px
+  (▶ ■ / Reset Fade / Fill ▲ ▼ / + − / Style tempo) to fit its 176px. The Metronome lamp gains a ▾ caret segment that opens its
+  popover (on/off, volume 0–127, bell on beat 1; drawn in phase 2).
+- Push in daylight: the same object as Browser-Dark.dc.html, identical markup and geometry; only the tokens change (paper #f2f1ee,
+  ink #111, hairlines #d3d2ce, denser hues, accent #5b3fd6, no bloom or glow). The chosen rows are ink blocks with paper text.
+- Content as the dark board: Library > Styles, a tall page with the canonical Push half band (verbatim from Channel-Light) and keys
+  with a status line. Rows ordered folder then name (8Beat, Pop, Rock, Soul); Track neighbours of Sunday Drive Pop are Pop Shuffle
+  (◀) and Waltz Pop (▶). Coastal Highway is queued for the next bar (band running, so preview is off).
+- Fix round (FIX-DEBATE.md, KIT-DEBATE.md): KIT tokens, the app bar (page variant: rack readout, One Touch 1-4 with 2 the
+  white block, "Audio" health slot), the section row with the count row, the compact block and the half band are copied
+  verbatim from Stage-Light and Channel-Light. The compact block keeps style, tempo, running, chord and the playing section;
+  beat, bar and next live in the count row.
+  Lamps here: "Preview on select" (on, the lime face) and Store (off, the plain face); class "lamp", no 2px bar.
+- Self review (SELF-REVIEW.md): half band as Channel's (no on-screen Shift button: Track ◀ ▶ 40, knobs and pads 614; Sync
+  start / stop draw CSS ▶ ■); app bar with the fixed 196px right area and 10px tab padding. The status line stays empty.
+-->
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@200;300;400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+:root{--g:#f2f1ee;--t:#111111;--t2:#2b2b2b;--m:#6e6e6e;--d:#b0afab;--btn:#e4e3df;--line:#d3d2ce;--a:#5b3fd6;--main:#1c8040;--ok:#1c8040;--r1:#1257d6;--r2:#d0186f;--r3:#c85f00;--l:#008f78;--intro:#857a1f;--ending:#a84444;--brk:#7a4a96;--fill:#4d7480;--util:#a8a7a3}
+body{margin:0;font-family:"DM Sans",system-ui,sans-serif;background:#f2f1ee;color:#111;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:#6e6e6e}a:hover{color:#111}
+/* KIT tokens + lamp faces (copy verbatim; the light twin swaps only the :root line) */
+:root{--lamp:#4f8a0e;--lamp-ink:#111;--solid-ink:#fff;--past:#c4c3bf;--mbg:#e2e1dd;--bg:none;--ba:none;--bw:none;--warn:#c85f00;--rec:#b8322c;--bm:none;--ba2:none;--bl:none;--keyline:#d3d2ce}
+.lamp{background:var(--btn);color:var(--m)}.lamp[aria-pressed="true"]{background:var(--lamp);color:var(--lamp-ink);font-weight:500}.lamp .sub{color:var(--m);font-weight:400}.lamp[aria-pressed="true"] .sub{color:var(--lamp-ink);opacity:0.6}.lamp.rec[aria-pressed="true"]{background:var(--rec);color:var(--solid-ink)}.lamp.rec[aria-pressed="true"] .sub{color:var(--solid-ink)}.lamp[aria-disabled="true"]{color:var(--d);cursor:default}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; padding: 24px; background: var(--g); color: var(--t); font-family: 'DM Sans', sans-serif">
+
+  <!-- APP BAR (36): Library active; the live rack and One Touch ride here because this page replaces the display -->
+  <header style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--t); display: flex; align-items: center; gap: 8px">
+    <span style="font-size: 18px; line-height: 24px; font-weight: 500; letter-spacing: -0.2px; color: var(--t)">yahaha</span>
+    <button aria-label="Rack: Sunday drive, modified, on Quick Rack A1. Opens the Rack page" style="margin-left: 16px; height: 32px; padding: 0; background: none; border: 0; display: flex; align-items: baseline; gap: 6px; font-size: 14px; color: var(--m); white-space: nowrap">Rack <span style="color: var(--t)">A1</span><span style="color: var(--t)">Sunday drive</span><span aria-hidden="true" title="Modified" style="align-self: center; width: 5px; height: 5px; border-radius: 50%; background: var(--t)"></span></button>
+    <div role="group" aria-label="One Touch Setting (OTS): 2 applied. Click to apply; on the Launchkey, Shift + pads 9 to 12" style="margin-left: 12px; height: 32px; display: flex; align-items: center; gap: 4px; white-space: nowrap">
+      <span style="margin-right: 4px; font-size: 14px; font-weight: 400; color: var(--m)">One Touch</span>
+      <button aria-label="Apply One Touch 1 (Shift + pad 9)" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">1</button>
+      <button aria-label="One Touch 2, applied (Shift + pad 10)" aria-pressed="true" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--t); color: var(--g); font-size: 14px; font-weight: 500">2</button>
+      <button aria-label="Apply One Touch 3 (Shift + pad 11)" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">3</button>
+      <button aria-label="Apply One Touch 4 (Shift + pad 12)" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">4</button>
+    </div>
+    <nav aria-label="Pages" style="margin-left: auto; height: 36px; display: flex; align-items: stretch">
+      <button aria-label="Back to stage" style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Stage</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Channel</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Effects</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Quick Racks</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Multi Pads</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Looper</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Harm/Arp</button>
+      <span aria-hidden="true" style="align-self: center; width: 1px; height: 16px; margin: 0 8px; background: var(--line)"></span>
+      <button aria-current="page" style="height: 36px; padding: 10px 10px 0; background: linear-gradient(var(--t), var(--t)) left bottom / 100% 24px no-repeat; border: 0; color: var(--g); font-size: 14px; font-weight: 400; white-space: nowrap">Library</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Settings</button>
+    </nav>
+    <!-- right area, fixed 196px so the tabs sit at the same x on every board: Launchkey status, then the health slot at the right edge -->
+    <div style="width: 196px; flex: none; height: 36px; display: flex; align-items: center">
+    <span aria-hidden="true" style="flex: none; width: 1px; height: 16px; background: var(--line)"></span>
+    <span role="status" aria-label="Launchkey connected" style="margin-left: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 400; color: var(--m); white-space: nowrap"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: var(--bg)"></span>Launchkey</span>
+    <!-- health slot: calm = "Audio" muted, no number. Trouble (red, var(--ending)): "CPU 74%" above ~70% load, "2 dropouts", "3 dropouts · buffer 256?", "R3 failed" -->
+    <span role="status" aria-label="Audio health: fine" title="Audio health: speaks only in trouble (CPU above 70%, dropouts, a failed plugin)" style="margin-left: auto; padding-left: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 400; color: var(--m); white-space: nowrap">Audio</span>
+    </div>
+  </header>
+
+  <!-- SECTION ROW (32): Accomp at the left, the count in the middle, helpers at the right -->
+  <div role="toolbar" aria-label="Switches and helpers" style="flex: none; margin-top: 8px; height: 32px; display: flex; align-items: center; gap: 24px; white-space: nowrap">
+    <button class="lamp" aria-pressed="true" title="Accompaniment on/off (ACMP)" style="height: 32px; box-sizing: border-box; padding: 0 16px; border-radius: 4px; border: 0; font-size: 14px; white-space: nowrap">Accomp<span class="sub" style="margin-left: 6px; font-size: 12px">ACMP</span></button>
+    <!-- COUNT ROW: beat blocks (current = Main hue, beat one white top edge, past = --past), bar, playing → next (waiting face), fill -->
+    <div role="status" aria-label="Beat 3 of 4, bar 3 of 4. Main B playing, Main C next. The fill lands after bar 4" style="flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; justify-content: center; gap: 20px; font-size: 18px; line-height: 24px; font-weight: 300; white-space: nowrap">
+      <span aria-hidden="true" style="display: flex; gap: 4px">
+        <span style="width: 24px; height: 24px; border-radius: 2px; background: var(--past); box-shadow: inset 0 2px 0 var(--t)"></span>
+        <span style="width: 24px; height: 24px; border-radius: 2px; background: var(--past)"></span>
+        <span style="width: 24px; height: 24px; border-radius: 2px; background: var(--main); box-shadow: var(--bg)"></span>
+        <span style="width: 24px; height: 24px; border-radius: 2px; background: var(--btn)"></span>
+      </span>
+      <span aria-hidden="true" style="color: var(--m); font-weight: 400">Bar <span style="color: var(--t); font-weight: 300">3/4</span></span>
+      <span aria-hidden="true" style="display: flex; align-items: center; gap: 8px">
+        <span style="color: var(--main)">Main B</span>
+        <span style="color: var(--m)">→</span>
+        <span style="height: 26px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--main); border-radius: 4px; line-height: 24px; color: var(--main)">Main C</span>
+      </span>
+      <span aria-hidden="true" style="color: var(--t)">fill after bar 4</span>
+    </div>
+    <span style="margin-left: auto; display: flex; align-items: center; gap: 8px">
+      <span role="group" aria-label="Metronome" style="display: flex; gap: 1px"><button class="lamp" aria-pressed="false" style="height: 32px; box-sizing: border-box; padding: 0 16px; border-radius: 4px 0 0 4px; border: 0; font-size: 14px">Metronome</button><button aria-label="Metronome settings: on/off, volume, bell on beat 1" aria-haspopup="dialog" aria-expanded="false" title="Metronome settings" style="width: 20px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 0 4px 4px 0; border: 0; background: var(--btn); color: var(--m); font-size: 10px">▾</button></span>
+      <button class="lamp" aria-pressed="false" style="height: 32px; box-sizing: border-box; padding: 0 16px; border-radius: 4px; border: 0; font-size: 14px">Unison</button>
+      <button aria-label="Panic: all notes off" title="Panic: all notes off" style="height: 32px; box-sizing: border-box; padding: 0 14px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">Panic</button>
+      <button aria-label="Help mode: point at any control to learn what it does" aria-pressed="false" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">?</button>
+    </span>
+  </div>
+
+  <!-- TALL PAGE (468): Library > Styles -->
+  <section aria-label="Library: Styles" style="position: relative; flex: none; margin-top: 12px; height: 468px; box-sizing: border-box; background: var(--g); overflow: hidden">
+    <div style="position: absolute; left: 24px; right: 24px; top: 16px; bottom: 16px; display: flex; gap: 24px">
+
+      <div style="width: 320px; flex: none; display: flex; flex-direction: column">
+        <!-- COMPACT BLOCK (320 × 84): style, tempo, running, chord, playing section. Beat, bar and next live in the count row -->
+        <div aria-label="Now playing" style="width: 320px; height: 84px; flex: none; display: flex; flex-direction: column">
+          <div style="height: 16px; display: flex; align-items: center; gap: 8px; white-space: nowrap">
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; font-size: 13px; line-height: 16px; font-weight: 500; color: var(--g); background: var(--a)">Sunday Drive Pop</span>
+            <span style="margin-left: auto; font-size: 18px; line-height: 16px; font-weight: 300; color: var(--t)">104<span style="margin-left: 3px; font-size: 12px; font-weight: 400; color: var(--m)">BPM</span></span>
+            <span role="img" aria-label="Running" style="width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: var(--bg)"></span>
+          </div>
+          <div style="margin-top: 12px; height: 48px; display: flex; align-items: baseline; gap: 14px; white-space: nowrap">
+            <span style="font-size: 48px; line-height: 48px; font-weight: 300; letter-spacing: -2px; color: var(--a); text-shadow: var(--ba)">Am<span style="font-weight: 200; letter-spacing: 0">7</span></span>
+            <span style="font-size: 14px; font-weight: 300; letter-spacing: 3px; color: var(--t2)">A C E G</span>
+            <span style="margin-left: auto; font-size: 24px; line-height: 48px; font-weight: 300; letter-spacing: -0.5px; color: var(--main)">Main B</span>
+          </div>
+        </div>
+
+        <nav aria-label="Library pages" style="margin-top: 16px; flex: none; display: flex; flex-direction: column">
+          <sc-for list="{{libnav}}" as="n" hint-placeholder-count="5">
+            <button aria-current="{{n.current}}" style="width: 100%; height: 32px; box-sizing: border-box; padding: 0 8px; border: 0; border-radius: 0; border-bottom: 1px solid {{n.rule}}; background: {{n.bg}}; display: flex; align-items: center; gap: 12px; text-align: left; white-space: nowrap">
+              <span style="flex: 1; font-size: 14px; color: {{n.fg}}">{{n.name}}</span>
+              <span style="font-size: 13px; font-weight: 300; color: {{n.countColor}}">{{n.count}}</span>
+            </button>
+          </sc-for>
+        </nav>
+
+        <section aria-label="Quick Racks" style="margin-top: 12px; flex: none; display: flex; flex-direction: column; gap: 4px">
+          <div style="height: 32px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; white-space: nowrap">
+            <span style="font-size: 14px; color: var(--m)">Quick Racks</span>
+            <button aria-label="Previous bank" style="width: 28px; height: 28px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px">◀</button>
+            <span aria-label="Bank A of 8" style="font-size: 18px; font-weight: 300; color: var(--t)">A</span>
+            <button aria-label="Next bank" style="width: 28px; height: 28px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px">▶</button>
+            <button class="lamp" aria-pressed="false" title="Arm Store, then tap a slot" style="margin-left: auto; height: 28px; box-sizing: border-box; padding: 0 12px; border-radius: 4px; border: 0; font-size: 13px">Store</button>
+            <button aria-label="Clear: arm, then tap a slot to empty it" style="width: 28px; height: 28px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="10" height="10" viewBox="0 0 12 12"><path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" style="stroke: var(--t2)" stroke-width="1.2"/></svg></button>
+          </div>
+          <div style="margin-top: 4px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px">
+            <sc-for list="{{qr}}" as="q" hint-placeholder-count="8">
+              <button aria-label="{{q.aria}}" title="Click to load. Long press or right-click stores the live rack here" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0 6px; border-radius: 4px; border: 0; background: {{q.bg}}; color: {{q.fg}}; box-shadow: {{q.glow}}; display: flex; align-items: center; gap: 5px; text-align: left; white-space: nowrap; overflow: hidden">
+                <span style="flex: none; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{q.idxColor}}">{{q.idx}}</span>
+                <span style="min-width: 0; overflow: hidden; white-space: normal; font-size: 12px; line-height: 13px">{{q.name}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </section>
+      </div>
+
+      <div aria-hidden="true" style="width: 1px; flex: none; background: var(--line)"></div>
+
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+        <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: stretch; gap: 12px; white-space: nowrap">
+          <span style="align-self: center; font-size: 14px; color: var(--m)">Styles</span>
+          <span style="align-self: center; font-size: 14px; color: var(--t)">Pop &amp; Rock</span>
+          <span style="align-self: center; font-size: 14px; font-weight: 300; color: var(--m)">212</span>
+          <div role="tablist" aria-label="Views" style="margin-left: auto; display: flex">
+            <button role="tab" aria-selected="false" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; white-space: nowrap">All <span style="font-weight: 300">1,284</span></button>
+            <button role="tab" aria-selected="false" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; white-space: nowrap">Favourites <span style="font-weight: 300">36</span></button>
+            <button role="tab" aria-selected="false" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; white-space: nowrap">Recent <span style="font-weight: 300">12</span></button>
+          </div>
+          <label style="align-self: center; width: 220px; flex: none; height: 30px; box-sizing: border-box; border-bottom: 1px solid var(--m); display: flex; align-items: center; gap: 8px">
+            <svg aria-hidden="true" width="13" height="13" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.5" fill="none" style="stroke: var(--m)" stroke-width="1.2"/><path d="M9.5 9.5 L13 13" style="stroke: var(--m)" stroke-width="1.2"/></svg>
+            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Filter styles</span>
+            <input type="search" placeholder="Filter by name, tempo or time" style="flex: 1; min-width: 0; height: 28px; padding: 0; border: 0; background: none; color: var(--t); font-family: 'DM Sans', sans-serif; font-size: 13px; caret-color: var(--t); outline: none">
+          </label>
+          <button aria-haspopup="dialog" aria-label="Open a style file from anywhere: it is added to the library and loaded (loadStylePath)" title="Open a style file (.sty .prs .sst .bcs .pcs .pst .fps)" style="align-self: center; flex: none; height: 28px; padding: 0 14px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 13px; white-space: nowrap">Open file…</button>
+        </div>
+
+        <div style="flex: none; height: 400px; box-sizing: border-box; padding-top: 12px; display: flex; gap: 24px">
+          <nav aria-label="Style folders" style="width: 200px; flex: none; display: flex; flex-direction: column; align-self: flex-start">
+            <sc-for list="{{folders}}" as="f" hint-placeholder-count="11">
+              <button aria-current="{{f.current}}" style="width: 100%; height: 32px; box-sizing: border-box; padding: 0 8px; border: 0; border-radius: 0; border-bottom: 1px solid {{f.rule}}; background: {{f.bg}}; display: flex; align-items: center; gap: 12px; text-align: left; white-space: nowrap">
+                <span style="flex: 1; font-size: 14px; color: {{f.fg}}">{{f.name}}</span>
+                <span style="font-size: 13px; font-weight: 300; color: {{f.countColor}}">{{f.count}}</span>
+              </button>
+            </sc-for>
+          </nav>
+
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+            <div style="flex: none; height: 32px; box-sizing: border-box; padding: 0 12px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 44px 32px minmax(0, 1fr) 88px 44px 40px 126px 44px 32px; align-items: center; column-gap: 10px; font-size: 12px; color: var(--m); white-space: nowrap">
+              <span>Track</span><span></span><span>Name</span><span>Folder</span><span>BPM</span><span>Time</span><span>Sections</span><span>File</span><span></span>
+            </div>
+            <div role="listbox" aria-label="Styles in Pop and Rock, in Track order (folder, then name)" style="position: relative; flex: none; height: 288px; overflow: hidden">
+              <sc-for list="{{styles}}" as="r" hint-placeholder-count="9">
+                <div role="option" aria-selected="{{r.sel}}" aria-label="{{r.aria}}" style="height: 32px; box-sizing: border-box; padding: 0 12px; border-bottom: 1px solid {{r.rule}}; background: {{r.bg}}; color: {{r.fg}}; display: grid; grid-template-columns: 44px 32px minmax(0, 1fr) 88px 44px 40px 126px 44px 32px; align-items: center; column-gap: 10px; cursor: pointer">
+                  <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: {{r.mut}}; white-space: nowrap"><span aria-hidden="true" style="display: {{r.dotDisp}}; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: {{r.dotGlow}}"></span>{{r.track}}</span>
+                  <button aria-label="{{r.starAria}}" style="width: 32px; height: 31px; padding: 0; background: none; border: 0; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12"><path d="M6 1 L7.5 4.3 L11 4.6 L8.3 6.9 L9.1 10.4 L6 8.6 L2.9 10.4 L3.7 6.9 L1 4.6 L4.5 4.3 Z" fill="{{r.starFill}}" stroke="{{r.starStroke}}" stroke-width="1"/></svg></button>
+                  <span style="min-width: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap">
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: {{r.weight}}">{{r.name}}</span>
+                    <span style="display: {{r.queuedDisp}}; flex: none; align-items: center; height: 18px; box-sizing: border-box; padding: 0 6px; border: 1px solid {{r.fg}}; font-size: 11px; line-height: 16px">next bar</span>
+                  </span>
+                  <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: {{r.mut}}">{{r.folder}}</span>
+                  <span style="font-size: 15px; font-weight: 300">{{r.tempo}}</span>
+                  <span style="font-size: 15px; font-weight: 300">{{r.time}}</span>
+                  <span role="img" aria-label="{{r.secAria}}" style="display: flex; align-items: center">
+                    <span style="width: 8px; height: 2px; border-radius: 1px; background: {{r.l0}}"></span>
+                    <span style="margin-left: 2px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l1}}"></span>
+                    <span style="margin-left: 2px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l2}}"></span>
+                    <span style="margin-left: 8px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l3}}"></span>
+                    <span style="margin-left: 2px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l4}}"></span>
+                    <span style="margin-left: 2px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l5}}"></span>
+                    <span style="margin-left: 2px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l6}}"></span>
+                    <span style="margin-left: 8px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l7}}"></span>
+                    <span style="margin-left: 8px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l8}}"></span>
+                    <span style="margin-left: 2px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l9}}"></span>
+                    <span style="margin-left: 2px; width: 8px; height: 2px; border-radius: 1px; background: {{r.l10}}"></span>
+                  </span>
+                  <span style="font-size: 12px; color: {{r.mut}}">{{r.file}}</span>
+                  <button aria-label="{{r.prevAria}}" aria-disabled="true" title="Preview works while the band is stopped" style="width: 32px; height: 28px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: none; color: {{r.prevColor}}; cursor: default; font-size: 11px">▶</button>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="flex: none; margin-top: 12px; height: 44px; display: flex; align-items: center; gap: 16px">
+              <button class="lamp" aria-pressed="true" style="height: 32px; box-sizing: border-box; padding: 0 14px; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">Preview on select</button>
+              <span style="font-size: 13px; color: var(--m); white-space: nowrap">While stopped</span>
+              <button style="margin-left: auto; height: 44px; box-sizing: border-box; padding: 0 18px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">Cancel</button>
+              <button aria-label="Coastal Highway loads at the next bar (queued, flashing)" style="width: 260px; height: 44px; box-sizing: border-box; padding: 0 16px; border-radius: 4px; border: 1px solid var(--t); background: none; color: var(--t); display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 500; white-space: nowrap">
+                <span>Load Coastal Highway</span>
+                <span style="font-size: 12px; font-weight: 400; color: var(--t2)">next bar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HALF-HEIGHT BAND (176): the full band's parts scaled; faders 614 · Track 40 · knobs and pads 614 · transport 88 -->
+  <div style="flex: none; margin-top: 20px; height: 176px; display: flex; gap: 12px">
+
+    <section aria-label="Faders" style="width: 614px; flex: none; display: flex; flex-direction: column">
+      <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: stretch; gap: 12px; white-space: nowrap">
+        <span style="align-self: center; font-size: 14px; font-weight: 400; color: var(--m)">Faders</span>
+        <div role="tablist" aria-label="Fader page (master button)" style="display: flex">
+          <button role="tab" aria-selected="true" style="height: 35px; padding: 11px 10px 0; background: linear-gradient(var(--t), var(--t)) left bottom / 100% 22px no-repeat; border: 0; color: var(--g); font-size: 13px; font-weight: 400">Panel</button>
+          <button role="tab" aria-selected="false" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Style</button>
+        </div>
+        <span aria-hidden="true" style="align-self: center; width: 1px; height: 16px; background: var(--line)"></span>
+        <div role="tablist" aria-label="Fader layer" style="display: flex; align-items: stretch">
+          <span style="align-self: center; margin-right: 4px; font-size: 14px; font-weight: 400; color: var(--m)">Layer</span>
+          <button role="tab" aria-selected="true" aria-label="Volume" style="height: 35px; padding: 11px 8px 0; background: linear-gradient(var(--t), var(--t)) left bottom / 100% 22px no-repeat; border: 0; color: var(--g); font-size: 13px; font-weight: 400">Vol</button>
+          <button role="tab" aria-selected="false" aria-label="Pan" style="height: 35px; padding: 11px 8px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Pan</button>
+          <button role="tab" aria-selected="false" aria-label="Reverb send" style="height: 35px; padding: 11px 8px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Reverb</button>
+          <button role="tab" aria-selected="false" aria-label="Chorus send" style="height: 35px; padding: 11px 8px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Chorus</button>
+          <button role="tab" aria-selected="false" aria-label="Delay send" style="height: 35px; padding: 11px 8px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Delay</button>
+        </div>
+      </div>
+      <div style="flex: none; margin-top: 8px; height: 132px; display: flex; flex-direction: column">
+        <!-- strips (84): fader 66 (value 16 over meter + 3px bracket, 44px travel), name 18 -->
+        <div style="flex: none; height: 84px; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{strips}}" as="s" hint-placeholder-count="9">
+            <div style="min-width: 0; height: 84px; display: flex; flex-direction: column">
+              <button aria-label="{{s.faderAria}}" title="{{s.title}}" style="position: relative; flex: none; width: 100%; height: 66px; padding: 0; background: none; border: 0">
+                <span aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; height: 16px; line-height: 16px; text-align: center; font-size: 15px; font-weight: 300; color: {{s.valColor}}; white-space: nowrap">{{s.val}}</span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 11px); top: 19px; bottom: 3px; width: 6px; background: var(--mbg); opacity: {{s.meterOp}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 3px); top: 19px; bottom: 3px; width: 6px; background: var(--mbg); opacity: {{s.meterOp}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 11px); bottom: 3px; width: 6px; height: {{s.meterH}}px; background: {{s.meter}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 3px); bottom: 3px; width: 6px; height: {{s.meterH2}}px; background: {{s.meter}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 11px); bottom: {{s.peakB}}px; width: 14px; height: 1px; background: {{s.peak}}; opacity: {{s.meterOp}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% + 6px); top: 19px; bottom: 3px; width: 3px; background: {{s.groove}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% + 6px); bottom: 3px; width: 3px; height: {{s.fillH}}px; background: {{s.fill}}; box-shadow: {{s.fillGlow}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% + 1px); top: {{s.capY}}px; width: 8px; height: 2px; background: {{s.capColor}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 15px); top: {{s.ghostTop}}px; width: 30px; height: 0; border-top: 1px dashed var(--m); opacity: {{s.ghostOp}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: 0; top: 0; font-size: 12px; line-height: 12px; color: var(--m)">{{s.wait}}</span>
+              </button>
+              <button aria-label="{{s.openAria}}" style="flex: none; width: 100%; height: 18px; box-sizing: border-box; padding: 0; border-radius: 0; border: 0; background: none; display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap">
+                <span style="min-width: 0; overflow: hidden; font-size: 12px; line-height: 16px; font-weight: 500; color: {{s.tagColor}}">{{s.tag}}</span>
+                <span aria-hidden="true" title="Sound edited" style="display: {{s.editedDisp}}; flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--t)"></span>
+                <svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" style="display: {{s.missingDisp}}; flex: none; stroke: var(--warn); fill: none"><path d="M6 1.5 L11 10.5 H1 Z" stroke-width="1" stroke-linejoin="round"/><path d="M6 5 V7.4" stroke-width="1"/><circle cx="6" cy="8.9" r="0.6" style="fill: var(--warn); stroke: none"/></svg>
+                <svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" style="display: {{s.failedDisp}}; flex: none; stroke: var(--ending); fill: none"><path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="flex: none; height: 14px; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); column-gap: 8px; white-space: nowrap">
+          <span style="grid-column: 1 / 5; box-sizing: border-box; border-bottom: 1px solid var(--line); font-size: 12px; line-height: 12px; color: var(--m)">Part on/off</span>
+          <span style="grid-column: 5 / 10; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; font-size: 12px; line-height: 12px; color: var(--m)">Functions<span style="margin-left: auto">Launchkey fader buttons 5–9</span></span>
+        </div>
+        <!-- lamp row: class "lamp" + aria-pressed (true = lime face, black label; false = plain face, grey label). Panel is a page toggle -->
+        <div style="position: relative; flex: none; margin-top: 2px; height: 32px; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 8px">
+          <span aria-hidden="true" style="position: absolute; top: 0; bottom: 0; left: calc((100% - 64px) * 4 / 9 + 28px); width: 1px; background: var(--line)"></span>
+          <button class="lamp" aria-pressed="true" aria-label="Right 1 on. Long press: swap mode (knobs edit this part). Shift: open Channel" title="Right 1 on/off. Long press: swap mode. Shift: open Channel" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 12px; white-space: nowrap">On</button>
+          <button class="lamp" aria-pressed="true" aria-label="Right 2 on. Long press: swap mode (knobs edit this part). Shift: open Channel" title="Right 2 on/off. Long press: swap mode. Shift: open Channel" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 12px; white-space: nowrap">On</button>
+          <button class="lamp" aria-pressed="false" aria-label="Right 3 off. Long press: swap mode (knobs edit this part). Shift: open Channel" title="Right 3 on/off. Long press: swap mode. Shift: open Channel" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 12px; white-space: nowrap">Off</button>
+          <button class="lamp" aria-pressed="true" aria-label="Left on. Long press: swap mode (knobs edit this part). Shift: open Channel" title="Left on/off. Long press: swap mode. Shift: open Channel" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 12px; white-space: nowrap">On</button>
+          <button class="lamp" aria-pressed="false" aria-label="Harmony/Arpeggio on/off" title="Harmony/Arpeggio on/off" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 12px; white-space: nowrap">Harm/Arp</button>
+          <button class="lamp" aria-pressed="false" aria-label="Sound: hold and the pads become Quick Racks. A click latches it until the next pad tap; click again or press fader button 6 to close" title="Sound: hold for Quick Racks on the pads; click to latch until the next pad tap" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 12px; white-space: nowrap">Sound</button>
+          <button class="lamp" aria-pressed="false" aria-label="Left Hold on/off" title="Left Hold on/off" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 12px; white-space: nowrap">L Hold</button>
+          <button class="lamp" aria-pressed="false" aria-label="Chord Looper on/off. Long press: Loop rec" title="Long press: Loop rec" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 12px; white-space: nowrap">Looper</button>
+          <button aria-label="Fader page is Panel: click for Style (Shift: Layer)" title="Fader page is Panel: click for Style (Shift: Layer)" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 12px; white-space: nowrap">Panel</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Track ◀ ▶ (40): no on-screen Shift button (owner ruling); every Shift function has its own control on the page -->
+    <section aria-label="Track" style="width: 40px; flex: none; display: flex; flex-direction: column">
+      <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: center"><span style="font-size: 14px; color: var(--m)">Track</span></div>
+      <div style="flex: none; margin-top: 8px; display: flex; flex-direction: column; gap: 8px">
+        <button aria-label="Previous style (Track left)" style="width: 40px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 12px">◀</button>
+        <button aria-label="Next style (Track right)" style="width: 40px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 12px">▶</button>
+      </div>
+    </section>
+
+    <div style="width: 614px; flex: none; display: flex; flex-direction: column">
+      <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; white-space: nowrap">
+        <span style="font-size: 14px; color: var(--m)">Knobs</span>
+        <span style="padding: 0 8px; font-size: 13px; line-height: 22px; color: var(--g); background: var(--a)">Style</span>
+        <button aria-label="Knob page up (Shift: Rotary slow/fast)" style="width: 28px; height: 28px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px">▲</button>
+        <button aria-label="Knob page down (Shift: Accomp on/off)" style="width: 28px; height: 28px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px">▼</button>
+        <span style="font-size: 13px; color: var(--m)">Page <span style="color: var(--t)">1/6</span></span>
+        <span style="margin-left: auto; font-size: 14px; color: var(--m)">Pads</span>
+        <span style="font-size: 14px; color: var(--t)">Sections · <span style="color: var(--main)">next Main C</span></span>
+        <button aria-label="Pad bank up (Shift: Left on/off)" style="width: 28px; height: 28px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px">▲</button>
+        <button aria-label="Pad bank down (Shift: One Touch Link)" style="width: 28px; height: 28px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px">▼</button>
+        <span style="font-size: 13px; color: var(--m)">Bank <span style="color: var(--t)">1/5</span></span>
+      </div>
+      <!-- knobs (48): 32px ring with tip dot and the value inside, plain legend under -->
+      <div style="flex: none; margin-top: 8px; height: 48px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); column-gap: 6px">
+        <sc-for list="{{knobs}}" as="k" hint-placeholder-count="8">
+          <button aria-label="{{k.aria}}" title="{{k.title}}" style="min-width: 0; height: 48px; padding: 0; background: none; border: 0; display: flex; flex-direction: column; align-items: center">
+            <span style="position: relative; display: block; flex: none; width: 32px; height: 32px; border-radius: 50%; background: conic-gradient(from 225deg, {{k.arc}} 0deg {{k.deg}}deg, {{k.rest}} {{k.deg}}deg 270deg, rgba(0,0,0,0) 270deg 360deg)">
+              <span style="position: absolute; inset: 2px; border-radius: 50%; background: var(--g); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 300; color: {{k.valColor}}; white-space: nowrap">{{k.val}}</span>
+              <span aria-hidden="true" style="display: {{k.dotDisp}}; position: absolute; left: {{k.dotX}}px; top: {{k.dotY}}px; width: 4px; height: 4px; border-radius: 50%; background: {{k.arc}}"></span>
+            </span>
+            <span style="margin-top: 2px; height: 14px; line-height: 14px; font-size: 12px; color: {{k.legendColor}}; white-space: nowrap">{{k.name}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <!-- HALF-BAND PADS (60): 66 × 28 pads filling their columns, real 12px captions in pad order. Faces: idle = --btn with the
+           family hue (utility --t2); absent = --d; playing = solid hue, --solid-ink caption; queued = 1px hue outline, white
+           caption, a lit 2px hue bar with bloom; running Start = solid --ok -->
+      <div style="flex: none; margin-top: 8px; height: 60px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-auto-rows: 28px; column-gap: 6px; row-gap: 4px">
+        <button aria-label="Intro I (pad 1)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--intro); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Intro I</button>
+        <button aria-label="Intro II (pad 2)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--intro); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Intro II</button>
+        <button aria-label="Intro III (pad 3), not in this style" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--d); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Intro III</button>
+        <button aria-label="Sync Start (pad 4)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--t2); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Sync start<span aria-hidden="true" style="display: inline-block; width: 0; height: 0; margin-left: 3px; border-left: 6px solid currentColor; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent; vertical-align: 0"></span></button>
+        <button aria-label="Ending I (pad 5)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--ending); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Ending I</button>
+        <button aria-label="Ending II (pad 6)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--ending); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Ending II</button>
+        <button aria-label="Ending III (pad 7), not in this style" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--d); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Ending III</button>
+        <button aria-label="Auto Fill (pad 8)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--t2); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Auto fill</button>
+        <button aria-label="Main A (pad 9)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--main); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Main A</button>
+        <button aria-label="Main B (pad 10), playing" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid var(--main); background: var(--main); color: var(--solid-ink); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Main B</button>
+        <button aria-label="Main C (pad 11), queued after bar 4 (flashing)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid var(--main); background: var(--btn); color: var(--t); font-size: 12px; font-weight: 500; line-height: 23px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Main C<span aria-hidden="true" style="position: absolute; left: 8px; right: 8px; bottom: 3px; height: 2px; border-radius: 1px; background: var(--main); box-shadow: var(--bg)"></span></button>
+        <button aria-label="Main D (pad 12)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--main); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Main D</button>
+        <button aria-label="Break (pad 13)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--brk); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Break</button>
+        <button aria-label="Tap tempo (pad 14)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--t2); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Tap</button>
+        <button aria-label="Sync Stop (pad 15)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid transparent; background: var(--btn); color: var(--t2); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Sync stop<span aria-hidden="true" style="display: inline-block; width: 6px; height: 6px; margin-left: 3px; background: currentColor; vertical-align: 0"></span></button>
+        <button aria-label="Start / Stop, running (pad 16; the transport Start / Stop is the same control)" style="position: relative; min-width: 0; height: 28px; box-sizing: border-box; padding: 0 2px; border-radius: 4px; border: 1px solid var(--ok); background: var(--ok); color: var(--solid-ink); font-size: 12px; font-weight: 500; line-height: 26px; letter-spacing: -0.2px; text-align: center; white-space: nowrap; overflow: hidden">Start</button>
+      </div>
+    </div>
+
+    <section aria-label="Transport and tempo" style="width: 88px; flex: none; display: flex; flex-direction: column">
+      <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: center"><span style="font-size: 14px; color: var(--m)">Transport</span></div>
+      <!-- five 24px rows (5 × 24 + 4 × 3 = 132) so the Fills pair and Style tempo fit the 176px band: ▶ ■ / Reset Fade / Fill ▲ ▼ / + − / Style tempo -->
+      <div style="flex: none; margin-top: 8px; display: grid; grid-template-columns: 40px 40px; grid-auto-rows: 24px; gap: 3px 8px">
+        <button aria-label="Start / Stop, running (Play; Shift: section reset). The same control as pad 16" aria-pressed="true" style="position: relative; height: 24px; box-sizing: border-box; padding: 0 0 3px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t); font-size: 12px"><span aria-hidden="true" style="position: absolute; left: 8px; right: 8px; bottom: 3px; height: 2px; border-radius: 1px; background: var(--ok); box-shadow: var(--bg)"></span>▶</button>
+        <button aria-label="Stop (fade with hold; Shift: Fade in/out)" title="Stop (fade with hold)" style="height: 24px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 12px">■</button>
+        <button aria-label="Section reset: restart the section from its first bar" title="Section reset" style="height: 24px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px">Reset</button>
+        <button aria-label="Fade in/out" aria-pressed="false" title="Fade in/out" style="height: 24px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px">Fade</button>
+        <!-- FILLS (fillUp, fillDown): a fill, then the next Main up / down that the style has; stopped, it selects that Main -->
+        <button aria-label="Fill Up: a fill, then the next Main up (at Main D, its own fill)" title="Fill Up: a fill, then the next Main up" style="height: 24px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px; white-space: nowrap">Fill <span style="font-size: 8px">▲</span></button>
+        <button aria-label="Fill Down: a fill, then the next Main down (at Main A, its own fill)" title="Fill Down: a fill, then the next Main down" style="height: 24px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px; white-space: nowrap">Fill <span style="font-size: 8px">▼</span></button>
+        <button aria-label="Tempo up (Scene Launch; Shift: retrigger shorter)" title="Tempo + (Scene Launch)" style="height: 24px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px; font-weight: 300">+</button>
+        <button aria-label="Tempo down (Function; Shift: retrigger longer)" title="Tempo − (Function)" style="height: 24px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px; font-weight: 300">−</button>
+        <!-- STYLE TEMPO (resetTempo): back to the tempo the style came with. Launchkey: Scene Launch + Function together -->
+        <button aria-label="Style tempo: back to the tempo the style came with (Scene Launch and Function together)" title="Style tempo: back to the style's own tempo (Scene Launch + Function)" style="grid-column: 1 / 3; height: 24px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 11px; white-space: nowrap">Style tempo</button>
+      </div>
+    </section>
+  </div>
+  <!-- KEYS (80) -->
+  <section aria-label="Keys: split F#2, left hand G A C E, right hand E4 A4, 61 keys" style="flex: none; margin-top: 20px; height: 80px; display: flex; flex-direction: column">
+    <div style="flex: none; height: 20px; display: flex; align-items: center; gap: 16px; white-space: nowrap">
+      <p role="status" aria-live="polite" style="margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 20px; color: var(--m)"></p>
+      <span style="font-size: 13px; color: var(--m)">Split <span style="color: var(--t)">F#2</span></span>
+      <span style="font-size: 13px; color: var(--m)">Detect <span style="color: var(--t)">lower</span></span>
+      <span style="font-size: 13px; color: var(--m)">Left <span style="color: var(--l)">G A C E</span></span>
+      <span style="font-size: 13px; color: var(--m)">Right <span style="color: var(--r1)">E4 A4</span></span>
+      <button aria-label="Keyboard size 61 keys. Click for 49, 61 or 88" style="height: 20px; padding: 0; background: none; border: 0; font-size: 13px; color: var(--t)">61 keys</button>
+    </div>
+    <div style="flex: none; margin-top: 4px; position: relative; height: 56px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--g)">
+      <sc-for list="{{whites}}" as="w" hint-placeholder-count="36">
+        <div style="position: absolute; top: 0; left: {{w.x}}px; width: {{w.w}}px; height: 100%; box-sizing: border-box; border-right: 1px solid var(--keyline); background: {{w.bg}}; box-shadow: {{w.ring}}; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 14px; color: {{w.labColor}}">{{w.lab}}</div>
+      </sc-for>
+      <sc-for list="{{blacks}}" as="b" hint-placeholder-count="25">
+        <div style="position: absolute; top: 0; left: {{b.x}}px; width: 22px; height: 32px; border-radius: 0 0 3px 3px; background: {{b.bg}}; box-shadow: {{b.ring}}"></div>
+      </sc-for>
+      <div aria-hidden="true" style="position: absolute; top: 0; left: 0; width: 424px; height: 2px; background: var(--l); box-shadow: var(--bl)"></div>
+      <div aria-hidden="true" style="position: absolute; top: 0; bottom: 0; left: 424px; width: 2px; background: var(--t)"></div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+  // Push, light. The same object in daylight: paper ground, ink text, denser hues, no bloom.
+  var C = {
+    ground: '#f2f1ee', paper: '#ffffff', btn: '#e4e3df', meterBg: '#e2e1dd', track: '#c4c3bf', line: '#d3d2ce', barOff: '#c4c3bf', dim: '#b0afab',
+    muted: '#6e6e6e', text2: '#2b2b2b', text: '#111111', accent: '#5b3fd6', ringRest: '#d6d5d1',
+    intro: '#857a1f', main: '#1c8040', ending: '#a84444', brk: '#7a4a96', fill: '#4d7480',
+    util: '#a8a7a3', run: '#1c8040'
+  };
+  var PART = { r1: '#1257d6', r2: '#d0186f', r3: '#c85f00', l: '#008f78' };
+  var GLOW = false;
+  var SEL_FG = C.paper, SEL_MUT = 'rgba(255,255,255,0.7)', SEL_OFF = 'rgba(255,255,255,0.3)';
+  function rgba(h, a) { var n = parseInt(h.slice(1), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+
+  var CUR = 'Styles';
+  var libnav = [['Styles', '1,284'], ['Sounds', '886'], ['Instruments', '4'], ['Racks', '10'], ['Style map', '']].map(function (n) {
+    var on = n[0] === CUR;
+    return { name: n[0], count: n[1], current: on ? 'page' : 'false', bg: on ? C.text : 'rgba(0,0,0,0)', fg: on ? SEL_FG : C.text2, countColor: on ? SEL_MUT : C.muted, rule: on ? C.text : C.line };
+  });
+  var qr = [['Sunday drive', 'loaded'], ['Warm keys', 'stored'], ['Lead synth', 'stored'], ['Organ', 'stored'], ['', ''], ['', ''], ['', ''], ['', '']].map(function (q, i) {
+    var idx = 'A' + (i + 1), st = q[1];
+    var o = { idx: idx, name: q[0] || 'Empty', aria: 'Quick Rack ' + idx + (q[0] ? ', ' + q[0] : ', empty') + (st === 'loaded' ? ', loaded' : (st === 'stored' ? ', stored' : '')), bg: C.btn, fg: C.dim, glow: 'none', idxColor: C.dim };
+    if (st === '') { o.bg = 'rgba(0,0,0,0)'; o.fg = C.muted; o.glow = 'inset 0 0 0 1px ' + C.dim; }
+    if (st === 'stored') { o.fg = C.text; o.idxColor = C.muted; o.glow = 'inset 0 -2px 0 ' + rgba(C.text, 0.4); }
+    if (st === 'loaded') { o.bg = C.text; o.fg = C.paper; o.idxColor = 'rgba(255,255,255,0.7)'; }
+    return o;
+  });
+
+  var folders = [['Pop & Rock', '212', 1], ['Ballad', '98'], ['Dance', '164'], ['Swing & Jazz', '141'], ['R&B', '87'], ['Country', '76'],
+    ['Latin', '118'], ['Ballroom', '102'], ['Entertainment', '90'], ['Movie & Show', '64'], ['World', '132']].map(function (f) {
+    var on = !!f[2];
+    return { name: f[0], count: f[1], current: on ? 'true' : 'false', bg: on ? C.text : 'rgba(0,0,0,0)', fg: on ? SEL_FG : C.text2, countColor: on ? SEL_MUT : C.muted, rule: on ? C.text : C.line };
+  });
+  var defs = [
+    ['Unplugged Ballad Pop', '8Beat', 76, '4/4', '11001101011', 'SFF2', 0, ''],
+    ['Brit Pop Anthem', 'Pop', 128, '4/4', '11011111111', 'SFF2', 1, ''],
+    ['Coastal Highway', 'Pop', 112, '4/4', '11111111111', 'SFF2', 1, 'queued'],
+    ['Pop Shuffle', 'Pop', 108, '12/8', '11111111111', 'SFF2', 0, 'prev'],
+    ['Sunday Drive Pop', 'Pop', 104, '4/4', '11011111110', 'SFF2', 1, 'loaded'],
+    ['Waltz Pop', 'Pop', 84, '3/4', '11111101111', 'SFF2', 0, 'next'],
+    ['Garage Summer', 'Rock', 138, '4/4', '10011111011', 'SFF1', 0, ''],
+    ['Soft Rock Radio', 'Rock', 92, '4/4', '11011111111', 'SFF2', 0, ''],
+    ['Motown Pop Soul', 'Soul', 116, '4/4', '11111111111', 'SFF2', 0, '']
+  ];
+  var SEC = ['Intro I', 'Intro II', 'Intro III', 'Main A', 'Main B', 'Main C', 'Main D', 'Break', 'Ending I', 'Ending II', 'Ending III'];
+  var styles = defs.map(function (d) {
+    var st = d[7], q = st === 'queued', loaded = st === 'loaded', has = [];
+    var r = {
+      name: d[0], folder: d[1], tempo: String(d[2]), time: d[3], file: d[5],
+      sel: q ? 'true' : 'false', bg: q ? C.text : 'rgba(0,0,0,0)', fg: q ? SEL_FG : C.text, mut: q ? SEL_MUT : C.muted,
+      rule: q ? C.text : C.line, weight: q || loaded ? 500 : 400,
+      queuedDisp: q ? 'inline-flex' : 'none',
+      track: st === 'prev' ? '◀' : (st === 'next' ? '▶' : ''),
+      dotDisp: loaded ? 'block' : 'none', dotGlow: 'none',
+      starFill: d[6] ? (q ? SEL_FG : C.text) : 'none', starStroke: d[6] ? (q ? SEL_FG : C.text) : (q ? SEL_MUT : C.dim),
+      starAria: (d[6] ? 'Remove ' : 'Add ') + d[0] + (d[6] ? ' from' : ' to') + ' favourites',
+      prevAria: 'Preview ' + d[0] + ' (stop the band first)',
+      prevColor: q ? SEL_OFF : C.dim
+    };
+    for (var i = 0; i < 11; i++) {
+      var on = d[4].charAt(i) === '1';
+      r['l' + i] = on ? (q ? SEL_FG : C.text2) : (q ? SEL_OFF : C.track);
+      if (on) has.push(SEC[i]);
+    }
+    r.secAria = 'Sections: ' + has.join(', ');
+    r.aria = d[0] + ', ' + d[1] + ', ' + d[2] + ' BPM, ' + d[3] + (loaded ? ', loaded and playing' : '') + (q ? ', loads at the next bar' : '') +
+      (st === 'prev' ? ', Track left loads this' : '') + (st === 'next' ? ', Track right loads this' : '');
+    return r;
+  });
+
+  // Half band (canonical, from Channel-Light)
+  var TRAVEL = 44, TOP = 19;
+  // [name, strip name, value, level 0-127, meter 0-1, peak 0-1, kind, own button, own button aria, hue, away position, mark, name aria]
+  var F = [
+    ['Right 1', 'Right 1 · Stage Grand', '90', 90, 0.62, 0.7, 'on', 'On', 'Right 1 on/off. Long press: swap mode (knobs edit this part). Shift: open Channel', PART.r1, -1, '', 'Right 1, Stage Grand: open Channel (open now)'],
+    ['Right 2', 'Right 2 · Silk Strings', '72', 72, 0.45, 0.55, 'on', 'On', 'Right 2 on/off. Long press: swap mode. Shift: open Channel', PART.r2, 50, 'edited', 'Right 2, Silk Strings, edited: open Channel'],
+    ['Right 3', 'Right 3 · Brass Section', '64', 64, 0, 0, 'off', 'Off', 'Right 3 on/off. Long press: swap mode. Shift: open Channel', PART.r3, -1, 'missing', 'Right 3, Brass Section, plugin missing: open Channel'],
+    ['Left', 'Left · Silk Strings', '80', 80, 0.5, 0.6, 'on', 'On', 'Left on/off. Long press: swap mode. Shift: open Channel', PART.l, -1, '', 'Left, Silk Strings: open Channel'],
+    ['Style', 'Style volume', '100', 100, 0.7, 0.78, 'group', '', '', C.accent, -1, '', 'Style volume: open the Style fader page'],
+    ['Multi Pad', 'Multi Pad volume', '90', 90, 0, 0.12, 'group', '', '', C.text2, -1, '', 'Multi Pad volume: open Multi Pads'],
+    ['—', 'Fader 7 unused', '', 0, 0, 0, 'parked', '', '', C.dim, -1, '', 'Fader 7 unused'],
+    ['—', 'Fader 8 unused', '', 0, 0, 0, 'parked', '', '', C.dim, -1, '', 'Fader 8 unused'],
+    ['Master', 'Master', '100', 100, 0.72, 0.8, 'master', '', '', C.text, -1, '', 'Master: open Effects, master compressor and EQ']
+  ];
+  // Fader layer, as on the Stage's full band: any layer but 'Vol' turns strips 1-4 white (no meters, white bracket and fill,
+  // "Rev 40" from LV; names keep their hue), the header reads "Faders · Reverb" and that layer tab is the white block. No timer.
+  var LAYER = 'Vol', LV = [40, 12, 0, 20];
+  // mark: '' | 'edited' | 'missing' (orange ⚠) | 'failed' (red ✕)
+  var strips = F.map(function (r, i) {
+    var kind = r[6], hue = r[9], parked = kind === 'parked', off = kind === 'off';
+    var live = !parked && !off, layered = LAYER !== 'Vol' && i < 4;
+    var level = layered ? LV[i] : r[3];
+    var capTop = parked ? TRAVEL : Math.round((1 - level / 127) * TRAVEL);
+    var away = r[10] >= 0, ink = layered ? C.text : hue;
+    return {
+      tag: r[0], openAria: r[12],
+      title: parked ? r[1] : r[1] + ': ' + (layered ? LAYER + ' ' + level : r[2]) + (away ? ' (hardware fader away: move it through the value to take over)' : ''),
+      faderAria: parked ? r[1] : r[1] + ', ' + (layered ? LAYER + ' ' + level : 'level ' + r[2]) + (away ? ', hardware fader away (soft takeover)' : ''),
+      val: parked ? '' : (layered ? LAYER + ' ' + level : r[2]),
+      valColor: live ? ink : C.dim,
+      tagColor: live ? hue : C.dim,
+      editedDisp: r[11] === 'edited' ? 'block' : 'none',
+      missingDisp: r[11] === 'missing' ? 'block' : 'none',
+      failedDisp: r[11] === 'failed' ? 'block' : 'none',
+      wait: away ? '↕' : '',
+      groove: parked ? 'repeating-linear-gradient(to bottom, ' + C.barOff + ' 0 3px, rgba(0,0,0,0) 3px 6px)' : C.track,
+      fillH: parked ? 0 : TRAVEL - capTop,
+      fill: live ? ink : (off ? rgba(ink, 0.35) : 'rgba(0,0,0,0)'),
+      fillGlow: 'none',
+      capY: capTop + TOP - 1,
+      capColor: parked ? 'rgba(0,0,0,0)' : (off ? rgba(ink, 0.35) : ink),
+      meterOp: parked || layered ? 0 : 1,
+      meterH: layered ? 0 : Math.round(r[4] * TRAVEL),
+      meterH2: layered ? 0 : Math.round(r[4] * 0.93 * TRAVEL),
+      meter: live && !layered ? rgba(hue, 0.6) : 'rgba(0,0,0,0)',
+      peakB: 3 + Math.round(r[5] * TRAVEL),
+      peak: C.text,
+      ghostTop: away ? Math.round((1 - r[10] / 127) * TRAVEL) + TOP : 0,
+      ghostOp: away ? 1 : 0
+    };
+  });
+  // The part lamps, the Functions row and the half-band pads are static markup (lamp class and tokens), not data.
+
+  var K = [
+    ['Dynamics', 'DynCtrl', '127', 1], ['Retrig rate', 'RtgRate', '1/8', 0.4], ['Retrigger', 'RtgOnOff', 'Off', 0],
+    ['Mute A', 'StyMuteA', 'Off', 0], ['Mute B', 'StyMuteB', 'Off', 0], ['Swing', 'Swing', '0%', 0], ['—', '', '', -1], ['Tempo', 'Tempo', '104', 0.27]
+  ];
+  var knobs = K.map(function (k, i) {
+    var unused = k[3] < 0, deg = unused ? 0 : Math.round(k[3] * 270);
+    var th = (225 + deg) * Math.PI / 180, R = 15;
+    return {
+      name: k[0], val: k[2], title: unused ? 'Knob ' + (i + 1) + ' unused' : k[0] + ' (' + k[1] + ')',
+      aria: 'Knob ' + (i + 1) + ': ' + (unused ? 'unused' : k[0] + ' (' + k[1] + ') ' + k[2]),
+      deg: deg,
+      arc: unused ? C.meterBg : C.accent, rest: unused ? C.meterBg : C.ringRest,
+      dotDisp: unused ? 'none' : 'block',
+      dotX: (16 + R * Math.sin(th) - 2).toFixed(1), dotY: (16 - R * Math.cos(th) - 2).toFixed(1),
+      valColor: C.accent, legendColor: unused ? C.dim : C.text2
+    };
+  });
+
+  var W = 1390 / 36, notes = 'CDEFGAB';
+  var heldLeft = { 4: 1, 5: 1, 7: 1, 9: 1 }, heldRight = { 23: 1, 26: 1 };
+  var whites = [];
+  for (var i = 0; i < 36; i++) {
+    var n = notes.charAt(i % 7), oct = 1 + Math.floor(i / 7), left = i <= 10;
+    var hl = !!heldLeft[i], hr = !!heldRight[i], held = hl || hr, ph = hl ? PART.l : PART.r1;
+    whites.push({
+      x: (i * W).toFixed(2), w: W.toFixed(2),
+      bg: held ? ph : (left ? '#e6f1ee' : '#fbfbf9'),
+      ring: 'none',
+      lab: n === 'C' ? 'C' + oct : '',
+      labColor: held ? C.paper : C.muted
+    });
+  }
+  var blacks = [], pos = [0, 1, 3, 4, 5];
+  for (var o = 0; o < 5; o++) {
+    for (var j = 0; j < 5; j++) {
+      var wi = o * 7 + pos[j];
+      blacks.push({ x: ((wi + 1) * W - 11).toFixed(2), bg: wi <= 10 ? '#1a2a26' : '#1b1b1b', ring: 'none' });
+    }
+  }
+  return { libnav: libnav, qr: qr, folders: folders, styles: styles, strips: strips, knobs: knobs, whites: whites, blacks: blacks };
+}
+}
+</script>
+</body>
+</html>
