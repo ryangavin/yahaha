@@ -110,7 +110,7 @@ function children(args: Args) {
  * their args are grouped by child in the Controls panel.
  */
 const meta: Meta<Args> = {
-  title: 'Components/GroupHeader',
+  title: 'Primitives/GroupHeader',
   component: GroupHeader,
   render: (args: Args) => ({
     Component: GroupHeader,
