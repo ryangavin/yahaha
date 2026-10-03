@@ -10,6 +10,8 @@
   /* Type: DM Sans for words and numbers, JetBrains Mono for key and pad digits */
   --font-sans: 'DM Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+  --text-9: 9px; /* ▲ ▼ after a label (Fill ▲) */
+  --text-10: 10px; /* the ▾ caret */
   --text-11: 11px;
   --text-12: 12px; /* small codes, captions */
   --text-13: 13px; /* compact buttons */
@@ -24,6 +26,7 @@
   --weight-light: 300; /* numbers */
   --weight-regular: 400;
   --weight-medium: 500; /* a lit lamp's label, names */
+  --tracking-36: -1px; /* letter-spacing of 36px light text */
 
   /* Spacing */
   --space-2: 2px;
@@ -31,6 +34,7 @@
   --space-6: 6px;
   --space-8: 8px;
   --space-10: 10px;
+  --space-11: 11px; /* a header tab's top padding */
   --space-12: 12px;
   --space-14: 14px;
   --space-16: 16px;
@@ -41,7 +45,27 @@
   --control-height: 32px; /* buttons in the section row and the band */
   --control-height-compact: 28px; /* buttons in settings and strip rows */
 
+  /* Component sizes: the boards' fixed widths and heights */
+  --button-band-width: 88px; /* a band button */
+  --button-pair-width: 41px; /* each button of a pair */
+  --caret-width: 20px; /* a caret button */
+  --bar-bottom: 5px; /* the running bar's distance from the bottom */
+  --bar-lift: 3px; /* the bottom padding that keeps the bar's room in a band button */
+  --bar-height: 36px; /* the app bar, and a page tab */
+  --tab-height-header: 35px; /* a header or compact tab: the band header row minus its hairline */
+  --tab-block: 24px; /* the chosen block at page size */
+  --tab-block-header: 22px; /* the chosen block at header and compact size */
+  --group-header-height: 36px; /* a group header row, hairline included */
+  --block-height: 26px; /* the accent block on the style line */
+  --block-height-knob: 22px; /* the accent block in the knob header */
+  --chip-height: 26px; /* a waiting chip at count and line size */
+  --chip-height-display: 48px; /* a waiting chip at display size */
+  --chip-max: 200px; /* a line chip's maximum width, border included */
+
   /* Lines */
   --line-width: 1px; /* hairlines, outlines, the focus ring */
   --focus-offset: 2px;
+
+  /* Motion */
+  --long-press: 350ms; /* the hold time before a long press */
 }

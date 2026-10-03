@@ -43,7 +43,6 @@ let canvas: HTMLElement | undefined
 afterEach(() => {
   canvas?.remove()
   canvas = undefined
-  delete document.documentElement.dataset.theme
 })
 
 function isAction(value: unknown): boolean {
@@ -128,8 +127,17 @@ for (const [path, mod] of Object.entries(modules)) {
           canvas.id = 'storybook-root'
           document.body.append(canvas)
           await story.run({ canvasElement: canvas, globals: { ...story.globals, theme } })
-          expect(document.documentElement.dataset.theme).toBe(theme)
-          expect(canvas.childElementCount, 'the story rendered nothing').toBeGreaterThan(0)
+          // The theme is scoped to the story's frame, never set on the page.
+          expect(document.documentElement.dataset.theme).toBeUndefined()
+          const frame = canvas.querySelector<HTMLElement>('[data-theme]')
+          expect(frame?.dataset.theme, 'the story is not in a theme frame').toBe(theme)
+          // A story of an empty state says so (`parameters: { rendersNothing: true }`) and must
+          // render nothing; every other story must render something.
+          if (story.parameters.rendersNothing) {
+            expect(frame?.childElementCount, 'an empty story rendered something').toBe(0)
+          } else {
+            expect(frame?.childElementCount, 'the story rendered nothing').toBeGreaterThan(0)
+          }
           const a11y = story.reporting.reports.filter((report) => report.type === 'a11y')
           expect(a11y.length, 'the a11y check did not run').toBeGreaterThan(0)
           for (const report of a11y) {

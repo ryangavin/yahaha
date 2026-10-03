@@ -13,6 +13,11 @@ const dark = read('./dark.css')
 const light = read('./light.css')
 const palette = read('./palette.css')
 
+/** The part and section hues: drawn as text, and as fills under --solid-ink (Stage C6). */
+const FILLS = ['--r1', '--r2', '--r3', '--l', '--intro', '--main', '--ending', '--brk', '--fill', '--ok']
+/** Every hue drawn as text on the ground and on the button face (Stage C6). */
+const HUES = [...FILLS, '--a', '--warn', '--rec']
+
 /** [text role, surface role, where; optional opacity role for the text]. Disabled text is exempt (WCAG 1.4.3). */
 const PAIRS: [string, string, string, string?][] = [
   ['--t', '--g', 'text on the ground'],
@@ -23,6 +28,19 @@ const PAIRS: [string, string, string, string?][] = [
   ['--lamp-ink', '--lamp', 'lit lamp label (LampButton)'],
   ['--lamp-ink', '--lamp', 'lit lamp code (LampButton)', '--code-opacity'],
   ['--solid-ink', '--rec', 'record lamp label and code (LampButton)'],
+  ['--rec', '--g', 'armed record lamp label (LampButton)'],
+  ['--lamp-line', '--g', 'armed loop lamp label (LampButton)'],
+  ['--g', '--t', 'chosen label (Button), chosen tab label on its block (ChosenTabs)'],
+  ['--t', '--btn', 'strong label, open caret (Button)'],
+  ['--ending', '--g', 'health slot trouble (HealthSlot)'],
+  ['--g', '--a', 'style name and knob page label (AccentBlock)'],
+  // Stage C6: hues drawn as text on the ground and the button face, and under --solid-ink on
+  // hue fills (WaitingChip, the GroupHeader legend, captions, pads, held keys).
+  ...HUES.flatMap((hue): [string, string, string][] => [
+    [hue, '--g', 'hue text on the ground (Stage C6)'],
+    [hue, '--btn', 'hue text on a button face (Stage C6)'],
+  ]),
+  ...FILLS.map((hue): [string, string, string] => ['--solid-ink', hue, 'solid ink on a hue fill (Stage C6)']),
 ]
 
 function declarations(css: string): Map<string, string> {

@@ -152,8 +152,9 @@ async function shoot(name: string, base: string): Promise<Result[]> {
   for (const entry of stories) {
     const story = entry.exportName ?? entry.name.replace(/\s+/g, '')
     for (const theme of THEMES) {
-      await page.goto(`${base}/iframe.html?id=${entry.id}&viewMode=story&globals=theme:${theme}`)
-      const root = page.locator('#storybook-root > *').first()
+      await page.goto(`${base}/iframe.html?id=${entry.id}&viewMode=story&globals=theme:${theme};backgrounds.value:${theme}`)
+      // The theme frame (preview.ts) has no box of its own; the story's root is its first child.
+      const root = page.locator('#storybook-root > [data-theme] > *').first()
       await root.waitFor({ state: 'visible' })
       // Wait for the story's play function and checks to finish, then drop any focus the play
       // left behind: a shot shows the story's resting look (a focus story uses pseudo-states).
@@ -168,7 +169,9 @@ async function shoot(name: string, base: string): Promise<Result[]> {
         await document.fonts.ready
         await new Promise(requestAnimationFrame)
       })
-      const actual = await page.evaluate(() => document.documentElement.dataset.theme)
+      const actual = await page.evaluate(
+        () => document.querySelector<HTMLElement>('#storybook-root > [data-theme]')?.dataset.theme,
+      )
       if (actual !== theme) throw new Error(`${story}: theme is ${actual}, expected ${theme}`)
 
       // Chrome snaps a box's background to whole pixels but not its text, so a story centred at a
