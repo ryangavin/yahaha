@@ -6,7 +6,7 @@
 - **Built from:** —
 - **Purpose:** One of the Launchkey's 16 pads on screen: it shows what the pad does and how the hardware lights it (playing, queued, armed, on, not there), and pressing it does what the hardware pad does.
 - **Boards:** `Stage-Dark.dc.html:345-351` (the pad button) and `:495-516` (the data script: faces per state); light: `Stage-Light.dc.html:321-327`, `:471-492`. The 16 pads sit at `x = 730 + 74·col`, `y = 634` (pads 1–8) and `708` (9–16), 68 × 68, on both boards.
-- **Not this component's job:** no store, no API, no Tauri, no timer. It doesn't know the page, the transport or the LED clock's anchors: the parent passes `caption`, `family`, `level`, `anim` and the clock's reading `led`, and acts on `onpress`. No group line (PadGrid draws those). No Shift layer (the Launchkey firmware keeps Shift + pad for itself). No tooltip (wired at integration, D12). No long press.
+- **Not this component's job:** no store, no API, no Tauri, no timer. It doesn't know the page, the transport or the LED clock's anchors: the parent passes `caption`, `family`, `level`, `anim` and the clock's reading `led`, and acts on `onpress`. No group line (PadGrid draws those). No Shift layer (the Launchkey firmware keeps Shift + pad for itself). It doesn't pick its tooltip key: the parent passes `tip`, wired by the `tipAction` the parent passes (L3, D12); the library never imports `use:tip`. No long press.
 
 ## API (Component station)
 
@@ -21,7 +21,9 @@
 | `anim` | `'solid' \| 'flash' \| 'pulse'` | `'solid'` | How the hardware animates a bright pad (`pads.pads[i].anim`): flash = queued, pulse = armed (or, on a Main, the landing). Ignored unless `level` is `bright`. |
 | `led` | `number` | `0` | The LED clock's reading in beats at this moment (`ledBeats(...)`, below). Drives the flash and the pulse; the component never runs a timer. |
 | `fallback` | `boolean` | `false` | Drawn with the fallback look of a pad page whose own spec hasn't landed (Racks, Chord, Multi Pads, Setup, and Racks while Sound is held or latched): every pad is a utility pad, its lit states in `--t`, and `bright` + `solid` is Playing, never On. |
-| `disabled` | `boolean` | `false` | The pad does nothing now (`pads.pads[i].action` is null): `aria-disabled="true"`, stays focusable, no `onpress`. The look doesn't change (D5). |
+| `disabled` | `boolean` | `false` | The pad does nothing now (`pads.pads[i].action` is null): `aria-disabled="true"`, stays focusable, no `onpress`. No `aria-disabled` attribute when false (L5). The look doesn't change (D5). |
+| `tip` | `string \| undefined` | — | The tooltip key (Tooltip id below; PadGrid's `padTip` picks it), rendered as `data-tip` on the button; no attribute when undefined (L3). |
+| `tipAction` | `Action<HTMLElement, string> \| undefined` | — | The app's `use:tip`, passed in by the wiring (`import type { Action } from 'svelte/action'`). When both it and `tip` are set the button gets `use:tipAction={tip}`; otherwise nothing (L3). |
 
 `PadProps` (these props plus `onpress`) is exported from `Pad.svelte`'s module script; `PadFamily`, `PadLevel` and `PadAnim` (the three unions above) are exported from `app/src/ui/Pad/face.ts`.
 
@@ -37,9 +39,9 @@
 |---|---|
 | — | |
 
-### Pure functions (`app/src/ui/Pad/led.ts`, `app/src/ui/Pad/face.ts`, `app/src/ui/Pad/a11y.ts`)
+### Pure functions (`app/src/ui/Pad/led.ts`, `app/src/ui/Pad/face.ts`)
 
-Unit-tested with vitest (`app/src/ui/Pad/led.test.ts`, `face.test.ts`). No rounding: the results are floats, and tests compare with `toBeCloseTo(x, 6)`.
+Unit-tested with vitest (`app/src/ui/Pad/led.test.ts`, `face.test.ts`). No rounding: the results are floats, and tests compare with `toBeCloseTo(x, 6)`. `ledBeats` and `padK` restate `brightness` and `DIM` from `app/src/lib/leds.ts` (and the clock formula in `app/src/lib/api/types.ts` › `ClockState`) because lint forbids `app/src/ui` from importing `lib` (Stage.md's list of allowed imports is overruled by `eslint.config.js`, D18); the worked values below match `brightness` exactly.
 
 **`ledBeats(clock, now, receivedMs): number`** (`led.ts`). `clock` is `{ atMs: number; tempo: number; ledAnchorMs: number; ledAnchorBeats: number }` (the `surface.clock` fields it reads; an object with more fields is accepted). `now` and `receivedMs` are the page's clock in ms (`performance.now()` now, and when the state arrived).
 
@@ -124,7 +126,6 @@ Worked values (each one a test):
 | `MAN BASS`, 9, absent, fallback | `MAN BASS, not available (pad 9)` |
 | `OTS 1`, 9, playing, fallback | `OTS 1, playing (pad 9)` |
 
-**`PAD_CONTRAST_EXCLUDE: string[]`** (`a11y.ts`): the selectors of the pad elements that fail AA today (Contrast › Known failures), exactly the nine listed there, in that order. Pad's stories, and every story that renders pads (PadGrid, PadBank, FullBand), pass it as `parameters.a11y.context.exclude`, so axe checks everything else.
 
 ### Visual rules
 
@@ -179,29 +180,30 @@ Worked values (each one a test):
 - **Contrast (AA 4.5:1).** Ratios computed from today's `dark.css` / `light.css` / `palette.css`.
   - Pass in both themes, already in `contrast.test.ts`: `--t2` on `--btn` (idle utility and fallback captions; 12.45 / 11.03), `--lamp-ink` on `--lamp` (On caption; 13.24 / 4.97).
   - Pass in both themes, add to `contrast.test.ts` with the tokens PR: `--t` on `--btn` ("Next and Armed caption (Pad)"; 18.10 / 14.70; Button lists the same pair), `--solid-ink` on `--main` (11.16 / 4.99), on `--ending` (4.96 / 5.87), on `--fill` (7.27 / 5.09), on `--ok` (11.16 / 4.99), on `--t` (21.00 / 18.88) ("Playing caption (Pad)").
-  - **Known failures (owner question O-contrast).** These fail AA in at least one theme today; until the owner answers, axe skips exactly these elements (`PAD_CONTRAST_EXCLUDE`, in this order):
+  - **Failing hue pairs: changed tokens (L2, Stage.md C6).** These fail AA today; each is fixed by C6's changed palette value (same hue and saturation, the smallest HSL lightness change that passes on `--btn`, on `--g` and under `--solid-ink`). They land with the tokens contract PR (L1), with the `contrast.test.ts` rows "Idle caption (Pad)" (each section hue on `--btn`) and "Playing caption (Pad)" (`--solid-ink` on `--intro` and `--brk`). Until then `npm run shots -- Pad` reports exactly these pairs as `color-contrast` violations and nothing else (Stage.md C6), and the Inspect verdict names them as C6.
 
-    | # | Selector | Pair | Dark | Light |
-    |---|---|---|---|---|
-    | 1 | `[data-state="idle"][data-hue="intro"] > [data-part="caption"]` | `--intro` on `--btn` | 8.35 | **3.41** |
-    | 2 | `[data-state="idle"][data-hue="main"] > [data-part="caption"]` | `--main` on `--btn` | 9.62 | **3.88** |
-    | 3 | `[data-state="idle"][data-hue="ending"] > [data-part="caption"]` | `--ending` on `--btn` | **4.27** | 4.57 |
-    | 4 | `[data-state="idle"][data-hue="brk"] > [data-part="caption"]` | `--brk` on `--btn` | **3.86** | 5.04 |
-    | 5 | `[data-state="idle"][data-hue="fill"] > [data-part="caption"]` | `--fill` on `--btn` | 6.26 | **3.96** |
-    | 6 | `[data-state="playing"][data-hue="intro"] > [data-part="caption"]` | `--solid-ink` on `--intro` | 9.69 | **4.37** |
-    | 7 | `[data-state="playing"][data-hue="brk"] > [data-part="caption"]` | `--solid-ink` on `--brk` | **4.48** | 6.47 |
-    | 8 | `[data-state="absent"] > [data-part="caption"]` | `--d` on `--btn` (D6) | **2.14** | **1.71** |
-    | 9 | `[data-part="numeral"]` | the `--d` index (2.14 / 1.71), `--pad-index-dark`, the solid-ink mixes, and `NEXT` / `ARMED` in the hue on `--btn` (as rows 1–5) (D6) | — | — |
+    | Pair (where) | Today dark / light | Changed token | New ratio |
+    |---|---|---|---|
+    | `--intro` on `--btn` (idle Intro caption) | 8.35 / **3.41** | light `--gold-700` #857a1f → **#6e651a** (light `--intro`) | light 4.62 |
+    | `--solid-ink` on `--intro` (Playing Intro caption) | 9.69 / **4.37** | the same | light 5.93 |
+    | `--main` on `--btn` (idle Main caption) | 9.62 / **3.88** | light `--green-700` #1c8040 → **#19733a** (light `--main` and `--ok` move together) | light 4.60 |
+    | `--ending` on `--btn` (idle Ending caption) | **4.27** / 4.57 | dark `--rose-400` #c45a5a → **#c66060** (dark `--ending`) | dark 4.52 |
+    | `--brk` on `--btn` (idle Break caption) | **3.86** / 5.04 | dark `--plum-400` #8f62a8 → **#986faf** (dark `--brk`) | dark 4.50 |
+    | `--solid-ink` on `--brk` (Playing Break caption) | **4.48** / 6.47 | the same | dark 5.23 |
+    | `--fill` on `--btn` (no Sections pad uses `fill`; listed for the family's completeness) | 6.26 / **3.96** | light `--slate-600` #4d7480 → **#476b76** (light `--fill`) | light 4.50 |
+
+    WaitingChip's spec proposes different, smaller changes to the same palette steps (light `--main` #1c7e3f, light `--intro` #796f1c, dark `--brk` #9063a9), sized for `--g` only; on `--btn` they give 3.98, 3.98 and 3.92, so they don't fix the pads. The tokens contract PR takes C6's values (D17).
+  - **Dimmed text (Stage.md D47, owner).** Elements whose text is a dimmed locator carry `data-contrast="dim"`, and axe's `color-contrast` rule skips exactly those (`*:not([data-contrast="dim"])`): the **numeral** in every state (the idle `--d` index, 2.14 / 1.71; the Absent `--pad-index-dark`; the Playing `--solid-ink` mix; `NEXT` / `ARMED` in the hue; it is `aria-hidden` and its number is in the name) and the **Absent caption** (`--d` on `--btn`, 2.14 / 1.71). Nothing else on a pad carries it (D6). No token change and no `contrast.test.ts` row for these (D47 keeps them).
 
 - **Motion:** the Next flash and the Armed pulse are `--k` from `padBlink(state, level, anim, led)`; a new `led` redraws them. No CSS animation, no transition, no timer (axiom 10).
 
 ### Accessibility
 
 - **Role and name:** a native `button`, named by `aria-label` = `padLabel(...)` (examples above). The numeral and the bar are `aria-hidden`; the caption is inside the button but the `aria-label` names it.
-- **States:** `aria-disabled="true"` when `disabled` (it stays in the tab order). No `aria-pressed`: a pad is an action, not a switch; its state is in the name.
+- **States:** `aria-disabled="true"` when `disabled` (it stays in the tab order), and no `aria-disabled` attribute otherwise (L5), Absent included (D16). No `aria-pressed`: a pad is an action, not a switch; its state is in the name.
 - **Keyboard:** Tab focuses it; Enter or Space presses it (`onpress`, via the `click` with `detail === 0`).
-- **Test hooks:** on the button `data-face` (`off|solid|waiting|on`, from `padFace`), `data-state` (`idle|absent|playing|next|armed|on`, from `padState`), `data-hue` (`intro|main|ending|brk|fill|t|ok`) and `data-k` (`String(Math.round(k * 1000) / 1000)` of `padBlink`: `1`, `0.18`, `0.625`…); on its parts `data-part="caption" | "numeral" | "bar"`.
-- **Tooltip id** (wired at integration, not here; D12), by place; every key exists in `tooltips.ts`:
+- **Test hooks:** on the button `data-face` (`off|solid|waiting|on`, from `padFace`), `data-state` (`idle|absent|playing|next|armed|on`, from `padState`), `data-hue` (`intro|main|ending|brk|fill|t|ok`) and `data-k` (`String(Math.round(k * 1000) / 1000)` of `padBlink`: `1`, `0.18`, `0.625`…); `data-anim` (`flash` or `pulse`, the `anim` prop) only in the Next and Armed states, absent otherwise (kit › Pad: Next `data-anim="flash"`, Armed `"pulse"`; a Main's landing is Next with `pulse`); `data-tip` when `tip` is set (L3); on its parts `data-part="caption" | "numeral" | "bar"`, and `data-contrast="dim"` on the numeral always and on the caption in the Absent state.
+- **Tooltip id** (the parent's key passed as `tip`, with `tipAction`, L3; D12), by place; every key exists in `tooltips.ts`:
 
   | Sections pad | Key | Sections pad | Key |
   |---|---|---|---|
@@ -231,6 +233,8 @@ Pad is placed by PadGrid inside PadBank; the page wiring feeds PadBank (PadBank'
 | `fallback` | `pads.page !== 'sections' \|\| surface.layer.type === 'sound'` |
 | `disabled` | `pads.pads[i].action === null` |
 | `onpress` | `send(pads.pads[i].action)`; then, when the wiring's own `soundLatched` flag is set (the screen's Sound latch, Stage.md D18; LampRow's `onhold` sets it), `send({ type: 'setLayer', layer: { type: 'none' } })` (PadBank's SPEC) |
+| `tip` | PadGrid passes `pads[i].tip`, which the wiring fills with `padTip({ page: pads.page, sound: surface.layer.type === 'sound', index: i, label: pads.pads[i].label })` (PadGrid's `pages.ts`) |
+| `tipAction` | the app's `tip` action (`app/src/lib/tooltip/tip.svelte.ts`), through PadBank and PadGrid |
 
 ## Stories (Story station)
 

@@ -6,7 +6,7 @@
 - **Built from:** —
 - **Purpose:** Shows the keyboard under the player's hands: which keys they hold and on which part, where the split is, and where chord detection listens.
 - **Boards:** `Stage-Dark.dc.html:392-403` (markup), `:516-538` (the data script that computes whites and blacks); light: `Stage-Light.dc.html:368-379`, `:487-509`. Crop box: Stage `24,820 1392×56`.
-- **Not this component's job:** no store, no API, no Tauri: the range, held keys, split and detection come in as props. It doesn't play notes (the keys are a picture, as today), isn't focusable and has no pointer behaviour. It doesn't pick the range (the wiring does: `ui.keyRange`, else the connected Launchkey's). It doesn't draw chord tones (they moved to the display). No tooltip wiring (integration adds `use:tip`, see Accessibility).
+- **Not this component's job:** no store, no API, no Tauri: the range, held keys, split and detection come in as props. It doesn't play notes (the keys are a picture, as today), isn't focusable and has no pointer behaviour. It doesn't pick the range (the wiring does: `ui.keyRange`, else the connected Launchkey's). It doesn't draw chord tones (they moved to the display). It never imports `use:tip`: the wiring passes it as `tipAction` (L3). It doesn't decide which hand detection reads (the wiring passes `detectionLeft`).
 
 ## API (Component station)
 
@@ -15,10 +15,12 @@
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
 | `range` | `49 \| 61 \| 88` | `61` | How many keys: 49 = C1–C5 (MIDI 36–84), 61 = C1–C6 (36–96), 88 = A-1–C7 (21–108). Yamaha numbering, C3 = 60. |
-| `held` | `{ note: number; parts: number[] }[]` | `[]` | The keys held, as the state's `keyboard.held` gives them (its `zone` field may be present and is ignored). `note` is a MIDI note; `parts` the keyboard parts sounding it (0 Right 1, 1 Right 2, 2 Right 3, 3 Left), empty for a key that only feeds chord detection. Notes outside the range aren't drawn but still count in the `aria-label`. |
+| `held` | `{ note: number; parts: number[]; zone?: 'left' \| 'right' }[]` | `[]` | The keys held, as the state's `keyboard.held` gives them (`HeldNote`). `note` is a MIDI note; `parts` the keyboard parts sounding it (0 Right 1, 1 Right 2, 2 Right 3, 3 Left), empty for a key that only feeds chord detection; `zone` the hand the engine put it in, which the `aria-label` reads (absent: `note <= split` is left, D2). Notes outside the range aren't drawn but still count in the `aria-label`. |
 | `split` | `number` | `54` | The split point (`keyboard.leftSplit`), a MIDI note: keys at or below it are the left zone. 54 is F#2. |
 | `detection` | `[number, number] \| null` | `null` | The keys chord detection reads, `[lo, hi]` MIDI notes inclusive (`keyboard.detection`); clipped to the range by `detectionBox`. Null, or nothing left after clipping: no line. |
 | `detectionLeft` | `boolean` | `false` | Detection is the left hand (Lower): the line is teal with its glow. False (Upper, Full Keyboard): accent, no glow. |
+| `tip` | `string \| undefined` | — | The tooltip key (`keystrip.keys`), rendered as `data-tip` on the root; no attribute when undefined (L3). |
+| `tipAction` | `Action<HTMLElement, string> \| undefined` | — | The app's `use:tip`, passed in by the wiring; applied as `use:tipAction={tip}` on the root when both are set (L3). Stories pass `fn()`. |
 
 There are no other props: the strip has no states beyond what these draw.
 
@@ -41,10 +43,12 @@ What the page wiring passes (the Stage lane transcribes this):
 | Prop | From |
 |---|---|
 | `range` | `rangeFor(ui.keyRange, app.state.io.inputs)` (`app/src/panels/keystrip/keyboard.ts`): `ui.keyRange` if set, else the connected Launchkey's size, else 61 (Stage.md D25). `ui.keyRange` is app-only: `UiStore.keyRange` in `app/src/lib/store.svelte.ts` (`KeyRange \| null`, kept in `localStorage` as `yahaha.keys`), not part of `AppState`. |
-| `held` | `keyboard.held` as is |
+| `held` | `keyboard.held` as is (with its `zone`) |
 | `split` | `keyboard.leftSplit` |
 | `detection` | `keyboard.detection` as is (the component clips it). In `AppState` it is always a pair (`KeyboardState.detection: [number, number]`); the prop's `null` exists for stories and for a page without state. |
-| `detectionLeft` | `const d = keyboard.detection; d != null && d[0] === 0 && d[1] === keyboard.leftSplit` (Lower; app-api.md › keyboard: Lower is `[0, split]`, Upper `[split + 1, 127]`, Full Keyboard `[0, 127]`). The `d != null` guard costs nothing and keeps the derivation safe if `detection` ever becomes optional (D12). |
+| `detectionLeft` | `!chord.upper && chord.fingering !== 'fullKeyboard' && chord.fingering !== 'aiFullKeyboard'` (Stage.md D10: the left hand is Lower and not a Full Keyboard type; D9) |
+| `tip` | `'keystrip.keys'` |
+| `tipAction` | the app's `tip` action (`app/src/lib`) |
 
 ### Geometry: `app/src/ui/KeyStrip/keys.ts`
 
