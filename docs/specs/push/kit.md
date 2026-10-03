@@ -23,6 +23,10 @@ named colours, `dark.css` and `light.css` roles, `scale.css` sizes); the theme i
 `data-theme="light"` on the root, dark otherwise. Where the tokens and the board disagree, the
 tokens win: light `--m` is `#646464` (the board's `#6e6e6e` fails AA on `--btn`), light
 `--lamp-ink` is `#000` and the lamp's small code is full ink in light (`--code-opacity: 1`).
+Today only Storybook loads them (`.storybook/preview.ts`, with DM Sans 200–500 and JetBrains
+Mono 400–500 from `@fontsource`); the running app loads `app.css` and Barlow. How the kit's
+tokens and fonts get into the app, and what `app.css` renames to make room (`--bg`, `--line`,
+`--line-strong`, `--key-white`, `--key-black`): Stage.md D48.
 
 ### Colour roles (exist)
 
@@ -121,7 +125,10 @@ Scale tokens to add to `scale.css`: `--text-9` (the ▲▼ in Fill buttons), `--
 DM Sans everywhere, `font-variant-numeric: tabular-nums`; JetBrains Mono only for pad numerals and
 key labels (11px). Sentence case. Numbers are light (300); names that matter are medium (500);
 labels are regular (400). The plain word comes first and the Genos code small after or beneath it
-(`Accomp` + `ACMP`, knob `Dynamics` over `DynCtrl`).
+(`Accomp` + `ACMP`, knob `Dynamics` over `DynCtrl`). Sizes, letter-spacing and line-heights
+are px. Where a line-height is not given it is `normal` (DM Sans: about 1.3, so 14px → 18px)
+and the element's own centring places the text; where the board fixes a block's height the
+line-height is given.
 
 | Use | Size / weight | Colour |
 |---|---|---|
@@ -152,7 +159,7 @@ fifth.
 |---|---|---|---|
 | **Off** | `--btn` fill, `--t2` label (lamps: `--m`) | a plain button, or a switch that is off | Panic, Tempo +, Metronome off |
 | **On (lamp)** | `--lamp` fill, `--lamp-ink` label, weight 500; small code at `--code-opacity` | switched on | Accomp, part On, L Hold |
-| **Chosen** | `--t` fill, `--g` label, weight 500 | the one picked from a set | active tab, applied One Touch, fader layer |
+| **Chosen** | `--t` fill, `--g` label, weight 500 (page and header tabs keep 400: the block is their mark, the board bolds nothing there) | the one picked from a set | active tab, applied One Touch, fader layer, "?" in help mode (Stage.md D50) |
 | **Waiting** | transparent, `1px solid <hue>`, label in the hue (or `--t`) | queued, armed, will happen | next section chip, queued pad |
 | **Disabled** | the face it would have, label `--d`, `aria-disabled="true"`, default cursor, stays focusable | not available now | One Touch 4 on a style with three |
 
@@ -181,6 +188,26 @@ neither custom properties nor `color-mix`), every element drawn in a face carrie
 hue or a role chosen from state carries `data-hue="<token name without -->"` (`r1`, `main`,
 `d`, `ending`…). The visual check of what those mean is the stories' screenshots.
 
+**Dimmed text (Stage.md D47).** `--d` text is about 2.2:1 on dark and the board keeps it on
+things a player can click. Every element whose text is `--d` carries `data-contrast="dim"`,
+and the screenshot tool's axe run skips the `color-contrast` rule on exactly those elements
+(`*:not([data-contrast="dim"])`); every other rule runs everywhere. The carriers, and only
+these:
+
+| Element | Where | Why it is `--d` |
+|---|---|---|
+| a part's tag and sound number when the part doesn't sound | Stage.md › Sounds row | the board dims a silent part's readout (R3) |
+| an off part's strip value and name | FaderStrip › Part off | the same |
+| the no-chord "—" | Stage.md › Chord | nothing to read |
+| the "—" of an unused strip | FaderStrip › Unused | not a control |
+| the idle pad numeral (`--d` on `--btn`), an Absent pad's caption and numeral | Pad | the numeral is a locator, not the label; absent pads are disabled |
+| a No Assign knob's "---" | Knob | disabled |
+| the "Launchkey" label when not connected | App bar | status, not a control |
+| the key labels C1…C6 on dark (`--key-label` is `--d`) | Key strip | not a control |
+| every disabled control's label (One Touch past the style's count, ▲ ▼ at an end, Track ◀ ▶ without a neighbour, the Metronome caret until #509, a null-action pad) | Faces › Disabled | axe skips the `disabled` attribute, not `aria-disabled`, and the kit keeps disabled controls focusable |
+
+A failing pair outside this table is a bug, not a new exemption.
+
 ## Hue roles
 
 - **Parts**, saturated and unique: Right 1 `--r1` blue, Right 2 `--r2` pink, Right 3 `--r3`
@@ -200,8 +227,12 @@ The state names sections the SFF way (`transport.section`, `queued`, `landing`:
 `Intro A`, `Main B`, `Fill In BB`, `Fill In BA`, `Ending C`). The screen shows them the Genos way,
 everywhere: `Intro A/B/C/D` → `Intro I/II/III/IV`, `Ending A/B/C/D` → `Ending I/II/III/IV`
 (SFF allows a D; the Genos has three, D44), `Main A–D` unchanged, `Fill In BA` → `Break`, any
-other `Fill In XY` → `Fill`. A name that matches none of these shows as given. A no-break space ties a name
-to its numeral (`Intro I`), so only whole words wrap.
+other `Fill In XY` → `Fill` (no letter: the count row names the landing Main beside it). A
+name that matches none of these shows as given. A no-break space ties a name to its numeral
+(`Intro I`), so only whole words wrap. This is one pure function, `sectionName(name)` in
+`app/src/ui/Stage/format.ts` (Stage.md Components, 1b). It is not `sectionLabel()` in
+`app/src/lib/api/types.ts` (a contract file, which gives "Fill B" and leaves other fills as
+given): that one stays for the old panels and nothing in `app/src/ui` imports it.
 
 ## Interaction conventions
 
@@ -221,7 +252,8 @@ to its numeral (`Intro I`), so only whole words wrap.
   in `app/src/help/tooltips.ts`. The kit gives each part's key.
 - **Parity:** what the Launchkey does, the screen does with the same command. Where a part's
   state carries an `action` (`pads.pads[i].action`, `surface.controls[i].action`), the screen
-  sends exactly that (`app.send(action)`) and is disabled when it is null. With `ui.shift`, a
+  sends exactly that (through its `onsend` callback; the wiring calls `app.send`) and is
+  disabled when it is null. With `ui.shift` (the `shift` prop), a
   control that mirrors a `surface.controls` entry sends its `shiftAction` instead (disabled when
   that is null). Controls bound this way: Pad Bank ▲ ▼ (`padBankUp`, `padBankDown`) and Track ◀ ▶
   (`trackPrev`, `trackNext`; Stage.md › Style line). The other band buttons send their named
@@ -246,16 +278,22 @@ to its numeral (`Intro I`), so only whole words wrap.
 
 ## App bar
 
-`24,24 1392×36`, one row, `border-bottom: 1px solid var(--t)`, items centred, gap 8.
+`24,24 1392×36`, one row, `box-sizing: border-box`, `border-bottom: 1px solid var(--t)` (the
+line is the bar's 36th row, y 59; the content box is 35 tall), items centred, gap 8.
 
-- **Wordmark** "yahaha", 18 / 500, letter-spacing −0.2, `--t`. Not a control.
-- **Page tabs** (`nav`, `aria-label="Pages"`), right-aligned (`margin-left: auto`): Stage,
-  Channel, Effects, Quick Racks, Multi Pads, Looper, Harm/Arp, a 1 × 16 `--line` separator with
-  8px margins, Library, Settings. Each tab is 36 tall, padding `10px 10px 0`, 14 / 400, no wrap;
-  inactive `--m` text on nothing; the active tab (`aria-current="page"`) is the chosen face drawn
-  as a 24px block on the bottom of the tab (`background: linear-gradient(var(--t), var(--t)) left
-  bottom / 100% 24px no-repeat`), so it sits on the white line. App-only state: `ui.page`
-  (Stage.md D2). Tooltips: `view.stage`, `nav.channel` (new), `nav.effects`, `nav.quick`,
+- **Wordmark** "yahaha", 18 / 500, line-height 24, letter-spacing −0.2, `--t`. Not a control.
+- **Page tabs** (`nav`, `aria-label="Pages"`, a flex row with **no gap**, `align-self:
+  flex-end`, Stage.md D57), right-aligned (`margin-left: auto`): Stage, Channel, Effects,
+  Quick Racks, Multi Pads, Looper, Harm/Arp, a 1 × 16 `--line` separator (`align-self:
+  center`, `margin: 0 8px`), Library, Settings. Each tab is a `button`, 36 tall, padding
+  `10px 10px 0`, 14 / 400, line-height 18 (so the text box is y 10–28 of the tab, centred in
+  the 24px block below), no border, no wrap; the tabs abut, so 20px of padding separates two
+  labels; inactive `--m` text on nothing; the active tab (`aria-current="page"`) is the chosen
+  face at weight 400 drawn as a 24px block on the bottom of the tab (`background:
+  linear-gradient(var(--t), var(--t)) left bottom / 100% 24px no-repeat`, label `--g`), spanning
+  y 35–59 of the bar so it sits on the white line. Which tab is chosen, and what a click does,
+  is Stage.md D52 (the `Stage` takes it as the `page` prop and reports clicks with `onpage`).
+  Tooltips: `view.stage`, `nav.channel` (new), `nav.effects`, `nav.quick`,
   `nav.multipad`, `nav.looper`, `nav.harmony`, `view.library`, `nav.settings`. Shortcuts (D37),
   by physical key: Stage Alt+G and Channel Alt+N (new: added to `NAV` in `app/src/lib/nav.ts`
   and to the Alt letters in `app/src/lib/keys.ts`), Effects Alt+E, Quick Racks Alt+R, Multi Pads
@@ -263,35 +301,42 @@ to its numeral (`Intro I`), so only whole words wrap.
   The other existing Alt keys stay as they are and have no tab: Alt+S the Browser, Alt+O the
   Rack page (today the Rack drawer), Alt+M the mixer details, Alt+C Charts (hidden, DECISIONS
   X1), Alt+Y Library › Style map.
-- **Tabs before their page exists:** until a page's spec is built, its tab runs today's
-  `NAV` entry (`toggle()`, the drawer or Library tab it opens now) and is drawn chosen while that
-  entry's `open()` is true; Stage is chosen when no drawer is open and `ui.view` is `stage`.
-  Channel has no drawer: until #501 it shows today's `ChannelView` for the selected part in
-  place of the display (`panels/channel/nav.svelte.ts` `show(ui.selectedPart)`), and is chosen
-  while that is open. (D32.)
-- **Right area**, fixed 196 × 36 so the tabs sit at the same x on every board: a 1 × 16 `--line`
-  separator, then the Launchkey status and the health slot.
-  - **Launchkey status** (`role="status"`), 8px after the separator: a 6px dot and "Launchkey",
-    14 / 400 `--m`, gap 8. `pads.connected` true: dot `--ok` with `--bg`. False: dot hollow (1px
-    `--d` ring), label `--d`, `aria-label="Launchkey not connected"`. Tooltip `launchkey.status`.
-  - **Health slot** (`role="status"`), right-aligned, ellipsis when long. One text, the first
-    that applies:
+- **Tabs before their page exists (Stage.md D52, D53):** until a page's spec is built, its
+  tab runs today's `NAV` entry's `toggle()` (the drawer or Library tab it opens now), and the
+  chosen tab is `chosenPage()`: Library › Racks → Quick Racks, Library on any other tab →
+  Library, the open drawer's tab (Effects, Multi Pads, Looper, Harm/Arp, Settings; the Rack
+  and Charts drawers have no tab), else Channel while today's `ChannelView` shows in the
+  display's place (`channelNav.open`), else Stage. Exactly one tab is chosen. Stage and
+  Channel get `NAV` entries of their own (Alt+G, Alt+N). Clicking the chosen tab runs its
+  toggle too, which closes what it opened: the Stage is chosen again.
+- **Right area**, fixed 196 × 36 (`flex: none`, items centred) so the tabs sit at the same x
+  on every board: a 1 × 16 `--line` separator (`flex: none`), then the Launchkey status and
+  the health slot.
+  - **Launchkey status** (`role="status"`), `margin-left: 8px`, a flex row, items centred, gap
+    8, no wrap: a 6px round dot and "Launchkey", 14 / 400 `--m`. `pads.connected` true: dot
+    `--ok` with `--bg`. False: dot hollow (transparent, 1px `--d` ring), label `--d` with
+    `data-contrast="dim"`, `aria-label="Launchkey not connected"`. Tooltip `launchkey.status`.
+  - **Health slot** (`role="status"`), `margin-left: auto`, `padding-left: 8px`, `min-width:
+    0`, no wrap, ellipsis when long; 14 / 400, line-height `normal`, centred by the row. One
+    text, the first that applies:
 
     | When | Text | Colour | Click |
     |---|---|---|---|
     | a keyboard part's `plugin.status` is `failed` and not `missing` | "R3 failed" (first such part, `R1 R2 R3 L`) | `--ending` | opens Channel for that part |
     | `io.synth` is null | "Audio off" | `--m` | opens Settings › System |
-    | `DropoutWatch.show` (3 dropouts in 30 s, `app/src/lib/dropouts.svelte.ts`) | "3 dropouts · buffer 256?" (`io.synth.bufferFrames`) | `--ending` | opens Settings › System |
-    | any dropout (`io.synth.dropouts` rose) in the last 30 s | "2 dropouts" (the count in the window; "1 dropout") | `--ending` | opens Settings › System |
-    | `meters.cpu.total` ≥ 0.70 | "CPU 74%" (rounded) | `--ending` | opens Settings › System |
+    | `dropouts` (the `Stage` prop: dropouts in the last 30 s, 0–3, Stage.md D54) is 3 and `io.synth.bufferFrames` is a number below 1024 | "3 dropouts · buffer 256?" (the `bufferFrames`) | `--ending` | opens Settings › System |
+    | `dropouts` ≥ 1 | "{n} dropouts" ("1 dropout") | `--ending` | opens Settings › System |
+    | `meters.cpu.total` ≥ 0.70 | "CPU 74%" (`Math.round(total × 100)`) | `--ending` | opens Settings › System |
     | otherwise | "Audio" | `--m` | not clickable |
 
     The slot is a `role="status"` span; when the text has a click, the text inside it is a
-    `<button>` (a text button, focusable), otherwise plain text. One tooltip key, `app.health`
-    (new), on the button or, without one, on the span; its body covers every row of the table, so
-    the slot carries no second key (D45). "Opens Channel for that part" and "opens Settings ›
+    `<button>` (a text button, focusable; the `Stage` reports it as `onopen({ channel })` or
+    `onopen('settingsAudio')`), otherwise plain text. One tooltip key, `app.health` (new), on
+    the button or, without one, on the span; its body covers every row of the table, so the
+    slot carries no second key (D45). "Opens Channel for that part" and "opens Settings ›
     System" follow D32 until #501 and #532 land. `aria-label` "Audio health: {text}" ("Audio
-    health: fine" when calm).
+    health: fine" when calm). The dropout text goes calm by itself 30 s after the last
+    dropout; the slot has no dismiss (D54).
 
 ## Section row
 
@@ -312,8 +357,9 @@ to its numeral (`Intro I`), so only whole words wrap.
   - **Unison** LampButton. On = `transport.unison`. Sends `toggleUnison`. Tooltip
     `transport.unison`. No Launchkey mapping.
   - **Panic**, off face, padding 0 14. Sends `panic`. Tooltip `transport.panic`.
-  - **?**, 32 × 32 off face, `aria-pressed` = help mode (`tips.help`). Toggles help mode (spec
-    #508). Tooltip `app.help`.
+  - **?**, 32 × 32, the glyph 14px; off face, or the chosen face with `aria-pressed="true"` in
+    help mode (the `Stage`'s `help` prop; Stage.md D50). Click: `onhelp()` (toggles
+    `tips.help`; the help face itself is spec #508). Tooltip `app.help`.
 
 ### Count row
 
@@ -362,9 +408,15 @@ on every display board.
 
 ### Faders
 
-Header row, gap 12: "Faders" 14 `--m`; the **fader page** tabs Panel | Style; a 1 × 16 `--line`
-separator; "Layer" 14 `--m` and the **layer** tabs Vol | Pan | Reverb | Chorus | Delay. Header
-tabs are 35 tall, padding `11px 10px 0`, 13 / 400, chosen face as a 22px block on the bottom.
+Header row (36 tall border-box, the hairline its 36th row, content 35; `align-items: stretch`,
+gap 12, no wrap): "Faders" 14 `--m` (`align-self: center`); the **fader page** tabs Panel |
+Style (a `role="tablist"`, a flex row with **no gap**); a 1 × 16 `--line` separator
+(`align-self: center`); then one flex row holding "Layer" 14 `--m` (`align-self: center`,
+`margin-right: 4px`) and the **layer** tabs Vol | Pan | Reverb | Chorus | Delay (abutting, no
+gap). Header tabs are `role="tab"` buttons, 35 tall (the content box's full height), padding
+`11px 10px 0`, 13 / 400, line-height 16 (text box y 11–27, centred in the block), no border,
+chosen (`aria-selected="true"`) as a 22px `--t` block on the bottom (y 13–35, on the
+hairline), label `--g`, weight 400; the others `--m` on nothing. Two labels are 20px apart.
 
 | Tabs | Chosen = | Click sends | Tooltip | Launchkey |
 |---|---|---|---|---|
@@ -395,34 +447,47 @@ specified there (#507); the strip and lamp components are the same.
 
 One column: a 252-tall fader (the control) over a 20-tall name button.
 
-- **Value** at the top, 20 tall, centred, 18 / 300, in the strip's hue. Volume layer: the number
-  (0–127). Pan layer: `L20` / `C` / `R20` (64 = C). Send layers: the layer word and the number,
-  "Rev 40", "Cho 12", "Dly 0", in `--t`. Empty when unused.
-- **Track** from 24 to 247 (`--travel` 223px). Left of centre, two 10px meter bars at
-  `50% − 17px` and `50% − 5px`, from 24 to 247, on `--mbg`: the left bar is the peak, the right
-  the RMS (so the right is the lower, as drawn), both in the hue at `--meter-mix`, growing from
-  the bottom (5px above the strip's 252 bottom). A 22 × 1 `--peak` tick at the held peak across
-  both, its bottom at `5 + height(hold)`. `height(x) = round(223 × clamp((20·log10(x) + 60) / 60,
-  0, 1))`, 0 for x = 0 (Stage.md D7).
+Every x below is a **left edge** measured from the strip's left, as the board's `left:`
+values are; the strip is `position: relative` and its parts `position: absolute`; `50%` is the
+strip's middle (32.8px at the 65.6px width).
+
+- **Value** at the top (`left: 0; right: 0; top: 0`), 20 tall, line-height 20, text centred,
+  18 / 300, no wrap, in the strip's hue. Volume layer: the number (0–127). Pan layer: `L20` /
+  `C` / `R20` (64 = C), in `--t` (the layers' colour, D8). Send layers: the layer word and the
+  number, "Rev 40", "Cho 12", "Dly 0", in `--t`. Empty when unused.
+- **Track** from 24 to 247 (`--travel` 223px). Left of centre, two 10px-wide meter bars whose
+  left edges are at `50% − 17px` (peak) and `50% − 5px` (RMS; so they span −17…−7 and −5…+5
+  with a 2px gap), `top: 24px; bottom: 5px`, on `--mbg`: the right is the lower, as drawn;
+  both fills in the hue at `--meter-mix`, `bottom: 5px`, growing upward (5px above the strip's
+  252 bottom). A 22 × 1 `--peak` tick, left edge `50% − 17px` (so it spans both bars), at the
+  held peak: `bottom: 5 + height(hold)`. `height(x) = round(223 × clamp((20·log10(x) + 60) /
+  60, 0, 1))`, 0 for x = 0 (Stage.md D7).
 - **Meter input:** the strip takes `meter: { peak, rms, hold } | null`, each a linear amplitude
   (0–1, as `meters` sends them); null draws no meter. The strip only draws. The held peak
   (`hold`) is computed by the page wiring from successive `meters` frames, by their `atMs`
   (held 1.5 s, then falling 20 dB/s, never below the current peak), in a pure function
   `holdPeak(prev, peak, atMs)` in `app/src/ui/FaderStrip/meter.ts`; no timer.
-- **Set level** right of centre: a 3px `--track` groove at `50% + 10px`, a 3px fill in the hue
-  from the bottom to the level (glow `0 0 6px` at `--fill-glow-mix`), and a 10 × 3 cap at
-  `50% + 3px`, `top = (1 − value/127) × 223 + 23`. The set level outranks the meter.
-- **Soft takeover**, when `surface.faders[i].waiting`: "↕" (13px `--m`) at the track's top-left,
-  and a 42px dashed 1px `--m` line at the hardware position (`surface.faders[i].position`), its
-  top at `(1 − position/127) × 223 + 24`. Tooltip while waiting: `mixer.pickup`.
+- **Set level** right of centre: a 3px-wide `--track` groove, left edge `50% + 10px`, `top:
+  24px; bottom: 5px`; a 3px fill in the hue on the same left edge from `bottom: 5px` up to the
+  level, height `223 − round((1 − value/127) × 223)` (glow `0 0 6px` at `--fill-glow-mix`); and
+  a 10 × 3 cap, left edge `50% + 3px` (so it spans +3…+13 and overhangs the groove by 7px on
+  the left), `top = round((1 − value/127) × 223) + 23`. The set level outranks the meter.
+- **Soft takeover**, when `surface.faders[i].waiting`: "↕" 13px, line-height 13, `--m`, at
+  `left: 0; top: 24px` (the track's top-left corner), and a 42px-wide dashed line (`height: 0;
+  border-top: 1px dashed var(--m)`), left edge `50% − 22px` (spanning −22…+20, over the meters
+  and the groove), at the hardware position (`surface.faders[i].position`): `top =
+  round((1 − position/127) × 223) + 24`. Tooltip while waiting: `mixer.pickup`.
 - **Layers:** in a send or pan layer, strips 1–4 hide their meters, and their fill and cap go
   `--t`; the name keeps its hue. Pan draws its fill from the track's middle (value 64) up or down
   (Stage.md D8). Strips 5, 6 and 9 stay levels.
-- **Part off** (`keyboardParts[i].sounding` false): no meter, fill and cap at 35% of the hue,
-  value and name `--d`.
-- **Unused** (`surface.faders[i].set` null): no value, no cap; the groove is dashed
-  (`repeating-linear-gradient(to bottom, var(--line) 0 3px, transparent 3px 7px)`); not focusable;
-  `aria-label="Fader 7 unused"`; tooltip `launchkey.fader_unused`.
+- **Part off** (`keyboardParts[i].sounding` false): no meter, fill and cap at 35% of the hue
+  (`color-mix(in srgb, <hue> 35%, transparent)`), value and name `--d` with
+  `data-contrast="dim"` (D47).
+- **Unused** (`surface.faders[i].set` null): one `role="group"` with `aria-label="Fader 7
+  unused"` (Stage.md D55) holding only `aria-hidden` spans: no value, no cap, no slider, the
+  groove dashed (`repeating-linear-gradient(to bottom, var(--line) 0 3px, transparent 3px
+  7px)`) and the name "—" in `--d` (`data-contrast="dim"`); nothing focusable; tooltip
+  `launchkey.fader_unused` on the group.
 - **Rack target:** when the live rack's controller map gives fader 1–4 another target
   (`surface.faders[i].label` is not the part's own name, e.g. `PANR2`, `HARMARP`), the name reads
   that label as given, in `--t2`, no meter, and the name opens the Rack page (`ui.page`
@@ -447,10 +512,17 @@ One column: a 252-tall fader (the control) over a 20-tall name button.
 
 #### Lamp row
 
-Headers (18 tall, `repeat(9, 1fr)`, column gap 8, 12px `--m`, bottom hairline): "Part on/off"
-over columns 1–4; "Functions" over 5–9 with "Launchkey fader buttons 5–9" right-aligned. Then the
-32-tall row (gap 8) with a 1px `--line` divider between columns 4 and 5. All are LampButton
-`size cell` except the last.
+Headers: an 18-tall grid (`repeat(9, minmax(0, 1fr))`, column gap 8, no wrap) with two cells,
+each `box-sizing: border-box` with a 1px `--line` bottom border, 12 / 400 `--m`, line-height
+16 (the text sits at the cell's top, 1px above the hairline): "Part on/off" spanning columns
+1–4 (`grid-column: 1 / 5`); "Functions" spanning 5–9 (`grid-column: 5 / 10`), a flex row with
+"Launchkey fader buttons 5–9" pushed right (`margin-left: auto`). Then, `margin-top: 2px`, the
+32-tall row (the same grid, gap 8, `position: relative`) with a 1 × 32 `--line` divider
+(`position: absolute; top: 0; bottom: 0`) centred in the gap between columns 4 and 5: `left:
+calc((100% − 64px) × 4 / 9 + 28px)` (four columns plus three gaps plus half a gap; 290.2px
+from the row's left at the 654px width). All are LampButton `size cell` (13px label, no
+code; the board draws no codes here) except the last, a Button. LampButton is controlled
+(Stage.md D49): each lamp's `on` is the state field in the table, and a click only sends.
 
 | Button | Label | On = | Click | Long press / right-click | Shift-click | Tooltip | Launchkey |
 |---|---|---|---|---|---|---|---|
@@ -461,19 +533,25 @@ over columns 1–4; "Functions" over 5–9 with "Launchkey fader buttons 5–9" 
 | Looper | "Looper" | `looper.mode == 'looping'` | `looperOnOff` | `looperRec` | — | `looper.on_off`, `looper.rec` | fader button 8; Shift + 8 = REC |
 | master button | "Panel" / "Style" (`mixer.faderPage`) | not a lamp: off face, `--t2` | `toggleFaderPage` | — | `stepFaderLayer { delta: 1 }` | `mixer.page`, `mixer.layer` | button under the master fader (Shift: layer) |
 
-Looper faces: `recording` → Record face; `recArmed` → waiting face in `--rec`; `loopArmed` →
-waiting face in `--lamp`; `looping` → on. Left refused under Manual Bass shows its message on the
-status line. On the Style fader page buttons 1–8 are the Style parts' mutes (#507).
+Looper faces (`looper.mode`): `recording` → Record face (`rec` with `on`); `recArmed` →
+`waiting="rec"`; `loopArmed` → `waiting="lamp"`; `looping` → on; `off` → off (D13; the
+waiting face on a lamp: transparent fill, 1px border and label in that hue, weight 400). Left
+refused under Manual Bass shows its message on the status line. On the Style fader page
+buttons 1–8 are the Style parts' mutes (#507).
 
 ### Knobs
 
-Header row: "Knobs" 14 `--m`; the page as an accent block (padding 0 8, 13px, line-height 22,
-`--g` on `--a`) reading `knobs.pageName` ("Style", "Rack", "Pan", "Reverb", "Chorus", "Delay");
-right-aligned "Page" 13 `--m` and `{knobs.pageNumber}/{knobs.pageCount}` in `--t`. In swap mode
-(`surface.layer.type == 'swap'`) the block reads `knobs.pageName` ("Swap R1") on the part's hue.
+Header row (36 tall, hairline, items centred, gap 12): "Knobs" 14 `--m`; the page as an
+accent block (padding 0 8, 13 / 400, line-height 22, `--g` on `--a`, no radius) reading
+`knobs.pageName` ("Style", "Rack", "Pan", "Reverb", "Chorus", "Delay"; in swap mode,
+`surface.layer.type == 'swap'`, the state's "Swap R1", on the same accent block: Stage.md
+D51); right-aligned (`margin-left: auto`) one span "Page" 13 / 400 `--m` with
+`{knobs.pageNumber}/{knobs.pageCount}` after its space in `--t`, the same 13px.
 
-Below (8px), a 96-tall row: a 32-wide column of ▲ / ▼ (32 × 32 off face, 12px, gap 6, centred
-vertically) then eight **Knob** columns (`repeat(8, 1fr)`, column gap 6, 68px each at 1440).
+Below (`margin-top: 8px`), a 96-tall flex row, **gap 8**: a 32-wide column (`flex: none`) of
+▲ / ▼ (32 × 32 off face, 12px glyph, gap 6, `justify-content: center`), then the knob grid
+(`flex: 1; min-width: 0`): eight **Knob** columns (`repeat(8, minmax(0, 1fr))`, column gap 6,
+68px each at 1440: (586 − 42) / 8).
 
 | Control | Sends | Disabled when | Tooltip | Launchkey |
 |---|---|---|---|---|
@@ -484,16 +562,19 @@ vertically) then eight **Knob** columns (`repeat(8, 1fr)`, column gap 6, 68px ea
 
 From `knobs.knobs[i]` (`function`, `name`, `short`, `value`, `level`). A 68 × 96 column, centred:
 
-- **Name** 12 / 400, 14 tall, `--t2`: the plain word for the function (Stage.md D6 table), else
-  `name`. No Assign (`function` `none`): "---" in `--d`, and the code line is empty.
-- **Value** 22 / 300, 22 tall, `--a`: `value`; a trailing "%" splits off as a 12 / 400 unit with
-  2px gap. Empty for No Assign.
+- **Name** 12 / 400, 14 tall, line-height 14, `--t2`, no wrap: the plain word for the function
+  (Stage.md D6 table), else `name`. No Assign (`function` `none`): "---" in `--d`
+  (`data-contrast="dim"`), and the code line is empty.
+- **Value** 22 / 300, 22 tall, line-height 22, `--a`, no wrap: `value`; a trailing "%" splits
+  off as a 12 / 400 unit span inside the value (`margin-left: 2px`), in the same `--a` (it
+  inherits). Empty for No Assign.
 - **Ring** 44px, 2px margin-top: a 270° arc from 225° (`conic-gradient(from 225deg, var(--a) 0
   <deg>, var(--ring-rest) <deg> 270deg, transparent 270deg)` with a `--g` disc inset 2px),
   `deg = fraction × 270`, and a 6px `--a` tip dot at the arc's end (centre at radius 21 from the
   ring's centre). `fraction = level / 127`; tempo (`level` null) uses
   `clamp((tempo − 40) / 240, 0, 1)`. No Assign: arc and rest `--mbg`, no dot.
-- **Code** 12 / 400, 14 tall, `--m`: `short`.
+- **Code** 12 / 400, 14 tall, line-height 14, `--m`, no wrap: `short`. (14 + 22 + 2 + 44 + 14
+  = 96, the column's height; the column is a flex column, `align-items: center`.)
 - **As a control:** `role="slider"`, `aria-valuetext` "Dynamics 127". Drag vertically from the
   press point, with pointer capture: one `turnKnob { knob, delta }` per whole 4px travelled
   (Shift: per 12px), up positive; the steps of one animation frame go as one `turnKnob` with
@@ -504,22 +585,31 @@ From `knobs.knobs[i]` (`function`, `name`, `short`, `value`, `level`). A 68 × 9
 
 ### Pads
 
-Header row, 18px below the knobs: "Pads" 14 `--m`; `pads.pageName` 14 `--t`; on Sections only, the
-legend (12px, gap 12; each a 10 × 2 bar and the word in its hue): Intro, Main, Ending, Break,
-Fill; right-aligned "Bank" 13 `--m` and `{pads.pageNumber}/{pads.pageCount}` in `--t`.
+Header row (36 tall, hairline, items centred, gap 12, no wrap), `margin-top: 18px` under the
+knobs: "Pads" 14 `--m`; `pads.pageName` 14 `--t`; on Sections only, the legend (a flex row,
+`margin-left: 4px`, items centred, gap 12, 12px; each item a flex row, gap 6, a 10 × 2 bar
+with radius 1 and the word, both in the family hue): Intro, Main, Ending, Break, Fill;
+right-aligned (`margin-left: auto`) one span "Bank" 13 / 400 `--m` with
+`{pads.pageNumber}/{pads.pageCount}` after its space in `--t`, the same 13px.
 
-Below (8px), a 142-tall row: a 32-wide column with ▲ at the top and ▼ at the bottom (18px
-padding top and bottom), then the 8 × 2 **Pad** grid (`repeat(8, 1fr)`, rows 68, gaps 6; 68 × 68
-at 1440), top row pads 1–8 (`pads.pads[0..7]`), bottom row 9–16.
+Below (`margin-top: 8px`), a 142-tall flex row, **gap 8**: a 32-wide column (`flex: none`,
+`padding: 18px 0`, `justify-content: space-between`) with ▲ at the top and ▼ at the bottom
+(32 × 32 off face, 12px glyph), then the 8 × 2 **Pad** grid (`flex: 1; min-width: 0;
+position: relative`; `repeat(8, minmax(0, 1fr))`, `grid-auto-rows: 68px`, column and row gap
+6; 68 × 68 at 1440), top row pads 1–8 (`pads.pads[0..7]`), bottom row 9–16.
 
 | Control | Sends | Disabled when | Tooltip | Launchkey |
 |---|---|---|---|---|
 | ▲ | `surface.controls[padBankUp].action` | that action is null | `padpage.prev` | Pad Bank ▲ |
 | ▼ | `surface.controls[padBankDown].action` | that action is null | `padpage.next` | Pad Bank ▼ |
 
-Group lines: above each run of pads of one family, a 2px line in the family hue, 3px above the
-pads' top, as wide as the run minus 6px (so runs read as groups). Sections page runs: 1–3 intro,
-4 util, 5–7 ending, 8 util, 9–12 main, 13 brk, 14–16 util. Other pages' runs are in their specs.
+Group lines: above each run of pads of one family, a 2px line in the family hue, its bottom
+3px above the pads' top (`top: −3px` of the row), **exactly as wide as the run** (from the
+first pad's left edge to the last pad's right edge: `n × 68 + (n − 1) × 6`), so runs read as
+groups and two runs in a row are 6px apart. (The board draws each as a span 6px wider than
+the run starting 3px left of it, with the line `calc(100% − 6px)` wide and centred: the same
+line.) Sections page runs: 1–3 intro, 4 util, 5–7 ending, 8 util, 9–12 main, 13 brk, 14–16
+util. Other pages' runs are in their specs.
 
 #### Pad
 
@@ -533,8 +623,8 @@ place on the page:
 
 | State | When | Fill | Border | Caption | Numeral | Bar |
 |---|---|---|---|---|---|---|
-| Idle | `dim` | `--btn` | none | family hue (utility: `--t2`) | `--d` | none |
-| Absent | `off` | `--btn` | none | `--d` | `--pad-index-dark` | none |
+| Idle | `dim` | `--btn` | none | family hue (utility: `--t2`) | `--d` (`data-contrast="dim"`) | none |
+| Absent | `off` | `--btn` | none | `--d` (`data-contrast="dim"`) | `--pad-index-dark` (`data-contrast="dim"`) | none |
 | Playing | `bright` + `solid` | hue, glow at `--glow-mix` | hue | `--solid-ink` | solid ink at `--solid-ink-index` | solid ink at `--solid-ink-bar` |
 | Next | `bright` + `flash`; also a Main pad `bright` + `pulse` (the landing) | `--btn` | hue | `--t` | "NEXT" in the hue | hue, glow at `--bar-glow-mix` |
 | Armed | `bright` + `pulse` (not a Main) | `--btn`, glow at `--glow-mix` | hue (light: plus a `--armed-ring` inset ring) | `--t` | "ARMED" in the hue | hue |
@@ -576,7 +666,7 @@ bottom: Start / Stop, Stop, Reset | Fade, Fill ▲ | Fill ▼; Tempo: Tempo +, T
 | Start / Stop | 13 / 500 `--t`; running: a 2px `--ok` bar (left/right 8, bottom 5, `--bg` glow) | `startStop` | `transport.start_stop` | Play; pad 16 |
 | Stop | 14 `--t2` | `stop` | `transport.stop` | Stop |
 | Reset | 13 | `sectionReset` | `transport.section_reset` | Shift + Play |
-| Fade | 13; `transport.fade` `armed` → waiting face in `--t2`; `fadingIn`, `fadingOut`, `holding` → on face | `toggleFade` | `transport.fade` | Shift + Stop |
+| Fade | 13; `transport.fade` `armed` → `face="waiting"` (hue `t2`); `fadingIn`, `fadingOut`, `holding` → `face="on"`; `off` → off (Stage.md D50) | `toggleFade` | `transport.fade` | Shift + Stop |
 | Fill ▲ | 13, the ▲ at 9px | `fillUp` | `transport.fill_up` | — |
 | Fill ▼ | 13, the ▼ at 9px | `fillDown` | `transport.fill_down` | — |
 | Tempo + | 14, the + at 300 | `tempoUp`, repeating while held (`app/src/lib/tempoHold.ts`) | `tempo.up` | Scene Launch |
@@ -606,8 +696,12 @@ numbering, C3 = 60).
   Full Keyboard). Stage.md D10.
 - **Split marker:** a 2px `--t` line, full height, on the boundary after the split key
   (`boundary()` in `keyboard.ts`).
-- `aria-label` reads it out: "Keys: split F#2, left hand G A C E, right hand E4 A4, 61 keys".
-  Tooltip `keystrip.keys`. The keys don't play notes from the screen (as today).
+- The C labels are `--key-label` (`--d` on dark): `data-contrast="dim"` (D47).
+- `aria-label` reads it out from the template in Stage.md D56: "Keys: split {split}, left hand
+  {pitch classes}, right hand {notes with octave}, {n} keys", a hand dropped when it holds no
+  key, both replaced by "no keys held" when nothing is held: "Keys: split F#2, left hand G A C
+  E, right hand E4 A4, 61 keys". Tooltip `keystrip.keys`. The keys don't play notes from the
+  screen (as today).
 
 ## Status line
 

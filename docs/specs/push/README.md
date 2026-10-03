@@ -41,3 +41,5 @@ What each run taught us about writing specs.
   - Links to unbuilt pages had no interim behaviour; checks asked jsdom for computed colours and `color-mix`; the screenshot check needed a viewport and masks the tool lacks.
   - Small formats were left open: rounding, an empty folder, Intro D, which bar is peak.
   - Fixes that carry to every spec: copy values in, one interim link rule, `data-face` / `data-hue` test hooks, pixels in named stories, a Components table, and the cold read in "Done when".
+  - Cold read 2 (after those fixes) found 24 more, mostly at the seams: the page component's prop list and what the fixture exports, how the interim pages share the window with the fixed-size screen, which tab is chosen, tokens and fonts clashing with the old shell's, and geometry a reader can't derive (tab gaps, left edges vs centres, line-heights, a divider's x). Fixed with a props table, a shell section, one `chosenPage()` rule, a token migration rule (D48) and left-edge geometry throughout; dimmed text got an owner decision (D47) and one listed axe exemption.
+  - Cold read 3 → see the next line once it runs.
