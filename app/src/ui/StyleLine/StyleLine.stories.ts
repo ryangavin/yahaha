@@ -25,7 +25,7 @@ const meta = {
     category: { control: 'text' },
     timeSignature: { control: 'text' },
     queued: { control: 'text', table: { category: 'WaitingChip' } },
-    oneTouch: { control: { type: 'inline-radio' }, options: [0, 1, 2, 3, 4], table: { category: 'Button' } },
+    oneTouch: { control: { type: 'inline-radio' }, options: [0, 1, 2, 3, 4], table: { category: 'OneTouchPicker' } },
     reverb: { control: { type: 'range', min: 0, max: 127, step: 1 }, table: { category: 'SendReadout' } },
     chorus: { control: { type: 'range', min: 0, max: 127, step: 1 }, table: { category: 'SendReadout' } },
     delay: { control: { type: 'range', min: 0, max: 127, step: 1 }, table: { category: 'SendReadout' } },

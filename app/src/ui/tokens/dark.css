@@ -31,6 +31,26 @@
   --warn: var(--orange-400); /* missing, warning */
   --ok: var(--green-400); /* connected, running */
 
+  /* Lamp bars (Round 2): the 2px bar under a lamp's label. On is the hue itself with a glow;
+     off is a dim bar: grey for the white and grey lamps, the hue at 30% for a coloured one. */
+  --lamp-bar-off: var(--grey-20);
+  --lamp-bar-m: color-mix(in srgb, var(--t) 40%, transparent); /* a function lamp, latched */
+  --lamp-bar-dim-r1: color-mix(in srgb, var(--r1) 30%, transparent);
+  --lamp-bar-dim-r2: color-mix(in srgb, var(--r2) 30%, transparent);
+  --lamp-bar-dim-r3: color-mix(in srgb, var(--r3) 30%, transparent);
+  --lamp-bar-dim-l: color-mix(in srgb, var(--l) 30%, transparent);
+  --lamp-bar-dim-ok: color-mix(in srgb, var(--ok) 30%, transparent);
+  --lamp-glow-t: 0 0 6px color-mix(in srgb, var(--t) 60%, transparent);
+  --lamp-glow-r1: 0 0 8px color-mix(in srgb, var(--r1) 70%, transparent);
+  --lamp-glow-r2: 0 0 8px color-mix(in srgb, var(--r2) 70%, transparent);
+  --lamp-glow-r3: 0 0 8px color-mix(in srgb, var(--r3) 70%, transparent);
+  --lamp-glow-l: 0 0 8px color-mix(in srgb, var(--l) 70%, transparent);
+  --lamp-glow-ok: 0 0 8px color-mix(in srgb, var(--ok) 70%, transparent);
+  --lamp-glow-rec: 0 0 8px color-mix(in srgb, var(--rec) 70%, transparent);
+
+  /* Tabs: the second-level chosen block (the fader layer) */
+  --tab-block-2: var(--grey-23);
+
   /* The violet accent: the style, the chord, knob arcs and values */
   --a: var(--violet-300);
 

@@ -1,5 +1,12 @@
 # ChosenTabs
 
+> **Round 2 restyle (PR #550).** Every size is 35px tall (`--tab-height-header`). The label sits on
+> `--header-baseline` (28px from the top) through an empty `::before` strut, not on a top padding,
+> so it is centred in its block and shares one baseline with the row's other texts. Page tabs pad
+> 12px a side. `tone: 'primary' | 'secondary'` (default primary): primary is the white block with
+> `--g` text; secondary is `--tab-block-2` (Round 2's `#3a3a3a`) with `--t` text, for a second-level
+> choice (the fader layer). Where the sections below disagree, this note wins.
+
 ## Identity (all stations)
 
 - **Kind:** primitive

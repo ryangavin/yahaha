@@ -4,8 +4,8 @@ import SectionRow from './SectionRow.svelte'
 import { sectionRowBoard } from './SectionRow.fixtures'
 
 /**
- * The toolbar under the app bar: Accomp, the count row, then Metronome with its settings caret,
- * Unison, Panic and help mode's ?. 1392 wide, the screen inside its padding.
+ * The toolbar under the app bar: Accomp at the left, then Metronome with its settings caret,
+ * Unison, Panic and help mode's ? at the right. 1392 wide, the screen inside its padding.
  */
 const meta = {
   title: 'Components/SectionRow',
@@ -22,7 +22,6 @@ const meta = {
     onhelp: fn(),
   },
   argTypes: {
-    count: { control: 'object', table: { category: 'CountRow' } },
     accomp: { control: 'boolean', table: { category: 'LampButton' } },
     metronome: { control: 'boolean', table: { category: 'LampButton' } },
     unison: { control: 'boolean', table: { category: 'LampButton' } },
@@ -35,7 +34,7 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-/** The dark board: Accomp lit, beat 3 of bar 3/4 in Main B → Main C, every helper off. */
+/** The dark board: Accomp lit, every helper off. */
 export const Board: Story = {}
 
 /** Metronome and Unison on, the metronome's settings open, help mode lit. */

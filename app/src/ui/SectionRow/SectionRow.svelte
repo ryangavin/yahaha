@@ -1,18 +1,15 @@
 <!--
-  SectionRow: the toolbar between the app bar and the display. Accomp at the left, the count row
-  in the middle, the helpers at the right: Metronome joined with its ▾ settings caret, Unison,
-  Panic and help mode's ?. Every switch is controlled: a press only calls back.
+  SectionRow: the toolbar between the app bar and the display. Accomp at the left; the helpers at
+  the right: Metronome joined with its ▾ settings caret, Unison, Panic and help mode's ?. The
+  count (bar, beat, sections) lives on the display, not here. Every switch is controlled: a press
+  only calls back.
 -->
 <script lang="ts">
-  import type { ComponentProps } from 'svelte'
   import type { Action } from 'svelte/action'
   import Button from '../Button/Button.svelte'
-  import CountRow from '../CountRow/CountRow.svelte'
   import LampButton from '../LampButton/LampButton.svelte'
 
   type Props = {
-    /** The count row's beat, bar and sections. */
-    count: ComponentProps<typeof CountRow>
     /** Accompaniment (ACMP) on. */
     accomp?: boolean
     /** The metronome on. */
@@ -42,7 +39,6 @@
   }
 
   let {
-    count,
     accomp = false,
     metronome = false,
     metronomeOpen = false,
@@ -60,11 +56,18 @@
 </script>
 
 <div class="row" role="toolbar" aria-label="Switches and helpers">
-  <LampButton label="Accomp" code="ACMP" on={accomp} tip="transport.acmp" {tipAction} ontoggle={onaccomp} />
-  <CountRow {...count} />
+  <LampButton label="Accomp" code="ACMP" hue="t" on={accomp} tip="transport.acmp" {tipAction} ontoggle={onaccomp} />
   <span class="helpers">
     <span class="joined" role="group" aria-label="Metronome">
-      <LampButton label="Metronome" on={metronome} join="start" tip="metronome.on" {tipAction} ontoggle={onmetronome} />
+      <LampButton
+        label="Metronome"
+        hue="t"
+        on={metronome}
+        join="start"
+        tip="metronome.on"
+        {tipAction}
+        ontoggle={onmetronome}
+      />
       <Button
         symbol="caret"
         size="caret"
@@ -77,7 +80,7 @@
         onpress={onmetronomesettings}
       />
     </span>
-    <LampButton label="Unison" on={unison} tip="transport.unison" {tipAction} ontoggle={onunison} />
+    <LampButton label="Unison" hue="t" on={unison} tip="transport.unison" {tipAction} ontoggle={onunison} />
     <Button label="Panic" name="Panic: all notes off" tip="transport.panic" {tipAction} onpress={onpanic} />
     <Button
       label="?"

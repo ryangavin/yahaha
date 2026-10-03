@@ -16,13 +16,21 @@ export const chordBoard = {
   held: false,
 } satisfies ComponentProps<typeof ChordReadout>
 
-/** The dark board's now playing: Am7, Main B playing, Main C next, 104 BPM, running. */
+/**
+ * The dark board's now playing: Am7, Main B playing, Main C next with the fill after bar 4, bar 3
+ * of 4 on beat 3 of 4, 104 BPM, running.
+ */
 export const nowPlayingBoard = {
   chord: chordBoard,
   playing: 'Main B',
   hue: 'main',
   next: 'Main C',
-  nextHue: 'main',
+  fill: 'fill lands after bar 4',
+  bar: 3,
+  bars: 4,
+  beat: 3,
+  beats: 4,
+  progress: 0.62,
   bpm: 104,
   running: true,
 } satisfies ComponentProps<typeof NowPlaying>
@@ -44,7 +52,28 @@ export const nowPlayingStopped = {
   playing: 'Main A',
   hue: 'main',
   next: '',
-  nextHue: 'main',
+  fill: '',
+  bar: 1,
+  bars: 4,
+  beat: 0,
+  beats: 4,
+  progress: 0,
   bpm: 92,
   running: false,
+} satisfies ComponentProps<typeof NowPlaying>
+
+/** A fill on its last beat with Ending II waiting, in 3/4. */
+export const nowPlayingFill = {
+  chord: chordBoard,
+  playing: 'Fill',
+  hue: 'fill',
+  next: 'Ending II',
+  fill: '',
+  bar: 1,
+  bars: 1,
+  beat: 3,
+  beats: 3,
+  progress: 0.9,
+  bpm: 104,
+  running: true,
 } satisfies ComponentProps<typeof NowPlaying>

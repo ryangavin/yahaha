@@ -1,9 +1,10 @@
 <!--
-  LampButton: the canvas's on/off control (Accomp, Metronome, part On, Sound, Looper).
-  On is the lime lamp face with an ink label; off is the plain button face with a grey label;
-  waiting is the armed lamp, outlined in its hue. Fully controlled: the face and aria-pressed
-  follow `on` alone, and a click only asks for `!on` through ontoggle. Long press (and
-  right-click) comes from the shared longpress action and never toggles.
+  LampButton: the canvas's on/off control (Accomp, Metronome, part On, Sound, Looper), drawn as
+  Round 2's lamp: the plain button face with a 2px bar under the label. On is the bright label and
+  the bar in its hue, glowing (dark theme); off is a quieter label over a dim bar; waiting (armed)
+  is the label in its hue over a dashed bar; record is the bar in record red. Fully controlled: the
+  face and aria-pressed follow `on` alone, and a click only asks for `!on` through ontoggle. Long
+  press (and right-click) comes from the shared longpress action and never toggles.
 -->
 <script lang="ts">
   import type { Action } from 'svelte/action'
@@ -12,18 +13,18 @@
   type Props = {
     /** The word on the face. */
     label: string
-    /** Lit (lamp face) or off. Controlled: a click asks for `!on` through `ontoggle` and changes nothing itself. */
+    /** Lit (bright label, bar in its hue) or off. Controlled: a click asks for `!on` through `ontoggle` and changes nothing itself. */
     on?: boolean
+    /** The bar's hue: `t` white (Accomp, Metronome), a part (`r1` `r2` `r3` `l`), `ok` green (Start / Stop), `m` grey (a function lamp: a soft white bar when on, no glow). */
+    hue?: 't' | 'r1' | 'r2' | 'r3' | 'l' | 'ok' | 'm'
     /** Small code after the label, e.g. `ACMP`. */
     code?: string
     /** Shown, not pressable: no toggle and no long press. Stays focusable. */
     disabled?: boolean
-    /** Record lamp: lit is the solid record-red face instead of the lamp face. */
+    /** Record lamp: lit, and waiting, draw in record red instead of `hue`. */
     rec?: boolean
-    /** The waiting (armed) face while not on: no fill, a 1px outline and the label in `hue`. */
+    /** The waiting (armed) face while not on: the label in the hue (record red with `rec`) over a dashed bar. */
     waiting?: boolean
-    /** The waiting face's colour: `lamp` (Loop armed, in `--lamp-line`) or `rec` (Rec armed). */
-    hue?: 'lamp' | 'rec'
     /** `md` 32px tall (section row), `sm` 28px (settings rows), `cell` 32px filling its container (the band's lamp row). */
     size?: 'md' | 'sm' | 'cell'
     /** A fixed width in px, label centred, no side padding (e.g. 64 for the settings rows' On/Off). Wins over the size's width. */
@@ -47,11 +48,11 @@
   let {
     label,
     on = false,
+    hue = 't',
     code,
     disabled = false,
     rec = false,
     waiting = false,
-    hue = 'lamp',
     size = 'md',
     width,
     join,
@@ -93,7 +94,7 @@
   class:disabled
   style:width={width === undefined ? undefined : `${width}px`}
   data-face={disabled ? 'disabled' : face}
-  data-hue={face === 'waiting' ? hue : undefined}
+  data-hue={rec && face !== 'off' ? 'rec' : hue}
   data-contrast={disabled ? 'dim' : undefined}
   data-tip={tip}
   aria-pressed={on}
@@ -103,19 +104,32 @@
   use:tipped={tip}
   use:longpress={{ onlongpress, onlongrelease, disabled: disabled || onlongpress === undefined }}
 >
-  {label}{#if code}<span class="sub">{code}</span>{/if}
+  <span class="label">{label}{#if code}<span class="sub">{code}</span>{/if}</span><span class="bar" aria-hidden="true"
+  ></span>
 </button>
 
 <style>
+  /* Each hue sets the lit bar (--lit), its glow (--glow), the dim off bar (--dim), the off label
+     (--rest) and the waiting label (--wait). */
   .lamp {
+    --lit: var(--t);
+    --glow: var(--lamp-glow-t);
+    --dim: var(--lamp-bar-off);
+    --rest: var(--t2);
+    --wait: var(--t);
+    --inset: var(--lamp-bar-inset);
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     box-sizing: border-box;
     height: var(--control-height);
     margin: 0;
-    padding: 0 var(--space-16);
+    padding: 0 var(--space-16) var(--bar-lift);
     border: 0;
     border-radius: var(--radius);
     background: var(--btn);
-    color: var(--m);
+    color: var(--rest);
     font-family: var(--font-sans);
     font-size: var(--text-14);
     font-weight: var(--weight-regular);
@@ -124,19 +138,64 @@
     white-space: nowrap;
     cursor: pointer;
   }
+  .lamp[data-hue='m'] {
+    --lit: var(--lamp-bar-m);
+    --glow: none;
+  }
+  .lamp[data-hue='r1'] {
+    --lit: var(--r1);
+    --glow: var(--lamp-glow-r1);
+    --dim: var(--lamp-bar-dim-r1);
+    --rest: var(--m);
+    --wait: var(--r1);
+  }
+  .lamp[data-hue='r2'] {
+    --lit: var(--r2);
+    --glow: var(--lamp-glow-r2);
+    --dim: var(--lamp-bar-dim-r2);
+    --rest: var(--m);
+    --wait: var(--r2);
+  }
+  .lamp[data-hue='r3'] {
+    --lit: var(--r3);
+    --glow: var(--lamp-glow-r3);
+    --dim: var(--lamp-bar-dim-r3);
+    --rest: var(--m);
+    --wait: var(--r3);
+  }
+  .lamp[data-hue='l'] {
+    --lit: var(--l);
+    --glow: var(--lamp-glow-l);
+    --dim: var(--lamp-bar-dim-l);
+    --rest: var(--m);
+    --wait: var(--l);
+  }
+  .lamp[data-hue='ok'] {
+    --lit: var(--ok);
+    --glow: var(--lamp-glow-ok);
+    --dim: var(--lamp-bar-dim-ok);
+    --wait: var(--ok);
+  }
+  .lamp[data-hue='rec'] {
+    --lit: var(--rec);
+    --glow: var(--lamp-glow-rec);
+    --wait: var(--rec);
+  }
   .sm {
     height: var(--control-height-compact);
-    padding: 0 var(--space-14);
+    padding: 0 var(--space-14) var(--bar-lift);
     font-size: var(--text-13);
   }
   .cell {
+    --inset: var(--lamp-bar-inset-cell);
     width: 100%;
     min-width: 0;
-    padding: 0;
+    padding: 0 0 var(--bar-lift);
     font-size: var(--text-13);
   }
   .fixed {
-    padding: 0;
+    padding-right: 0;
+    padding-left: 0;
   }
   .join-start {
     border-radius: var(--radius) 0 0 var(--radius);
@@ -144,48 +203,64 @@
   .join-end {
     border-radius: 0 var(--radius) var(--radius) 0;
   }
+  .label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .sub {
     margin-left: var(--space-6);
     color: var(--m);
     font-size: var(--text-12);
     font-weight: var(--weight-regular);
   }
-  .face-on {
-    background: var(--lamp);
-    color: var(--lamp-ink);
-    font-weight: var(--weight-medium);
+  .bar {
+    position: absolute;
+    right: var(--inset);
+    bottom: var(--bar-bottom);
+    left: var(--inset);
+    height: var(--lamp-bar-height);
+    border-radius: calc(var(--lamp-bar-height) / 2);
+    background: var(--dim);
   }
-  .face-on .sub {
-    color: var(--lamp-ink);
-    opacity: var(--code-opacity);
-  }
+
+  /* On: the bright label over the bar in its hue, glowing. */
+  .face-on,
   .face-record {
-    background: var(--rec);
-    color: var(--solid-ink);
+    color: var(--t);
+  }
+  .face-on:not(.cell),
+  .face-record:not(.cell) {
     font-weight: var(--weight-medium);
   }
-  /* The code on the record face is full ink: at --code-opacity it fails AA on --rec. */
-  .face-record .sub {
-    color: var(--solid-ink);
+  .face-on .bar,
+  .face-record .bar {
+    background: var(--lit);
+    box-shadow: var(--glow);
   }
-  /* Armed: an inset outline, so the box is the same size as every other face. */
+  /* Waiting (armed): the label in its hue over a dashed bar of the same hue. */
   .face-waiting {
-    --hue: var(--lamp-line);
-    background: transparent;
-    box-shadow: inset 0 0 0 var(--line-width) var(--hue);
-    color: var(--hue);
-  }
-  .face-waiting[data-hue='rec'] {
-    --hue: var(--rec);
+    color: var(--wait);
   }
   .face-waiting .sub {
-    color: var(--hue);
+    color: var(--wait);
   }
+  .face-waiting .bar {
+    background: repeating-linear-gradient(
+      90deg,
+      var(--wait) 0 var(--lamp-dash),
+      transparent var(--lamp-dash) calc(var(--lamp-dash) + var(--lamp-dash-gap))
+    );
+  }
+
   .disabled,
   .disabled .sub {
     color: var(--d);
-    opacity: 1;
     cursor: default;
+  }
+  .disabled .bar {
+    background: var(--lamp-bar-off);
+    box-shadow: none;
   }
   .lamp:focus-visible {
     outline: var(--line-width) solid var(--focus);

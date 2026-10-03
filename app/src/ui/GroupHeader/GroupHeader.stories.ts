@@ -37,8 +37,8 @@ const HUES = [
 const FADERS =
   '<span style="display: contents">' +
   '<span data-mount="page" style="display: contents"></span>' +
-  '<span aria-hidden="true" style="flex: none; width: var(--line-width); height: var(--space-16); background: var(--line)"></span>' +
-  '<span style="display: flex; align-items: center">' +
+  '<span aria-hidden="true" style="flex: none; align-self: flex-end; margin-bottom: var(--separator-lift); width: var(--line-width); height: var(--separator-length); background: var(--line)"></span>' +
+  '<span style="display: flex; align-items: baseline">' +
   '<span style="margin-right: var(--space-4); font-size: var(--text-14); font-weight: var(--weight-regular); color: var(--m)">Layer</span>' +
   '<span data-mount="layer" style="display: contents"></span>' +
   '</span></span>'
@@ -48,11 +48,11 @@ const KNOBS = '<span data-mount="block" style="display: contents"></span>'
 const PADS =
   '<span style="display: contents">' +
   '<span data-text="page" style="font-size: var(--text-14); font-weight: var(--weight-regular); color: var(--t)"></span>' +
-  '<span style="margin-left: var(--space-4); display: flex; align-items: center; gap: var(--space-12); font-size: var(--text-12); font-weight: var(--weight-regular)">' +
+  '<span style="margin-left: var(--space-4); display: flex; align-items: baseline; gap: var(--space-12); font-size: var(--text-12); font-weight: var(--weight-regular)">' +
   HUES.map(
     ([word, hue]) =>
-      `<span style="display: flex; align-items: center; gap: var(--space-6); color: var(--${hue})">` +
-      `<span aria-hidden="true" style="width: var(--space-10); height: var(--space-2); border-radius: var(--line-width); background: var(--${hue})"></span>` +
+      `<span style="display: flex; align-items: baseline; gap: var(--space-6); color: var(--${hue})">` +
+      `<span aria-hidden="true" style="align-self: center; width: var(--space-10); height: var(--space-2); border-radius: var(--line-width); background: var(--${hue})"></span>` +
       `${word}</span>`,
   ).join('') +
   '</span></span>'
@@ -84,6 +84,7 @@ function children(args: Args) {
             props: {
               size: 'header',
               label: 'Fader layer',
+              tone: 'secondary',
               tabs: layerTabs,
               chosen: args.layerChosen,
               onchoose: args.onchooseLayer,

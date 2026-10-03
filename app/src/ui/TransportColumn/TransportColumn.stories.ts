@@ -4,8 +4,8 @@ import TransportColumn from './TransportColumn.svelte'
 import { transportBoard } from './TransportColumn.fixtures'
 
 /**
- * The band's 88px right column: Transport (Start / Stop, Stop, Reset and Fade, the Fills pair)
- * and Tempo (Tempo + and −, Style tempo). Every press is a callback; Tempo ± report the hold.
+ * The band's 88px right column: Transport (Start / Stop, Stop, Reset, Fade, the Fills pair)
+ * and Tempo (the + and − pair, Style tempo). Every press is a callback; Tempo ± report the hold.
  */
 const meta = {
   title: 'Components/TransportColumn',

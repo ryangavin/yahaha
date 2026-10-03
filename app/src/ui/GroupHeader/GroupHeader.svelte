@@ -3,6 +3,11 @@
   "Transport", "Tempo"). The title is a real heading; what follows it (tabs, the knob page block,
   the pad page name and legend) is the parent's `children` snippet, rendered straight into the row;
   the optional page counter sits at the right end. Not a control: no click, no focus of its own.
+  Every text in the row sits on one baseline, `--header-baseline` from the top: the row aligns its
+  items by baseline and an empty strut fixes where that baseline is, so the title, ChosenTabs'
+  labels (whose blocks then stand on the hairline), an AccentBlock and the counter share a line in
+  every header, with or without tabs. A child that is a group of its own (a word and a tab run)
+  shares the line when it aligns its items by baseline too.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte'
@@ -40,7 +45,7 @@
 <style>
   .row {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: var(--space-12);
     box-sizing: border-box;
     height: var(--group-header-height);
@@ -49,6 +54,15 @@
     white-space: nowrap;
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
+  }
+  /* The strut: its bottom is the row's baseline. No width, and the negative margin cancels the
+     gap after it, so the title still starts at the row's left edge. */
+  .row::before {
+    content: '';
+    flex: none;
+    width: 0;
+    height: var(--header-baseline);
+    margin-right: calc(-1 * var(--space-12));
   }
   .title {
     flex: none;

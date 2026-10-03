@@ -1,5 +1,15 @@
 # LampButton
 
+> **Superseded look (Round 2 restyle, PR #550).** The lime solid face is gone. The lamp is the plain
+> button face with a 2px bar (`--lamp-bar-height`) under the label, inset `--lamp-bar-inset` (12px;
+> `cell` 10px), `--bar-bottom` above the bottom, with `--bar-lift` bottom padding. `hue: 't' | 'r1' |
+> 'r2' | 'r3' | 'l' | 'ok' | 'm'` (default `t`) picks the bar; it replaces D13/D19's `hue: 'lamp' |
+> 'rec'`. On: label `--t` (medium unless `cell`), bar in the hue with `--lamp-glow-<hue>` (`m`: a 40%
+> white bar, no glow). Off: bar `--lamp-bar-off` (grey) for `t` and `m`, the hue at 30% for a part
+> or `ok` (`--lamp-bar-dim-<hue>`); label `--t2`, or `--m` for a part hue. Record (`on` + `rec`): bar `--rec`
+> with its glow. Waiting: the label in the hue (`--rec` with `rec`) over a dashed bar of that hue;
+> `data-hue="rec"` when `rec` and not off. Where the sections below disagree, this note wins.
+
 ## Identity (all stations)
 
 - **Kind:** primitive

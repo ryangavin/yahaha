@@ -1,8 +1,9 @@
 <!--
   FaderBank: the band's Faders section. A GroupHeader with the fader page and layer tabs; nine
   strips, each a Fader over its name button with PartMarks; the "Part on/off" and "Functions"
-  caption row; and one 32px lamp row: the part lamps under faders 1–4, a hairline, the Launchkey
-  function lamps under 5–8, and the Panel page button under 9. Holds no state: every change is a
+  caption row; and one 32px lamp row: the part lamps under faders 1–4 (their bar in the part's
+  hue), a hairline, the Launchkey function lamps under 5–8 (a grey bar), and the Panel page button
+  under 9 (no bar). The layer tabs use the secondary (grey) chosen block. Holds no state: every change is a
   callback with the strip's or lamp's id.
 -->
 <script lang="ts">
@@ -14,6 +15,7 @@
   import GroupHeader from '../GroupHeader/GroupHeader.svelte'
   import LampButton from '../LampButton/LampButton.svelte'
   import PartMarks from '../PartMarks/PartMarks.svelte'
+  import Separator from '../Separator/Separator.svelte'
   import type { BankLamp, FaderStrip } from './types'
 
   type Props = {
@@ -83,6 +85,7 @@
   <LampButton
     label={item.label}
     on={item.on}
+    hue={item.hue}
     size="cell"
     name={item.name}
     tip={item.tip}
@@ -96,10 +99,10 @@
 <section class="bank" aria-label="Faders">
   <GroupHeader title="Faders" detail={layerWord}>
     <ChosenTabs size="header" label="Fader page (master button)" tabs={pageTabs} chosen={page} {tipAction} onchoose={onchoosePage} />
-    <span class="sep" aria-hidden="true"></span>
+    <Separator />
     <span class="layer">
       <span class="layer-word">Layer</span>
-      <ChosenTabs size="header" label="Fader layer" tabs={layerTabs} chosen={layer} {tipAction} onchoose={onchooseLayer} />
+      <ChosenTabs size="header" tone="secondary" label="Fader layer" tabs={layerTabs} chosen={layer} {tipAction} onchoose={onchooseLayer} />
     </span>
   </GroupHeader>
 
@@ -165,16 +168,9 @@
     height: var(--band-height);
     font-family: var(--font-sans);
   }
-  .sep {
-    flex: none;
-    width: var(--line-width);
-    height: var(--space-16);
-    background: var(--line);
-  }
   .layer {
     display: flex;
-    align-items: center;
-    align-self: stretch;
+    align-items: baseline;
   }
   .layer-word {
     margin-right: var(--space-4);

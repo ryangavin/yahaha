@@ -161,9 +161,9 @@
     {/if}
     {#if away !== undefined && !parked}
       <span class="ghost" style:--away={clamp(away, 0, MAX) / MAX}></span>
-      <span class="wait">↕</span>
     {/if}
   </span>
+  {#if away !== undefined && !parked}<span class="wait" aria-hidden="true">↕</span>{/if}
 </button>
 
 <style>

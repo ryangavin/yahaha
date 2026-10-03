@@ -1,7 +1,8 @@
 <!--
   TransportColumn: the band's 88px right column. Transport: Start / Stop (the same control as pad
-  16, with its green running bar), Stop, Reset and Fade side by side, and the Fills pair. Tempo:
-  Tempo + and − (repeat while held) and Style tempo. Holds no state and no timers: the parent
+  16, with its green running bar), Stop, Reset, Fade (full rows, as Round 2 draws them), and the
+  Fills pair. Tempo: the + and − pair under the Tempo header (repeat while held) and Style tempo,
+  so the column fits the band's 368px. Holds no state and no timers: the parent
   repeats Tempo ± between the two `onhold` calls.
 -->
 <script lang="ts">
@@ -76,10 +77,8 @@
       onpress={onstartstop}
     />
     <Button label="Stop" size="band" name="Stop (fade with hold)" tip="transport.stop" {tipAction} onpress={onstop} onlongpress={onstoplong} />
-    <div class="pair">
-      <Button label="Reset" size="pair" name="Section reset: restart the section from its first bar" {tipAction} onpress={onreset} />
-      <Button label="Fade" size="pair" on={fading} pressed={fading} name="Fade in/out" tip="transport.fade" {tipAction} onpress={onfade} />
-    </div>
+    <Button label="Reset" size="band" name="Section reset: restart the section from its first bar" {tipAction} onpress={onreset} />
+    <Button label="Fade" size="band" on={fading} pressed={fading} name="Fade in/out" tip="transport.fade" {tipAction} onpress={onfade} />
     <div class="pair" role="group" aria-label="Fills">
       <Button label="Fill" symbol="up" size="pair" name="Fill Up: a fill, then the next Main up (at Main D, its own fill)" {tipAction} onpress={onfillup} />
       <Button label="Fill" symbol="down" size="pair" name="Fill Down: a fill, then the next Main down (at Main A, its own fill)" {tipAction} onpress={onfilldown} />
@@ -90,8 +89,10 @@
     <GroupHeader title="Tempo" />
   </div>
   <div class="buttons">
-    <Button label="Tempo" symbol="plus" size="band" hold name="Tempo up (Scene Launch)" tip="tempo.up" {tipAction} onhold={ontempoup} onpress={tap(ontempoup)} />
-    <Button label="Tempo" symbol="minus" size="band" hold name="Tempo down (Function)" tip="tempo.down" {tipAction} onhold={ontempodown} onpress={tap(ontempodown)} />
+    <div class="pair" role="group" aria-label="Tempo up and down">
+      <Button label="" symbol="plus" size="pair" hold name="Tempo up (Scene Launch)" tip="tempo.up" {tipAction} onhold={ontempoup} onpress={tap(ontempoup)} />
+      <Button label="" symbol="minus" size="pair" hold name="Tempo down (Function)" tip="tempo.down" {tipAction} onhold={ontempodown} onpress={tap(ontempodown)} />
+    </div>
     <Button
       label="Style tempo"
       size="band"

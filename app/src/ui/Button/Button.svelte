@@ -222,7 +222,10 @@
   use:longpress={{ onlongpress, onlongrelease, disabled: disabled || hold || onlongpress === undefined }}
 >
   {label}{#if symbol}{label ? ' ' : ''}<span class="sym sym-{symbol}" aria-hidden="true">{GLYPHS[symbol]}</span
-    >{/if}{#if barRoom && bar}<span class="bar" data-bar aria-hidden="true"></span>{/if}
+    >{/if}{#if barRoom && bar}<span class="bar" data-bar aria-hidden="true"></span>{:else if face === 'on'}<span
+      class="bar lamp-bar"
+      aria-hidden="true"
+    ></span>{/if}
 </button>
 
 <style>
@@ -307,9 +310,9 @@
   .face-off.caret.expanded:not(.disabled) {
     color: var(--t);
   }
+  /* On: Round 2's lamp language, as LampButton: the white label over a glowing white bar. */
   .face-on {
-    background: var(--lamp);
-    color: var(--lamp-ink);
+    color: var(--t);
     font-weight: var(--weight-medium);
   }
   .face-chosen {
@@ -343,7 +346,15 @@
     height: var(--space-2);
     border-radius: calc(var(--space-2) / 2);
     background: var(--ok);
-    box-shadow: var(--bg);
+    box-shadow: var(--lamp-glow-ok);
+  }
+  .lamp-bar {
+    background: var(--t);
+    box-shadow: var(--lamp-glow-t);
+  }
+  .icon .lamp-bar {
+    right: var(--space-6);
+    left: var(--space-6);
   }
 
   .btn:focus-visible {

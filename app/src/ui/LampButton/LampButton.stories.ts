@@ -3,9 +3,10 @@ import { expect, fireEvent, fn, userEvent, within } from 'storybook/test'
 import LampButton from './LampButton.svelte'
 
 /**
- * The on/off control the whole canvas uses: Accomp, Metronome, part On, Sound, Looper.
- * Lit is the lamp face with an ink label; off is the plain button face with a grey label; armed
- * is the waiting face, outlined in its hue. Controlled: a click asks for `!on` through `ontoggle`.
+ * The on/off control the whole canvas uses: Accomp, Metronome, part On, Sound, Looper, drawn as
+ * Round 2's lamp: the plain button face with a 2px bar under the label. Lit is the bright label
+ * over the bar in its `hue`, glowing; off is a quieter label over a dim bar; armed is the label in
+ * its hue over a dashed bar. Controlled: a click asks for `!on` through `ontoggle`.
  * A long press (or right-click) calls `onlongpress` / `onlongrelease` and never toggles.
  */
 const meta = {
@@ -23,7 +24,7 @@ const meta = {
     rec: { control: 'boolean' },
     waiting: { control: 'boolean' },
     size: { control: 'select', options: ['md', 'sm', 'cell'] },
-    hue: { control: 'select', options: ['lamp', 'rec'] },
+    hue: { control: 'select', options: ['t', 'r1', 'r2', 'r3', 'l', 'ok', 'm'] },
     join: { control: 'select', options: ['none', 'start', 'end'], mapping: { none: undefined } },
     width: { control: 'number' },
   },
@@ -44,7 +45,7 @@ export const Board: Story = {
   },
 }
 
-/** Lit: the lime lamp face, ink label and the small code. */
+/** Lit: the white label (medium) over a white bar with its glow, and the small code (Round 2's Accomp). */
 export const On: Story = {
   args: { label: 'Accomp', code: 'ACMP', on: true },
   play: async ({ canvasElement }) => {
@@ -96,16 +97,74 @@ export const Disabled: Story = {
   },
 }
 
+/** Off: the `--t2` label over the dim grey bar (Round 2's Metronome and Unison). */
+export const Off: Story = {
+  args: { label: 'Metronome' },
+}
+
+/** A part lamp, lit: the white label over the bar in the part's hue, glowing (Round 2's Right 1 "On"). */
+export const PartOn: Story = {
+  args: { label: 'On', size: 'cell', on: true, hue: 'r1', name: 'Right 1 on' },
+  parameters: { layout: 'padded' },
+}
+
+/** A part lamp, lit, in Right 2's pink. */
+export const PartOnR2: Story = {
+  args: { label: 'On', size: 'cell', on: true, hue: 'r2', name: 'Right 2 on' },
+  parameters: { layout: 'padded' },
+}
+
+/** A part lamp, off: the muted label over the part's hue at 30% (Round 2's Right 3 "Off"). */
+export const PartOff: Story = {
+  args: { label: 'Off', size: 'cell', hue: 'r3', name: 'Right 3 off' },
+  parameters: { layout: 'padded' },
+}
+
+/** The Left part lamp, lit, in teal. */
+export const LeftOn: Story = {
+  args: { label: 'On', size: 'cell', on: true, hue: 'l', name: 'Left on' },
+  parameters: { layout: 'padded' },
+}
+
+/** A function lamp, off: `--t2` label over the grey bar (Round 2's Harm/Arp, L Hold, Looper). */
+export const FunctionOff: Story = {
+  args: { label: 'Harm/Arp', size: 'cell', hue: 'm' },
+  parameters: { layout: 'padded' },
+}
+
+/** A function lamp, latched: a soft white bar with no glow (Round 2's Sound). */
+export const FunctionOn: Story = {
+  args: { label: 'Sound', size: 'cell', hue: 'm', on: true },
+  parameters: { layout: 'padded' },
+}
+
+/** The green running lamp (Round 2's Start / Stop bar). */
+export const Running: Story = {
+  args: { label: 'Start / Stop', on: true, hue: 'ok' },
+}
+
+/** The record lamp, lit: the bar in record red. */
+export const Recording: Story = {
+  args: { label: 'Looper', size: 'cell', on: true, rec: true, name: 'Looper, recording' },
+  parameters: { layout: 'padded' },
+}
+
+/** Loop armed: the white label over a dashed white bar. */
+export const ArmedLoop: Story = {
+  args: { label: 'Looper', size: 'cell', waiting: true, hue: 'm', name: 'Looper, loop armed' },
+  parameters: { layout: 'padded' },
+}
+
 /**
- * Looper's Rec armed in the lamp row: no fill, a 1px `--rec` outline and label. A click asks to
- * toggle; the parent, not the click, lights it.
+ * Looper's Rec armed in the lamp row: the label in `--rec` over a dashed `--rec` bar. A click asks
+ * to toggle; the parent, not the click, lights it.
  */
 export const Armed: Story = {
   args: {
     label: 'Looper',
     size: 'cell',
     waiting: true,
-    hue: 'rec',
+    rec: true,
     name: 'Looper, rec armed. Long press: loop rec',
     tip: 'looper.rec',
   },

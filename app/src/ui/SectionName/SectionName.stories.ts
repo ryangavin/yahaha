@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte-vite'
 import SectionName from './SectionName.svelte'
 
-/** The playing section's name, solid in its hue: 18px on the count row, 44px with a glow on the display. */
+/** The playing section's name on the display: 44px light text in its hue, with its glow. */
 const meta = {
   title: 'Primitives/SectionName',
   component: SectionName,
@@ -9,24 +9,18 @@ const meta = {
   argTypes: {
     label: { control: 'text' },
     hue: { control: 'select', options: ['intro', 'main', 'ending', 'brk', 'fill'] },
-    size: { control: 'inline-radio', options: ['count', 'display'] },
   },
 } satisfies Meta<typeof SectionName>
 
 export default meta
 type Story = StoryObj<typeof meta>
 
-/** The board's display: "Main B", 44px light green with its glow. */
+/** The board: "Main B", 44px light green with its glow. */
 export const Board: Story = {
-  args: { label: 'Main B', hue: 'main', size: 'display' },
+  args: { label: 'Main B', hue: 'main' },
 }
 
-/** The board's count row: "Main B", 18px light green. */
-export const Count: Story = {
-  args: { label: 'Main B', hue: 'main', size: 'count' },
-}
-
-/** An intro on the display, in the gold intro hue. */
+/** An intro, in the gold intro hue. */
 export const Intro: Story = {
-  args: { label: 'Intro II', hue: 'intro', size: 'display' },
+  args: { label: 'Intro II', hue: 'intro' },
 }

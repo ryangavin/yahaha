@@ -72,9 +72,8 @@
     position: relative;
     box-sizing: border-box;
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: flex-end;
-    height: 35px;
     padding-left: var(--space-8);
     min-width: 0;
     color: var(--m);
@@ -100,7 +99,7 @@
   }
   button {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     max-width: 100%;
     min-width: 0;
     margin: 0;

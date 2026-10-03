@@ -14,6 +14,9 @@
 
   /* Separator: the hairline between tab groups */
   --separator-length: 16px;
+  /* A short separator stands this far above the bottom of a 35px header row's content, so it is
+     centred on the row's text (on --header-baseline), not on the row. */
+  --separator-lift: 4px;
 
   /* Keys: the OLED strip */
   --keys-height: 56px;

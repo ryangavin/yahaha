@@ -29,6 +29,24 @@
   --warn: var(--orange-700);
   --ok: var(--green-700);
 
+  /* Lamp bars: as dark, without glows. */
+  --lamp-bar-off: var(--stone-76);
+  --lamp-bar-m: color-mix(in srgb, var(--t) 40%, transparent);
+  --lamp-bar-dim-r1: color-mix(in srgb, var(--r1) 30%, transparent);
+  --lamp-bar-dim-r2: color-mix(in srgb, var(--r2) 30%, transparent);
+  --lamp-bar-dim-r3: color-mix(in srgb, var(--r3) 30%, transparent);
+  --lamp-bar-dim-l: color-mix(in srgb, var(--l) 30%, transparent);
+  --lamp-bar-dim-ok: color-mix(in srgb, var(--ok) 30%, transparent);
+  --lamp-glow-t: none;
+  --lamp-glow-r1: none;
+  --lamp-glow-r2: none;
+  --lamp-glow-r3: none;
+  --lamp-glow-l: none;
+  --lamp-glow-ok: none;
+  --lamp-glow-rec: none;
+
+  --tab-block-2: var(--stone-76);
+
   --a: var(--violet-600);
 
   --r1: var(--blue-700);

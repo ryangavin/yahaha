@@ -1,4 +1,4 @@
-/* Stage display roles (section row, count row, style line, now playing, sound row, display art): palette entries, sizes, and dark and light roles. */
+/* Stage display roles (section row, style line, now playing and its bar row, sound row, display art): palette entries, sizes, and dark and light roles. */
 
 /* Palette: the display art's raw colours (Stage-Dark.dc.html's art gradients) and their light twins (ours). */
 :root {
@@ -14,6 +14,11 @@
   --art-stone-87: #dfdce6; /* light: the far hill */
   --art-stone-92: #ecebef; /* light: the sky's middle */
   --art-lilac-88: #ddd6f0; /* light: the sky's foot */
+
+  /* The bar row's greys (Skin2-Push-Dark.dc.html's #555, #6a6a6a and #1f1f1f). */
+  --grey-12: #1f1f1f; /* a bar still to come */
+  --grey-33: #555555; /* a past beat's dot, a coming beat's ring */
+  --grey-42: #6a6a6a; /* a past bar */
 }
 
 /* Theme-independent sizes */
@@ -26,15 +31,18 @@
   --display-content-width: 814px; /* the style line, now playing and the sound row */
   --display-art-width: 528px; /* the art at the display's right edge: the board's 38% of 1390 */
 
-  /* Count row */
-  --beat-size: 24px;
-  --beat-radius: 2px;
-  --beat-edge: 2px; /* beat one's top edge */
-  --leading-24: 24px;
-
   /* Style line */
   --send-height: 24px;
   --style-name-max: 240px; /* the style's accent block; a longer name ends in an ellipsis */
+  --ots-number-width: 24px; /* one One Touch number: the 24px smallest target */
+  --ots-bar-inset: 6px; /* the applied number's bar, in from each side */
+
+  /* The bar row: "Bar 3/4", the beat dots and the bar segments */
+  --bar-row-height: 24px;
+  --beat-dot: 8px;
+  --bar-segment-height: 4px; /* the segment's row; the line in it is --bar-line */
+  --bar-line: 2px;
+  --bar-segments-gap: 6px; /* from the bar row down to the segments */
 
   /* Now playing */
   --now-height: 162px;
@@ -48,12 +56,15 @@
   --leading-14: 14px;
   --leading-16: 16px;
   --leading-18: 18px;
+  --leading-24: 24px;
   --leading-40: 40px;
-  --leading-52: 52px;
+  --leading-44: 44px;
+  --tracking-28: -0.8px;
   --label-height: 16px; /* the "Chord" and "Section" labels */
   --note-width: 24px; /* one note of the chord's note row */
   --note-row-height: 32px;
-  --tempo-gap: 50px; /* from the section line down to the tempo row */
+  --bar-row-gap: 10px; /* from the section line down to the bar row */
+  --tempo-gap: 14px; /* from the bar segments down to the tempo row */
 
   /* Sound row */
   --sound-row-height: 44px;
@@ -80,13 +91,23 @@
   --art-fade-20: color-mix(in srgb, var(--black) 20%, transparent);
   --art-fade-10: color-mix(in srgb, var(--black) 10%, transparent);
 
-  /* The current beat's glow, per section hue (the status dot's 6px glow, --bg for Main). */
-  --beat-glow-intro: var(--dot-glow-intro);
-  --beat-glow-main: var(--dot-glow-main);
-  --beat-glow-ending: var(--dot-glow-ending);
-  --beat-glow-brk: var(--dot-glow-brk);
-  --beat-glow-fill: var(--dot-glow-fill);
-  --beat-edge-colour: var(--t); /* beat one's top edge */
+  /* The bar row: past beats filled grey, coming beats a grey ring, the current beat in the
+     section hue with an 8px glow; past bars a grey line, the current bar filling in its hue with a
+     6px glow, coming bars a dark line. */
+  --beat-dot-past: var(--grey-33);
+  --beat-dot-ring: var(--grey-33);
+  --bar-past: var(--grey-42);
+  --bar-rest: var(--grey-12);
+  --beat-glow-intro: 0 0 8px color-mix(in srgb, var(--intro) 70%, transparent);
+  --beat-glow-main: 0 0 8px color-mix(in srgb, var(--main) 70%, transparent);
+  --beat-glow-ending: 0 0 8px color-mix(in srgb, var(--ending) 70%, transparent);
+  --beat-glow-brk: 0 0 8px color-mix(in srgb, var(--brk) 70%, transparent);
+  --beat-glow-fill: 0 0 8px color-mix(in srgb, var(--fill) 70%, transparent);
+  --bar-glow-intro: 0 0 6px color-mix(in srgb, var(--intro) 25%, transparent);
+  --bar-glow-main: 0 0 6px color-mix(in srgb, var(--main) 25%, transparent);
+  --bar-glow-ending: 0 0 6px color-mix(in srgb, var(--ending) 25%, transparent);
+  --bar-glow-brk: 0 0 6px color-mix(in srgb, var(--brk) 25%, transparent);
+  --bar-glow-fill: 0 0 6px color-mix(in srgb, var(--fill) 25%, transparent);
 
   /* The display-size playing section's glow, per section hue (--bm for Main). */
   --section-glow-intro: 0 0 18px color-mix(in srgb, var(--intro) 30%, transparent);
@@ -117,12 +138,20 @@
   --art-fade-20: color-mix(in srgb, var(--stone-94) 20%, transparent);
   --art-fade-10: color-mix(in srgb, var(--stone-94) 10%, transparent);
 
+  --beat-dot-past: var(--stone-65);
+  --beat-dot-ring: var(--stone-65);
+  --bar-past: var(--stone-65);
+  --bar-rest: var(--stone-82);
   --beat-glow-intro: none;
   --beat-glow-main: none;
   --beat-glow-ending: none;
   --beat-glow-brk: none;
   --beat-glow-fill: none;
-  --beat-edge-colour: var(--t);
+  --bar-glow-intro: none;
+  --bar-glow-main: none;
+  --bar-glow-ending: none;
+  --bar-glow-brk: none;
+  --bar-glow-fill: none;
 
   --section-glow-intro: none;
   --section-glow-main: none;

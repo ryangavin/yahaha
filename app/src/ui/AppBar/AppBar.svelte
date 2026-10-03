@@ -3,6 +3,8 @@
   a hairline, the full pages) pushed right; then the fixed right area: a hairline, the Launchkey
   status and the audio health at the right edge, so the tabs sit at the same x on every page. A
   white 1px line underneath. Controlled: `chosen` names the page; a click only calls onchoose.
+  Every text ("yahaha", the tab labels, Launchkey, the health text) sits on one baseline,
+  `--header-baseline` from the top, as in GroupHeader; the chosen block stands on the white line.
 -->
 <script lang="ts">
   import type { Action } from 'svelte/action'
@@ -73,7 +75,7 @@
       role="status"
       aria-label={launchkey ? 'Launchkey connected' : 'Launchkey not connected'}
     >
-      <StatusDot hue={launchkey ? 'ok' : 'd'} hollow={!launchkey} />Launchkey
+      <span class="dot"><StatusDot hue={launchkey ? 'ok' : 'd'} hollow={!launchkey} /></span>Launchkey
     </span>
     <HealthSlot {failedPart} {synthOn} {dropouts} {bufferFrames} {cpu} {tipAction} onopen={onhealth} />
   </div>
@@ -83,7 +85,7 @@
   .bar {
     display: flex;
     flex: none;
-    align-items: center;
+    align-items: baseline;
     gap: var(--space-8);
     box-sizing: border-box;
     height: var(--bar-height);
@@ -91,6 +93,18 @@
     background: var(--g);
     color: var(--t);
     font-family: var(--font-sans);
+  }
+  /* The strut: its bottom is the bar's baseline (GroupHeader does the same); the negative margin
+     cancels the gap after it. */
+  .bar::before,
+  .right::before {
+    content: '';
+    flex: none;
+    width: 0;
+    height: var(--header-baseline);
+  }
+  .bar::before {
+    margin-right: calc(-1 * var(--space-8));
   }
   .name {
     font-size: var(--text-18);
@@ -102,29 +116,31 @@
   nav {
     display: flex;
     align-items: stretch;
-    height: var(--bar-height);
+    height: var(--tab-height-header);
     margin-left: auto;
   }
   .gap {
     display: flex;
-    align-items: center;
     margin: 0 var(--space-8);
   }
   .right {
     display: flex;
     flex: none;
-    align-items: center;
+    align-items: baseline;
     width: var(--app-bar-right-width);
-    height: var(--bar-height);
+    height: var(--tab-height-header);
   }
+  /* The Launchkey word is plain text on the baseline; its dot sits inline, centred on the
+     lowercase letters. */
   .launchkey {
-    display: flex;
-    align-items: center;
-    gap: var(--space-8);
+    display: block;
     margin-left: var(--space-8);
     color: var(--m);
     font-size: var(--text-14);
     font-weight: var(--weight-regular);
     white-space: nowrap;
+  }
+  .dot {
+    margin-right: var(--space-8);
   }
 </style>

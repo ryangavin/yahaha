@@ -148,23 +148,24 @@ export const reverbStrips: FaderStrip[] = panelStrips.map((strip, i) =>
 
 /** The part lamps under faders 1–4 on the board: Right 3 off, the rest on. */
 export const partLamps: BankLamp[] = [
-  { id: 'right1', label: 'On', on: true, long: true, tip: 'part.right1.on', name: 'Right 1 on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
-  { id: 'right2', label: 'On', on: true, long: true, tip: 'part.right2.on', name: 'Right 2 on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
-  { id: 'right3', label: 'Off', on: false, long: true, tip: 'part.right3.on', name: 'Right 3 off. Long press: swap mode (knobs edit this part). Shift: open Channel' },
-  { id: 'left', label: 'On', on: true, long: true, tip: 'part.left.on', name: 'Left on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
+  { id: 'right1', label: 'On', on: true, hue: 'r1', long: true, tip: 'part.right1.on', name: 'Right 1 on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
+  { id: 'right2', label: 'On', on: true, hue: 'r2', long: true, tip: 'part.right2.on', name: 'Right 2 on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
+  { id: 'right3', label: 'Off', on: false, hue: 'r3', long: true, tip: 'part.right3.on', name: 'Right 3 off. Long press: swap mode (knobs edit this part). Shift: open Channel' },
+  { id: 'left', label: 'On', on: true, hue: 'l', long: true, tip: 'part.left.on', name: 'Left on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
 ]
 
-/** The Launchkey function lamps under faders 5–8 on the board, all off. */
+/** The Launchkey function lamps under faders 5–8 on the board (Round 2): Sound latched, the rest off. */
 export const functionLamps: BankLamp[] = [
-  { id: 'harmArp', label: 'Harm/Arp', on: false, tip: 'harmony.switch', name: 'Harmony/Arpeggio on/off' },
+  { id: 'harmArp', label: 'Harm/Arp', on: false, hue: 'm', tip: 'harmony.switch', name: 'Harmony/Arpeggio on/off' },
   {
     id: 'sound',
     label: 'Sound',
-    on: false,
+    on: true,
+    hue: 'm',
     long: true,
     tip: 'launchkey.sound',
     name: 'Sound: hold and the pads become Quick Racks. A click latches it until the next pad tap; click again or press fader button 6 to close',
   },
-  { id: 'leftHold', label: 'L Hold', on: false, name: 'Left Hold on/off' },
-  { id: 'looper', label: 'Looper', on: false, long: true, tip: 'looper.rec', name: 'Chord Looper on/off. Long press: Loop rec' },
+  { id: 'leftHold', label: 'L Hold', on: false, hue: 'm', name: 'Left Hold on/off' },
+  { id: 'looper', label: 'Looper', on: false, hue: 'm', long: true, tip: 'looper.rec', name: 'Chord Looper on/off. Long press: Loop rec' },
 ]
