@@ -510,9 +510,10 @@ can't see:
 - **HA-D1 · Category tabs browse; they don't send.** A tab changes only what the grid shows
   (an app-only viewed category). Changing the type stops an Echo or an arpeggio at once
   (app-api.md), so a tab that picked a type would cut the music while the player looks around.
-  The viewed category snaps to the selected type's whenever `typeName` changes, so the
-  hardware's and a rack's changes always show their block. Clicking the selected item or the
-  chosen tab sends nothing.
+  The viewed category snaps to the selected type's whenever `mode`, `harmonyType` or
+  `arpPattern` changes (the index fields, HA-D23; a change of `arpPattern` while `mode` is
+  `harmony` snaps too, harmlessly, to the Harmony list), so the hardware's and a rack's
+  changes always show their block. Clicking the selected item or the chosen tab sends nothing.
 - **HA-D2 · Grouping and names.** The three Harmony tabs are fixed (Harmony, Echo, Multi
   Assign), as the board draws them. The API gives Multi Assign the category "Harmony", so the
   page groups it by name; a category of its own in `harmonyTypes` is a suggested follow-up
