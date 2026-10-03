@@ -90,8 +90,8 @@ Not in `app/src/ui/tokens/*` today. They land in the orchestrator's tokens contr
 ### Accessibility
 
 - **Role and name:**
-  - `page`: the run is a plain `div` (no role; the parent wraps it in `<nav aria-label="Pages">`); each tab a plain `<button>` named by its `name`, else its label; the chosen one `aria-current="page"`, the others no `aria-current`. No `aria-pressed`, no `aria-selected`.
-  - `header`, `compact`: the run is `role="tablist"` with `aria-label={label}` and `aria-orientation="horizontal"`; each tab `role="tab"` with `aria-selected="true|false"`, named by its `name`, else its label. No `aria-controls` (D5).
+  - `page`: the run is a plain `div` (no role; the parent wraps it in `<nav aria-label="Pages">`); each tab a plain `<button>` named by its `name` (as `aria-label`, set only when `name` is given), else its label text; the chosen one `aria-current="page"`, the others no `aria-current`. No `aria-pressed`, no `aria-selected`.
+  - `header`, `compact`: the run is `role="tablist"` with `aria-label={label}` and `aria-orientation="horizontal"`; each tab `role="tab"` with `aria-selected="true|false"`, named by its `name` (as `aria-label`, set only when `name` is given), else its label text. No `aria-controls` (D5).
   - Disabled tabs: `aria-disabled="true"` (never the `disabled` attribute); enabled tabs have no `aria-disabled` attribute (L5).
 - **Keyboard:**
   - `page`: every tab is a Tab stop, left to right (disabled ones too, kit › Faces); no `tabindex` attribute is set. Space or Enter is the native button click (below). No arrow handling: ← → reach the window key handler, which steps the style, as on any other button.
@@ -126,7 +126,7 @@ Title `Primitives/ChosenTabs`, `layout: 'centered'`. Every story renders in dark
 | `NoneChosen` | `{ tabs: layerTabs, chosen: null, label: 'Fader layer' }` | five grey tabs | — | no `aria-selected="true"`; no `[data-face="chosen"]`; "Volume" (the first enabled) has `tabindex="0"`, the others `-1` |
 | `NoLabel` | `{ tabs: faderPageTabs, chosen: 'panel' }` (no `label`) | as `FaderPage` | — | the `tablist` has no `aria-label` attribute (D16) |
 | `Compact` | `{ tabs: layerTabs, chosen: 'volume', label: 'Fader layer', size: 'compact' }` | the half band's tighter layer tabs | `Compact-{dark,light}.png` (Channel 246,600 238×35) | the run has `data-size="compact"` and `role="tablist"` |
-| `Focused` | `{ tabs: layerTabs, chosen: 'volume', label: 'Fader layer' }`, `parameters: { pseudo: { focusVisible: true } }` | the focus ring round the chosen tab | — | — |
+| `Focused` | `{ tabs: layerTabs, chosen: 'volume', label: 'Fader layer' }`, `parameters: { pseudo: { focusVisible: ['[data-face="chosen"]'] } }` (the pseudo-states addon's selector form, so only the chosen tab is ringed) | the focus ring round the chosen tab only | — | — |
 
 Crop positions are `board x,y w×h` in the 1440×900 renders, the same box in the dark and light render.
 

@@ -95,7 +95,9 @@ Every snippet is `createRawSnippet(() => ({ render: () => html, setup }))` where
   2. the legend: `<span style="margin-left: var(--space-4); display: flex; align-items: center; gap: var(--space-12); font-size: var(--text-12); font-weight: var(--weight-regular)">` holding five items in this order, each `<span style="display: flex; align-items: center; gap: var(--space-6); color: var(--<hue>)"><span aria-hidden="true" style="width: var(--space-10); height: var(--space-2); border-radius: var(--line-width); background: var(--<hue>)"></span>{word}</span>`: Intro `--intro`, Main `--main`, Ending `--ending`, Break `--brk`, Fill `--fill`.
 - **`content: 'none'`** (`Transport`, `Tempo`, `Level3`): no `children` passed at all.
 
-`padPageName` is inserted as text (escaped), never as raw HTML.
+`padPageName` is never put into the HTML string: the markup holds the page-name span empty, marked `data-text="page"`, and `setup(root)` sets its `textContent` to `args.padPageName`.
+
+`children` gets no argType at all: `app/src/ui/stories.test.ts` treats a `Snippet` prop as content, not a control, and fails any argType that is hidden or disabled, so the stories neither hide nor disable it; the `content` select above stands in for it.
 
 **Controls (axiom 3).** GroupHeader's own props are controls in the default category. The child props a story sets are args mapped into the snippet, grouped with `argTypes.<arg>.table.category`:
 

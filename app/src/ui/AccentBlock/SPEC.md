@@ -19,7 +19,7 @@ Every prop gets a JSDoc comment in the component.
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
 | `label` | `string` | — | The text in the block ("Sunday Drive Pop", "Style", "Swap R1"). |
-| `empty` | `string` | `'—'` | What the block shows when `label` is empty or only spaces, so it never collapses to a sliver. The style line passes `'No style'`. |
+| `empty` | `string` | `'—'` | What the block shows when `label.trim() === ''` (empty or whitespace only; otherwise the label is drawn as given, untrimmed), so it never collapses to a sliver. The style line passes `'No style'`. |
 | `as` | `'span' \| 'button'` | `'span'` | `button`: a text button that calls `onpress` (the style name). `span`: a plain label (the knob page). |
 | `size` | `'line' \| 'knob'` | `'line'` | `line`: 26 tall, 18px medium, padding 0 10 (the style line). `knob`: 22 tall, 13px regular, padding 0 8 (a band header row: the knob page). |
 | `hue` | `'a' \| 'r1' \| 'r2' \| 'r3' \| 'l'` | `'a'` | The block's fill: the accent, or a part's hue in swap mode (kit › Knobs: "Swap R1" on `--r1`). |
@@ -99,6 +99,7 @@ Title `Primitives/AccentBlock`, `layout: 'centered'`. Every story renders in dar
 | `SwapR1` | `{ label: 'Swap R1', size: 'knob', hue: 'r1' }` | the knob page in swap mode, on Right 1's blue (Stage state "Swap held") | — (no board draws swap mode) | `data-hue="r1"` |
 | `LongName` | `{ label: 'Bossa Nova Lounge Session With Strings And Brushes Deluxe 2', as: 'button', width: 240, name: 'Bossa Nova Lounge Session With Strings And Brushes Deluxe 2: open the Browser' }` | a 59-character style name clipped at 240px with "…" | — (no board; Inspect judges the clip) | the button's accessible name is the whole name plus ": open the Browser" |
 | `Empty` | `{ label: '', as: 'button', empty: 'No style' }` | the block reads "No style" | — | a `button` named "No style" |
+| `Blank` | `{ label: '   ', as: 'button', empty: 'No style' }` | a whitespace-only label counts as empty: the block reads "No style" | — | a `button` whose text is "No style" |
 | `NoStyle` | `{ label: '', as: 'button', empty: 'No style', name: 'No style: open the Browser', tip: 'browser.open' }` | the style line before a style loads: the block reads "No style" | — | a `button` named "No style: open the Browser" whose text is "No style"; click → `onpress` called once |
 | `Focused` | `{ label: 'Sunday Drive Pop', as: 'button', name: 'Sunday Drive Pop: open the Browser' }`, `parameters: { pseudo: { focusVisible: true } }` | the focus ring round the block | — | — |
 

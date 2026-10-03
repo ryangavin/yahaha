@@ -23,7 +23,7 @@ The props mirror `state.message` (`{ seq, text, error } | null`, `docs/app-api.m
 | `error` | `boolean` | `false` | `message.error`: the ⚠ shows before the text. Ignored while there is no text. |
 | `seq` | `number` | `0` | `message.seq`. A new `seq` re-creates the button's contents (`{#key seq}` inside the button, D10), so a screen reader announces a repeat of the same text as a new message, and the button itself (with its focus) stays. |
 | `width` | `number \| undefined` | — | A fixed width in px, set as an inline `style:width="{width}px"` on the `<p>` (stories: 1392, the line's width on every display page). Unset: no inline width, and the `<p>`'s CSS `width: 100%` fills its container's content box (D11). |
-| `tip` | `string \| undefined` | `'display.status'` | The tooltip key (`app/src/help/tooltips.ts`), rendered as `data-tip={tip}` on the button while there is a message (L3, D7). Undefined: no `data-tip` and no action. |
+| `tip` | `string \| null` | `'display.status'` | The tooltip key (`app/src/help/tooltips.ts`), rendered as `data-tip={tip}` on the button while there is a message (L3, D7). Left out (or `undefined`) it is the default; `null` turns it off: no `data-tip` and no action. |
 | `tipAction` | `Action<HTMLElement, string> \| undefined` | — | The app's `use:tip` action, passed in by the wiring (the library can't import it). When `tip` and `tipAction` are both set the button gets `use:tipAction={tip}`; otherwise no action is applied (L3, D7). Stories pass `fn()`. |
 
 ### Events

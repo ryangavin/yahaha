@@ -97,8 +97,8 @@ Not in `app/src/ui/tokens/*` today; they land in the orchestrator's tokens contr
   - off (`off`): `--btn` fill; label `--t2`, regular. `strong`: `--t`, medium. `caret`: `--m` (`--t` while `expanded`).
   - on (`on`): `--lamp` fill, `--lamp-ink` label, medium.
   - chosen (`chosen`): `--t` fill, `--g` label, medium.
-  - waiting (`waiting`): transparent fill, a `--line-width` outline drawn as `box-shadow: inset 0 0 0 var(--line-width) var(--<hue>)` (D3), label `--<hue>`, regular; `data-hue="<hue>"` on the button (only in this face). `hue: 'lamp'` draws in `--lamp-line`, not `--lamp` (D23); every other hue uses its own token.
-  - disabled: the face it would have, label and symbol `--d`, `cursor: default`; `data-face` unchanged, read `aria-disabled` (D4).
+  - waiting (`waiting`): transparent fill, a `--line-width` outline drawn as `box-shadow: inset 0 0 0 var(--line-width) var(--<hue>)` (D3), label `--<hue>`, regular (also with `strong`: `strong` acts only on the off face); `data-hue="<hue>"` on the button (only in this face). `hue: 'lamp'` draws in `--lamp-line`, not `--lamp` (D23); every other hue uses its own token.
+  - disabled: the face it would have, label and symbol `--d`, `cursor: default`; a `bar` keeps its `--ok` fill and glow (it shows the transport's state, not the button's); `data-face` unchanged, read `aria-disabled` (D4).
   - the bar's room (`band` with `bar` defined): the bottom padding `--bar-lift` (3px) leaves a 29px content box, and the native `<button>` centres its one line of text in that box, so the label's line box sits 1.5px higher than in a plain `band` button. That is the whole mechanism (no `transform`, no `top` offset); it matches the `Running` crop (D17).
   - bar (`bar` true, `band` only): an `aria-hidden` span with `data-bar`, `position: absolute` (the button is `position: relative`), left and right `--space-8`, bottom `--bar-bottom`, height `--space-2`, radius `calc(var(--space-2) / 2)`, `--ok` fill, `box-shadow: var(--bg)` (none in light). `bar` false or undefined: no span.
   - joined (`join`): radii only, in every face.
