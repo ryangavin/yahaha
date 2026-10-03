@@ -40,15 +40,15 @@ What the page wiring passes (the Stage lane transcribes this):
 
 | Prop | From |
 |---|---|
-| `range` | `ui.keyRange`, else the connected Launchkey's (`rangeFor(ui.keyRange, inputs)` in `app/src/panels/keystrip/keyboard.ts`), else 61 (Stage.md D25) |
+| `range` | `rangeFor(ui.keyRange, app.state.io.inputs)` (`app/src/panels/keystrip/keyboard.ts`): `ui.keyRange` if set, else the connected Launchkey's size, else 61 (Stage.md D25). `ui.keyRange` is app-only: `UiStore.keyRange` in `app/src/lib/store.svelte.ts` (`KeyRange \| null`, kept in `localStorage` as `yahaha.keys`), not part of `AppState`. |
 | `held` | `keyboard.held` as is |
 | `split` | `keyboard.leftSplit` |
-| `detection` | `keyboard.detection` as is (the component clips it) |
-| `detectionLeft` | `keyboard.detection[0] === 0 && keyboard.detection[1] === keyboard.leftSplit` (Lower; app-api.md › keyboard: Lower is `[0, split]`, Upper `[split + 1, 127]`, Full Keyboard `[0, 127]`) |
+| `detection` | `keyboard.detection` as is (the component clips it). In `AppState` it is always a pair (`KeyboardState.detection: [number, number]`); the prop's `null` exists for stories and for a page without state. |
+| `detectionLeft` | `const d = keyboard.detection; d != null && d[0] === 0 && d[1] === keyboard.leftSplit` (Lower; app-api.md › keyboard: Lower is `[0, split]`, Upper `[split + 1, 127]`, Full Keyboard `[0, 127]`). The `d != null` guard costs nothing and keeps the derivation safe if `detection` ever becomes optional (D12). |
 
 ### Geometry: `app/src/ui/KeyStrip/keys.ts`
 
-Pure functions, no DOM; the component computes every position with them and writes it as an inline `left` / `width` in px (so vitest can read `style.left`). All x values are in px from the inside left edge of the frame (the inner box is 1390 × 54). These constants are exported:
+Pure functions, no DOM; the component computes every position with them and writes it as an inline `left` (and, for white keys and the detection line, `width`) in px, so vitest can read `style.left` / `style.width`; black keys take their size from `--black-key-width` / `--black-key-height`. All x values are in px from the inside left edge of the frame (the inner box is 1390 × 54). These constants are exported:
 
 ```ts
 export type KeyRange = 49 | 61 | 88
@@ -68,7 +68,7 @@ export const BLACK_HEIGHT = 32
 | `whitesUpTo(note, range)` | `number` | the number of white keys in `[lo, min(note, hi)]`; 0 when `note < lo`. |
 | `whiteKeys(range)` | `{ note, x, w, label }[]` | each white key low to high, `i` its index: `x = i · W`, `w = W`, `label = noteName(note)` for a C, else `''`. |
 | `blackKeys(range)` | `{ note, x, w }[]` | each black key low to high, centred on the boundary after the white below it: `x = whitesUpTo(note, range) · W − 11`, `w = 22`. |
-| `keyX(note, range)` | `number` | the key's left edge: a white's `x` or a black's `x`, as above. |
+| `keyX(note, range)` | `number \| null` | the key's left edge: a white's `x` or a black's `x`, as above; null when `note < lo` or `note > hi` (not drawn). `whiteKeys` and `blackKeys` only ever return keys in `[lo, hi]`; the component draws only those, and matches `held` against them by `note`, so a held note outside the range finds no key and draws nothing. |
 | `boundaryX(note, range)` | `number` | the x of the boundary just above `note` (where a split after that key is drawn): `whitesUpTo(note, range) · W`. So below the range it is 0, at or above `hi` it is 1390, and a white key followed by a black one shares its boundary with that black key (its centre), as `boundary()` in `keyboard.ts` does. |
 | `splitX(split, range)` | `number \| null` | `Math.floor(boundaryX(split, range))`, the split marker's left edge; null when `split < lo` or `split >= hi` (nothing to divide: no marker). |
 | `detectionBox(detection, range)` | `{ x, w } \| null` | null for a null `detection`. Else clip: `a = max(dlo, lo)`, `b = min(dhi, hi)`; null when `a > b`. `x = Math.floor(boundaryX(a − 1, range))`, `w = Math.floor(boundaryX(b, range)) − x`. |
@@ -86,7 +86,7 @@ Floors: the two 2px lines land on whole pixels so they stay crisp; the keys keep
 3. `right hand {names}`: only when some held note is `> split`. The names are `noteName` of those notes, low to high, separated by single spaces, every one kept: **with octave numbers** (Yamaha, so 76 is E4).
 4. `{range} keys`.
 
-Hands go by the split as drawn (`note <= split`), not by the held note's `zone`, so the label always agrees with the picture. Held notes outside the range still count.
+Hands go by the split as drawn (`note <= split`), not by the held note's `zone`, so the label always agrees with the picture. Held notes outside the range still count. `keysLabel` doesn't trust the order of `held` (the state says "low to high", a story may not): it sorts a copy by `note` ascending first, and a MIDI note listed twice is read once (in both hands).
 
 **Worked examples** (each a vitest assertion in `keys.test.ts`):
 
@@ -94,7 +94,7 @@ Hands go by the split as drawn (`note <= split`), not by the held note's `zone`,
 - `whiteKeys(61)[0]` → `{ note: 36, x: 0, w: 38.611…, label: 'C1' }`; `[7]` → `{ note: 48, x: 270.277…, label: 'C2' }`; `[35]` → `{ note: 96, x: 1351.388…, label: 'C6' }`; the non-empty labels in order are C1, C2, C3, C4, C5, C6.
 - `whiteKeys(88)`: `[0]` is note 21 (A-1, label `''`), `[2]` is note 24 at `x` 53.461…, label `'C0'`; labels C0…C7. `whiteKeys(49)` labels C1…C5.
 - `blackKeys(61)`: 25 keys; `[0]` → `{ note: 37, x: 27.611…, w: 22 }`; F#2 (54) at `x` 413.722… (`11 · W − 11`). `blackKeys(88)`: 36 keys, `[0]` is note 22 at 15.730…. `blackKeys(49)`: 20 keys.
-- `keyX(43, 61)` (G1) → 154.444…; `keyX(54, 61)` → 413.722….
+- `keyX(43, 61)` (G1) → 154.444…; `keyX(54, 61)` → 413.722…; `keyX(35, 61)` and `keyX(97, 61)` → null; `keyX(21, 88)` → 0.
 - `boundaryX(54, 61)` → 424.722…; `boundaryX(53, 61)` → 424.722… (F2's boundary is F#2's centre); `boundaryX(52, 61)` → 386.111…; `boundaryX(35, 61)` → 0; `boundaryX(96, 61)` and `boundaryX(127, 61)` → 1390.
 - `splitX(54, 61)` → 424; `splitX(54, 49)` → 527; `splitX(54, 88)` → 534 (20 whites from A-1 to F2: `floor(20 · 26.7307…)`); `splitX(30, 61)` → null; `splitX(96, 61)` → null.
 - `detectionBox([0, 54], 61)` → `{ x: 0, w: 424 }`; `detectionBox([55, 127], 61)` → `{ x: 424, w: 966 }`; `detectionBox([0, 127], 61)` → `{ x: 0, w: 1390 }`; `detectionBox([100, 127], 61)` → null; `detectionBox(null, 61)` → null.
@@ -104,29 +104,51 @@ Hands go by the split as drawn (`note <= split`), not by the held note's `zone`,
 - `keysLabel(61, 54, [])` → `"Keys: split F#2, 61 keys"`.
 - `keysLabel(88, 54, [{ note: 36, parts: [3] }, { note: 48, parts: [3] }, { note: 52, parts: [3] }])` → `"Keys: split F#2, left hand C E, 88 keys"` (C1 and C2 both read C, once).
 - `keysLabel(49, 54, [{ note: 60, parts: [0] }, { note: 64, parts: [0] }, { note: 67, parts: [0] }])` → `"Keys: split F#2, right hand C3 E3 G3, 49 keys"`.
+- `keysLabel(61, 54, [{ note: 81, parts: [0] }, { note: 43, parts: [3] }, { note: 76, parts: [0] }, { note: 76, parts: [1] }])` → `"Keys: split F#2, left hand G, right hand E4 A4, 61 keys"` (sorted; 76 twice read once).
 
 ### Visual rules
 
-- **Tokens used:** `--line`, `--g`, `--keyline`, `--key-white`, `--key-white-left`, `--key-black`, `--key-black-left`, `--key-black-ring`, `--key-black-ring-left`, `--key-label`, `--key-glow-mix`, `--solid-ink`, `--r1`, `--r2`, `--r3`, `--l`, `--m`, `--a`, `--bl`, `--t`, `--radius`, `--font-mono`, `--text-11`, `--weight-regular`, `--line-width`, `--space-6`. To add (kit.md › Tokens to add): every `--key-*` token and `--key-glow-mix`.
-- **Frame:** the root box is 1392 × 56: a `--line-width` `--line` border, radius `--radius` (4px), `--g` inside, `overflow: hidden` (clips the keys, their glows and both lines to the rounded inner box). Inside: 1390 × 54, the keys absolutely positioned from its top-left.
-- **White keys** (from `whiteKeys(range)`, drawn first, low to high): top 0, `left` x, `width` w, full height (54), `box-sizing: border-box` with a 1px `--keyline` right border; fill `--key-white`, or `--key-white-left` when `note <= split`. A C carries its label at the bottom: centred horizontally, 6px up (`padding-bottom: --space-6`), JetBrains Mono (`--font-mono`) `--text-11` / `--weight-regular`, line-height 14px, `--key-label`. The label is generated content (`::after { content: attr(data-label) }`), so it isn't text in the accessibility tree (see Contrast).
-- **Black keys** (from `blackKeys(range)`, drawn after every white): top 0, `left` x, 22 × 32, radius `0 0 3px 3px`; fill `--key-black` with its edge `box-shadow: var(--key-black-ring)`; at or below the split, `--key-black-left` with `var(--key-black-ring-left)`. No label.
-- **Held keys** (a key whose `note` is in `held`, white or black): fill `var(--<heldHue(parts)>)` (`--r1`, `--r2`, `--r3`, `--l`, or `--m` for no parts), whatever its zone; glow `box-shadow: 0 0 10px color-mix(in srgb, var(--<hue>) var(--key-glow-mix), transparent)` (on a held black key this replaces its ring); a held C's label in `--solid-ink`. Later keys paint over an earlier key's glow (the board's order).
-- **Detection line** (from `detectionBox(detection, range)`, after the keys): top 0, `left` x, `width` w, 2px tall. With `detectionLeft`: `--l`, `box-shadow: var(--bl)`; otherwise `--a`, no shadow. Absent when the box is null.
-- **Split marker** (from `splitX(split, range)`, drawn last): top 0, bottom 0 (the full 54), `left` x, 2px wide, `--t`. Absent when null.
+- **Tokens used:** existing: `--line`, `--g`, `--keyline`, `--solid-ink`, `--r1`, `--r2`, `--r3`, `--l`, `--m`, `--a`, `--bl`, `--t`, `--radius`, `--font-mono`, `--text-11`, `--weight-regular`, `--line-width`, `--space-6`. New (below): `--key-white`, `--key-white-left`, `--key-black`, `--key-black-left`, `--key-black-ring`, `--key-black-ring-left`, `--key-label`, `--key-glow-mix`.
+- **New tokens** (kit.md › Tokens to add). They land with the tokens contract PR (the orchestrator), not in this component's PR; this PR never edits `app/src/ui/tokens/*` or `contrast.test.ts`.
+
+  | Token | Dark | Light | Type |
+  |---|---|---|---|
+  | `--key-white` | `var(--grey-09)` (#161616, exists) | `var(--paper-98)` (new palette step #fbfbf9) | colour |
+  | `--key-white-left` | `var(--teal-05)` (new #0d1a17) | `var(--teal-95)` (new #e6f1ee) | colour |
+  | `--key-black` | `var(--black)` (#000) | `var(--grey-11)` (new #1b1b1b) | colour |
+  | `--key-black-left` | `var(--black)` | `var(--teal-13)` (new #1a2a26) | colour |
+  | `--key-black-ring` | `inset 0 0 0 var(--line-width) var(--grey-18)` (new #2e2e2e) | `none` | a whole `box-shadow` value |
+  | `--key-black-ring-left` | `inset 0 0 0 var(--line-width) var(--teal-17)` (new #1d3a33) | `none` | a whole `box-shadow` value |
+  | `--key-label` | `var(--d)` (#4d4d4d) | `var(--m)` (#646464) | colour |
+  | `--key-glow-mix` | `45%` | `0%` | a `<percentage>`, used only as the second stop of `color-mix()`; `0%` makes the glow fully transparent, so light draws none |
+
+  New palette steps for `palette.css`: `--paper-98` #fbfbf9, `--teal-05` #0d1a17, `--teal-95` #e6f1ee, `--grey-11` #1b1b1b, `--teal-13` #1a2a26, `--grey-18` #2e2e2e, `--teal-17` #1d3a33.
+- **Component geometry** (axiom 2, declared once on the root, used by every rule below; no other literal sizes): `--strip-width: 1392px`, `--strip-height: 56px`, `--black-key-width: 22px`, `--black-key-height: 32px`, `--black-key-radius: 3px`, `--strip-line: 2px` (the detection line's height and the split marker's width), `--key-glow: 10px`, `--key-label-line: 14px`. `keys.ts`'s `INNER_WIDTH` (1390 = `--strip-width` minus two `--line-width`) and `BLACK_WIDTH` (22) are the same numbers for the position maths; `keys.test.ts` pins them.
+- **Frame:** the root `section` is `--strip-width` × `--strip-height`, `box-sizing: border-box`, `position: relative`, a `--line-width` solid `--line` border, radius `--radius`, `--g` background, `overflow: hidden` (clips the keys, their glows and both lines to the rounded inner box), `cursor: default`. Its one child is the key layer: a `div` with `aria-hidden="true"`, `position: absolute; inset: 0` (the 1390 × 54 inner box); every key and both lines are absolutely positioned inside it, from its top-left.
+- **White keys** (from `whiteKeys(range)`, first in the layer, low to high): a `div`, `position: absolute`, top 0, inline `left` x and `width` w (px), height 100% (54), `box-sizing: border-box`, `border-right: var(--line-width) solid var(--keyline)` (kept on a held key too, as the board draws it); fill `--key-white`, or `--key-white-left` when `note <= split`. A C carries `data-label="<noteName>"` and draws it as `::after { content: attr(data-label) }`; the key is `display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding-bottom: var(--space-6)` (the board's flex-end layout), so the label sits centred 6px above the bottom; `--font-mono` `--text-11` / `--weight-regular`, `line-height: var(--key-label-line)`, colour `--key-label`. Generated content isn't text in the accessibility tree, and the layer is `aria-hidden` anyway (see Contrast).
+- **Black keys** (from `blackKeys(range)`, after every white): a `div`, `position: absolute`, top 0, inline `left` x (px), `--black-key-width` × `--black-key-height`, `border-radius: 0 0 var(--black-key-radius) var(--black-key-radius)`; fill `--key-black` with `box-shadow: var(--key-black-ring)`; at or below the split, `--key-black-left` with `var(--key-black-ring-left)`. In light both rings are `none` (valid `box-shadow`), so a light black key is a flat dark grey (#1b1b1b, left #1a2a26) with no edge. No label.
+- **Held keys** (a drawn key whose `note` equals some `held[i].note`; the first such entry gives its parts): fill `var(--<heldHue(parts)>)` (`--r1`, `--r2`, `--r3`, `--l`, or `--m` for no parts), whatever its zone; glow `box-shadow: 0 0 var(--key-glow) color-mix(in srgb, var(--<hue>) var(--key-glow-mix), transparent)` (on a held black key this replaces its ring); a held C's label colour `--solid-ink`. Later keys paint over an earlier key's glow (the board's order).
+- **Detection line** (from `detectionBox(detection, range)`, after the keys): a `div`, `position: absolute`, top 0, inline `left` x and `width` w, height `--strip-line`. With `detectionLeft`: `--l` fill, `box-shadow: var(--bl)`; otherwise `--a`, no shadow. Absent when the box is null.
+- **Split marker** (from `splitX(split, range)`, last): a `div`, `position: absolute`, top 0, bottom 0 (the full 54), inline `left` x, width `--strip-line`, `--t` fill. Absent when null.
 - **Nothing else changes:** no hover, press or focus look (not a control); cursor `default` everywhere (D35).
-- **Light theme:** the same rules; the tokens make the black keys dark grey without a ring, and the held glows and `--bl` draw nothing.
+- **Light theme:** the same rules; the tokens make the white keys paper, the black keys flat dark grey without a ring, and the held glows (`--key-glow-mix` 0%) and `--bl` (`none`) draw nothing.
 - **Type:** key labels JetBrains Mono 11 / 400, line-height 14, as `noteName` writes them ("C1"; "C-1" can't occur: 88 starts at A-1).
-- **Contrast:** no pair for `tokens/contrast.test.ts`: the key labels are decorative generated content (the region's `aria-label` carries the meaning). For the record, dark `--key-label` (`--d` #4d4d4d) on `--key-white` (#161616) is below 4.5:1 as the board draws it, and light `--solid-ink` #fff on `--l` #008f78 is about 4.0:1 (owner question in the lane report).
+- **Contrast:** every text-on-surface pair the strip draws is a C label (generated content inside the `aria-hidden` layer; the region's `aria-label` carries the meaning). axe doesn't evaluate generated content, so no story needs an `a11y` exclude. Pairs:
+  - Pass AA, add to `contrast.test.ts` with the tokens PR: light `--key-label` on `--key-white` 5.71:1, light `--key-label` on `--key-white-left` 5.12:1; dark `--solid-ink` on `--r1` 6.5, `--r2` 6.86, `--r3` 9.91, `--l` 9.75, `--m` 6.25; light `--solid-ink` on `--r1` 6.25, `--r2` 5.2, `--m` 5.92.
+  - **Known failures (owner question O-contrast):** dark `--key-label` (#4d4d4d) on `--key-white` (#161616) 2.14:1 and on `--key-white-left` (#0d1a17) 2.11:1 (the board's dim label, D10); light `--solid-ink` (#fff) on `--l` (#008f78) 4.04:1 and on `--r3` (#c85f00) 4.12:1 (a held C in Left or Right 3). Not in `contrast.test.ts` until the owner answers; no axe exclude needed (generated content).
 - **Motion:** none; held keys change when `held` changes.
 
-**Test hooks (D41).** Every key is an element with `data-note="<note>"` and `data-zone="left|right"` (left when `note <= split`), whites first then blacks in DOM order; a held key also carries `data-held` and `data-hue="<heldHue(parts)>"`. The detection line carries `data-detection` and `data-hue="l"` (with `detectionLeft`) or `"a"`. The split marker carries `data-split`. Positions are inline `left` / `width` styles in px.
+**Test hooks (D41).** Every key is an element with `data-note="<note>"` and `data-zone="left|right"` (left when `note <= split`), whites first then blacks in DOM order; a held key also carries `data-held="true"` (absent, not `"false"`, on a key not held) and `data-hue="<heldHue(parts)>"`. The detection line carries `data-detection` (empty value) and `data-hue="l"` (with `detectionLeft`) or `"a"`. The split marker carries `data-split` (empty value). Positions are inline `left` / `width` styles in px.
 
 ### Accessibility
 
-- **Role and name:** the root is a `section` with `aria-label={keysLabel(range, split, held)}` (a `region`); everything inside it is `aria-hidden="true"`.
+- **Role and name:** the root is a `section` with `aria-label={keysLabel(range, split, held)}` (a `region`). Its single child, the key layer `div`, carries `aria-hidden="true"`, which hides every key and both lines; the keys and lines carry no `aria-hidden` of their own.
 - **Keyboard:** none. Nothing in the strip is focusable: no `tabindex`, no buttons (kit › Interaction conventions, Stage.md D36).
-- **Tooltip id:** `keystrip.keys`, on the root (`data-tip`, wired at integration). Its body in `tooltips.ts` still describes the old strip (a shaded band, chord-tone dots, "the engine doesn't report held keys"): it needs a rewrite in C5 (lane report).
+- **Tooltip id:** `keystrip.keys`, on the root (`data-tip`, wired at integration). Its body in `app/src/help/tooltips.ts` describes the old strip (a shaded band, chord-tone dots, "the engine doesn't report held keys"). This PR doesn't edit `tooltips.ts`; the orchestrator's tooltip contract change replaces the body with exactly:
+
+  > The keys you are holding, coloured by the part that sounds them: Right 1–3 above the split, Left at or below it, grey where a key only feeds chord detection. The full-height line is the split point; the line along the top is where chord detection listens, teal when it reads the left hand. The keys are a picture: they don't play from the screen. Choose 49, 61 or 88 keys in Settings › Keyboard.
+
+  (`title` "Keyboard" and `genos` "Keyboard (Split Point, chord detection area)" stay.)
 
 ## Stories (Story station)
 
@@ -161,7 +183,7 @@ No `Focused` story: the strip isn't focusable.
 - Every story in the table exists, renders in dark and light, and its play passes (`npx vitest run src/ui`).
 - `app/src/ui/KeyStrip/keys.test.ts` asserts every worked example under Geometry.
 - `npm run shots -- KeyStrip` passes: `Board` is 1392 × 56 and scores at most 0.02 against its crops in both themes; axe finds no violation on any story.
-- Only listed tokens are used; no inline colours, no literal sizes outside the Visual rules (the computed `left` / `width` inline styles are positions, not sizes).
+- Only listed tokens are used; no inline colours; the only literal sizes are the root's custom properties under Component geometry (the computed `left` / `width` inline styles are positions, not sizes).
 - svelte-check and lint pass on the folder.
 
 ## Decisions
@@ -177,3 +199,10 @@ No `Focused` story: the strip isn't focusable.
 - D9 · `detectionLeft` is derived by the wiring from `keyboard.detection` equalling `[0, leftSplit]` (Lower), so the component needs no chord-mode prop.
 - D10 · The C labels are CSS generated content inside `aria-hidden` keys: they're decoration, the region's `aria-label` carries the meaning, and the board's dim dark label (`--d` on `--key-white`) stays as drawn.
 - D11 · `RANGES` is copied into `keys.ts` (the library can't import `panels`, which imports API types) and pinned by a test.
+- D12 · The wiring's `detectionLeft` derivation guards `detection != null` although `AppState` always sends a pair; the component's own `detection` prop stays nullable for stories.
+- D13 · The eight `--key-*` tokens and seven palette steps land with the tokens contract PR (the orchestrator), not in this component's PR, with the values copied from kit.md › Tokens to add (lead decision 1).
+- D14 · Component-only geometry (1392 × 56, the 22 × 32 black key, its 3px radius, the 2px lines, the 10px glow, the 14px label line) is declared once as custom properties on the root (lead decision 3); shared values use `scale.css` tokens.
+- D15 · The key layer is one `aria-hidden` wrapper `div`, not `aria-hidden` on each element, so the DOM stays light (up to 88 keys) and nothing inside can be missed.
+- D16 · A held white key keeps its 1px `--keyline` right border, as the board draws it; the C label sits by flex-end with `--space-6` bottom padding, as the board lays it out.
+- D17 · `keysLabel` sorts `held` itself and reads a repeated MIDI note once; `keyX` is null outside the range.
+- D18 · The light C labels on `--l` and `--r3`, and the dark C labels on the unheld keys, fail AA (Known failures, owner question O-contrast); they stay as the boards draw them until the owner answers.
