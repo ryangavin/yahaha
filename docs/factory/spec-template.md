@@ -2,7 +2,7 @@
 
 Every component in the library gets one spec at `app/src/ui/<Name>/SPEC.md`. The spec is the factory's raw material: the line never invents anything the spec doesn't say. Each station reads only the sections marked for it, so a section must stand on its own.
 
-Board crops live beside the spec in `app/src/ui/<Name>/crops/`, one PNG per story and theme (`<story>-dark.png`, `<story>-light.png`), cut from the Push canvas renders (`../yahaha-research/push-canvas/render/`, 1440×900 at 1x). The spec gives each crop's box on its board, so anyone can cut it again. They are the pictures the Inspect station compares against.
+Board crops live beside the spec in `app/src/ui/<Name>/crops/`, one PNG per story and theme (`<story>-dark.png`, `<story>-light.png`), cut from the Push board renders (`docs/design/push/png/<Board>-Dark.png` and `-Light.png`, 1440×900 at 1x). The spec gives each crop's box on its board, so anyone can cut it again. They are the pictures the Inspect station compares against.
 
 The examples below are LampButton's real ones (`app/src/ui/LampButton/SPEC.md` is the worked example). Copy everything below the line.
 
