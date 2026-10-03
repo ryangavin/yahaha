@@ -1,1 +1,55 @@
 /* Stage frame roles (app bar, keys, the screen's layout): palette entries, sizes, and dark and light roles. */
+
+:root {
+  /* Palette: the keys' tints (Stage-Dark.dc.html's key script; the light ones are ours). */
+  --grey-18: #2e2e2e; /* a right-zone black key's ring, dark */
+  --teal-950: #0d1a17; /* a left-zone white key, dark */
+  --teal-900: #1d3a33; /* a left-zone black key's ring, dark */
+  --teal-100: #d6e7e2; /* a left-zone white key, light */
+  --teal-200: #a9cec4; /* a left-zone black key's ring, light */
+
+  /* App bar */
+  --app-name-line: 24px; /* the "yahaha" line height */
+  --tracking-18: -0.2px; /* letter-spacing of the 18px app name */
+  --app-bar-right-width: 196px; /* the fixed right area: Launchkey status, then the health slot */
+
+  /* Separator: the hairline between tab groups */
+  --separator-length: 16px;
+
+  /* Keys: the OLED strip */
+  --keys-height: 56px;
+  --keys-black-width: 22px;
+  --keys-black-height: 32px;
+  --keys-black-radius: 3px; /* the bottom corners of a black key */
+  --keys-split-width: 2px; /* the white split line */
+  --keys-zone-line: 2px; /* the left zone's top line */
+  --keys-label-bottom: 6px; /* a C label's distance from the bottom */
+  --keys-label-line: 14px;
+}
+
+[data-theme='dark'] {
+  --key-white: var(--grey-09);
+  --key-white-left: var(--teal-950);
+  --key-black: var(--black);
+  --key-black-ring: var(--grey-18);
+  --key-black-ring-left: var(--teal-900);
+
+  /* A held key's glow, one per part hue. */
+  --key-glow-r1: 0 0 10px color-mix(in srgb, var(--r1) 45%, transparent);
+  --key-glow-r2: 0 0 10px color-mix(in srgb, var(--r2) 45%, transparent);
+  --key-glow-r3: 0 0 10px color-mix(in srgb, var(--r3) 45%, transparent);
+  --key-glow-l: 0 0 10px color-mix(in srgb, var(--l) 45%, transparent);
+}
+
+[data-theme='light'] {
+  --key-white: var(--stone-89);
+  --key-white-left: var(--teal-100);
+  --key-black: var(--stone-68);
+  --key-black-ring: var(--stone-65);
+  --key-black-ring-left: var(--teal-200);
+
+  --key-glow-r1: none;
+  --key-glow-r2: none;
+  --key-glow-r3: none;
+  --key-glow-l: none;
+}
