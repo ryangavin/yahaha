@@ -529,7 +529,8 @@ sent (a fake `send`); never computed colours or layout (Stage.md D41).
     it passes `masterBuilt` false (`MASTER_BUS_BUILT` in the wiring), so the comp and EQ type
     buttons are `aria-disabled`; Alt+E on the page leaves `ui.page` as it is; Esc on the page
     changes nothing (FX-D28). Until #501 (FX-D12): Parts calls `onparts()`, which opens today's
-    Effects drawer (`ui.effects` true) with its Inserts card in view, and the drawer's part
+    Effects drawer (`ui.effects` true) and calls `scrollIntoView` on its `[data-section="inserts"]`
+    card (FX-D12), and the drawer's part
     switches still send `setPartInsertOn` / `setPartInsertAmount`.
 13. Tab order (FX-D22), tested as DOM order of the focusable elements on the page: app bar,
     section row, compact block (style name), header lamps and buttons left to right, send rows
@@ -616,7 +617,9 @@ see:
   insert (`effects.inserts[0]`), and is disabled when the style has none. Until #501 lands,
   today's `ChannelView` has no insert controls, so `setPartInsertOn` and `setPartInsertAmount`
   would have no app control (parity): until then Parts opens today's Effects drawer
-  (`ui.toggleDrawer('effects')`, `panels/effects/Effects.svelte`) scrolled to its Inserts card,
+  (`ui.toggleDrawer('effects')` when `ui.effects` is false, `panels/effects/Effects.svelte`); on
+  the next frame the wiring calls `scrollIntoView({ block: 'start' })` on the drawer's Inserts
+  card, which gains `data-section="inserts"` for it (the drawer's only change),
   and the drawer stays in the code for that alone. Once #501 lands, Parts opens Channel as above
   and the drawer, its tests and its tooltip keys go (FXC1).
 - **FX-D13 · Rotary fast toggles.** The lamp sends `toggleRotaryFast`, the command Shift +
