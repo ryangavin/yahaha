@@ -46,22 +46,50 @@ alignment and hairlines only.
 Vertical rhythm: app bar, 8, section row, 12, page, 20, half band, 20, keys row
 (24 + 36 + 8 + 32 + 12 + 468 + 20 + 176 + 20 + 80 + 24 = 900).
 
-The page is a row: **left column** `24,112 320×468` (`flex: none`), a 1px `--line` **divider**
-`368,112 1×468` with 24px margins each side, and the **right column** `393,112 1023×468`
-(`flex: 1; min-width: 0`). `overflow: hidden` on the page.
+The page is a `section` with `aria-label="Rack page: {rack name}"` (the head row's name), a
+row: **left column** `24,112 320×468` (`flex: none; overflow: hidden`), a 1px `--line`
+**divider** `368,112 1×468` with 24px margins each side, and the **right column**
+`393,112 1023×468` (`flex: 1; min-width: 0`). `overflow: hidden` on the page. The half band is
+a `section` `aria-label="Band"`; the keys row's `section` carries the key strip's label (Kit
+additions › Keys row); the app bar is the kit's `header` and the section row its toolbar.
+
+### Opening, leaving and props
+
+The page shows when the app-only `ui.page` is `rack` (Stage.md D2: `UiStore.page`, added by
+the Stage lane; the Rack lane adds it if it goes first). It replaces the Stage under
+`ui.view === 'stage'`; Library (`ui.view === 'library'`) draws over it and "Back to stage"
+returns to it, since `ui.page` is unchanged. In: the app bar's rack readout on any page, Alt+O
+(toggles `rack` ↔ `stage`), a rack-target strip name. Out: the Stage tab (`ui.page = 'stage'`),
+Alt+O again, any display tab (which sets its page or, until its spec, runs today's `NAV`
+entry over this page, kit › App bar). Esc does nothing here (RK-D21). An interim Channel
+target (D32) sets `ui.page = 'stage'` and then `channelNav.show(part)`, so today's
+`ChannelView` shows in the Stage's display (RK-D21).
+
+`Rack` (`app/src/ui/Rack/Rack.svelte`) is pure. Its props: `state: AppState`; `now`,
+`receivedMs`, `meterHolds` as the Stage; `keyRange: 49 | 61 | 88` (resolved by the wiring:
+`ui.keyRange`, else the connected Launchkey's, else 61); `saveAs: { open: boolean; error:
+string | null }`. Its callbacks: `onSend(cmd: AppCmd)`; `onOpen(target)` with `target` one of
+`'browser'`, `'harmArp'`, `'mapEditor'`, `'otsChooser'`, `{ kind: 'quickList', part }`,
+`{ kind: 'channel', part }`, `{ kind: 'replace', part }`, `{ kind: 'editor', part }`;
+`onSaveAs(action)` with `'open'`, `'close'`, `{ name }` (submit) or `'typed'`;
+`onKeyRange(n)`. The wiring (`app/src/pages/RackWiring.svelte`, RK-D14) maps each `onOpen`
+target to its page or interim (D32), `editor` to `app.pluginEditor(part, true)`
+(`app/src/lib/api/session.ts`), `replace` to `ui.openLibrary('sounds', part)`, and keeps the
+Save as… state (Head row).
 
 ## Left column
 
 ### Compact block
 
-`24,112 320×84`, `aria-label="Now playing"`, a column. The Channel board's block, specified
-here (Kit additions › Compact block gives the same text; this is where it is used).
+`24,112 320×84`, a `role="group"` with the `aria-label` below, a column, `overflow: hidden`.
+The Channel board's block, specified here (Kit additions › Compact block gives the same text;
+this is where it is used).
 
 - **Row 1** `24,112 320×16`, items centred, gap 8, no wrap:
   - **Style name**, an accent block as a text button (`min-width: 0`, ellipsis, padding 0 6,
-    13 / 500, line-height 16, `--g` on `--a`, no radius): `style.name`. Click opens the Browser
-    (`ui.browser = true`; Stage.md D3). Tooltip `browser.open`. `aria-label` "{name}: open the
-    Browser".
+    13 / 500, line-height 16, `--g` on `--a`, no radius): `style.name`. Click `onOpen('browser')`:
+    the Browser (`ui.browser = true`; Stage.md D3). Tooltip `browser.open`. `aria-label`
+    "{name}: open the Browser".
   - **Tempo** (`margin-left: auto`): `transport.tempo` rounded to a whole BPM (Stage.md D44) at
     18 / 300, line-height 16, `--t`, then "BPM" 12 / 400 `--m` with a 3px left margin. Not a
     control. Tooltip `display.tempo`.
@@ -72,15 +100,16 @@ here (Kit additions › Compact block gives the same text; this is where it is u
   - **Chord**: `chord.name` at 48 / 300, line-height 48, letter-spacing −2, `--a`,
     `text-shadow: var(--ba)`, drawn in the Stage's two runs (Stage.md D30: the base at 300, the
     extension at 200 with letter-spacing 0). No chord: "—" in `--d`, no shadow. It does not
-    shrink: the block is 320 wide and a chord longer than 160px is clipped by the page
+    shrink: the chord element is `min-width: 0; overflow: hidden` (clipped at its own right
+    edge, no ellipsis) while the tones and the section are `flex: none` and keep their size
     (RK-D3). Tooltip `display.chord`.
   - **Tones**: the chord's tones as note names, 14 / 300, letter-spacing 3, `--t2`, separated by
     spaces ("A C E G"): the same tones, order and spelling as the Stage's tone columns
-    (Stage.md › Chord, D20, D31), at most six. No chord: nothing.
-  - **Playing section** (`margin-left: auto`): the playing section's name (kit › Section names)
-    at 24 / 300, line-height 48, letter-spacing −0.5, in its hue, no glow. Which section is
-    playing follows kit › Count row item 3; stopped, the Main to start on in `--m` (Stage.md
-    D4). Not a control.
+    (Stage.md › Chord, D20, D31), at most six. No chord: nothing. `flex: none`.
+  - **Playing section** (`margin-left: auto; flex: none`): the playing section's name (kit ›
+    Section names) at 24 / 300, line-height 48, letter-spacing −0.5, in its hue, no glow. Which
+    section is playing follows kit › Count row item 3; stopped, the Main to start on in `--m`
+    (Stage.md D4). Not a control.
   - `aria-label` on the block: "Now playing: {style.name}, {tempo} BPM, {Running | Sync start |
     Stopped}, chord {name | none}, {section}" ("Now playing: Sunday Drive Pop, 104 BPM,
     Running, chord Am7, Main B").
@@ -118,9 +147,10 @@ empty on purpose.
   - **Harmony/Arp**: label "Harmony/Arp"; on = `harmonyArp.on`; sends `toggleHarmonyArp`;
     tooltip `harmony.switch`; `aria-label` "Harmony/Arpeggio in this rack: {on | off}";
     Launchkey: fader button 5. Its **type** is a text button, 28 tall, 13 `--m`, reading
-    `harmonyArp.typeName` ("Standard Duet 1"); click opens the Harm/Arp page (D32: the Harm/Arp
-    drawer, `ui.toggleDrawer('harmony')`, opened, until that spec lands). Tooltip
-    `rack.harmony_type` (new). `aria-label` "Harmony type: {typeName}. Opens Harm/Arp".
+    `harmonyArp.typeName` ("Standard Duet 1"); click `onOpen('harmArp')`: the Harm/Arp page
+    (D32: the Harm/Arp drawer, `ui.toggleDrawer('harmony')`, opened, until that spec lands).
+    Tooltip `rack.harmony_type` (exists; its body is rewritten in RK-C1). `aria-label`
+    "Harmony type: {typeName}. Opens Harm/Arp".
   - **Manual Bass**: label "Manual Bass"; on = `chord.manualBass`; sends `toggleManualBass`;
     disabled (the kit's disabled face: label `--d`, `aria-disabled`, no opacity, RK-D4) when
     `chord.upper` is false; tooltip `detection.manual_bass`; `aria-label` "Manual Bass: {on |
@@ -148,6 +178,7 @@ empty on purpose.
 | Badge | 12 / 500 `--a` | "Mine" when `liveRack.id` is not null; "Unsaved" in `--m` when it is (RK-D5) | — | — |
 | Modified | a 5px round `--t` dot, gap 6, "Modified" 13 `--t` | shown while `liveRack.modified`; hidden (removed) otherwise | — | — |
 | Hint | 12 `--m`, `min-width: 0`, ellipsis | "Changes play now and autosave here until you save." (fixed text); replaced by the name field while saving as (below) | — | — |
+| Name field | see Saving as | shown while `saveAs.open` | `saveRackAs` | `rack.save_as_name` |
 | Revert | a text button (`margin-left: auto`), 28 tall, padding 0 6, 13 `--m` | shown while `liveRack.modified` and `liveRack.id` not null; otherwise removed | `revertRack` | `rack.revert` |
 | Save as… | off face, 28 tall, padding 0 14, 13px, label `--t` | always | opens the name field (app-only; below) | `rack.save_as` |
 | Save | chosen face (`--t` fill, `--g` label, 500), 28 tall, padding 0 18, 13px | disabled when `liveRack.modified` is false and `liveRack.id` is not null | `saveRack` (no `soundNames`; the engine's `soundNames` prompt follows when it needs them) | `rack.save` |
@@ -155,14 +186,19 @@ empty on purpose.
 `aria-label`s: Revert "Revert to the saved rack", Save as… "Save as a new rack", Save "Save
 rack{, nothing to save}". The badge and the modified chip are text, not controls.
 
-**Saving as** (app-only state `ui.rackSaveAs`, RK-D6): Save as… replaces the hint with a name
-field, 28 tall, 220 wide, padding 0 8, 1px `--line` border, radius 4, `--g` fill, 13px `--t`,
-`aria-label="New rack name"`, focused and prefilled with the rack's name; Enter sends
-`saveRackAs { name }` (trimmed; empty does nothing), Esc or a click on Save as… again closes
-it. It closes when `liveRack.id` changes to a rack of that name, and stays open showing
-`message.text` in `--warn` (12px, after the field) when the engine refuses the name (the
-message's `seq` after the send and `error` true). A `soundNames` prompt that follows is
-drawn by Prompts (#504); until then as RK-C3 says.
+**Saving as** (RK-D6). The state is the wiring's (`saveAs` prop): `{ open, error }`. Save as…
+(`onSaveAs('open')`) replaces the hint with a name field, 28 tall, 220 wide, padding 0 8, 1px
+`--line` border, radius 4, `--g` fill, 13px `--t`, `aria-label="New rack name"`, tooltip
+`rack.save_as_name`, focused on open and prefilled with the name the head row shows (the
+`rackName` text, "Recovered: …" kept). Enter calls `onSaveAs({ name })` (trimmed; empty does
+nothing); Esc (the field's own keydown, with `stopPropagation`, so the window's Esc doesn't
+fire) or a click on Save as… again calls `onSaveAs('close')`; each input calls
+`onSaveAs('typed')`. The wiring: on `{ name }` it sends `saveRackAs { name }` and records
+`message.seq` at that moment (`sentSeq`); it sets `error` to `message.text` when a message
+with `seq` > `sentSeq` and `error` true arrives, clears `error` on `'typed'`, and sets `open`
+false when `liveRack.id` changes to a non-null id while open, or when `liveRack.prompt` becomes
+a `soundNames` prompt (which carries the name on). With `error` set, it shows after the field,
+12px `--warn`, `role="alert"`, ellipsis.
 
 ### Parts table
 
@@ -183,24 +219,24 @@ even with `on` false, as on the Stage).
 
 | # | Cell | Face | Reads | Sends / does | Tooltip | Launchkey |
 |---|---|---|---|---|---|---|
-| 1 | Tag | "R1" / "R2" / "R3" / "L", 14 / 500 in the hue; `--d` when off. Not a control (the strip names in the band open Channel) | `sounding` | — | — | — |
-| 2 | Sound | a text button, 184 × 44, a column, left-aligned: line 1 (18 tall, gap 6, no wrap): the sound number JetBrains Mono 12 `--m`, the name 14 `--t` (`--m` when off; `min-width: 0`, ellipsis), a 5px `--t` dot when `soundEdited`, a 12px `--warn` ⚠ when `plugin.missing`, a 12px `--ending` ✕ when `plugin.status` is `failed` and not missing; line 2 (16 tall, 12 `--m`, ellipsis): the instrument line | number and name as Stage.md › Sounds row (D22); the instrument line: RK-D7 | opens the quick sound list for the part (#514; D32: Library › Sounds loading into the part, `ui.openLibrary('sounds', i)`) | `launchkey.fader_sound` | swap mode, knob 1 |
-| 3 | On | LampButton `size sm`, `width 48` (48 × 28, 12px): "On" / "Off" from `on`; "Swap" while `surface.layer` is `{ swap, part: i }`; lit from `sounding` | `on`, `sounding`, `surface.layer` | click `togglePart { part: i }` (in swap: `setLayer none`); long press or right-click `setLayer { type: 'swap', part: i }`, latched until the next click (kit › Lamp row, Stage.md D12); Shift-click opens Channel for the part (D32) | `part.right1.on` … `part.left.on` | fader button 1–4 |
+| 1 | Tag | "R1" / "R2" / "R3" / "L", 14 / 500 in the hue; `--d` when off. Not a control (the strip names in the band open Channel, RK-D18); `aria-hidden` (the row's controls name the part) | `sounding` | — | — | — |
+| 2 | Sound | a text button, 184 × 44, a column, left-aligned: line 1 (18 tall, gap 6, no wrap): the sound number 12 `--m` (`--d` when off), the name 14 `--t` (`--m` when off; `min-width: 0`, ellipsis), then the Stage's marks in the Stage's order and sizes (Stage.md › Sounds row: the 5px `--t` dot when `soundEdited`, the 12px `--warn` ⚠ when `plugin.missing`, the 12px `--ending` ✕ when `plugin.status` is `failed` and not missing, "off" 12 `--m` when `on` is false and the part doesn't sound, "bass" 12 `--m` when `playsBass`); line 2 (16 tall, 12 `--m`, ellipsis): the instrument line | number and name exactly as Stage.md › Sounds row (D22), Left under Manual Bass included (the Style's Bass voice, `voiceName`); the instrument line: RK-D7 | `onOpen({ kind: 'quickList', part })`: the quick sound list (#514; D32: Library › Sounds loading into the part, `ui.openLibrary('sounds', i)`) | `launchkey.fader_sound` | swap mode, knob 1 |
+| 3 | On | LampButton `size sm`, `width 48` (48 × 28, 12px): "On" / "Off" from `on`; "Swap" while `surface.layer` is `{ type: 'swap', part: i }`; lit from `sounding` | `on`, `sounding`, `surface.layer` | click `togglePart { part: i }` (in swap: `setLayer { layer: { type: 'none' } }`); long press or right-click `setLayer { layer: { type: 'swap', part: i } }`, latched until the next click (kit › Lamp row, Stage.md D12); Shift-click `onOpen({ kind: 'channel', part })` (D32) | `part.right1.on` … `part.left.on` | fader button 1–4 |
 | 4 | Level | readout in the hue | `volume` | `setPartVolume { part, volume }`; reset 100 | `mixer.panel.right1` … `mixer.panel.left` | Panel fader 1–4 (Vol layer), swap knob 2 |
 | 5 | Pan | readout | `pan` as "C" (64), "L{64 − pan}", "R{pan − 64}" (`panLabel`) | `setPartPan { part, pan }`; reset 64 | `mixer.part.pan` | Pan layer, swap knob 3 |
 | 6 | Reverb | readout | `strip.sends[0]` | `setPartSend { part, send: 'reverb', value }`; reset 0 | `mixer.part.reverb` | Reverb layer, swap knob 4 |
 | 7 | Chorus | readout | `strip.sends[1]` | `setPartSend { send: 'chorus' }`; reset 0 | `mixer.part.chorus` | Chorus layer, swap knob 5 |
 | 8 | Delay | readout | `strip.sends[2]` | `setPartSend { send: 'variation' }`; reset 0 | `mixer.part.variation` | Delay layer, swap knob 6 |
-| 9 | Sends 4–6 | a text button, 32 tall, 15 / 300 in the hue (`--d` off), left-aligned, no wrap | the part's level to each added send (`strip.sends[s.send]` for each `effects.sends` entry with `send` ≥ 3, in order), joined by " · ", then " · —" once when fewer than three are added; no added send: "—" ("0 · —" with one added send at 0; "0 · 12 · 0" with three) | opens Channel for the part (#501; D32: `ChannelView` for part i), where sends 4–6 are set (RK-D8) | `mixer.strip.send` | swap knob 8 (send 4) |
+| 9 | Sends 4–6 | a text button, 32 tall, 15 / 300 in the hue (`--d` off), left-aligned, no wrap, `min-width: 0; overflow: hidden; text-overflow: ellipsis` | the part's level to each added send (`strip.sends[s.send]` for each `effects.sends` entry with `send` ≥ 3, in order), joined by " · ", then " · —" once when fewer than three are added; no added send: "—" ("0 · —" with one added send at 0; "0 · 12 · 0" with three) | `onOpen({ kind: 'channel', part })`: Channel for the part (#501; D32), where sends 4–6 are set (RK-D8). `aria-label` "{part name} sends 4 to 6: {text}. Opens Channel" | `mixer.strip.send` | swap knob 8 (send 4) |
 | 10 | Octave | readout, −2..2 signed ("0", "−1", "+1") | `octave` | `setPartOctave { part, octave }`; reset 0; drag and wheel step 1 per notch or 4px as below | `part.octave` (new) | Chord pad page: none; swap: none |
-| 11 | Insert | a text button, 32 tall, items on the baseline, gap 6, no wrap: the kind name 14 (`--t`; `--m` when the kind is `none` or the part is off) then its first setting's value 15 / 300 in the hue (`--d` off), nothing for `none` | `strip.inserts[0].name` ("None", "Tremolo"), `strip.inserts[0].settings[0].value` as a number | opens Channel for the part (#501; D32), where the insert's kind and settings are set (RK-D8) | `mixer.strip.insert_kind` | swap knob 7 (the amount) |
+| 11 | Insert | a text button, 32 tall, items on the baseline, gap 6, no wrap, `min-width: 0; overflow: hidden; text-overflow: ellipsis`: the kind name 14 (`--t`; `--m` when the kind is `none`, the slot is off (`strip.inserts[0].on` false) or the part is off) then its first setting's value 15 / 300 in the hue (`--d` when the slot or the part is off), nothing for `none` | `strip.inserts[0].name` ("None", "Tremolo"), `strip.inserts[0].settings[0].value` as a number | `onOpen({ kind: 'channel', part })`: Channel for the part (#501; D32), where the insert's kind and settings are set (RK-D8). `aria-label` "{part name} insert 1: {kind name}{, amount n}{, off}. Opens Channel" | `mixer.strip.insert_kind` | swap knob 7 (the amount) |
 | 12 | Plugin | a row of 28-tall buttons, gap 8, no wrap (`min-width: 0`): RK-D9 below | `plugin`, `soundEdited`, `plugins.list` | below | below | — |
 
 **Readouts** (cells 4–8 and 10; the `Readout` component): a `<button role="slider">`, 32 tall,
 no face (transparent, no border), left-aligned, 18 / 300 in the hue, `--d` when the part is off
-(the value still shows and still works). `aria-valuemin`, `aria-valuemax` (0–127; octave −2..2),
-`aria-valuenow`, `aria-valuetext` "{part name} {column} {value}" ("Right 2 pan L12", "Left
-octave −1"). Pointer: press and drag vertically with pointer capture, one step per whole 4px
+(the value still shows and still works). `aria-label` "{part name} {column}" ("Right 2 pan"),
+`aria-valuemin`, `aria-valuemax` (0–127; octave −2..2), `aria-valuenow`, `aria-valuetext` the
+value as shown ("L12", "−1"). Pointer: press and drag vertically with pointer capture, one step per whole 4px
 travelled (Shift: per 12px), up positive, the value moving from where it was at pointerdown
 (never a jump); wheel ±1 per notch; arrows ±1, PageUp/PageDown ±10 (octave: ±1 both);
 double-click resets to the value given in the table. Each change sends the cell's command with
@@ -213,8 +249,8 @@ move the same values and the readouts follow the state (nothing extra to do).
 | When | Buttons, left to right |
 |---|---|
 | `plugin` absent (a SoundFont voice) | nothing |
-| `plugin.missing` | **Replace…** (off face, padding 0 12, label `--t`; opens Library › Sounds for the part, `ui.openLibrary('sounds', i)`, where the pick sends `replacePartSound`; tooltip `rack.replace`; `aria-label` "Replace the missing plugin on {part name} with another sound; the mix is kept"), then "silent until replaced" 12 `--m` |
-| otherwise | **Edit** (padding 0 10, `--t2`; opens the plugin's editor window, `openPluginEditor(part)` in `app/src/lib/api/tauri.ts`; disabled unless `plugin.editor` and `plugin.status` is `playing`; tooltip `part.plugin_edit`; "Open the {plugin.name} editor for {part name}"), then **Save sound** when `soundEdited` (padding 0 10, `--t2`; sends `saveSound { part }`; tooltip `sounds.save_over`; "Save the edited sound on {part name}") else **Reload** (padding 0 10, `--t2`; sends `reloadPartPlugin { part }`; disabled unless `plugin.status` is `failed` or `muted`; tooltip `part.plugin_reload`; "Reload the plugin on {part name}"), then **In process**, a LampButton `size sm` (padding 0 10, 12px): on = the `plugins.list` entry with `plugin.id`'s `inProcess`; sends `setPluginInProcess { id, inProcess: !on }`; disabled when that entry is absent or its `canRunInProcess` is false; while `inProcessPending` (`app/src/panels/parts/parts.ts`: the setting differs from where the plugin runs now) the lamp wears the waiting face in `--lamp` (RK-D9); tooltip `part.plugin_in_process`; "{part name} plugin runs in process: {on | off}{, applies at its next load}" |
+| `plugin.missing` | **Replace…** (off face, padding 0 12, label `--t`; `onOpen({ kind: 'replace', part })`: Library › Sounds for the part, `ui.openLibrary('sounds', i)`, where the pick sends `replacePartSound`; tooltip `rack.replace`; `aria-label` "Replace the missing plugin on {part name} with another sound; the mix is kept"), then "silent until replaced" 12 `--m`. The row dims only from `sounding`: a missing plugin on a part that is on is undimmed, with ⚠ and Replace… |
+| otherwise | **Edit** (padding 0 10, `--t2`; `onOpen({ kind: 'editor', part })`, which the wiring runs as `app.pluginEditor(part, true)`; disabled unless `plugin.editor` and `plugin.status` is `playing`; tooltip `part.plugin_edit`; "Open the {plugin.name} editor for {part name}"), then **Save sound** when `soundEdited` (padding 0 10, `--t2`; sends `saveSound { part }`; tooltip `sounds.save_over`; "Save the edited sound on {part name}") else **Reload** (padding 0 10, `--t2`; sends `reloadPartPlugin { part }`; disabled unless `plugin.status` is `failed` or `muted`; tooltip `part.plugin_reload`; "Reload the plugin on {part name}"), then **In process**, a LampButton `size sm` with `pad 10` (padding 0 10, 12px): on = the `plugins.list` entry with `plugin.id`'s `inProcess`; sends `setPluginInProcess { id, inProcess: !on }`; disabled when that entry is absent or its `canRunInProcess` is false; while `inProcessPending(plugin, entry)` (moved to `app/src/ui/Rack/plugin.ts` from `app/src/panels/parts/parts.ts`: the setting differs from where the plugin runs now) the lamp wears the waiting face in `--lamp` (its `waiting` prop, RK-D9); tooltip `part.plugin_in_process`; "{part name} plugin runs in process: {on | off}{, applies at its next load}" |
 
 ### Groups row
 
@@ -248,8 +284,9 @@ tags then " volumes" ("R1 R2 R3 L volumes"); and on the faders line, when every 
 Right 3 · Left". The default map therefore reads "Right 1 · Right 2 · Right 3 · Left" and
 "R1 R2 R3 L volumes · Harmony · Metronome · — · Tempo".
 
-Edit map opens the map editor (Rack-MapEdit, #517); until it lands, D32: the Rack drawer
-(`ui.toggleDrawer('rack')`, opened), which edits the map today (RK-D11). Tooltip `rack.map`.
+Edit map calls `onOpen('mapEditor')`: the map editor (Rack-MapEdit, #517); until it lands,
+D32: the Rack drawer (`ui.toggleDrawer('rack')`, opened), which edits the map today (RK-D11).
+Tooltip `rack.map`.
 `aria-label` "Edit the controller map". Launchkey: none (the map is edited on screen only).
 
 #### Send effects
@@ -273,8 +310,8 @@ qualifier 12 `--m`:
   **qualifier** is "from style" when `setByRack` is false, else the send's kind `name`
   ("Celeste": the type the rack keeps). **Keep type** is a LampButton 26 tall, padding 0 10,
   12px (`margin-left: auto`): on = `setByRack`; sends `setRackSendOverride { send, on: !setByRack
-  }`; tooltip `fx.send_rack_override`; `aria-label` "Send {n} keeps its type{ ({kind name})} in
-  this rack: {on | off}". Launchkey: none.
+  }`; tooltip `fx.send_rack_override`; `aria-label` "Send {n} keeps its type ({kind name}) in
+  this rack: {on | off}" (the kind name always). Launchkey: none.
 - Row 4 lists the added sends (`effects.sends` entries with `send` ≥ 3), each "{send + 1}"
   (the index style) then its `name` 13 `--t`, 12px apart; then "added" 12 `--m` once; then
   **Remove**, a text button 26 tall, 12 `--ending` (`margin-left: auto`), which removes the
@@ -312,13 +349,14 @@ qualifier 12 `--m`:
   chosen face (`--t` fill, `--g` text, `aria-selected="true"`), the other `--m` on nothing.
   Click sends `setOtsLinkTiming { timing }`. Tooltip `ots.link_timing` on each tab. Launchkey:
   none (Settings › Style, #529, has it too).
-- **OTS → rack line**: "OTS {list}" 13 `--t` `width: 56px` then the sentence 13 `--t2`
-  (`min-width: 0`, ellipsis), from the `ots.racks` entries whose `rack` is not null, in order:
-  one → "OTS 4" and "loads Organ"; several → "OTS 2, 4" and "load Jazz, Organ" (names in
-  order, ", "); none → "OTS 1–4" and "the style's own"; a `missing` entry's name is followed
-  by " (missing)". Not a control. **Change**: a text button 26 tall, 12 `--m`, opens the
-  OTS → rack chooser (Library › Racks, #516, RK-D13; D32 until then: the Rack drawer,
-  `ui.toggleDrawer('rack')`, whose OTS cards hold the selects today). Tooltip `ots.rack`.
+- **OTS → rack line**: "OTS {list}" 13 `--t` (`min-width: 56px; flex: none`, so it grows for
+  "OTS 1, 2, 3, 4"), gap 8, then the sentence 13 `--t2` (`min-width: 0`, ellipsis), from the
+  `ots.racks` entries whose `rack` is not null, in order: one → "OTS 4" and "loads Organ";
+  several → "OTS 2, 4" and "load Jazz, Organ" (names in order, ", "); none → "OTS 1–4" and
+  "the style's own"; a `missing` entry's name is followed by " (missing)". Not a control.
+  **Change**: a text button 26 tall, 12 `--m`, `onOpen('otsChooser')`: the OTS → rack chooser
+  (Library › Racks, #516, RK-D13; D32 until then: the Rack drawer, `ui.toggleDrawer('rack')`,
+  whose OTS cards hold the selects today). Tooltip `ots.rack`.
   `aria-label` "Choose which of your racks each OTS loads, or the style's own".
 
 ## Band, keys and status on the Rack
@@ -336,11 +374,11 @@ Section row is the kit's, verbatim.
 | New rack (`liveRack.id` null) | name "Untitled rack", badge "Unsaved" (`--m`), Revert hidden, Save enabled (it saves as new), slot "—" |
 | Recovered rack | the name reads "Recovered: {name}"; otherwise as a saved rack |
 | Saving as | the name field in place of the hint (Head row); a refused name shows `message.text` beside it |
-| A rack prompt (`liveRack.prompt`) | Prompts (#504); until then RK-C3 |
+| A rack prompt (`liveRack.prompt`) | Prompts (#504); until then the Rack drawer opens over the page with the prompt (RK-C3) |
 | Part off | tag, values and name dimmed as the table says; the On lamp off |
 | Swap held for a part | its On reads "Swap"; the knob page block in the band reads "Swap R1" on the hue (kit › Knobs); the readouts follow the knobs |
 | Sound held or latched | the band's Sound lamp on; the half-band pads are the Racks page in the fallback face (Stage.md D33) |
-| Missing plugin | ⚠ on the sound; the plugin cell shows Replace… and "silent until replaced"; the part is off |
+| Missing plugin | ⚠ on the sound; the plugin cell shows Replace… and "silent until replaced"; the row dims only when the part is off (`sounding`), as R3 on the board |
 | Failed plugin (installed) | ✕ on the sound; Reload enabled; the health slot names the part (kit › App bar) |
 | Plugin loading | Edit and Reload disabled; the instrument line ends "· loading…" |
 | Edited sound | the dot on the sound; "Save sound" in place of Reload |
@@ -373,7 +411,8 @@ values.
 
 - **Moment:** `boardNow = 10000`, `receivedMs = 10000`, `surface.clock` as the Stage (bar 3 beat
   3, phase 0.25; the LED clock at 0.25, so the Next pad is at full).
-- `ui.page` "rack"; `ui.rackSaveAs` false; `ui.keyRange` 61.
+- Props beside the state: `keyRange` 61, `saveAs` `{ open: false, error: null }` (the story
+  passes them; `ui.page` is `rack` in the app, not in the fixture).
 - `liveRack`: name "Sunday drive", id "sunday-drive", modified true, controls
   `defaultControlMap()`, prompt null. `quickRacks`: bank 0, button 0 `loaded` true (rack
   "sunday-drive", name "Sunday drive"), the rest empty; store false, storeWaiting null,
@@ -388,41 +427,62 @@ values.
 - `ots`: four settings ("OTS 1"–"OTS 4"), applied 2, link false, linkTiming "mainChange",
   racks `[{ rack: null, name: "", missing: false } × 3, { rack: "organ", name: "Organ", missing:
   false }]`, racksReadOnly false.
-- `plugins`: available true, scanning false; `list` holds Sampler Deluxe (`id` "aumu Smp7
-  Fake", manufacturer "Fake Instruments", format "AUv2", inProcess true, canRunInProcess true,
-  new false); `missing` holds Brass Deluxe (`id` "aumu Brs1 Fake", racks 1, sounds 1);
-  `needsAttention` `[{ id: "sunday-drive", name: "Sunday drive", parts: [2] }]`.
-- `keyboardParts` (shared fields: `strip.sends[3..5]` [0, 0, 0], `strip.inserts[1]` none,
-  `strip.comp` off, `eq` flat; `plugin` fields not named: stage null, error null, cpu 0.02,
-  overruns 0, recentOverruns 0, inProcessFallback false, outOfProcess false):
+- `plugins`: available true, scanning false, instances 3; `list` `[{ id: "aumu Smp7 Fake",
+  name: "Sampler Deluxe", manufacturer: "Fake Instruments", version: "0.9.0", format: "AUv2",
+  lastError: null, inProcess: true, canRunInProcess: true, new: false, racks: 1, sounds: 2 }]`;
+  `missing` `[{ id: "aumu Brs1 Fake", name: "Brass Deluxe", manufacturer: "Fake Instruments",
+  racks: 1, sounds: 1 }]`; `needsAttention` `[{ id: "sunday-drive", name: "Sunday drive",
+  parts: [2] }]`.
+- `soundLibrary.patches` lists three (the state carries each `number`, so the list needn't be
+  dense): `{ id: "stage-grand", name: "Stage Grand", category: "piano", number: 1, source: {
+  kind: "plugin", componentId: "aumu Smp7 Fake", hasState: true, origin: { kind: "factory",
+  number: 4 } } }`, `{ id: "silk-strings", name: "Silk Strings", category: "strings", number:
+  41, source: { kind: "plugin", componentId: "aumu Smp7 Fake", hasState: true, origin: { kind:
+  "factory", number: 9 } } }`, `{ id: "brass-section", name: "Brass Section", category:
+  "brass", number: 57, source: { kind: "plugin", componentId: "aumu Brs1 Fake", hasState: true,
+  origin: { kind: "factory", number: 2 } } }`; `tags` [], `favourite` false, `available` true,
+  `note` null on each.
+- `keyboardParts` (shared fields: `strip.sends[3..5]` [0, 0, 0], `strip.inserts[1]` `{ kind:
+  "none", name: "None", on: false, settings: [] }`, `strip.comp` off, `eq` flat, `patch` null,
+  `playsBass` false; `plugin` fields not named: stage null, error null, cpu 0.02, overruns 0,
+  recentOverruns 0, inProcessFallback false, outOfProcess false, preset null, presetKey null):
   - R1 "Right 1": on true, sounding true, volume 90, pan 64, `strip.sends` [40, 0, 0, …],
-    octave 0, insert none (`strip.inserts[0]` kind none, name "None"), `sound` `{ id:
-    "saved:stage-grand", name: "Stage Grand" }`, number 1 in `soundLibrary.patches`,
-    `voiceName` "Stage Grand", `plugin` Sampler Deluxe status "playing", preset "Concert D",
-    presetKey "f:4", editor true, missing false; soundEdited false.
+    octave 0, `strip.inserts[0]` `{ kind: "none", name: "None", on: false, settings: [] }`,
+    `sound` `{ id: "saved:stage-grand", name: "Stage Grand" }`, `voiceName` "Stage Grand",
+    `plugin` `{ id: "aumu Smp7 Fake", name: "Sampler Deluxe", manufacturer: "Fake
+    Instruments", status: "playing", preset: "Concert D", presetKey: "f:4", editor: true,
+    missing: false }`; soundEdited false.
   - R2 "Right 2": on, sounding, 72, pan 52 (L12), sends [56, 12, 0, …], octave 0,
-    `strip.inserts[0]` kind tremolo, name "Tremolo", on true, settings[0] value 30 (display
-    "30"); sound "Silk Strings" (number 41), plugin Sampler Deluxe playing, preset "Strings",
-    editor true; soundEdited true.
+    `strip.inserts[0]` `{ kind: "tremolo", name: "Tremolo", on: true, settings: [{ name:
+    "Depth", value: 30, min: 0, max: 127, default: 64, display: "30" }, { name: "Note", value:
+    2, min: 0, max: 7, default: 2, display: "1/8" }, { name: "Shape", value: 0, min: 0, max:
+    127, default: 0, display: "0" }] }`; `sound` `{ id: "saved:silk-strings", name: "Silk
+    Strings" }`, `voiceName` "Silk Strings", plugin Sampler Deluxe playing, preset "Strings",
+    presetKey "f:9", editor true; soundEdited true.
   - R3 "Right 3": on false, sounding false, 64, pan 72 (R8), sends [32, 0, 0, …], octave 0,
-    insert none; sound "Brass Section" (number 57); plugin `{ id: "aumu Brs1 Fake", name:
-    "Brass Deluxe", manufacturer: "Fake Instruments", status: "failed", missing: true, editor:
-    false }`; soundEdited false.
-  - L "Left": on, sounding, 80, pan 64, sends [48, 0, 0, …], octave −1, insert none; sound
-    "Silk Strings" (41), plugin Sampler Deluxe playing, preset "Strings", editor true;
-    soundEdited false; playsBass false.
+    insert none; `sound` `{ id: "saved:brass-section", name: "Brass Section" }`, `voiceName`
+    "Brass Section"; plugin `{ id: "aumu Brs1 Fake", name: "Brass Deluxe", manufacturer:
+    "Fake Instruments", status: "failed", error: "not installed", missing: true, editor: false
+    }`; soundEdited false.
+  - L "Left": on, sounding, 80, pan 64, sends [48, 0, 0, …], octave −1, insert none; `sound`
+    `{ id: "saved:silk-strings", name: "Silk Strings" }`, `voiceName` "Silk Strings", plugin
+    Sampler Deluxe playing, preset "Strings", presetKey "f:9", editor true; soundEdited false.
 - `effects.sends`: `[{ send: 0, kind: "hall", name: "Hall", returnLevel: 64, fromStyle: true,
-  setByRack: false }, { send: 1, kind: "celeste", name: "Celeste", fromStyle: true, setByRack:
-  true }, { send: 2, kind: "dottedEighth", name: "Delay 1/8.", fromStyle: true, setByRack:
-  false }, { send: 3, kind: "phaser", name: "Phaser", fromStyle: false, setByRack: true }]`,
-  each with its kind's default `params`.
+  setByRack: false }, { send: 1, kind: "celeste", name: "Celeste", returnLevel: 64, fromStyle:
+  true, setByRack: true }, { send: 2, kind: "dottedEighth", name: "Delay 1/8.", returnLevel:
+  64, fromStyle: true, setByRack: false }, { send: 3, kind: "phaser", name: "Phaser",
+  returnLevel: 64, fromStyle: false, setByRack: true }]`, each with its kind's default
+  `params` (app-api.md › Send kinds).
+- `transport.main` stays the Stage's 2: the queued Main C (app-api.md › transport: "playing
+  or queued to follow"); Check 2's stopped case sets it to 1.
 - The half band draws the Stage's `surface.faders`, `meters`, `boardMeterHolds`, `knobs`
   (Style page) and `pads` (Sections, pad 10 playing, 11 Next, 16 running). In half-band
   pixels (travel 44; the formulas in Kit additions › Half band): meter heights peak / RMS px
-  R1 27 / 25, R2 20 / 18, R3 0 / 0, L 22 / 20, Style 31 / 29, Multi Pad 0 / 0, Master 32 /
-  29; held-peak tick bottoms (px from the fader's bottom) 34, 27, 3, 29, 37, 8, 3, 3, 38;
-  caps at `top` 31 (90), 37 (72), 40 (64), 34 (80), 27 (100), 31 (90), none, none, 27
-  (100); fader 2's ghost line at `top` 46 (position 50). Tempo knob arc 73° (0.27 × 270).
+  R1 27 / 25, R2 20 / 18, L 22 / 20, Style 31 / 29, Multi Pad 0 / 0, Master 32 / 29, and no
+  meter on R3 (off) or strips 7–8; held-peak tick bottoms (px from the fader's bottom) 34, 27,
+  none, 29, 37, 8, none, none, 38; caps at `top` 31 (90), 37 (72), 40 (64, at 35%), 34 (80),
+  27 (100), 31 (90), none, none, 27 (100); fader 2's ghost line at `top` 46 (position 50).
+  Tempo knob arc 72° ((104 − 40) / 240 × 270, as the Stage).
 - `message` null (the status line is empty, as the board), `tips.help` false.
 
 The board's count row reads "fill after bar 4" (Stage.md D5); its send-effects group differs
@@ -443,8 +503,9 @@ unless a variant is named. **New** marks components this spec adds.
 |---|---|---|---|---|---|---|
 | 0 | tokens | — | — | yes; add the kit's new tokens | `:root` 49, 54 / 31, 36 | kit › Tokens |
 | 1 | `longpress` | primitive | — | no (Stage #1) | — | kit › Interaction conventions |
-| 2 | LampButton | primitive | longpress | yes (Stage #2); add `size: 'sm'` (28 tall, padding 0 14, 13px), `width` | 94, 112, 156–170, 207, 222, 260–265, 286 / 76, 94, 138–152, 189, 204, 242–247, 268 | kit › Faces |
-| 3 | Button | primitive | longpress | no (Stage #3); add `sm` (28 tall, padding 0 10/12/14, 12–13px), `square` 28 × 28 | 146–147, 185–187, 220–223, 248, 374–375, 383–384, 388–389 / −18 | kit › Faces |
+| 2 | LampButton | primitive | longpress | yes (`size` md/sm/cell and `width` exist); needs Stage #2's additions (`join`, `onlongpress`, `onlongrelease`, `data-face`) plus `pad: 10` (padding 0 10 on `sm`, 12px label: In process), `size: 'xs'` (26 tall, padding 0 10, 12px: Keep type) and `waiting: boolean` (the waiting face in `--lamp`) | 94, 112, 156–170, 207, 222, 260–265, 286 / 76, 94, 138–152, 189, 204, 242–247, 268 | kit › Faces |
+| 3 | Button | primitive | longpress | no (Stage #3); add `sm` (28 tall, padding 0 10/12/14/18, 12–13px, label `--t2` or `--t`), `square-sm` 28 × 28 (11–14px), `track` 40 × 32 (12px), `ots-sm` 32 × 28 (14px), `half` 40 × 24 (11–14px, the half transport) and `wide` 88 × 24 | 146–147, 185–187, 220–223, 248, 374–375, 383–384, 388–389, 431–441 / −18 | kit › Faces |
+| 3a | **TextButton** (new) | primitive | — | no | 157, 185, 255, 272, 296, 454 / 139, 167, 237, 254, 278, 436 | a faceless button: heights 20 / 24 / 26 / 28, 12–13px, colour `--t`, `--t2`, `--m` or `--ending`, no padding unless given (Revert 0 6); the kit's text-button rules (kit › Faces). Used by Revert, + Add send, Remove, Change, the Harm/Arp type, Sends 4–6, Insert, the Sound cell, "61 keys", the style name is an AccentBlock button |
 | 4 | ChosenTabs | primitive | — | no (Stage #4); add `size: 'mini'` (24 tall, padding 0 10, 12px, the chosen as a full block) | 288–292, 309–321 / 270–274, 291–303 | One Touch › Timing; Half band › Faders header |
 | 5 | AccentBlock | primitive | — | no (Stage #6); add `size: 'compact'` (16 tall, padding 0 6, 13 / 500) | 127, 382 / 109, 364 | Compact block; kit › Knobs |
 | 6 | StatusDot | primitive | — | no (Stage #7) | 86, 129 / 68, 111 | Compact block |
@@ -452,7 +513,7 @@ unless a variant is named. **New** marks components this spec adds.
 | 8 | GroupHeader | primitive | — | no (Stage #9); add heights 28 and 32 | 139–142, 179–188, 234–237, 253–256, 277–280 / 121–124, 161–170, 216–219, 235–238, 259–262 | Keyboard group, Head row, Groups row |
 | 9 | **Readout** (new) | primitive | — | no | 208–214 / 190–196 | Parts table › Readouts |
 | 10 | **SettingRow** (new): label, value, − + | primitive | Button | no | 143–154 / 125–136 | Keyboard group |
-| 11 | **LampRow** (new, settings): LampButton + a note or text button | primitive | LampButton | no | 155–171 / 137–153 | Keyboard group |
+| 11 | **LampRow** (new, settings): LampButton + a note or TextButton | primitive | LampButton, TextButton | no | 155–171 / 137–153 | Keyboard group |
 | 12 | FaderStrip | primitive | — | no (Stage #11); add `size: 'half'` | 325–349; data 518–567 / 307–331; 499–548 | Kit additions › Half band |
 | 13 | Knob | primitive | — | no (Stage #12); add `size: 'half'` | 393–403; data 571–587 / 375–385; 552–568 | Kit additions › Half band |
 | 14 | Pad | primitive | — | no (Stage #13); add `size: 'half'` | 404–424 / 386–406 | Kit additions › Half band |
@@ -461,7 +522,7 @@ unless a variant is named. **New** marks components this spec adds.
 | 17 | HealthSlot | primitive | — | no (Stage #16) | 88 / 70 | kit › App bar |
 | 18 | ChordReadout | primitive | — | no (Stage #17); add `size: 'compact'` (48px, one line, tones inline) | 131–135 / 113–117 | Compact block |
 | 19 | **RackReadoutTab** (new): the app bar's rack readout as the current block | primitive | StatusDot | no | 63 / 45 | Kit additions › App bar |
-| 20 | **KeyReadouts** (new): Split, Detect, Left, Right, keys | primitive | Button | no | 450–454 / 432–436 | Kit additions › Keys row |
+| 20 | **KeyReadouts** (new): Split, Detect, Left, Right, keys | primitive | TextButton | no | 450–454 / 432–436 | Kit additions › Keys row |
 | 21 | **MapLine** (new, `mapLine` and its text) | primitive | — | no | 238–245 / 220–227 | Controller map |
 | 22 | OneTouch | complex | Button | no (Stage #28); add `size: 'sm'` (32 × 28 buttons) | 64–70, 281–287 / 46–52, 263–269 | Kit additions › App bar; One Touch |
 | 23 | PageTabs | complex | ChosenTabs | no (Stage #22); add `current: null` | 71–82 / 53–64 | kit › App bar |
@@ -470,14 +531,14 @@ unless a variant is named. **New** marks components this spec adds.
 | 26 | CountRow, MetronomeSplit, SectionRow | complex | as the Stage | no (Stage #25–27) | 93–117 / 75–99 | kit › Section row |
 | 27 | **CompactBlock** (new) | complex | AccentBlock, StatusDot, ChordReadout | no | 125–136 / 107–118 | Compact block |
 | 28 | **KeyboardGroup** (new) | complex | GroupHeader, SettingRow, LampRow | no | 138–172 / 120–154 | Keyboard group |
-| 29 | **RackHead** (new) | complex | Button, StatusDot | no | 179–188 / 161–170 | Head row |
-| 30 | **SoundCell** (Stage #21's sound button with the instrument line) | complex | PartMarks | no | 198–206 / 180–188 | Parts table › Sound |
+| 29 | **RackHead** (new) | complex | Button, TextButton, StatusDot | no | 179–188 / 161–170 | Head row |
+| 30 | **SoundCell** (Stage #21's sound button with the instrument line) | complex | TextButton, PartMarks | no | 198–206 / 180–188 | Parts table › Sound |
 | 31 | **PluginActions** (new) | complex | Button, LampButton | no | 219–225 / 201–207 | Parts table › Plugin |
-| 32 | **PartRow** (new) | complex | SoundCell, LampButton, Readout, Button, PluginActions | no | 196–226 / 178–208 | Parts table |
+| 32 | **PartRow** (new) | complex | SoundCell, LampButton, Readout, TextButton, PluginActions | no | 196–226 / 178–208 | Parts table |
 | 33 | **PartsTable** (new) | complex | PartRow | no | 191–228 / 173–210 | Parts table |
 | 34 | **MapGroup** (new) | complex | GroupHeader, MapLine, Button | no | 233–250 / 215–232 | Controller map |
-| 35 | **SendsGroup** (new) | complex | GroupHeader, LampButton, Button | no | 252–274 / 234–256 | Send effects |
-| 36 | **OneTouchGroup** (new) | complex | GroupHeader, OneTouch, LampButton, ChosenTabs, Button | no | 276–298 / 258–280 | One Touch |
+| 35 | **SendsGroup** (new) | complex | GroupHeader, LampButton, TextButton | no | 252–274 / 234–256 | Send effects |
+| 36 | **OneTouchGroup** (new) | complex | GroupHeader, OneTouch, LampButton, ChosenTabs, TextButton | no | 276–298 / 258–280 | One Touch |
 | 37 | **RackPage** (new): the two columns | complex | CompactBlock, KeyboardGroup, RackHead, PartsTable, MapGroup, SendsGroup, OneTouchGroup | no | 120–301 / 102–283 | Left and Right column |
 | 38 | LampRow (band) | complex | LampButton, Button | no (Stage #34) | 350–366 / 332–348 | kit › Lamp row |
 | 39 | FaderBank | complex | GroupHeader, ChosenTabs, FaderStrip, LampRow | no (Stage #35); add `size: 'half'` | 306–368 / 288–350 | Kit additions › Half band |
@@ -498,9 +559,9 @@ maps each callback to its command, its editor call or its interim target (D32).
 | Area | In `app/src` now | Change |
 |---|---|---|
 | The rack | `panels/rack/RackPanel.svelte` (the right-hand drawer, `ui.rack`, Alt+O, and Library's dock), `RackSlot.svelte` (one part: sliders, EQ, compressor, inserts, sends), `rack.ts`, `strip.ts` | Replaced by the Rack page (`ui.page = 'rack'`, Stage.md D2): readouts instead of sliders, the strip details on Channel (#501). The drawer stays mounted until #517, #516 and #504 land (its map editor, OTS selects and prompts are the interim targets, D32), then goes. `rack.ts`'s `rackName`, `panLabel`, `signed`, `targetLabel` move to `app/src/ui/Rack/` |
-| Rack navigation | `lib/nav.ts` entry `nav.rack` (Alt+O toggles the drawer); the Stage's rack name | Alt+O and the rack readout open the page; `nav.rack`'s body says so (RK-C1) |
+| Rack navigation | `lib/nav.ts` entry `nav.rack` (Alt+O toggles the drawer); the Stage's rack name | Alt+O and the rack readout open the page (`ui.page`, a new `UiStore` field per Stage.md D2, added by whichever lane goes first); `nav.rack`'s body says so (RK-C1) |
 | Sound names on faders | `panels/launchkey` strips show the sound names | The half band's strips (kit › FaderStrip) |
-| Plugin actions | `RackSlot` (Edit, Reload, In process, Replace…), `panels/parts/parts.ts` (`inProcessPending`, `pluginStatusLine`) | `PluginActions`; `inProcessPending` moves to `app/src/ui/Rack/plugin.ts` |
+| Plugin actions | `RackSlot` (Edit, Reload, In process, Replace…), `panels/parts/parts.ts` (`inProcessPending`, `pluginStatusLine`) | `PluginActions`; `inProcessPending` moves to `app/src/ui/Rack/plugin.ts` with its tests; the instrument line is a new `instrumentLine` in `app/src/ui/Rack/sound.ts` (RK-D7), beside today's `instrumentName` in `panels/sounds/model.ts`, which stays for the Library footer |
 | Send effects | `RackPanel`'s Send effects section (type selects, return sliders, Override, Remove, Add send with a kind select) | `SendsGroup`: Keep type, Remove the last, Add send (Hall); types and returns on Effects (#519) |
 | One Touch | `RackPanel`'s OTS cards (rack selects, Link, timing) and `panels/parts/parts.ts` (`otsLine`) | `OneTouchGroup`; the selects move to Library › Racks (#516) |
 | Compact block, half band, keys row | none (`panels/channel/ChannelView.svelte` has no band of its own) | New (Kit additions); shared with Channel (#501) |
@@ -513,19 +574,21 @@ says what the screen does until it lands. The Stage's C1 (`quickRacks.loaded`) a
 tooltip keys) apply here too and are not repeated.
 
 1. **RK-C1 · Tooltips** (`app/src/help/tooltips.ts`, `app/docs/controls.md`), **lands before the
-   build**: new keys `part.octave` (the octave readout: −2..2, wheel and arrows, OTS recalls
-   set it too), `rack.harmony_type` (the Harmony/Arp type in the rack; opens Harm/Arp); rewrite
-   `nav.rack` ("shows the Rack page", Alt+O) and `stage.rack_name` (the readout opens the Rack
-   page; on it, it is the current page); `rack.map` gains "Edit map opens the editor";
-   `fx.send_remove` says the page's Remove takes the last added send and Effects removes any.
+   build**: one new key, `part.octave` (the octave readout: −2..2, wheel and arrows, OTS
+   recalls set it too); rewrite `rack.harmony_type` (it opens the Harm/Arp page, not the
+   drawer), `nav.rack` ("shows the Rack page", Alt+O) and `stage.rack_name` (the readout opens
+   the Rack page; on it, it is the current page); `rack.map` gains "Edit map opens the
+   editor"; `fx.send_remove` says the page's Remove takes the last added send and Effects
+   removes any; `keystrip.range` says a click cycles 49, 61, 88.
 2. **RK-C2 · Remove any send from the page** (none needed now): if the owner wants Remove per
    added send here, the row needs a button per send (an "✕" 12px `--ending` after each name);
    the command exists (`removeSend { send }`). Until decided, RK-D12.
 3. **RK-C3 · Prompts on the page** (Prompts, #504, owns `liveRack.prompt`): until it lands, the
-   Rack page mounts today's prompt block from `panels/rack/RackPanel.svelte` (the
-   `unsavedChanges` buttons Save first / Discard and switch / Keep editing, and the
-   `soundNames` name fields with Save) directly under the head row, 8px below it, pushing the
-   parts table down, drawn as it is today. When #504 lands the block goes.
+   wiring opens today's Rack drawer (`ui.toggleDrawer('rack')`, opened, not toggled) whenever
+   `liveRack.prompt` goes from null to a prompt, and the drawer's own prompt block (Save first
+   / Discard and switch / Keep editing; the sound-name fields) answers it, as today. The page
+   draws nothing for the prompt (D32: today's equivalent exists; RK-D22). When #504 lands the
+   wiring stops opening the drawer.
 
 ## Checks
 
@@ -534,10 +597,12 @@ unless it says otherwise. They read roles, names, attributes and the commands se
 `send`) and the `data-face` / `data-hue` hooks (kit, Stage.md D41); never computed colours or
 layout.
 
-1. Layout: the page has the regions in order (app bar, section row, the Rack page `section`,
-   the half band, the keys row); the app bar's rack readout has `aria-current="page"`, reads
-   "Rack A1 Sunday drive" with the modified dot, and no page tab has `aria-current`.
-2. Compact block: the style button reads "Sunday Drive Pop" and a click opens the Browser;
+1. Layout: in DOM order, the `header`, the toolbar "Switches and helpers", the `section`
+   "Rack page: Sunday drive", the `section` "Band", then the `section` whose name starts
+   "Keys:"; the app bar's rack readout has `aria-current="page"`, reads "Rack A1 Sunday drive"
+   with the modified dot, and no page tab has `aria-current`.
+2. Compact block: a group named "Now playing: Sunday Drive Pop, 104 BPM, Running, chord Am7,
+   Main B"; the style button reads "Sunday Drive Pop" and a click calls `onOpen('browser')`;
    "104 BPM"; the run dot's `aria-label` is "Running"; the chord's runs are "Am" and "7"; the
    tones read "A C E G"; the section reads "Main B" with `data-hue="main"`. Stopped
    (`transport.running` false, `main` 1): the dot is hidden, the section "Main B" has
@@ -545,50 +610,59 @@ layout.
 3. Keyboard group: Split reads "F#2", − sends `moveSplit {delta: -1}`, + `{delta: 1}`;
    Transpose "0", + sends `stepTranspose {keyboard: 1, master: 0}`; at `transposeKeyboard` 12
    the + is `aria-disabled`; Harmony/Arp has `aria-pressed="false"` and a click sends
-   `toggleHarmonyArp`; "Standard Duet 1" is a button whose click calls the Harm/Arp opener;
+   `toggleHarmonyArp`; "Standard Duet 1" is a button whose click calls `onOpen('harmArp')`;
    Manual Bass is `aria-disabled` with `data-face="disabled"` and sends nothing, and reads
    "Upper only"; with `chord.upper` true it sends `toggleManualBass` and the note is empty;
    Left Hold sends `toggleLeftHold`; the slot reads "A1"; Store sends `toggleQuickRackStore`
    and is `aria-disabled` when `quickRacks.readOnly`.
 4. Head row: "Sunday drive", "Mine", "Modified"; Revert sends `revertRack`; Save
-   (`data-face="chosen"`) sends `saveRack`; Save as… opens a textbox named "New rack name"
-   prefilled "Sunday drive", Enter sends `saveRackAs {name: "Sunday drive 2"}` after typing;
-   Esc closes it. Unmodified with an id: no Revert, no "Modified", Save `aria-disabled`. Id
-   null, name "New rack": "Untitled rack", "Unsaved", Save enabled.
+   (`data-face="chosen"`) sends `saveRack`; Save as… calls `onSaveAs('open')`; with `saveAs`
+   `{open: true, error: null}` a textbox named "New rack name" is focused and reads "Sunday
+   drive", typing calls `onSaveAs('typed')`, Enter calls `onSaveAs({name: "Sunday drive 2"})`,
+   Esc calls `onSaveAs('close')` and the window's Esc handler doesn't run; with `error` "A
+   rack called Sunday drive 2 exists" the alert shows it. Unmodified with an id: no Revert, no
+   "Modified", Save `aria-disabled`. Id null, name "New rack": "Untitled rack" (head row and
+   app bar readout alike), "Unsaved", Save enabled. The wiring (its own test): after
+   `onSaveAs({name})` it sent `saveRackAs {name}`; a later `message` `{seq: sent + 1, error:
+   true, text}` sets `error`; a `liveRack.id` change to "sunday-drive-2" sets `open` false.
 5. Parts table: four rows; R2's sound reads "41 Silk Strings" with the edited dot and the line
    "Sampler Deluxe · Strings"; R3's shows ⚠, the line "Brass Deluxe · missing", its tag
-   `data-hue="d"`; a click on R1's sound calls the quick-list opener with part 0 (interim:
-   `openLibrary('sounds', 0)`).
-6. On lamps: R1 On has `aria-pressed="true"`, R3 reads "Off"; a click on R1 sends `togglePart
-   {part: 0}`; a 350 ms press sends `setLayer {type: 'swap', part: 0}` and no toggle; with
-   `surface.layer` `{swap, part: 0}` it reads "Swap" and a click sends `setLayer none` (fake
-   timers).
-7. Readouts: R2's pan slider has `aria-valuetext` "Right 2 pan L12" and `aria-valuenow` 52;
-   ArrowUp on it sends `setPartPan {part: 1, pan: 53}`; a wheel notch down on R1's level
+   `data-hue="d"`; a click on R1's sound calls `onOpen({kind: 'quickList', part: 0})`; its
+   `aria-label` is the Stage template's ("Right 1 sound: 1 Stage Grand. Opens the quick sound
+   list"). `instrumentLine` (pure): the eight cases of RK-D7 (preset, no preset, missing,
+   failed, loading, muted, a `saved:` SoundFont patch, an `sf:` id, a GM voice, unknown).
+6. On lamps: R1 On is named "Right 1 on" with `aria-pressed="true"`, R3 reads "Off"; a click on
+   R1 sends `togglePart {part: 0}`; a 350 ms press sends `setLayer {layer: {type: 'swap',
+   part: 0}}` and no toggle; with `surface.layer` `{type: 'swap', part: 0}` it reads "Swap" and
+   a click sends `setLayer {layer: {type: 'none'}}` (fake timers).
+7. Readouts: R2's pan slider is named "Right 2 pan", `aria-valuetext` "L12", `aria-valuenow`
+   52; ArrowUp on it sends `setPartPan {part: 1, pan: 53}`; a wheel notch down on R1's level
    sends `setPartVolume {part: 0, volume: 89}`; a 12px upward drag on L's reverb sends one
    `setPartSend {part: 3, send: 'reverb', value: 51}` (one per frame); double-click on R2's
    level sends `setPartVolume {part: 1, volume: 100}`; L's octave reads "−1", ArrowDown sends
    `setPartOctave {part: 3, octave: -2}` and ArrowDown again sends nothing (clamped). R3's
    readouts have `data-hue="d"`.
 8. Sends 4–6 reads "0 · —" on every row; with three added sends and R1's `strip.sends`
-   `[40,0,0,5,6,7]` it reads "5 · 6 · 7"; with none, "—"; a click calls the Channel opener
-   for the part. Insert: R2 reads "Tremolo" and "30"; R1 reads "None" with no value and
-   `data-hue="m"`.
+   `[40,0,0,5,6,7]` it reads "5 · 6 · 7"; with none, "—"; a click calls `onOpen({kind:
+   'channel', part})`. Insert: R2 reads "Tremolo" and "30"; R1 reads "None" with no value and
+   `data-hue="m"`; with R2's slot `on` false its name has `data-hue="m"` and the label ends
+   ", off. Opens Channel".
 9. Plugin cell: R1 shows Edit, Reload (`aria-disabled`) and In process (`aria-pressed="true"`);
    R2 shows "Save sound" whose click sends `saveSound {part: 1}`; R3 shows Replace… (a click
-   calls `openLibrary('sounds', 2)`) and "silent until replaced", and no Edit; In process on R1
-   sends `setPluginInProcess {id: "aumu Smp7 Fake", inProcess: false}`; with `plugin.status`
-   "failed" and `missing` false on R1, Reload sends `reloadPartPlugin {part: 0}` and the sound
-   shows ✕; with the list entry's `canRunInProcess` false the lamp is `aria-disabled`; a part
-   with no `plugin` has an empty cell. Edit on R1 calls the editor opener with part 0.
+   calls `onOpen({kind: 'replace', part: 2})`) and "silent until replaced", and no Edit; In
+   process on R1 sends `setPluginInProcess {id: "aumu Smp7 Fake", inProcess: false}`; with
+   `plugin.status` "failed" and `missing` false on R1, Reload sends `reloadPartPlugin {part:
+   0}` and the sound shows ✕; with the list entry's `canRunInProcess` false the lamp is
+   `aria-disabled`; a part with no `plugin` has an empty cell. Edit on R1 calls `onOpen({kind:
+   'editor', part: 0})`, and the wiring's test shows it calls `pluginEditor(0, true)`.
 10. `inProcessPending` (pure): the four cases of `app/src/panels/parts/parts.ts`'s own tests
     (moved with it); the lamp wears `data-face="waiting"` when it is true.
 11. Controller map: "Default"; the lines read "Right 1 · Right 2 · Right 3 · Left" and "R1 R2
     R3 L volumes · Harmony · Metronome · — · Tempo"; with knob 7 `rotaryFast` the header reads
     "Edited" and the knobs line ends "Rotary · Tempo"; with fader 2 `partPan` of part 1 the
-    faders line reads "R1 level · R2 pan · R3 level · L level". `mapLine` (pure) covers each
-    label in the table, a two-part run ("R1 R2 volumes"), and an unknown kind ("?"). Edit map
-    calls the map-editor opener (interim: the Rack drawer).
+    faders line reads "R1 level · R2 pan · R3 L volumes". `mapLine` (pure) covers each label
+    in the table, a two-part run ("R1 R2 volumes"), and an unknown kind ("?"). Edit map calls
+    `onOpen('mapEditor')`.
 12. Send effects: rows "1 Reverb from style", "2 Chorus Celeste", "3 Delay from style"; send 2's
     Keep type has `aria-pressed="true"` and a click sends `setRackSendOverride {send: 1, on:
     false}`; send 1's sends `{send: 0, on: true}`; row 4 reads "4 Phaser added" and Remove
@@ -599,8 +673,8 @@ layout.
     `toggleOtsLink`; the "At Main change" tab has `aria-selected="true"`, "Immediate" sends
     `setOtsLinkTiming {timing: 'immediate'}`; the line reads "OTS 4" "loads Organ"; with
     `ots.racks` all null it reads "OTS 1–4" "the style's own"; with racks on 2 and 4 it reads
-    "OTS 2, 4" "load Jazz, Organ"; Change calls the chooser opener (interim: the Rack drawer).
-    The app bar's One Touch group sends the same `recallOts`.
+    "OTS 2, 4" "load Jazz, Organ"; Change calls `onOpen('otsChooser')`. The app bar's One
+    Touch group sends the same `recallOts`.
 14. Half band: nine strips; strip 1's slider `aria-valuetext` "Right 1 90"; a 20px upward drag
     on it sends its `set` with `volume` 148 clamped to 127 (`round(20 × 127 / 44) = 58`,
     90 + 58); strip 2 shows "↕"; strips 7–8 read "—" and aren't focusable; the Reverb tab sends
@@ -614,13 +688,16 @@ layout.
 16. Keys row: the status line is empty and has no focusable content; with `message` `{text:
     "Left plays the bass while Manual Bass is on", error: true}` it shows the text and ⚠ and a
     click sends `clearMessage`; the readouts read "Split F#2", "Detect lower", "Left G A C E"
-    (`data-hue="l"`), "Right E4 A4" (`data-hue="r1"`), "61 keys"; a click on "61 keys" sets
-    `ui.keyRange` to 88; with no held keys Left and Right read "—"; with `keyboard.detection`
-    `[0, 127]` Detect reads "full".
-17. Every interactive element has a `data-tip` in the catalog (the existing tooltip test).
+    (`data-hue="l"`), "Right E4 A4" (`data-hue="r1"`), "61 keys"; a click on "61 keys" calls
+    `onKeyRange(88)` (and with `keyRange` 88, `onKeyRange(49)`); with no held keys Left and
+    Right read "—"; with `keyboard.detection` `[0, 127]` Detect reads "full". The wiring's
+    test: with `ui.keyRange` null and `pads.connected` false the prop is 61.
+17. Every interactive element has a `data-tip` in the catalog (the existing tooltip test); the
+    name field carries `rack.save_as_name`.
 18. Tab order: the app bar's readout, the One Touch buttons, the tabs, the section row, the
-    compact block's style button, the Keyboard group top to bottom, the head row's buttons,
-    then each part row left to right, the three groups, the band, the keys row's "61 keys".
+    compact block's style button, the Keyboard group top to bottom, the head row's buttons
+    (and the name field while open), then each part row left to right, the three groups, the
+    band, the keys row's "61 keys".
 
 **Story and screenshot checks** (`npm run shots -- Rack`, real Chrome), for what jsdom can't
 see:
@@ -660,30 +737,36 @@ see:
 - **RK-D2 · Run dot.** The compact block's dot is the Stage tempo row's run state in 6px: solid
   green running, a hollow ring for Sync start, hidden (space kept) when stopped, so the row
   never shifts.
-- **RK-D3 · Compact chord doesn't shrink.** At 48px no chord in `TYPE_NAMES` plus a slash bass
-  exceeds the 320px block minus the section name; a longer one is clipped rather than
-  measured (the Stage's fit rule is for 128px). The tones follow the Stage's spelling.
+- **RK-D3 · Compact chord doesn't shrink.** The chord element clips at its own right edge
+  (`min-width: 0; overflow: hidden`) and the tones and section keep their size, so a long
+  chord never pushes anything out of the 320px block; it is not measured (the Stage's fit rule
+  is for 128px). The tones follow the Stage's spelling.
 - **RK-D4 · Disabled face.** Manual Bass disabled wears the kit's disabled face (label `--d`),
   not the board's 45% opacity; one disabled look everywhere (kit › Faces).
 - **RK-D5 · Badge.** "Mine" when the live rack has a saved rack of the user's behind it
   (`liveRack.id`); "Unsaved" otherwise. Style racks are never the live rack (an OTS copies into
   the parts), so there is no "Style" badge here.
 - **RK-D6 · Save as… inline.** The board has no name field; the page keeps a name field in the
-  head row (app-only `ui.rackSaveAs`), as today's drawer does, rather than wait for Prompts
+  head row (the wiring's `saveAs` state), as today's drawer does, rather than wait for Prompts
   (#504). Prompts owns `liveRack.prompt`, not this field.
-- **RK-D7 · Instrument line.** Under the sound name: with a plugin, `plugin.name`, then " · "
-  and `plugin.preset` when it has one; then " · missing" when `missing`, " · failed" when the
-  status is `failed` and not missing, " · loading…" while `loading`, " · muted" when `muted`.
-  Without a plugin, the SoundFont file's name without its extension (the `file` of the
-  `soundLibrary.patches` entry the part's `sound.id` names, `saved:<id>`, or of an
-  `sf:<file>:<bank>:<program>` id; `io.soundFontFile` for a GM voice); empty when unknown.
-  This is `instrumentName` in `app/src/panels/sounds/model.ts` restated; it moves to
-  `app/src/ui/Rack/sound.ts`.
+- **RK-D7 · Instrument line.** A new pure `instrumentLine(part, patches, soundFontFile)` in
+  `app/src/ui/Rack/sound.ts`. With a `plugin` (whatever its status): `plugin.name`, then " · "
+  and `plugin.preset` when it is not null; then " · missing" when `missing`, else " · failed"
+  when the status is `failed`, " · loading…" while `loading`, " · muted" when `muted`
+  ("Sampler Deluxe · Concert D", "Brass Deluxe · missing"). Without a plugin: the SoundFont
+  file's name without its `.sf2` extension, from the part's `sound.id`: for `saved:<id>`, the
+  `source.file` of that `soundLibrary.patches` entry (a plugin-sourced patch with no `plugin`
+  on the part reads the `componentId`'s plugin name from `plugins.list`, else the id); for
+  `sf:<file>:<bank>:<program>`, `<file>`; no `sound` (a GM voice), `io.soundFontFile`; nothing
+  known, "" (an empty line, 16px kept). This differs from today's `instrumentName`
+  (`panels/sounds/model.ts`, which names the SoundFont for a failed plugin and "the synth" as
+  a last resort); that function stays for the Library footer.
 - **RK-D8 · Sends 4–6 and Insert are readouts that open Channel.** The board draws them as
   buttons with no editor of their own; the part's strip (Channel, #501) has the controls, and
   swap-mode knobs 7 and 8 move the insert amount and send 4 from the hardware. No popover.
-- **RK-D9 · Plugin cell.** Edit opens the editor through the shell (`openPluginEditor`, not a
-  command, app-api.md › Instrument plugins) and needs a playing plugin with an editor. The
+- **RK-D9 · Plugin cell.** Edit opens the editor through the shell (`app.pluginEditor(part,
+  true)`, the Session's `pluginEditor`, not a command: app-api.md › Instrument plugins) and
+  needs a playing plugin with an editor. The
   second button is Save sound while the sound is edited (`saveSound`, which overwrites the
   user's own sound or makes a new one), else Reload, enabled only when the plugin is failed or
   muted (the engine refuses it otherwise). In process shows the plugin's setting
@@ -714,10 +797,14 @@ see:
   start ▶", "Auto fill", "Sync stop ■", "Start"), no numerals and no "NEXT"/"ARMED" word: the
   face carries the state. The full band keeps the kit's captions.
 - **RK-D17 · Keys row readouts.** Detect reads "lower" when `keyboard.detection[1]` ≤
-  `leftSplit`, "upper" when `detection[0]` > `leftSplit`, else "full"; Left lists the held
-  notes in the left zone as pitch classes, Right the held notes in the right zone with their
-  Yamaha octave (C3 = 60), both in play order; "61 keys" cycles `ui.keyRange` 49 → 61 → 88
-  → 49 until Settings › Keyboard (#530) lands.
+  `keyboard.leftSplit`, "upper" when `detection[0]` > `leftSplit`, else "full"; Left lists
+  the held notes whose `zone` is `left` as pitch classes ("G A C E"), Right the held notes
+  whose `zone` is `right` with their Yamaha octave ("E4 A4", C3 = 60), both in the order of
+  `keyboard.held` (low to high), spelled with sharps (C C# D D# E F F# G G# A A# B); "—" with
+  none. The "{n} keys" button shows the `keyRange` prop (the wiring resolves `ui.keyRange`,
+  null → the connected Launchkey's size, 49 or 61, as `panels/keystrip/keyboard.ts` does
+  today, else 61) and a click calls `onKeyRange` with the next of 49 → 61 → 88 → 49 from the
+  shown value; the wiring calls `ui.setKeyRange(n)`. Until Settings › Keyboard (#530) lands.
 - **RK-D18 · Tags are not controls.** The board draws the part tags as text; the half band's
   strip names open Channel, so the tag needn't. The Stage's tags stay buttons there.
 - **RK-D19 · Readout drag.** A readout steps like a knob (one per 4px, Shift one per 12px)
@@ -725,6 +812,16 @@ see:
   jumps to the pointer.
 - **RK-D20 · Two One Touch groups.** The app bar's and the page's One Touch buttons are the
   same control drawn twice, as the board does; both exist, both send `recallOts`.
+- **RK-D21 · Leaving the page.** Esc is not a page key (the window handler keeps it for the
+  Browser and Library); the Stage tab, Alt+O and the display tabs leave. An interim Channel
+  target first returns to the Stage, since today's `ChannelView` lives in the Stage's
+  display; when #501 lands, `ui.page = 'channel'` replaces that.
+- **RK-D22 · Prompts interim.** The Rack drawer's prompt block can't be mounted on its own
+  (it shares the drawer's state), so until Prompts (#504) the wiring opens the drawer when a
+  prompt appears, and the drawer answers it as today.
+- **RK-D23 · Names.** The app bar readout and the head row both show `rackName` (so a new
+  rack reads "Untitled rack" in both places); the Stage's readout should do the same
+  (Stage.md › Sounds row reads `liveRack.name` raw).
 
 ## Follow-ups
 
@@ -749,8 +846,8 @@ Pads, Looper, Harm/Arp, Rack):
 
 - **Rack readout**, 16px after the wordmark, `align-self: flex-end`, 24 tall, `box-sizing:
   border-box`, padding 0 10, no border, no radius, items centred, gap 6, 14px, no wrap: "Rack",
-  the slot (Stage.md D21 rule; nothing when none), the name (`liveRack.name` as the Stage's
-  rack readout words it), then a 5px round dot when `liveRack.modified`. On the Rack page it is
+  the slot (Stage.md D21 rule; nothing when none), the name (`rackName(liveRack)`, RK-D23),
+  then a 5px round dot when `liveRack.modified`. On the Rack page it is
   the current item: the chosen face (`--t` fill, `--g` text and dot, `aria-current="page"`),
   and a click does nothing. On other pages it is a text button in `--t` (the dot `--t`) that
   opens the Rack page (`ui.page = 'rack'`). Tooltip `stage.rack_name`. `aria-label` "Rack:
@@ -791,7 +888,7 @@ marks at 11px, centred, gap 4). Inside the fader, with `TOP = 19` and `TRAVEL = 
 | Value | top 0, 16 tall, centred | 15 / 300 in the hue (layers: `--t`); the kit's value texts |
 | Meter backgrounds | `left: 50% − 11px` and `50% − 3px`, width 6, top 19, bottom 3 | `--mbg`; hidden (opacity 0) when unused or layered |
 | Meter bars | the same lefts, bottom 3, width 6 | peak (left) and RMS (right), heights `height(x, 44)` px, the hue at `--meter-mix`; none when off, unused or layered |
-| Peak tick | `left: 50% − 11px`, width 14, height 1, bottom `3 + height(hold, 44)` | `--peak` |
+| Peak tick | `left: 50% − 11px`, width 14, height 1, bottom `3 + height(hold, 44)` | `--peak`; drawn only when the bars are (none when off, unused or layered) |
 | Groove | `left: 50% + 6px`, width 3, top 19, bottom 3 | `--track`; unused: the kit's dashed gradient |
 | Fill | the groove's left, bottom 3, width 3, height `44 − capTop` | the hue (layers `--t`; off: the hue at 35%), glow `0 0 6px` at `--fill-glow-mix` in Vol only |
 | Cap | `left: 50% + 1px`, width 8, height 2, `top = capTop + 19 − 1` | the hue (as the fill) |
@@ -808,7 +905,8 @@ off, unused and rack-target rules apply unchanged.
 buttons, 12px, gap 8, bound to `surface.controls[trackPrev]` / `[trackNext]` as the Stage's
 style line (Stage.md D38; tooltips `style.prev`, `style.next`).
 
-**Knobs and pads.** One header row (36 tall, hairline, items centred, gap 8, no wrap): "Knobs"
+**Knobs and pads.** A column 176 tall whose content is 160 (header 36, 8, knobs 48, 8, pads
+60); the last 16px stay empty at the bottom. One header row (36 tall, hairline, items centred, gap 8, no wrap): "Knobs"
 14 `--m`; the knob page accent block (padding 0 8, 13px, line-height 22; swap mode as the kit);
 ▲ and ▼ as 28 × 28 off-face buttons, 11px (`stepKnobPage`, disabled as the kit); "Page" 13
 `--m` with `{pageNumber}/{pageCount}` in `--t`; then (`margin-left: auto`) "Pads" 14 `--m`;
@@ -860,9 +958,10 @@ Transport and tempo (the glyphs' labels say the word: "Start / Stop", "Stop").
   (`flex: 1; min-width: 0`, `role="status"`, 14px, line-height 20, ellipsis; `state.message`,
   its button and tooltip as the kit), then five readouts, 13 `--m` with the value in `--t`:
   "Split {chord.splitName}"; "Detect {lower | upper | full}" (RK-D17); "Left {notes}" with the
-  notes in `--l`; "Right {notes}" with the notes in `--r1`; and "{ui.keyRange} keys", a text
+  notes in `--l`; "Right {notes}" with the notes in `--r1`; and "{keyRange} keys", a text
   button 20 tall, 13 `--t` (click: RK-D17; tooltip `keystrip.range`; `aria-label` "Keyboard
-  size {n} keys. Click for 49, 61 or 88"). Left and Right read "—" with nothing held. Tooltips:
-  `keystrip.split` on Split, `keystrip.keys` on Detect, Left and Right (not controls).
+  size {n} keys. Click for 49, 61 or 88"). Left and Right read "—" with nothing held
+  (RK-D17 gives the note rules). Tooltips: `keystrip.split` on Split, `keystrip.keys` on
+  Detect, Left and Right (not controls).
 - **Key strip** `24,820 1392×56`, 4px below: kit › Key strip, unchanged (its `aria-label` on
   the row's `section`: "Keys: split F#2, left hand G A C E, right hand E4 A4, 61 keys").
