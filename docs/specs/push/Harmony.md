@@ -221,8 +221,10 @@ w), min, max)` with `v0`, `x0` the value and pointer x at pointerdown and `w` th
 element's `getBoundingClientRect().width` read at pointerdown (239 at 1440: 371 − 64 − 12 − 12
 − 44), never a jump to the pointer. A send goes out when the whole-number value changes, at
 most once per animation frame, and on pointerup only if the value changed since the last send
-(a click without movement sends nothing). Vertical wheel: up (`deltaY < 0`) +1, down −1, per
-notch; `deltaX` is ignored. Keys: ArrowRight and ArrowUp +1, ArrowLeft and ArrowDown −1,
+(a click without movement sends nothing). The row draws and steps from the value it last
+sent until the state's value changes, then from the state (HA-D7). Wheel: one step per wheel
+event by the sign of `deltaY` (negative, up: +1; positive: −1; zero: nothing; `deltaX` is
+ignored). Keys: ArrowRight and ArrowUp +1, ArrowLeft and ArrowDown −1,
 PageUp/PageDown ±10, Home/End to min/max (the slider stops propagation, kit › Interaction
 conventions); double-click resets Volume to 100 and Touch limit to 1 (one send, of the default,
 when it differs). Cursor `pointer`, `ew-resize` while dragging.
@@ -253,7 +255,7 @@ the Rack page knob 5 ("Harm level", Stage.md D6) is this page's Volume.
 | Assign Right 2 | R2 wears the white block (no hue); R1 and R3 keep their hues |
 | Assign Multi, then an arpeggio | Auto shows chosen; Multi absent |
 | Browsing another category | that tab chosen; the grid shows its items with no white block (the selected type is elsewhere); the header and settings keep the selected type |
-| Type changed from the hardware or a rack load (`typeName` changes) | the viewed category snaps to the selected type's; its block shows |
+| Type changed from the hardware or a rack load (`mode`, `harmonyType` or `arpPattern` changes) | the viewed category snaps to the selected type's; its block shows |
 | Library lists empty (not loaded yet) | empty grid; three Harmony tabs, no arpeggio tabs; header names `typeName` ("—" when empty); in mode `arpeggio` no tab is chosen |
 | Rack map without a Harmony volume knob | Volume's "Knob n" line absent |
 | Stopped band | compact block: the run dot hidden, the section in `--m` (Kit additions › Compact block) |
@@ -281,13 +283,13 @@ replaced; `boardNow` (10000) and `boardMeterHolds` are the Stage's:
 - `liveRack.controls`: the default map (`defaultControlMap()` in `app/src/lib/api/types.ts`):
   knobs 5 `harmonyVolume`, so Volume reads "Knob 5".
 - `boardLibrary` (the lists are not in `AppState`: the app keeps them in `app.library`, from
-  `session.library()`; the page takes them as a `library` prop), a `LibraryList`: revision 1,
-  `entries` the dev mock's (`app/src/lib/api/mock.ts` `STYLES` through `entryOf`, which hold
-  the entry whose `id` is the fixture's `style.id` with folder "Pop", as the Stage's fixture
-  describes), `voices` the mock's `VOICES`, and `harmonyTypes` and `arpPatterns` the mock's
-  (`app/src/lib/api/mock-harmony.ts` `HARMONY_TYPES`, `ARP_PATTERNS`: the 23 types, Multi
-  Assign at index 19 with category "Harmony"; the 23 patterns in seven categories). This page
-  takes no library from the Stage's fixture (it exports none).
+  `session.library()`; the page takes them as a `library` prop), a `LibraryList`: the dev
+  mock's exported `LIBRARY` (`app/src/lib/api/mock.ts`: revision 1, its style entries, `VOICES`,
+  `HARMONY_TYPES` and `ARP_PATTERNS` from `mock-harmony.ts`: the 23 types, Multi Assign at
+  index 19 with category "Harmony"; the 23 patterns in seven categories), with the entry whose
+  `id` is the fixture's `style.id` given folder "Pop" (the mock's is "Pop & Rock"; Stage.md's
+  fixture wants "Pop"; it isn't visible on this page). This page takes no library from the
+  Stage's fixture (it exports none).
 - Page: the story renders `Harmony` with `page: 'harmArp'` (the active tab is a prop; in the
   app it is `ui.page`, Stage.md D2); the viewed category is the selected type's (Harmony), as
   on mount.
@@ -315,7 +317,7 @@ page reuses it. Components marked **new** are this page's own or its kit additio
 | # | Component | Kind | Built from | Exists | Board lines (dark / light) | Spec |
 |---|---|---|---|---|---|---|
 | 0 | tokens | — | — | yes; the kit's additions (Stage) | `:root` lines 40, 45 / 30, 35 | kit › Tokens |
-| 1 | `longpress`, LampButton, Button, ChosenTabs, WaitingChip, AccentBlock, StatusDot, PartMarks, GroupHeader, BeatBlocks, FaderStrip, Knob, Pad, KeyStrip, StatusLine, HealthSlot | primitive | — | Stage | the band 196–364 / 186–354; keys 367–378 / 357–368 | Stage.md › Components 1–16 |
+| 1 | `longpress`, LampButton, Button, ChosenTabs, WaitingChip, AccentBlock, StatusDot, PartMarks, GroupHeader, BeatBlocks, FaderStrip, Knob, Pad, KeyStrip, StatusLine, HealthSlot | primitive | — | Stage (LampButton exists today but flips a local `pressed`; it must become controlled, `on` the only source, with `data-face` and a `tip` prop: the Stage lane's if it gets there first, else this page's, see Gap) | the band 196–364 / 186–354; keys 367–378 / 357–368 | Stage.md › Components 1–16 |
 | 2 | ChosenTabs `size row` and `row-sm` **new sizes** | primitive | — | Stage (add the sizes) | 142–153, 168–174 / 132–143, 158–164 (`row-sm`: not on this board) | Kit additions › ChosenTabs row |
 | 3 | ChordReadout `size compact` **new size** | primitive | — | Stage (add the size) | 124 / 114 | Kit additions › Compact block |
 | 4 | RackReadout `variant inline` **new variant** | primitive | StatusDot | Stage (add the variant) | 54 / 44 | Kit additions › App bar, page variant |
@@ -339,10 +341,20 @@ not components: `app/src/ui/Stage/Stage.fixtures.ts` (the fixture's base), the
 `app/src/pages/` wiring pattern, `ui.page`, and the shots masks.
 
 Components take props and call callbacks; none reads `app.state`, `app.library` or sends. The
-page wiring (`app/src/pages/HarmonyWiring.svelte`, outside `app/src/ui`, the Stage's pattern,
-Stage.md D46) reads `app.state`, `app.library` and `ui.page`, keeps `now`, `receivedMs`, the
-meter holds and the viewed category, passes them down (`state`, `library`, `page`, `now`,
-`viewed`), and sends commands.
+`Harmony` page component's interface: props `state` (`AppState`), `library` (`LibraryList`),
+`page` (the active tab), `now`, `receivedMs`, `meterHolds` (the nine held peaks, as the
+Stage's), `viewed` (`{ group, name } | null`); callbacks `onsend(cmd)` (every command),
+`onpage(page)` (a tab, Escape's return), `onviewed(category)` (a category tab click),
+`ondrawer(name)` (an interim drawer target: the More row, the rack readout, drawer tabs),
+`onbrowser()` (the style name), `onchannel(part)` (the kit's Channel openers). The page wiring
+(`app/src/pages/HarmonyWiring.svelte`, outside `app/src/ui`, the Stage's pattern, Stage.md D46)
+reads `app.state`, `app.library` and `ui.page`, keeps `now` (once per animation frame),
+`receivedMs`, the meter holds (`holdPeak`) and the viewed category (snapping it per Category
+tabs), passes them down, and maps each callback to `app.send`, `ui.page`, `ui.toggleDrawer`,
+`ui.browser` or the Channel interim. `App.svelte` mounts one wiring by `ui.page`: the Stage
+lane's `StageWiring` for `stage`, `HarmonyWiring` for `harmArp` (each page lane adds its own
+branch; the D1 scaler wraps whichever is mounted). That one-line branch in `App.svelte` is the
+only edit this page makes outside its own files.
 
 ## Gap against today
 
@@ -354,6 +366,7 @@ meter holds and the viewed category, passes them down (`state`, `library`, `page
 | Compact block | none (the Stage display's chord and tempo are 128px and 32px) | New, from the kit addition below; shares `splitChord`, the tone spelling and the fit maths with the Stage's ChordReadout |
 | App bar | Stage lane's AppBar (page tabs, status, health) | The page variant adds the rack readout and One Touch after the wordmark |
 | Settings rows | `panels/settings/Field.svelte`, `HSlider.svelte`, `Choice.svelte` (old tokens) | The kit's rows (BarRow, ChoiceRow, LampRow), which the Settings pages (#528–#533) can reuse |
+| LampButton | `app/src/ui/LampButton/LampButton.svelte` (#499): keeps its own `pressed`, flips it on click and calls `ontoggle(newState)`; no `data-face`, no `tip` prop | Controlled: the `on` prop is the only source of the face, `aria-pressed` and the label; a click calls `ontoggle(!on)` without flipping anything; `data-face` ("on" / "off" / "record" / "disabled"); a `tip` prop that puts `use:tip` on its button. Stage.md component 2 lists `join`, `onlongpress` and `onlongrelease`; this page needs these three too, and whichever lane builds LampButton first makes all of them |
 | Screenshot tool | `app/scripts/shots.ts` (one 1000 × 600 viewport, no masks) | The Stage lane's per-story viewport and masks (Stage.md D39); this page adds a second mask |
 
 ## Contract changes needed
@@ -388,8 +401,11 @@ Vitest (`npx vitest run` on the page and component tests), each against the boar
 unless it says otherwise. They read roles, names, attributes and the commands sent (a fake
 `send`), and the `data-face` / `data-hue` hooks (kit › Faces, Stage.md D41); never computed
 colours or layout. Checks that cross the wiring (the viewed category, the page setter, the
-drawer opener: 2, 7, 17) render `HarmonyWiring` over the mock session with the fixture state
-and a fake `send`; the rest render the pure components with props.
+drawer opener: 2, 7, 17) render `HarmonyWiring` with `app.state` and `app.library` set
+directly to the fixture (`app.attach` of a `MockSession`, then assign the fixture's state and
+library over it; a later step of a check assigns a changed state the same way) and `app.send`
+stubbed to record commands; the rest render the pure components with props and a recorded
+`onsend`.
 
 1. Header: the group's `aria-label` is "Harmony / Arpeggio: Standard Duet 1, on"; the lamp
    reads "On", has `aria-pressed="true"` and `data-face="on"`, and a click sends
@@ -480,8 +496,9 @@ can't see:
   and its `--ba` glow (dark) and none (light).
 - `Components/SettingsColumn` › `Echo` (typeName "Tremolo") and `MultiAssign`: the four rows
   with Speed, and the note; no crop (the board doesn't draw them), judged by Inspect.
-- `Components/TypeGrid` › `Browsing` (viewed "Random", selected elsewhere): two items, no white
-  block; no crop.
+- `Primitives/TypeGrid` › `Browsing` (viewed "Random", selected elsewhere): two items, no white
+  block; no crop. (Primitives live under `Primitives/`, `docs/factory/storybook-axioms.md`
+  axiom 11; BarRow, ChoiceRow and LampRow stories go there too.)
 - `Components/CategoryTabs` › `Full` (the seven arpeggio categories at 10px padding): the row
   stays one line inside 975px; no crop.
 - `Components/CompactNowPlaying` › `LongChord` (`name: "C#m7b5/G#"`): the chord shrinks and the
@@ -516,9 +533,12 @@ can't see:
   13px label); the kit has no 30px size and the 2px difference is within the screenshot budget.
 - **HA-D7 · Bar sliders.** Volume and Touch limit are `role="slider"` rows with the fader's
   pointer model (Stage.md D23): relative to the press point, scaled by the bar's width, sends
-  at most once per frame and always on release; wheel, arrows, PageUp/PageDown and
-  double-click reset as the kit's faders and knobs. The board draws them as readouts with a
-  slider role and no drag maths.
+  at most once per frame and on release when the value changed since the last send; wheel,
+  arrows, PageUp/PageDown and double-click reset as the kit's faders and knobs. The row shows
+  and steps from `shown = pending ?? state`: `pending` is the last value the row sent, cleared
+  as soon as the state's value changes (no timer), so a drag draws its own value before the
+  state echoes it and two quick ArrowUps send 101 then 102. The board draws the rows as
+  readouts with a slider role and no drag maths.
 - **HA-D8 · "Knob n".** Volume's second line names the Rack-page knob the live rack's map puts
   on `harmonyVolume` (knob 5 by default), from `liveRack.controls.knobs`; a map without one
   shows no line, rather than a knob that doesn't exist.
@@ -614,7 +634,11 @@ source; this board's 52–81 copy it). Every non-Stage display page and the tall
   disabled past `ots.settings.length`, `recallOts { index }` at once (D17), tooltips
   `ots.1`–`ots.4`, `aria-label`s as the Stage's.
 - The page tabs, right area, Launchkey status and health slot are the kit's, unchanged; the
-  active tab is the page's own (`aria-current="page"`).
+  active tab is the page's own (`aria-current="page"`). Tabs whose page isn't built yet keep
+  the kit's interim rule from here too: such a tab opens its drawer over this page, `ui.page`
+  stays `harmArp`, and while the drawer is open that tab is the chosen one and the page's tab
+  is not (one chosen tab at a time; kit › App bar, "Tabs before their page exists"). Entering
+  a page (its tab or its Alt key, from anywhere) closes every drawer first.
 
 ### Compact now-playing block
 
@@ -631,7 +655,7 @@ content is 76).
 
 | Control | Face | Reads | Sends / does | Tooltip |
 |---|---|---|---|---|
-| Style name | AccentBlock as a text button: padding 0 6, 13 / 500, line-height 16, `--g` on `--a`, `min-width: 0`, ellipsis; `aria-label` "{name}: open the Browser" | `style.name` (never empty: the engine always has a style loaded; an empty string shows "—") | opens the Browser (`ui.browser = true`, Stage.md D3) | `browser.open` |
+| Style name | AccentBlock as a text button: padding 0 6, 13 / 500, line-height 16, `--g` on `--a`, radius 0 (as the Stage's style name), `min-width: 0`, ellipsis; `aria-label` "{name}: open the Browser" | `style.name` (never empty: the engine always has a style loaded; an empty string shows "—") | opens the Browser (`ui.browser = true`, Stage.md D3) | `browser.open` |
 | Tempo | `margin-left: auto`; the number 18 / 300, line-height 16, `--t`, then "BPM" 12 / 400 `--m` with 3px left margin; not a control | `transport.tempo` rounded (`Math.round`) | — | `display.tempo` |
 | Run dot | 6px round StatusDot: `transport.running` → `--ok` with `--bg` (`data-state="running"`); stopped with `transport.syncStart` → a hollow 1px `--ok` ring (`sync`); stopped → `visibility: hidden`, space kept (`stopped`); `role="img"` `aria-label` "Running" / "Sync start" / "Stopped" | `transport.running`, `transport.syncStart` | — | — |
 
