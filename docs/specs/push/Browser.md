@@ -24,12 +24,13 @@ faders and the pads while they look for a style. Flow: find a style.
 - **Glance order:** the cursor row (the solid block), then the loaded style's dot and the
   Track ◀ ▶ marks, then the chosen folder, then the compact block's chord and section. Nothing
   else is brighter than `--t` on `--g`.
-- **Before building:** C1 (tooltip keys) must land first; C2–C4 don't block (see Contract
-  changes needed). Stage.md's C5 (its tooltip keys), the kit's new tokens, the `longpress`
-  action, the app-only `ui.page` (Stage.md D2) and the shots.ts masks (Stage.md D39) are
-  assumed to have landed with the Stage; if this page is built first, it lands them itself
-  (BR-D3). Until `ui.page` exists, `ui.view` (`'stage' | 'library'`, `app/src/lib/store.svelte.ts`)
-  is the same thing for this page: every `ui.page = 'library'` below reads `ui.view = 'library'`.
+- **Before building:** C1 (tooltip keys) and C2 (`ui.libraryTab` `'styles'`) must land first;
+  C3 and C4 don't block (see Contract changes needed). Stage.md's C5 (its tooltip keys), the
+  kit's new tokens, the `longpress` action and the shots.ts masks (Stage.md D39) are assumed to
+  have landed with the Stage; if this page is built first, it lands them itself (BR-D3). The
+  app-only `ui.page` (Stage.md D2) is the Stage lane's and this page never adds it: for this
+  page `ui.view` (`'stage' | 'library'`, `app/src/lib/store.svelte.ts`) is the same thing, so
+  every `ui.page = 'library'` / `'stage'` below is written as `ui.view` until `ui.page` exists.
 
 ## Layout
 
@@ -71,9 +72,9 @@ gap 24:
 | "Styles" | 14 / 400 `--m`, centred vertically (`align-self: center`, as are the view name and the count); not a control | — | — | `library.tab_styles` (new) | — |
 | View name | 14 / 400 `--t`; not a control | the chosen category (BR-D4): a folder's name ("Pop & Rock"), or "All styles", "Favourites", "Recent" | — | — | — |
 | Count | 14 / 300 `--m`; not a control | with no filter, the category's count ("212"); with a filter, "{shown} of {count}" ("9 of 212"); while `library.pending` > 0, " · {pending} indexing" follows ("212 · 40 indexing"); before the entries are fetched, "—". Every count on the page uses `toLocaleString('en-US')` ("1,284"; BR-D25) | — | — | — |
-| Views (`role="tablist"`, `aria-label="Views"`, `margin-left: auto`, no gap between tabs: their padding spaces them) | three header tabs (kit › Faders header tabs: 35 tall, padding `11px 10px 0`, 13 / 400, `--m`; chosen = `aria-selected="true"`, the chosen face as a 22px block on the bottom, `--g` text): "All", "Favourites", "Recent", then a normal space and its count at weight 300 in the tab's own colour ("All 1,284"; the counts never change with the filter) | chosen when the category is `all`, `favourites`, `recents`; none chosen while a folder is. Counts: All = `library.count`; Favourites and Recent = the paths of each that are in the fetched library (0 before the fetch) | sets the category (app-only `prefs.category`, BR-D4); one tab stop with roving ← → between the tabs (as today's `panels/library/Library.svelte` tab row); each tab `aria-controls` the listbox | `browser.all`, `browser.favourites`, `browser.recents` | — |
-| Filter | a `<label>` 220 × 30, centred vertically, `border-bottom: 1px solid var(--m)`, gap 8: a 13 × 13 magnifier (SVG below) `--m`, a visually hidden "Filter styles", and an `<input type="search">` (flex 1, 28 tall, no border or background, 13 / 400 `--t`, `caret-color: var(--t)`, placeholder "Filter by name, tempo or time" in `--m`, `autocomplete="off"`, `spellcheck="false"`) | `query` (app-only) | filters the list (below); holds focus while the page is open and drives the list from the keyboard (Keyboard below) | `browser.filter` | — |
-| Open file… | off face, 28 tall, padding 0 14, 13px, centred vertically, `aria-haspopup="dialog"` | — | opens the system file chooser (Prompts-More, #505, item G) for the library's types (`.sty .prs .sst .bcs .pcs .pst .fps`); the chosen file is sent as `loadStylePath { path }`; Cancel in the chooser does nothing. Until the chooser exists (C3): disabled (BR-D5) | `browser.open_file` (new) | — |
+| Views (`role="tablist"`, `aria-label="Views"`, `margin-left: auto`, no gap between tabs: their padding spaces them) | three header tabs (kit › Faders header tabs: 35 tall, padding `11px 10px 0`, 13 / 400, `--m`; chosen = `aria-selected="true"`, the chosen face as a 22px block on the bottom, `--g` text): "All", "Favourites", "Recent", then a normal space and its count at weight 300 in the tab's own colour ("All 1,284"; the counts never change with the filter) | chosen when the category is `all`, `favourites`, `recents`; none chosen while a folder is. Counts: All = `library.count`; Favourites and Recent = the paths of each that are in the fetched library (0 before the fetch) | sets the category (app-only `prefs.category`, BR-D4); one tab stop with roving ← → between the tabs (as today's `panels/library/Library.svelte` tab row: an arrow moves focus and chooses that tab, wrapping at the ends); the chosen tab holds the stop, or All while a folder is chosen; each tab `aria-controls` the listbox | `browser.all`, `browser.favourites`, `browser.recents` | — |
+| Filter | a `<label>` 220 × 30, centred vertically, `border-bottom: 1px solid var(--m)`, gap 8: a 13 × 13 magnifier (SVG below) `--m`, a visually hidden "Filter styles", and an `<input type="search">` (flex 1, 28 tall, no border or background, 13 / 400 `--t`, `caret-color: var(--t)`, placeholder "Filter by name, tempo or time" in `--m`, `autocomplete="off"`, `spellcheck="false"`; the browser's own search decorations hidden: `::-webkit-search-cancel-button, ::-webkit-search-decoration { display: none }`, and Esc handled by the page with `preventDefault` so it never clears the field natively) | `query` (app-only) | filters the list (below); holds focus while the page is open and drives the list from the keyboard (Keyboard below). Its tooltip is hidden on focus (today's `tips.hide` on `onfocus`), so it shows on hover only and never covers the list | `browser.filter` | — |
+| Open file… | off face, 28 tall, padding 0 14, 13px, centred vertically, `aria-haspopup="dialog"` | — | opens the system file chooser (Prompts-More, #505, item G) for the library's types (`.sty .prs .sst .bcs .pcs .pst .fps`); the chosen file is sent as `loadStylePath { path }` and then the page does what the Load button does after a load: stopped, back to the Stage; playing, it stays (the engine queues the file for the bar line) and the cursor follows `preview.queued` / `style.id` as always (the file is at the library root, so the category becomes All, BR-D15). Cancel in the chooser does nothing. Until the chooser exists (C3): disabled (BR-D5) | `browser.open_file` (new) | — |
 
 The magnifier: `<svg width="13" height="13" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.5"
 fill="none" stroke="var(--m)" stroke-width="1.2"/><path d="M9.5 9.5 L13 13" stroke="var(--m)"
@@ -112,8 +113,11 @@ the chosen face as a block (`--t` fill, name `--g` at weight 500, count `--sel-m
 border `--t`). Click sets the category to that folder (`{ kind: 'folder', path }`), deselects
 the views, and scrolls the list to centre the kept cursor (Keyboard below). Tooltip
 `browser.folder`. `aria-label` "{name}, {count} styles". No Launchkey mapping. A remembered
-folder that is no longer in the library reads as All (as today's `Browser.svelte`); before the
-entries are fetched the list is empty whatever the category.
+category that names a subfolder (today's tree could store "Pop & Rock/Pop") reads as its
+top-level folder; one whose folder is no longer in the library reads as All (as today's
+`Browser.svelte`). Both are read-time fallbacks: `prefs.category` is never rewritten by them.
+Before the entries are fetched the header shows the remembered category's name with the
+folders list and the listbox empty.
 
 #### List column
 
@@ -250,8 +254,9 @@ queued one stays so the player sees it land, when the row's dot moves and the ta
   End** to the first and last; the cursor is scrolled into view (to the top or bottom edge, not
   centred). **Enter** = the Load button's click for the cursor row (nothing where it is
   disabled); **Shift+Enter** = stopped, the cursor row's ▶ click (nothing where ▶ is disabled);
-  playing, the Load button's click; **Ctrl/⌘+D** stars the cursor row; **Esc** = `ui.escape()`
-  (a drawer open over the page closes first; with nothing open, back to the Stage as Cancel);
+  playing, the Load button's click; **Ctrl/⌘+D** stars the cursor row; **Esc**: with Clear
+  armed (Quick Racks bar) it only disarms; else `ui.escape()` (a drawer open over the page
+  closes first; with nothing open, back to the Stage as Cancel);
   **← →** edit the text (the global `stepStyle` arrows don't fire in a text field:
   `app/src/lib/shortcuts.ts` `isTextField`). Typing filters at once, and the cursor is kept on
   the same style when it is still shown, else the first row (`keepCursor` in `model.ts`),
@@ -260,14 +265,14 @@ queued one stays so the player sees it land, when the row's dot moves and the ta
 - **Global keys:** the page doesn't gate them (today's `ui.browser` gate in `shortcuts.ts`
   goes with the modal): outside a text field they work as everywhere (← → `stepStyle`, Space
   Start / Stop, the Alt letters). The plain **Enter** binding in `app/src/lib/keys.ts` (`enter:
-  { app: 'browser' }`, today "open the browser") opens this page from the Stage and does
-  nothing extra on it (Gap).
+  { app: 'browser' }`, today "open the browser") opens this page from the Stage (open only,
+  never a toggle, as today) and does nothing extra on it (Gap).
 - **The cursor on open (BR-D15):** the queued style if there is one, else the loaded style,
   scrolled to the centre of the listbox (or as near as the list allows: the board's list is at
   its top). If that style isn't in the remembered category, the category becomes All first.
   While the page is open the cursor follows `preview.queued` when it changes to a style, and
   `style.id` when it changes (Track ◀ ▶, a pad, the hardware), switching to All the same way
-  when the style isn't in the category.
+  when the style isn't in the category, and clearing the query when the filter hides it.
 - **Tab order** (DOM order): app bar (rack readout, One Touch, tabs, health slot), section
   row, Library pages, Quick Racks (◀, ▶, Store, ✕, slots 1–8), zone header (the views' tab
   stop, filter, Open file…), folders, footer (Preview on select, Cancel, Load), half band
@@ -389,7 +394,7 @@ dark / light.
 
 | # | Component | Kind | Built from | Exists | Board lines (dark / light) | Spec |
 |---|---|---|---|---|---|---|
-| 0 | tokens | — | — | yes; add `--sel-mut`, `--sel-off`, `--slot-glow-mix` | `:root` 52, 57 / 36, 41 | Kit additions › Tokens |
+| 0 | tokens | — | — | yes; add `--sel-mut`, `--sel-off`, `--slot-glow-mix`, `--stored-ring`, `--text-8`, `--text-15`, `--text-24`, `--text-48`, `--travel-half` | `:root` 52, 57 / 36, 41 | Kit additions › Tokens |
 | 1 | LampButton | primitive | longpress | yes (Stage 2) | 157, 241 / 141, 225 | `md` (Preview on select), `sm` (Store), `cell` (lamp row) |
 | 2 | Button | primitive | longpress | Stage 3 | 154, 156, 158, 189, 243, 326–327, 335–336, 340–341 / −16 | variants `icon` 32 × 32; **new** `icon-sm` 28 × 28 (11px: bank ◀ ▶, knob and pad ▲ ▼, ✕), `track` 40 × 32 (12px), `sm` 28 tall padding 0 14 13px (Open file…), `lg` 44 tall padding 0 18 (Cancel), `half` 40 × 24 and `half-wide` 88 × 24 (the half transport) |
 | 3 | ChosenTabs | primitive | — | Stage 4 | 74–85, 179–183, 261–273 / 58–69, 163–167, 245–257 | `size page` (app bar), `size header` (views, fader header) |
@@ -439,12 +444,24 @@ page wiring `app/src/pages/BrowserWiring.svelte` (outside `app/src/ui`) reads `a
 `app.library`, `prefs` and `ui`, keeps `now`, `receivedMs` and the meter holds as the Stage's
 wiring does, passes them down, and maps each callback to its command or interim target.
 
+**The page's props** (`Browser`): `state: AppState`; `library: LibraryList | null` (null until
+fetched); `prefs: { category, favourites, recents, autoPreview }` (the `BrowserPrefs` fields,
+read-only); `query: string`; `clearArmed: boolean`; `now`, `receivedMs`, `meterHolds` (as the
+Stage's); `keyRange: 49 | 61 | 88`; `canOpenFile: boolean` (C3 landed). Callbacks: `onsend(cmd:
+AppCmd)` (every command; the checks' "fake send"); `onnavigate(target)` with `target` one of
+`'stage'`, `{ library: LibraryTab }`, `{ channel: part }`, `'rack'`, `'effects'`, `'multiPads'`,
+`'settingsAudio'` (the wiring maps each to `ui` or its D32 interim); `onprefs(change)` with
+`{ category } | { favourite: path } | { autoPreview }` (the wiring calls `prefs.setCategory`,
+`toggleFavourite`, `setAutoPreview`); `onquery(q)`; `onclearArmed(on)`; `onopenfile()` (the
+wiring runs the chooser and sends `loadStylePath`); `onkeyrange(n)`. The sub-components take
+the slices of these they draw.
+
 ## Gap against today
 
 | Area | In `app/src` now | Change |
 |---|---|---|
-| Where the browser lives | `panels/browser/Browser.svelte`: a modal `Overlay` over the Launchkey mirror while `ui.browser`; Alt+S and the display's style name toggle it; `lib/keys.ts` binds plain Enter to it (`enter: { app: 'browser' }`); `lib/shortcuts.ts` makes every global key inert while it is open | A Library page: `ui.page = 'library'` with `ui.libraryTab = 'styles'` (BR-D1). `ui.browser` goes (and its `escape()` and `shortcuts.ts` branches); `LibraryTab` gains `'styles'`; `nav.ts`'s Browser entry (`nav.styles`) and the Enter binding open the page (a toggle, as today); the global keys stay live on the page outside text fields |
-| Library frame | `panels/library/Library.svelte`: a tab row (Racks, Sounds, Instruments, Style map), a target part selector, the docked Rack panel and `knobracks` Quick Racks row | The left column of this spec (Kit additions › Library frame): pages as a hairline list, the compact block, the Quick Racks bar. Until the other Library specs land, choosing Sounds, Instruments, Racks or Style map keeps the left column and hosts today's `Library.svelte` (its own tab row included) in the page content box `417,128 975×436` on that tab (D32 interim; BR-D18), so the Styles row is always there to come back by |
+| Where the browser lives | `panels/browser/Browser.svelte`: a modal `Overlay` over the Launchkey mirror while `ui.browser`; Alt+S toggles it and the display's style name opens it; `lib/keys.ts` binds plain Enter to open it (`enter: { app: 'browser' }`); `lib/shortcuts.ts` makes every global key inert while it is open | A Library page: `ui.page = 'library'` with `ui.libraryTab = 'styles'` (BR-D1). `ui.browser` goes (and its `escape()` and `shortcuts.ts` branches); `LibraryTab` gains `'styles'` (C2); `nav.ts`'s Browser entry (`nav.styles`, Alt+S) toggles the page as today, the Enter binding opens it (never toggles, as today); the global keys stay live on the page outside text fields |
+| Library frame | `panels/library/Library.svelte`: a tab row (Racks, Sounds, Instruments, Style map), a target part selector, the docked Rack panel (`panels/quickracks/rackPromptDrawer`), and the Quick Racks bar `panels/quickracks/QuickBar.svelte` | The left column of this spec (Kit additions › Library frame): pages as a hairline list, the compact block, the Quick Racks bar. Until the other Library specs land, choosing Sounds, Instruments, Racks or Style map keeps the left column and hosts today's `Library.svelte` (its own tab row included, its `QuickBar` and docked Rack panel hidden, since the frame has the bar) in the page content box `417,128 975×436` on that tab (D32 interim; BR-D18), so the Styles row is always there to come back by |
 | List logic | `panels/browser/model.ts` (`indexLibrary`, `folderTree`, `visibleRows`, `sectionLamps`, `keepCursor`, `moveCursor`), `prefs.svelte.ts` (favourites, recents, auto preview, category, `localStorage`) | Kept as they are, moved under `app/src/ui/Browser/` or imported from where they are (the lane's call); `visibleRows` gains the tempo and time-signature match (BR-D6); the folder list uses depth-0 nodes only (BR-D7); the Folder cell strips the chosen folder's prefix (BR-D10) |
 | Row | `panels/browser/Row.svelte`, `Lamps.svelte` (the engine's pad LED colours for the lamps, "▶ ‹ ›" marks, a Queued / Next bar button, a 36px row) | The row above: 32px, the kit's tokens (lamps `--t2` / `--track`, no LED colours), the dot and ◀ ▶ in the Track column, the "next bar" tag, the ▶ preview button only (queueing is the row click and the Load button) |
 | Sidebar | `panels/browser/Sidebar.svelte`: All / Favourites / Recent buttons then an indented folder tree | Views move to the zone header's tabs; the folders list is flat (top level) |
@@ -452,13 +469,14 @@ wiring does, passes them down, and maps each callback to its command or interim 
 | Keys | the filter input drives the list (`onkey`); Esc closes the overlay | The same keys; Esc goes back to the Stage; Enter's load returns to the Stage only while stopped (BR-D11) |
 | Open file… | nothing (the API has `loadStylePath`; no chooser in the app) | New: the button and, once C3 lands, the chooser; until then disabled |
 | Half band, keys status row | none (the Stage has the full band; the key strip has a "cheek") | New: Kit additions › Half band and Keys status row |
-| Quick Racks | `panels/knobracks/KnobRackPanel.svelte` (the bar: bank letters, 8 buttons, Store, Clear) | The Quick Racks bar of Kit additions, in the kit's tokens; the same commands |
+| Quick Racks | `panels/quickracks/QuickBar.svelte` (the Library's bar: bank pager, 8 buttons, Store, a ✕ per button; `RackPrompt.svelte` over it for the save and unsaved-changes prompts; `storeHold.ts` the long press) and `panels/knobracks/KnobRackPanel.svelte` (the Stage's row) | The Quick Racks bar of Kit additions, in the kit's tokens, with one Clear arm instead of a ✕ per button; the same commands. The prompts (`liveRack.prompt`, `storeWaiting`'s save) are Prompts' (#504); until it lands today's `RackPrompt` shows over the slots grid as `QuickBar` shows it (BR-D27) |
 | Screenshot tool | `app/scripts/shots.ts`: one 1000 × 600 viewport, no masks | The Stage lane's item (Stage.md › Gap, D39): per-story viewport and masks. This page's board story needs it too; whichever lane builds first lands it |
 
 ## Contract changes needed
 
-C1 blocks the build: without its keys `TipKey` doesn't type-check and the tooltip catalog test
-fails. It lands first, as its own small contract PR. C2–C4 don't block.
+C1 and C2 block the build: without C1's keys `TipKey` doesn't type-check and the tooltip
+catalog test fails; without C2 the Library pages can't choose Styles. They land first, as one
+small contract PR. C3 and C4 don't block.
 
 1. **C1 · Tooltips** (`app/src/help/tooltips.ts`, `app/docs/controls.md`), **lands before the
    build.** New keys: `library.tab_styles` ("Styles": every style in the library, by folder, in
@@ -479,9 +497,9 @@ fails. It lands first, as its own small contract PR. C2–C4 don't block.
    instruments, racks and the style map; the band stays).
 2. **C2 · `ui.libraryTab` gains `'styles'`** (`app/src/lib/store.svelte.ts`, `lib/nav.ts`,
    `lib/keys.ts`, `lib/shortcuts.ts`): the Browser is a Library tab (BR-D1); `ui.browser` and
-   its branches go; the Enter binding and `nav.styles` open the tab. Until it lands the page
-   wiring keeps a local flag and `ui.browser` opens the page. Not a contract file by AGENTS.md's
-   list, but shared with the other Library lanes: it lands with C1. Stage.md D3 and its style
+   its branches go; the Enter binding and `nav.styles` open the tab. Blocks the build (no
+   interim). Not a contract file by AGENTS.md's list, but shared with the other Library lanes:
+   it lands with C1. Stage.md D3 and its style
    line say the name sets `ui.browser = true`; with C2 that reads `ui.page = 'library'` +
    `libraryTab = 'styles'` (a one-line Stage.md edit when C2 lands).
 3. **C3 · File chooser** (`app/src-tauri`: the Tauri dialog plugin and a `pickStyleFile`
@@ -498,15 +516,17 @@ Vitest (`npx vitest run` on `app/src/ui/Browser` and the component tests), each 
 board fixture unless it says otherwise. They read roles, names, attributes, `data-face` /
 `data-hue` and the commands sent (a fake `send`), never computed colours or layout.
 
-1. Rows: nine options in the listbox; their names in order (Unplugged Ballad Pop … Motown Pop
-   Soul); the third (`Coastal Highway`) has `aria-selected="true"` and `data-face="chosen"`, and
+1. Rows: the first nine options in the listbox (the rows in view; the virtualiser also renders
+   up to 8 more below them) are, in order, Unplugged Ballad Pop … Motown Pop Soul; the third
+   (`Coastal Highway`) has `aria-selected="true"` and `data-face="chosen"`, and
    contains the "next bar" tag; the fifth has the loaded dot (`data-hue="ok"`) and no glyph;
    the fourth's Track cell reads "◀", the sixth's "▶"; the row `aria-label` of the third is the
    template's example.
 2. Pure (`model.ts`): `sectionLamps` on each of the nine summaries gives the lamp patterns in
    the fixture; `visibleRows` in Pop & Rock with query "104" returns Sunday Drive Pop (the
    tempo) and Soul Style 104 (the name), "12/8" only Pop Shuffle, "shuffle" only Pop Shuffle,
-   "rock" the two Rock rows (the folder) and the 212 don't all match "8beat"; with category
+   "8beat" only Unplugged Ballad Pop (the folder path "Pop & Rock/8Beat"), "soul" Motown Pop
+   Soul and the 203 Soul fillers (204 rows: the folder path matches, BR-D6); with category
    `recents` the order is `prefs.recents`'s; `folderName(entry, category)` (new, BR-D10) gives
    "8Beat" for row 1 in the folder and "Pop & Rock/8Beat" in All.
 3. Folders: eleven `<button>`s in the nav in library order (Ballad, Ballroom, Country, Dance,
@@ -642,8 +662,11 @@ Touch ride here), between the wordmark and the page tabs:
   separator: the slot follows "Rack" after the gap).
 - **One Touch**, `margin-left: 12px`: Stage.md › Style line › One Touch, unchanged (the group,
   the four 32 × 32 buttons, `recallOts`, `ots.1`…`ots.4`).
-- The tabs keep `margin-left: auto`; the Library tab is chosen (`aria-current="page"`) on every
-  Library page; the Stage tab carries `aria-label="Back to stage"` here.
+- The tabs keep `margin-left: auto`; the Library tab is the one chosen (`aria-current="page"`)
+  on every Library page, including the interim ones that run today's `NAV` entries (kit › App
+  bar, "Tabs before their page exists": while `ui.view` is `library` no other tab counts as
+  open, so Quick Racks isn't chosen on Library › Racks); the Stage tab carries
+  `aria-label="Back to stage"` here.
 
 ### Compact block
 
@@ -654,9 +677,10 @@ part's 16px margin lands where the board has it):
 
 - **Row 1**, 16 tall, items centred, gap 8, no wrap: the style name as an accent block (`size
   compact`: padding 0 6, 13 / 500, line-height 16, `--g` on `--a`, `min-width: 0`, ellipsis;
-  `style.name`; a span, not a button: the Browser is open); `margin-left: auto`, the tempo
-  `transport.tempo` rounded, 18 / 300, line-height 16, `--t`, then "BPM" 12 / 400 `--m` with
-  3px left margin; then the run-state dot (6px): running → `--ok` with `--bg`; stopped with
+  `style.name`; on Library › Styles a span, on every other tall page a text button that opens
+  Library › Styles, BR-D24); `margin-left: auto`, one item holding the tempo `transport.tempo`
+  rounded, 18 / 300, line-height 16, `--t`, and "BPM" 12 / 400 `--m` with 3px left margin
+  (3px between them, not the row's gap); then the run-state dot (6px): running → `--ok` with `--bg`; stopped with
   `syncStart` → a hollow 1px `--ok` ring; stopped → `visibility: hidden` (space kept). `role="img"`,
   `aria-label` "Running" / "Sync start" / "Stopped".
 - **Row 2**, 12 below, 48 tall, items on the baseline, gap 14, no wrap: the chord at 48 / 300,
@@ -731,14 +755,18 @@ board's `gap: 4px` plus the grid's `margin-top: 4px`):
   | `empty` | `rack` null | none | "Empty" `--m` | `--d` | `inset 0 0 0 1px var(--d)` |
   | `off` (stored) | a rack, not loaded | `--btn` | `name` `--t` | `--m` | `--stored-ring` |
   | `chosen` (loaded) | `loaded` | `--t` | `--g` | `color-mix(in srgb, var(--g) 55%, transparent)` | glow at `--slot-glow-mix` |
-  | `waiting` | Store armed (every slot, in `--lamp`), `storeWaiting` = this slot (steady, `--lamp`), or Clear armed (stored and loaded slots, in `--ending`) | as its face | as its face | as its face | `1px solid <hue>` in place of the edge; Store armed: flashing on the LED clock as a Next pad's border |
+  | `waiting` | Store armed (every slot, in `--lamp`), `storeWaiting` = this slot (steady, `--lamp`), or Clear armed (stored and loaded slots, in `--ending`) | kept from its face (`--t`, `--btn` or none) | kept | kept | `1px solid <hue>` replaces the edge or glow; Store armed: flashing on the LED clock as a Next pad's border |
 
-  A `missing` slot wears `off` with the name in `--warn` after an 11px ⚠. Click: `pressQuickRack
+  A `missing` slot (`missing` true; its `name` is empty, types.ts) wears `off` with "Missing" in
+  `--warn` after an 11px ⚠; its `aria-label` is "Quick Rack A3, rack missing". Click: `pressQuickRack
   { slot }` (with Store armed the session stores; with Clear armed the screen sends
   `clearQuickRack` instead). Long press (350 ms) or right-click: `storeRack { slot }` (one-step
   capture; nothing while `readOnly`). Tooltips `quick.1`…`quick.8`. `aria-label` "Quick Rack
-  {A1}, {name | empty}{, loaded}{, rack missing}". Launchkey: the Racks pad page's top row;
+  {A1}, {name | empty | rack missing}{, loaded}". Launchkey: the Racks pad page's top row;
   hold Sound + a pad = `storeRack`. Every slot is focusable (an empty one is a store target).
+  The prompts a press can raise (`liveRack.prompt` for unsaved changes, the name prompt behind
+  `storeWaiting`) are Prompts' (#504); until it lands, today's `panels/quickracks/RackPrompt.svelte`
+  is shown over the slots grid, as `QuickBar.svelte` shows it (BR-D27).
 
 ### Half band
 
@@ -773,8 +801,8 @@ below) a 132-tall column: the strips row (84), the lamp-row headers (14), and th
     11px (the dot 5px). Clicks as kit › Faders.
 - **Lamp-row headers** `24,728 614×14`: as kit › Lamp row at 12px, line-height 12, bottom
   hairline.
-- **Lamp row** `24,744 614×32`: kit › Lamp row, unchanged (LampButton `cell`, 12px labels, the
-  divider after column 4).
+- **Lamp row** `24,744 614×32`: kit › Lamp row, unchanged (LampButton `cell` as it exists, 13px
+  labels: the board's 12px is a drift and the component wins; the divider after column 4).
 
 #### Track
 
@@ -814,9 +842,10 @@ padBankDown]`); "Bank" 13 `--m` with `{pads.pageNumber}/{pads.pageCount}` `--t`.
   start" and "Sync stop" in sentence case, each followed (3px) by a CSS shape in `currentColor`:
   "Sync start" by ▶, a 6 × 7 triangle (`border-left: 6px solid; border-top and -bottom: 3.5px
   solid transparent`); "Sync stop" by ■, a 6 × 6 square; "Auto fill"; "Start" for Start / Stop,
-  running or not (the face says which). Other pages: the fallback (Stage.md D33) at this size.
-  `aria-label` as the kit's, with the kit's captions ("Start / Stop (pad 16), playing"; "Sync
-  Start (pad 4)"), action and tooltips as the kit.
+  running or not (the face says which). No group lines and no legend at this size. Other
+  pages: the fallback (Stage.md D33) at this size. `aria-label` as the kit's, with the kit's
+  captions ("Start / Stop (pad 16), playing"; "Sync Start (pad 4)"), action and tooltips as the
+  kit.
 
 #### Transport (half)
 
@@ -832,10 +861,11 @@ tempo. `aria-label`s: "Start / Stop" (+ ", running"), "Stop", "Section reset", "
 ### Keys status row
 
 `24,796 1392×20` on a tall page, items centred, gap 16, no wrap, then the key strip 4px below
-(`24,820 1392×56`, kit › Key strip). Left to right, each item one text 13 / 400: a label in
-`--m`, a normal space, then its value in `--t` unless said otherwise:
+(`24,820 1392×56`, kit › Key strip). Left to right, the status line, then items that are each
+one text 13 / 400: a label in `--m`, a normal space, then its value in `--t` unless said
+otherwise:
 
-- The **status line** (kit › Status line), `flex: 1`, `min-width: 0`.
+- The **status line** (kit › Status line: 14px, line-height 20), `flex: 1`, `min-width: 0`.
 - **Split** "Split" + the split key's name: `keyboard.leftSplit` as Yamaha pitch (C3 = 60,
   sharps): "F#2" for 54. Tooltip `keystrip.split`. Not a control here.
 - **Detect** "Detect" + "lower" (`keyboard.detection` = `[0, split]`), "upper" (`[split + 1,
@@ -863,6 +893,8 @@ tempo. `aria-label`s: "Start / Stop" (+ ", running"), "Stop", "Section reset", "
   half-band markup is identical).
 - **BR-D3 · Build order.** This spec assumes the Stage's contract (its tooltip keys, the kit
   tokens, `longpress`, the shots.ts masks) is in; if the Browser is built first it lands them.
+  `ui.page` (Stage.md D2) is not on that list: this page uses `ui.view` and never adds
+  `ui.page`.
 - **BR-D4 · One category.** The views (All, Favourites, Recent) and the folders are one choice
   (`prefs.category`): choosing one deselects the other. The header names it. Remembered on this
   computer (as today).
@@ -903,8 +935,9 @@ tempo. `aria-label`s: "Start / Stop" (+ ", running"), "Stop", "Section reset", "
 - **BR-D17 · Chosen text in light.** `--g` (`#f2f1ee`), the kit's chosen face, where the light
   board's script painted `#ffffff`; under the diff threshold.
 - **BR-D18 · Other Library pages until their specs land.** Choosing Sounds, Instruments, Racks
-  or Style map shows today's `Library.svelte` on that tab in place of the whole page (the
-  kit's interim rule); the Styles row brings this page back.
+  or Style map keeps the Library frame (the left column) and hosts today's `Library.svelte` on
+  that tab in the page content box, with its own Quick Racks bar and docked Rack panel hidden
+  (the kit's interim rule); the Styles row brings this page back.
 - **BR-D19 · Clear is app-only.** ✕ arms a screen-side clear; the next press on a stored or
   loaded slot sends `clearQuickRack`. Store is the session's (`quickRacks.store`). One of them
   is armed at a time (arming one disarms the other). Both show as the waiting face, Store in
@@ -927,6 +960,15 @@ tempo. `aria-label`s: "Start / Stop" (+ ", running"), "Stop", "Section reset", "
   follow the machine's locale.
 - **BR-D26 · Error rows stay.** Unreadable files are listed (the engine lists them) with their
   reason, can be starred and filtered, never load; Track skips them (the engine does).
+- **BR-D27 · Rack prompts.** The prompts a Quick Rack press raises belong to Prompts (#504);
+  until then today's `RackPrompt` shows over the slots as the Library's bar shows it.
+- **BR-D28 · Channel from a tall page.** The D32 interim for Channel (today's `ChannelView` in
+  the display's place) has no display here: a half-band strip name, Shift-click on a part
+  lamp or the health slot's "R3 failed" go back to the Stage and open `ChannelView` there
+  (`ui.view = 'stage'`, then `panels/channel/nav.svelte.ts` `show(part)`). The other D32
+  targets are drawers and open over this page as they are: the rack readout the Rack drawer,
+  the Master name the Effects drawer, the Multi Pad name its drawer, the health slot's audio
+  rows the Settings drawer on Audio; the Metronome caret stays disabled.
 
 ## Follow-ups
 
