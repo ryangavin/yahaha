@@ -168,7 +168,7 @@
   }
   .tab {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     box-sizing: border-box;
     height: var(--tab-h);

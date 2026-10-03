@@ -2,7 +2,6 @@
 
 :root {
   /* Palette: the keys' tints (Stage-Dark.dc.html's key script; the light ones are ours). */
-  --grey-18: #2e2e2e; /* a right-zone black key's ring, dark */
   --teal-950: #0d1a17; /* a left-zone white key, dark */
   --teal-900: #1d3a33; /* a left-zone black key's ring, dark */
   --teal-100: #d6e7e2; /* a left-zone white key, light */
@@ -25,6 +24,15 @@
   --keys-zone-line: 2px; /* the left zone's top line */
   --keys-label-bottom: 6px; /* a C label's distance from the bottom */
   --keys-label-line: 14px;
+
+  /* The Stage screen: the 1440 × 900 artboard, its padding and the gaps between its rows. */
+  --screen-width: 1440px;
+  --screen-height: 900px;
+  --screen-pad: 24px;
+  --stage-gap-row: 8px; /* app bar to section row */
+  --stage-gap-display: 12px; /* section row to display */
+  --stage-gap-band: 20px; /* display to band, and band to keys (the status line sits in it) */
+  --band-gap: 12px; /* between the band's columns */
 }
 
 [data-theme='dark'] {
