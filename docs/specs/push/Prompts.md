@@ -30,14 +30,15 @@ the prompts sit over whatever page is up.
 
 ## Layout
 
-At 1440 × 900. The overlay is two sibling nodes mounted at the end of `App.svelte`, both
-`position: fixed; inset: 0` (no transformed ancestor: they are outside the Stage.md D1
-scaler, which wraps only the Stage), bottom to top:
+At 1440 × 900. The overlay is two sibling nodes mounted at the end of `App.svelte`, the
+scrim and a `position: fixed; inset: 0` wrapper that holds the layer (no transformed
+ancestor: they are outside the Stage.md D1 scaler, which wraps only the Stage), bottom to
+top:
 
 | Region | Box | What's in it | Spec |
 |---|---|---|---|
 | Scrim | the whole window, `z-index: 79` | one flat colour, `--scrim` (new token) | Scrim |
-| Layer | a 1440 × 900 box scaled with the D1 maths (`scale = min(w / 1440, h / 900)`, centred, `transform-origin: top left`), `z-index: 80`, `pointer-events: none` except on its contents | the status line and the dialog | below |
+| Layer | inside the wrapper (`z-index: 80`, `pointer-events: none`): a 1440 × 900 box, `position: absolute; left: 0; top: 0`, scaled with the D1 maths (`scale = min(w / 1440, h / 900)` from the window's inner size, `transform: translate((w − 1440·scale) / 2, (h − 900·scale) / 2) scale(scale)`, `transform-origin: top left`), `pointer-events: none` except on its contents (`pointer-events: auto` on the status line and the dialog) | the status line and the dialog | below |
 | Status line (in the layer) | `24,800 1392×20` | `state.message`, drawn over the scrim | kit › Status line, Kit additions |
 | Centring box (in the layer) | `0,0 1440×800`, `display: grid; place-items: center` | the one prompt, centred by this box (the Dialog has no position of its own) | Dialog panel, Prompts |
 | Dialog (in the centring box) | `500,y 440×h` (`y = (800 − h) / 2`) | the one prompt | Dialog panel, Prompts |
@@ -126,9 +127,16 @@ there; `actions` holds the Button row's buttons). A column:
   as a 32-tall Button `md` (padding 0 14, 14px, radius 4): the **cancelling** action in the
   off face (`--btn`, `--t2`, 400); the **primary** action (the one Enter runs, and the
   default focus when there is no field) in the chosen face (`--t` fill, `--g` label, 500);
-  a **destructive** action in the off face with its label in `--ending`, 400 (PR-D4). Order,
-  left to right: cancelling, destructive, primary; where the cancelling action is the
-  default (Delete) it wears the primary face and comes first, the destructive last.
+  a **destructive** action in the off face with its label in `--ending-ink` (new token, Kit
+  additions: the ending red as text on `--btn`; dark `#d87070`, 5.6:1 on `--btn`, light
+  `var(--ending)`, 4.6:1; `--ending` itself is 4.3:1 in dark and fails AA, PR-D31), 400
+  (PR-D4). Order, left to right: cancelling, destructive, primary; where the cancelling
+  action is the default (Delete) it wears the primary face and comes first, the destructive
+  last. **Button's API** (Stage.md #3 gives only its variants): props `variant`, `tone`,
+  `disabled: boolean` (renders the kit's Disabled face: `aria-disabled`,
+  `data-face="disabled"`, the label `--d`, `data-hue="d"`, still focusable, click and keys
+  ignored), `tip: TipKey`, `label: string`, `onclick()`; every other attribute (`aria-label`,
+  `data-cancel`, `type`) passes through to the `<button>` (`{...rest}`).
 - **Disabled primary** (a field empty, or Rename unchanged): the chosen face it would have
   with its label in `--d`, `aria-disabled="true"`, `data-face="disabled"`, still focusable
   (kit › Faces, Disabled); Enter in a field then does nothing.
@@ -140,11 +148,16 @@ there; `actions` holds the Button row's buttons). A column:
   (`aria-disabled`, `data-face="disabled"`, the label `--d`) and Enter in a field does nothing,
   until the next state arrives or it unmounts, so a double click never sends twice (a second
   `toggleQuickRackStore` would re-arm Store). "The next state": the wiring re-runs `pickPrompt`
-  on every state event (`app.state` is replaced whole on each one, `app/src/lib/app.svelte.ts`;
+  on every state event (the root `app.state` object is replaced on each one,
+  `app/src/lib/store.svelte.ts` `AppStore.apply`; `share()` keeps unchanged subtrees, so it's
+  the root that is new;
   `pickPrompt` returns fresh objects), so the prompt's data props get a new identity; an
   `$effect` on them re-enables the buttons. A refusal is a state event (`message` changes), so
-  a refused save re-enables Store's buttons for a retry. The app-only prompts (Delete, Rename)
-  call `onclose` right after their send instead, so they just close.
+  a refused save re-enables Store's buttons for a retry. While disabled this way, a
+  destructive button's label is `--d` too and its `data-hue` is `d` (the hue follows the
+  drawn colour, kit D41); Esc presses the disabled Cancel, which sends nothing, and the
+  overlay still calls `onescape`. The app-only prompts (Delete, Rename) call `onclose` right
+  after their send instead, so they just close.
 
 **Props (every prompt component).** Its data (per prompt below), `send(cmd: AppCmd)` for
 each command named, `onclose()` (the app-only prompts only, Delete and Rename: called when
@@ -174,7 +187,10 @@ a `tick()`) to the first `<input>` in the dialog (its text selected), else to th
 `data-face="disabled"` button. Tab and Shift+Tab cycle inside the
 dialog (a focus trap: the overlay listens for `keydown` on `window` in the capture phase
 and wraps Tab from the last focusable to the first and back, fields in order, then the
-buttons left to right; nothing outside is reachable). Enter in a field is the field's own
+buttons left to right; nothing outside is reachable; `mousedown` on the dialog's
+non-focusable parts, its text and padding, is `preventDefault`ed like the scrim's, so a
+click there never drops focus to `body`, and if focus is outside the dialog anyway when Tab
+is pressed, it goes to the dialog's first focusable). Enter in a field is the field's own
 (`NameField` calls `onenter`, the prompt runs its primary action when enabled; it works with
 or without the overlay, so a prompt's test can press it alone); Enter or Space on a button
 runs that button. Esc presses the `data-cancel` button
@@ -241,8 +257,8 @@ slot label (`quickLabel(bank, i)`: "A1"…"A8") 13 / 500, line-height 16. Faces 
 | Empty | `rack` null | `--btn` | none | `--d` | `off` |
 | Waiting (the slot asked for) | `i === storeWaiting` | `--btn` | 1px `--t` (padding becomes `5px 0 0 6px`) | `--t`, plus "here" 11 / 400, line-height 14, `--t2`, `position: absolute` at left 6, bottom 4 inside the border (7 and 5 from the cell's edge) | `waiting` |
 
-The rows are in rank order from the bottom: the waiting cell outranks the others (a stored
-slot being stored over still reads "here"), and loaded outranks missing (the live rack whose
+The When column is exclusive, read with this rank: the waiting cell outranks the others (a
+stored slot being stored over still reads "here"), then loaded outranks missing (the live rack whose
 file is gone, `src/session/quick_racks.rs` sets both; it reads "loaded" and the Store body
 says the file is gone, PR-D27). The waiting cell's drawing (`--btn` fill with a `--t` edge)
 is not the kit's Waiting face (transparent); it is the bank row's own, a named exception
@@ -254,8 +270,10 @@ again (PR-D25). `aria-label`
 template: "Bank {letter}: " then the cells grouped into runs of the same state, each run
 "{first} {state}" or "{first} to {last} {state}" with the states "loaded", "stored",
 "missing", "empty" and the waiting cell "chosen", joined by ", " ("Bank A: A1 to A4 stored,
-A5 chosen, A6 to A8 empty"). A pure function `bankRowLabel(bank, buttons, waiting)`. Not a
-control; no tooltip.
+A5 chosen, A6 to A8 empty"). A pure function `bankRowLabel(bank, buttons, waiting)`. The
+cells are `aria-hidden="true"` (the row's `aria-label` is the whole reading, and an empty
+cell's `--d` label is under AA on `--btn`, 2.1:1, as the kit's dimmed text is everywhere;
+axe skips hidden text). Not a control; no tooltip.
 
 ## Prompts
 
@@ -285,8 +303,9 @@ A prompt's name comes from the state, never from what the opener remembered: Sto
 rack's name and the slot from `liveRack` and `quickRacks`; Unsaved from `liveRack.prompt.then`;
 Delete and Rename find the `racks` entry whose `id` is theirs (`racks` is a list; "the rack"
 below means that entry; none: `pickPrompt` returns null for it, and the wiring's `$effect`
-sets `ui.prompt = null` when `ui.prompt` is set and `pickPrompt` gave null for its kind,
-so the prompt closes, PR-D10).
+sets `ui.prompt = null` whenever `ui.prompt` is set and no `racks` entry has its `id` (the
+wiring checks `racks` itself, since `pickPrompt` reports only the top prompt and a session
+prompt may be over the app's), so the prompt closes, PR-D10).
 
 ### Store (A)
 
@@ -306,7 +325,7 @@ single-prompt fixture (Board fixture). Data props: `bank`, `buttons` (the eight
 | Body, saved and modified (`rack.id` set, `modified`) | `rack.name` | "An armed tap waits for Save while the live rack is modified or never saved. {name} has unsaved changes, so it is saved first. Storing over a stored slot doesn't ask: the rack it held stays in your racks." with the name in `--t` |
 | Body, saved, unmodified (`rack.id` set, not `modified`: its file is gone, the one other reason the session waits) | `rack.name` | the same with the middle sentence "{name}'s saved rack is gone, so it is saved again." (PR-D27) |
 | Bank row | `quickRacks` | Bank row above |
-| Name field, never saved only | `rack.name` | label "Rack name"; value `rack.name` ("New rack" for a new one; PR-D12); tooltip `quick.save_name` |
+| Name field, never saved only | `rack.name` | label "Rack name"; value `rack.name` ("New rack" for a new one; PR-D12); tooltip `quick.save_name`; the input's `aria-label` "Rack name" |
 | Cancel | — | off face, `data-cancel`; sends `toggleQuickRackStore` (Store disarms and the waiting button is let go, as the API says; the board's "leave Store armed" is wrong, PR-D13); tooltip `quick.cancel_store` |
 | Save and store | the field | primary; never saved: `saveRackAs { name }`; saved: `saveRack`. The session stores the saved rack on the waiting button itself. Tooltip `quick.save` (retitled by C1) |
 
@@ -330,7 +349,7 @@ changes. Data props: `rack: { name, id }` (from `liveRack`), `then` (`RackSwitch
 | Title | `rack.name` | "Unsaved changes in {name}" |
 | Body | `then` | `load`: "Save them before switching to {then.name}?"; `new`: "Save them before starting a new rack?"; the name in `--t` |
 | Note (12px) | `rack.name` | "Only the screen asks. The Launchkey, pedals and OTS Link switch at once and keep the edits as Recovered: {name}, a rack of yours in Library › Racks." with "Recovered: {name}" in `--t` (three lines at 390px for the fixture; PR-D14: the board's wording named One Touch and Quick Rack pads as never asking; from the screen they do, until Stage.md C2) |
-| Name field, never saved only (`rack.id` null) | `rack.name` | label "Rack name", value `rack.name`; tooltip `rack.save_as_name` (PR-D12) |
+| Name field, never saved only (`rack.id` null) | `rack.name` | label "Rack name", value `rack.name`; tooltip `rack.save_as_name` (PR-D12); the input's `aria-label` "Rack name" |
 | Keep editing | — | off face, first, `data-cancel`; sends `dismissRackPrompt`; tooltip `rack.keep_editing` |
 | Discard and switch | `then` | destructive, second, the label the same for `new` (only the aria-label changes); `load`: `loadRack { id: then.id, discard: true }`; `new`: `newRack { discard: true }`; tooltip `rack.discard_switch` |
 | Save first | the field | primary, last; `rack.id` set: `saveRack`; null: `saveRackAs { name }`. The session holds the switch and makes it once saved (through the Sound names prompt if one comes); the app never sends the switch itself. Tooltip `rack.save_first` |
@@ -416,7 +435,7 @@ Data props: `rack: { id, name }`.
 | Part | Reads | Text / face |
 |---|---|---|
 | Title | `rack.name` | "Rename {name}" |
-| Name field | `rack.name` | label "Rack name", value the name; tooltip `library.rack_rename_name` (new) |
+| Name field | `rack.name` | label "Rack name", value the name; tooltip `library.rack_rename_name` (new); the input's `aria-label` "New rack name" |
 | Cancel | — | off face, `data-cancel`; calls `onclose`; tooltip `library.rack_rename_cancel` (new) |
 | Rename | the field | primary; sends `renameRack { id, name }` then calls `onclose`; disabled while empty or unchanged (trimmed value equals the name); tooltip `library.rack_rename` (new) |
 
@@ -487,8 +506,8 @@ in (PR-D1). So the fixture is in two parts, both in `app/src/ui/Prompts/Prompts.
     `app/src/lib/api/mock-plugins.ts`; so the origin reads "Factory") and `plugin` `{ id:
     "aumu Smp7 Fake", name: "Sampler Deluxe", manufacturer: "Fake Instruments", status:
     "playing", stage: null, error: null, outOfProcess: true, inProcessFallback: false, cpu:
-    0.02, overruns: 0, recentOverruns: 0, editor: true, preset: "Rhodes Soft", presetKey:
-    "f:12" }` (the session asks names only for an edited plugin sound, so the part plays one;
+    0.02, overruns: 0, recentOverruns: 0, editor: true, missing: false, preset: "Rhodes
+    Soft", presetKey: "f:12" }` (every required `PartPlugin` field, `app/src/lib/api/types.ts`) (the session asks names only for an edited plugin sound, so the part plays one;
     `pickPrompt` reads only `sound` and `voiceName`). Props: `parts`
     `[{ part: 0, partName: "Right 1", suggested: "Rhodes Soft", origin: "Factory" }]`,
     `saveAs` null; the story's `values` `["Rhodes Soft 2"]` (the board's; the component's
@@ -521,8 +540,8 @@ the boxes in this spec. Kit and Stage names are reused; new ones are marked.
 
 | # | Component | Kind | Built from | Exists | Board lines (dark / light) | Spec |
 |---|---|---|---|---|---|---|
-| 0 | tokens | — | — | yes; add `--scrim`, `--dialog-edge` | 398, 407 / 390, 399 | Kit additions |
-| 1 | Button (Stage.md #3) | primitive | longpress | no | 428–429, 439–441, 457–458, 467–468 / −8 | kit › Faces; add `tone: 'primary' \| 'destructive'` (Kit additions) |
+| 0 | tokens | — | — | yes; add `--scrim`, `--dialog-edge`, `--ending-ink` | 398, 407 / 390, 399 | Kit additions |
+| 1 | Button (Stage.md #3) | primitive | longpress | no | 428–429, 439–441, 457–458, 467–468 / −8 | kit › Faces; add `tone: 'primary' \| 'destructive'` (Kit additions); its API in Dialog panel › Actions |
 | 2 | StatusLine (Stage.md #15) | primitive | — | no | 401 / 393 | kit › Status line; Kit additions (over the scrim) |
 | 3 | Scrim (new) | primitive | — | no | 398 / 390 | Scrim |
 | 4 | NameField (new) | primitive | — | no | 420–426, 449–455 / 412–418, 441–447 | Dialog panel › Name field |
@@ -534,7 +553,7 @@ the boxes in this spec. Kit and Stage names are reused; new ones are marked.
 | 10 | DeleteRackPrompt (new) | complex | Dialog | no | 463–470 / 455–462; crop `732,452 440×198` | Prompts › Delete |
 | 11 | RenameRackPrompt (new) | complex | Dialog, NameField | no | not on the board | Prompts › Rename |
 | 12 | PromptOverlay (new) | complex | Scrim, StatusLine, Dialog | no | 397–404, 471–472 / 389–396, 463–464 | Layout, Scrim, keyboard and focus |
-| 13 | Prompts (page overlay, `Pages/Prompts`) | complex | PromptOverlay, the five prompts | no | whole board | this file |
+| 13 | Prompts (`app/src/ui/Prompts/`: no component file; `Prompts.fixtures.ts`, `Prompts.stories.svelte` with the `Pages/Prompts` › `Board` story, `crops/` and SPEC.md) | — | PromptOverlay, the five prompts, Stage | no | whole board | this file |
 
 Components take props and call callbacks (`send`, `onclose`, Dialog panel › Props); none
 reads `app.state` or `app.send`. The wiring (`app/src/pages/PromptsWiring.svelte`, outside
@@ -654,9 +673,15 @@ layout.
    button; with `hidden` it has `aria-hidden="true"` and `data-hidden` (its CSS,
    `visibility: hidden`, is a story's to show: jsdom applies no component CSS). `Stage` with
    `statusHidden` passes it through.
-10. Every interactive element has a `data-tip` in the catalog (the existing tooltip test).
+10. Every interactive element has a `data-tip` in the catalog: `app/src/help/coverage.test.ts`
+    gains a STATES entry for each session prompt and for Delete (`storeState`, `unsavedState`,
+    `soundNamesState`, `deleteState` applied to the store, `ui.prompt` set for Delete), so
+    its `untipped(document.body)` check covers them in the App; Rename, which the App can't
+    open yet (PR-D18), gets `untipped()` run over its rendered component in the Rename test
+    (check 7).
 11. Light tokens (a text test over `app/src/ui/tokens/light.css`): `--scrim` is
-    `rgba(242, 241, 238, 0.72)` and `--dialog-edge` is `var(--t)`.
+    `rgba(242, 241, 238, 0.72)`, `--dialog-edge` is `var(--t)` and `--ending-ink` is
+    `var(--ending)`; over `dark.css`, `--ending-ink` is `#d87070`.
 
 **Story and screenshot checks** (real Chrome; `app/scripts/shots.ts` shoots one component
 folder per run, with crops at `app/src/ui/<Name>/crops/<Story>-<theme>.png`, so each line
@@ -694,7 +719,7 @@ below is its own `npm run shots -- <Name>` and its own crop files):
 - `Components/StorePrompt` › `Saved`, `Components/UnsavedChangesPrompt` › `New` and
   `NeverSaved`, `Components/SoundNamesPrompt` › `TwoParts`, `Components/DeleteRackPrompt` ›
   `NothingHeld`, `Components/RenameRackPrompt` › `Rename`, `Components/NameField` › `Empty`
-  (the invalid state) and `Focused` (`parameters.pseudo: { focus: true }`, the pseudo-states
+  (the invalid state) and `Focused` (`parameters.pseudo: { focusVisible: true }`, the pseudo-states
   addon as `docs/factory/spec-template.md` asks: it shows that a focused field draws no ring,
   PR-D6; the caret and selection need real focus, which `shots.ts` drops before a shot, so
   they are seen in Storybook by Inspect, with the story's play function focusing the input):
@@ -717,7 +742,7 @@ below is its own `npm run shots -- <Name>` and its own crop files):
   holds the question until it's answered, and an accidental dismiss would send a command
   (Keep editing, Cancel) the player didn't mean.
 - **PR-D4 · Three action tones.** Cancelling = off face; primary = chosen face, 500;
-  destructive = off face with an `--ending` label at 400 (the board draws Discard at 400 and
+  destructive = off face with an `--ending-ink` label (PR-D31) at 400 (the board draws Discard at 400 and
   Delete at 500; one weight for one meaning). Button gains `tone`.
 - **PR-D5 · Keyboard.** Focus trap, first field else primary, Enter = primary, Esc =
   cancelling action, the window key handler off while a prompt is up (`ui.modal`), focus
@@ -794,6 +819,14 @@ below is its own `npm run shots -- <Name>` and its own crop files):
   face: the row is a picture of the bank, not a control, and a transparent cell would
   vanish against the dialog's `--g`. Named as a kit exception; `data-face="waiting"` still
   says what it means. A loaded rack whose file is gone reads loaded, not missing.
+- **PR-D31 · Destructive label colour.** `--ending` on `--btn` is 4.3:1 in dark, under AA,
+  so axe would flag Discard and Delete. A new token `--ending-ink` (dark `#d87070`, light
+  `var(--ending)`) is the ending red as text on a button face; `data-hue` stays `ending`.
+- **PR-D32 · This lane's edits.** Every row of the gap table is this lane's work (the old
+  Store strip, the Rack drawer's prompts, Library's inline delete confirm, the modal flag in
+  `store.svelte.ts`, `shortcuts.ts`, `MasterFx.svelte`, `App.svelte`, `coverage.test.ts`
+  and the tests of what it removes), plus the Stage additions in "Before building". The
+  contract files (C1) are not.
 - **PR-D30 · Masked text in the shots.** The body and note of every dialog are masked in
   the screenshot checks: the spec rewords Store's body (PR-D11) and the Unsaved note
   (PR-D14) to what the API does, so their glyphs can't match the board's. Their line counts
@@ -815,10 +848,12 @@ below is its own `npm run shots -- <Name>` and its own crop files):
 
 For kit.md (not edited here):
 
-- **Tokens:** `--scrim` (dark `rgba(0, 0, 0, 0.62)`, light `rgba(242, 241, 238, 0.72)`) and
-  `--dialog-edge` (dark `color-mix(in srgb, var(--t) 40%, transparent)`, light `var(--t)`).
+- **Tokens:** `--scrim` (dark `rgba(0, 0, 0, 0.62)`, light `rgba(242, 241, 238, 0.72)`),
+  `--dialog-edge` (dark `color-mix(in srgb, var(--t) 40%, transparent)`, light `var(--t)`)
+  and `--ending-ink` (dark `#d87070`, light `var(--ending)`: the ending red as text on
+  `--btn`, PR-D31).
 - **Button:** a `tone` prop, `'primary'` (chosen face, 500) and `'destructive'` (off face,
-  `--ending` label), beside the `md` variant.
+  `--ending-ink` label), beside the `md` variant; its API (Dialog panel › Actions).
 - **Status line, over a prompt:** while a prompt is up the status line is drawn above the
   scrim (the overlay renders it) and is inert: plain text, no `clearMessage` button, not
   focusable (PR-D23). `StatusLine` gains two props: `inert` (the text with no button) and
