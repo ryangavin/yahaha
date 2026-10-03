@@ -61,20 +61,28 @@ inside the border), one row, gap 24, no wrap:
 The Effects zone is `role="region"` `aria-label="Effects"`. Its body is one row, gap 24: the
 **Send list** `418,177 260×218` and the **Open bus** `702,177 689×218`.
 
-**Which bus is shown** (`shownBus`, a pure function of `ui.effectsBus` and `effects.sends`,
-FX-D2, FX-D23): `ui.effectsBus` when it is a send index that exists; `'master'` when it is
-`'master'` and the Master editor is built (#519); otherwise 0. The list's chosen row and the
-editor always agree: both are `shownBus`. So after Add send sets `ui.effectsBus` to the new
-index, row 1 stays chosen until the new send arrives; if the add is refused (`message` says so)
-it stays on send 1 until a send with that index exists or another row is clicked.
+**Which bus is shown** (`shownBus(bus, rows, masterBuilt)`, pure, in
+`app/src/ui/Effects/shownBus.ts`; FX-D2, FX-D23): `bus` is `ui.effectsBus`, `rows` the number of
+send rows the list draws (`effects.sends.length`, or 3 when the rows come from the blocks,
+FX-D3), `masterBuilt` whether the Master editor exists (#519). It returns `bus` when it is an
+index below `rows`; `'master'` when `bus` is `'master'` and `masterBuilt`; otherwise 0. The
+list's chosen row and the editor always agree: both are `shownBus`. So after Add send sets
+`ui.effectsBus` to the new index, row 1 stays chosen until the new send arrives; if the add is
+refused (`message` says so) it stays on send 1 until a send with that index exists or another
+row is clicked.
 
 **Props and callbacks.** Components take state slices as props and report through callbacks;
-none reads `app.state` or calls `app.send`. The page component `Effects` takes `state`
-(`AppState`), `now`, `receivedMs`, `meterHolds`, `effectsBus` and the callbacks `send(cmd:
-AppCmd)`, `onopen(bus: number | 'master')`, `onchannel(part: number)` (the Channel opener),
-`onbrowser()`, `onrack()` and `onpage(page)`; the sub-components below take the slice they draw
-and the same callbacks, passed down. The checks drive the page with a fake `send` and fake
-openers.
+none reads `app.state`, `ui` or calls `app.send`. The page component `Effects` takes everything
+the `Stage` page takes (the same set, so the shared regions are the same code: `state`
+(`AppState`), `now`, `receivedMs`, `meterHolds`, `shift` (`ui.shift`), `keyRange`
+(`ui.keyRange`), `help` (`tips.help`), `dropouts` (the `DropoutWatch` reading), and the openers
+`onchannel(part)`, `onrack()`, `onbrowser()`, `onsound(part)`, `onsettings(tab)`, `onhelp()`,
+`onpage(page)`), plus `effectsBus` (`ui.effectsBus`), `masterBuilt` (a constant in the wiring,
+`MASTER_BUS_BUILT`, false until #519) and `onopen(bus: number | 'master')`. `send(cmd: AppCmd)`
+is the one command callback. On this page the master strip's name calls `onopen('master')` and
+the Multi Pad strip's name `onpage('multiPads')`, as Stage.md D32 lists them. The
+sub-components below take the slice they draw (named in each section) and the callbacks they
+need, passed down. The checks drive the page with a fake `send` and fake openers.
 
 ### Effects header
 
@@ -96,13 +104,13 @@ centred, gap 12, no wrap. The first two items are text; the rest sit at the righ
 | EQ type | text button, 14 / 300 `--a`, 32 tall, padding 0 | the name of `effects.master.eq.preset` (`flat` "Flat", `mellow` "Mellow", `bright` "Bright", `loudness` "Loudness", `powerful` "Powerful"), nothing else (the board's "8 bands" is not drawn, FX-D14; the button carries `data-shot-mask="eq-type"`); the edited dot as the comp type's when `eq.edited` | as Comp type | `fx.master_eq_type` | — |
 
 `aria-label`s: Style inserts "Style insertion effects: all on" / "all off"; Parts "Style inserts
-per part: on/off and amount. Opens Channel for {part name}" ("Style inserts per part: no part
-has an insert" when disabled); Rotary fast "Rotary fast, on" / "Rotary fast, off"; Master comp
+per part: on/off and amount. Opens Channel for {`inserts[0].partName`}" ("Style inserts per
+part: no part has an insert" when disabled); Rotary fast "Rotary fast, on" / "Rotary fast, off"; Master comp
 "Master compressor on" / "off"; Comp type "Master compressor type: {Name}{, edited}. Opens the
 Master bus"; Master EQ "Master EQ on" / "off"; EQ type "Master EQ type: {Name}{, edited}. Opens
 the Master bus". `effects.master` absent (an older state from the Rust side; `types.ts`
-declares it required, so the test casts): both lamps off, the type buttons read "Natural" and
-"Flat".
+declares it required, so the test casts): both lamps off (a click sends `{ on: true }`), the
+type buttons read "Natural" and "Flat".
 
 ### Send list
 
@@ -124,12 +132,12 @@ air.
   |---|---|---|
   | Numeral | JetBrains Mono 11, `--d` | `send + 1` |
   | Name | 14 / 400, line-height 16, `--t`, no wrap | sends 1–3: the bus name "Reverb", "Chorus", "Delay" (FX-D4); 4–6: `name` (the kind's name, "Phaser") |
-  | Subtitle | 12 / 400, line-height 14, `--m`, no wrap, ellipsis | sends 1–3: "{type} · {source}": `type` is the block's `effectName` with the delay's shortened as FX-D8 ("Hall", "Celeste", "1/8"); `source` is "Mine" when the block's `followStyle` is false, else "From style". Sends 4–6: "Added send" |
+  | Subtitle | 12 / 400, line-height 14, `--m`, no wrap, ellipsis | sends 1–3: "{type} · {source}": `type` is `typeLabel(effectName)` (FX-D8: "Hall", "Celeste", "1/8"); `source` is "Mine" when the block's `followStyle` is false, else "From style". Sends 4–6: "Added send" |
   | Right cell | items centred | a **Badge** "Set by rack" (Kit additions) when `send < 3` and `setByRack`; otherwise the return, `returnLevel` as a number, 18 / 300, line-height 20, `--a` (FX-D5) |
 
-  The **chosen row** (`send === shownBus`) wears the chosen face: `--t` fill, name `--g`, numeral
-  `color-mix(in srgb, var(--g) 55%, transparent)`, subtitle `color-mix(in srgb, var(--g) 60%,
-  transparent)`, return `--g`; the Badge keeps its own colours. `aria-current="true"` and
+  The **chosen row** (`send === shownBus`) wears the chosen face: `--t` fill, name `--g` (weight
+  stays 400, FX-D27), numeral `color-mix(in srgb, var(--g) 55%, transparent)`, subtitle
+  `color-mix(in srgb, var(--g) 60%, transparent)`, return `--g`; the Badge keeps its own colours. `aria-current="true"` and
   `data-face="chosen"` on it; the others carry no face and no `data-face` (they draw on
   nothing). Click: `onopen(send)` (app-only; nothing is sent). `aria-label` "Send {n}, {name},
   {subtitle}, return {r}"; with the Badge, ", type set by the rack" replaces ", return {r}";
@@ -166,8 +174,8 @@ same frame; their specs then replace the row tables).
 | Source | a Segment (Kit additions), `role="group"` `aria-label="{name} source"`, 8px extra left margin, options "From style" (tip `fx.follow_style`) and "Mine" (tip `fx.mine`); **sends 1–3 only** | chosen = the block's `followStyle` (true: From style) | `setFollowStyle { block, on: true }` / `{ on: false }` | per option |
 | separator | 1 × 16 `--line`, `aria-hidden`; sends 1–3 only | — | — | — |
 | Type | "Type" 14 `--m` (4px right margin) then, **sends 1–3**, a Segment `role="group"` `aria-label="{name} type"` with one option per entry of the block's `types`, labelled per FX-D8; every option carries the block's type tip | chosen = the block's `effect` | `setEffectType { block, effect }` | `fx.reverb_type`, `fx.chorus_type`, `fx.variation_type` by block |
-| Type (added send) | "Type" 14 `--m` then a Picker (Kit additions) listing `SEND_KINDS` (`app/src/panels/effects/sendKinds.ts`, 12 kinds, their names), with the send's own `kind` first when the list lacks it | value = `kind` | `setSendKind { send, kind }` | `fx.send_kind` |
-| Remove (added send) | text button 13 / 400 `--m`, 24 tall, padding 0, right-aligned (`margin-left: auto`) | — | `send(removeSend { send })` then `onopen(0)` (FX-D23) | `fx.send_remove` |
+| Type (added send) | "Type" 14 `--m` then a Picker (Kit additions), `aria-label` "{name} type", listing `SEND_KINDS` (`app/src/panels/effects/sendKinds.ts`, 12 kinds, their names), with the send's own `kind` first (labelled by the send's `name`) when the list lacks it | value = `kind` | `setSendKind { send, kind }` | `fx.send_kind` |
+| Remove (added send) | text button "Remove", 13 / 400 `--m`, 24 tall, padding 0, right-aligned (`margin-left: auto`), `aria-label` "Remove send {n}" | — | `send(removeSend { send })` then `onopen(0)` (FX-D23) | `fx.send_remove` |
 
 `block` for sends 1–3 is `reverb`, `chorus`, `variation`. A type change makes the bus Mine on
 the session's side (`setEffectType` turns `followStyle` off); the screen sends only the type and
@@ -184,10 +192,12 @@ border-box, `border-bottom: 1px solid var(--line)`), four per column. Three kind
 - **Readout row:** a Readout (Kit additions): label, bar, value with unit, knob code. It is the
   control for its value.
 - **Part sends row:** the label "Part sends" (13 `--m`) then four text buttons (32 tall,
-  padding 0), gap 12, each the part's tag (12 / 500 in the part hue) and its value (18 / 300,
-  line-height 20, `--a`), items on the baseline, gap 4; then the code "K1–4" (12 `--t2`). A part
-  that doesn't sound (`keyboardParts[i].sounding` false): tag and value `--d` (`data-hue="d"`).
-  Grid `96px minmax(0, 1fr) 28px`, column-gap 12. Each button reads
+  padding 0, `flex: none`), gap 12, left-justified in a cell with `min-width: 0`, `overflow:
+  hidden`, no wrap (184.5px wide; four three-digit values would clip the fourth, a follow-up),
+  each the part's tag "R1", "R2", "R3", "L" (12 / 500 in the part hue, `data-hue="r1"`…) and
+  its value (18 / 300, line-height 20, `--a`), items on the baseline, gap 4; then the code
+  "K1–4" (12 `--t2`). A part that doesn't sound (`keyboardParts[i].sounding` false): tag and
+  value `--d` (`data-hue="d"`). Grid `96px minmax(0, 1fr) 28px`, column-gap 12. Each button reads
   `keyboardParts[i].strip.sends[send]` (for sends 1–3 the same as the part's `reverb`, `chorus`,
   `variation`) and calls `onchannel(i)` (FX-D11; Stage.md D32 until #501). `aria-label` "{part
   name} {bus} send {v}{, part off}. Knob {i + 1}; opens Channel", where `{bus}` is "reverb",
@@ -196,19 +206,27 @@ border-box, `border-bottom: 1px solid var(--line)`), four per column. Three kind
   0. Opens Channel". Tooltip `fx.part_sends` (new, one key for the four buttons); the code cell
   is empty on an added send (no knob page moves it).
 
-**Generic block editor** (the rule every bus editor follows; the Delay table below is its
-instance, and #520 / #521 refine it for their buses): the **left column** holds the parameter
-rows, from the bus's parameters in order (sends 1–3 the block's `params`, `FxParamState`; added
-sends the send's `params`, `SettingState` by index), with three rules: a 0–1 parameter named
-"Tempo sync" is a switch row; "Note" and "Time" share one readout row that shows Note when the
-sync switch is 1 and Time when it is 0 (both K5); "Ping-pong" has no row (the type sets it).
-That gives at most four rows (a delay: sync, Note/Time, Feedback, Tone; a reverb: Time,
-Pre-delay, Tone; a chorus: Rate, Depth; a phaser: Depth, Rate, Feedback). The **right column**
-holds Return, then Band send and Pad send (**blocks only**: sends 1–3), then Part sends. Rows
-not used are not drawn (the column ends early). Knob codes: sends 1–3 by the bus's knob page
-(`src/knobs.rs` `KnobPage`): knobs 5–7 the parameter rows in order (the chorus has two, so K7
-is nothing), K8 Return, K1–4 the part sends; added sends: none. A kind with no `params` (one
-this build doesn't know) shows Return and Part sends only.
+**Block editor** (one component, `BlockEditor`, draws every send's grid from a row list; the
+Delay table below is what it produces for send 3, and #520 / #521 refine the tables for their
+buses): the **left column** holds the parameter rows, from the bus's parameters in order (sends
+1–3 the block's `params`, `FxParamState`; added sends the send's `params`, `SettingState` by
+index), with three rules: a 0–1 parameter is a switch row (the delay's "Tempo sync"; never the
+ping-pong, next rule); the delay's Note and Time share one readout row, Note while the sync
+switch is 1, Time while it is 0 (both K5); the delay's Ping-pong has no row (the type sets it).
+On a block the rules key on the `param` ids (`delaySync`, `delayNote`, `delayTime`,
+`pingPong`); on an added send (names only) they apply only when its `params` include "Tempo
+sync", "Note", "Time" and "Ping-pong" together (a delay kind), so a reverb's "Time" is an
+ordinary row. That gives at most four rows (a delay: sync, Note/Time, Feedback, Tone; a reverb:
+Time, Pre-delay, Tone; a chorus: Rate, Depth; a phaser: Depth, Rate, Feedback). The **right
+column** holds Return, then Band send and Pad send (**blocks only**: sends 1–3), then Part
+sends. Rows not used are not drawn (the column ends early). Knob codes: sends 1–3 by the bus's
+knob page (`src/knobs.rs` `KnobPage`): knobs 5–7 the parameter rows in order (the chorus has
+two, so K7 is nothing), K8 Return, K1–4 the part sends; added sends: none. A kind with no
+`params` (one this build doesn't know) shows Return and Part sends only. **Tooltips** by rule: a
+block parameter `fx.param.<snake_case(param)>` (`reverbTime` → `fx.param.reverb_time`,
+`chorusDepth` → `fx.param.chorus_depth`); a block's Return, Band send and Pad send
+`fx.<reverb|chorus|variation>_return`, `_band`, `_pad`; an added send's parameters
+`fx.send_param` and its Return `fx.send_return`; every Part sends button `fx.part_sends`.
 
 The Delay editor (send 3, block `variation`), left column then right, top to bottom:
 
@@ -298,7 +316,9 @@ with the fields below changed; everything not listed (the clock, transport, chor
 rack, pads, keys, `io`, `message`) is the Stage's, so the app bar, section row, compact block,
 pads and keys are the same moment (`boardNow = 10000`, bar 3 beat 3, LED phase 0.25).
 
-- `ui.page` `effects`, `ui.effectsBus` 2 (the Delay). `ui.shift` false.
+- **Props beside the state** (the fixture exports them too): `boardEffectsBus = 2` (the Delay
+  open), `receivedMs = boardNow`, `shift` false, `keyRange` 61, `help` false, `dropouts` none,
+  `masterBuilt` false. (`ui.*` is not in `AppState`; the story passes these as props.)
 - `mixer`: faderPage "panel", **faderLayer "reverb"**, styleVolume 100, multiPadVolume 90,
   master 100.
 - `surface.faders` (9): values **40, 30, 0, 20**, 100, 90, null, null, 100 (in a send layer a
@@ -358,23 +378,37 @@ whether it is in `app/src/ui` today (after the Stage lane, the Stage's component
 | # | Component | Kind | Built from | Exists | Board lines (dark / light) | Spec |
 |---|---|---|---|---|---|---|
 | 0–41 | the Stage's | — | — | with the Stage | Stage boards | Stage.md |
-| 2′ | LampButton (exists) | primitive | — | yes; this page also needs a `tip` prop (`use:tip` on the button) and `data-face="on|off|disabled"` (Stage.md D41: the Stage's row 2 lists neither; add both there) | Stage boards | kit › Faces |
+| 2′ | LampButton (exists) | primitive | — | yes; this page also needs a `tip` prop (`use:tip` on the button) and `data-face="on|off|disabled|record"` (Stage.md D41: the Stage's row 2 lists neither; add both there) | Stage boards | kit › Faces |
+| 12′ | Knob (the Stage's) | primitive | — | edited, not forked: the value split uses `splitUnit` and the names the FX-D20 rule | Stage boards | kit › Knob |
+| 20′ | RackReadout (the Stage's) | primitive | — | edited: gains `variant="bar"`, the one-row form of Kit additions › Page app bar (the Stage's two-line column is `variant="cell"`, the default) | 73 / 57 | Kit additions › Page app bar |
+| 24′ | AppBar (the Stage's) | complex | RackReadout, OneTouch | edited: gains `variant="page"` | 71–100 / 55–84 | Kit additions › Page app bar |
+| 34′ | LampRow (the Stage's) | complex | — | edited: the master button's two-line face in a layer | 322 / 306 | Kit additions › Lamp row in a layer |
 | 42 | Segment | primitive | — | no | 197–208 / 181–192 | Kit additions › Segment |
 | 43 | Picker | primitive | — | no | not on this board (#519 draws one: `Effects-Master-Dark.dc.html`, the Type ▾) | Kit additions › Picker |
 | 44 | Badge | primitive | — | no | 180 / 164 | Kit additions › Badge |
 | 45 | Readout | primitive | — | no | 217–222 / 201–206; data 578–591 / 562–575 | Kit additions › Readout |
 | 46 | CompactBlock | complex | AccentBlock, ChordReadout (its runs), StatusDot | no | 136–147 / 120–131 | Kit additions › Compact block |
-| 47 | PageAppBar (AppBar `variant="page"`) | complex | AppBar, RackReadout, OneTouch | no | 71–100 / 55–84 (rack 73 / 57, One Touch 74–80 / 58–64) | Kit additions › Page app bar |
+| 47 | `typeLabel`, `shownBus`, `splitUnit` (pure functions, `app/src/ui/Effects/typeLabel.ts`, `app/src/ui/Effects/shownBus.ts`, `app/src/ui/Knob/splitUnit.ts`) | primitive | — | no | — | Display, Kit additions |
 | 48 | EffectsHeader | complex | LampButton | no | 154–166 / 138–150 | Display › Effects header |
-| 49 | SendRow | complex | Badge | no | 173–183 / 157–167; data 559–576 / 543–560 | Display › Send list |
+| 49 | SendRow | complex | Badge, typeLabel | no | 173–183 / 157–167; data 559–576 / 543–560 | Display › Send list |
 | 50 | SendList | complex | SendRow | no | 170–190 / 154–174 (Add send 185–189 / 169–173) | Display › Send list |
-| 51 | BusTitle | complex | Segment, Picker | no | 194–209 / 178–193 | Display › Open bus › Title row |
+| 51 | BusTitle | complex | Segment, Picker, typeLabel | no | 194–209 / 178–193 | Display › Open bus › Title row |
 | 52 | PartSendsRow | complex | — | no | 235–246 / 219–230; data 592–599 / 576–583 | Display › Open bus › Readout grid |
-| 53 | DelayEditor | complex | LampButton, Readout, PartSendsRow | no | 211–248 / 195–232 | Display › Open bus › Readout grid |
-| 54 | AddedSendEditor | complex | Readout, PartSendsRow | no | not on this board (no crop; judged by Inspect) | Display › Open bus (added send) |
-| 55 | BusEditor (the frame: title, grid, note; the generic block editor is its default body) | complex | BusTitle, DelayEditor, AddedSendEditor; #520, #521 and #519 add theirs | no | 193–251 / 177–235 | Display › Open bus |
-| 56 | EffectsDisplay | complex | CompactBlock, EffectsHeader, SendList, BusEditor | no | 130–255 / 114–239 | Display |
-| 57 | Effects (page, `Pages/Effects`) | complex | PageAppBar, SectionRow, EffectsDisplay, FullBand, StatusLine, KeyStrip | no | whole board | this file |
+| 53 | BlockEditor (the grid: builds the row list from a send's and block's `params` by the rules, and draws it) | complex | LampButton, Readout, PartSendsRow | no | 211–248 / 195–232 (the Delay); an added send has no crop (judged by Inspect) | Display › Open bus › Readout grid |
+| 54 | BusEditor (the frame: title, grid, note; #519 adds the Master body) | complex | BusTitle, BlockEditor, shownBus | no | 193–251 / 177–235 | Display › Open bus |
+| 55 | EffectsDisplay | complex | CompactBlock, EffectsHeader, SendList, BusEditor | no | 130–255 / 114–239 | Display |
+| 56 | Effects (page, `Pages/Effects`) | complex | AppBar (page variant), SectionRow, EffectsDisplay, FullBand, StatusLine, KeyStrip | no | whole board | this file |
+
+Props of the sub-components, for their stories: `EffectsHeader` takes `effects` (the
+`EffectsState`) and `send`, `onchannel`, `onopen`, `masterBuilt`; `SendList` takes `sends`,
+`blocks`, `shownBus`, `send`, `onopen`; `BusTitle` takes `send` (the `SendState`), `block` (the
+`EffectBlockState` or null), `send`, `onopen`; `BlockEditor` the same plus `parts`
+(`keyboardParts`) and `onchannel`; `BusEditor` takes `effects`, `parts`, `effectsBus`,
+`masterBuilt`, `send`, `onopen`, `onchannel`; `CompactBlock` takes `style`, `transport`,
+`chord`, `keyboard`, `onbrowser`. Story args are slices of the fixture: `Components/BusEditor ›
+AddedSend` is the fixture with `effectsBus` 3; `Components/SendList › SixSends` is the fixture's
+four sends plus send 4 `plate` "Plate" (return 64) and send 5 `room` "Room" (return 64), both
+`setByRack` true.
 
 Components take props and call callbacks; none reads `app.state` or sends. The page wiring
 (`app/src/pages/EffectsWiring.svelte`, outside `app/src/ui`, as Stage.md D46) reads `app.state`
@@ -409,7 +443,8 @@ reads exists in `docs/app-api.md` and `app/src/lib/api/types.ts`.
    on the part's Channel page.") and `fx.part_sends` (title "Part sends", body "Each keyboard
    part's send to this effect. Opens the part's Channel page, where it is a control; knobs 1–4 of
    the effect's knob page move them too.", launchkey "Reverb, Chorus and Delay knob pages, knobs
-   1–4"). Rewrites: `nav.effects` from "Opens the Effects screen … Press again to close" to
+   1–4"); each new key has `genos` null and `keys` `[]`. Rewrites: `nav.effects` from "Opens the
+   Effects screen … Press again to close" to
    "Shows the Effects page: the send effects, the open one's editor, the style's inserts and the
    master compressor and EQ"; `fx.send_add` gains "Adds a Hall; change its type in its editor"
    (FX-D6); `fx.rotary_fast` gains launchkey "Shift + encoder page ▲" (parity); the `launchkey`
@@ -436,27 +471,32 @@ sent (a fake `send`); never computed colours or layout (Stage.md D41).
    its `aria-label` is "Send 2, Chorus, Celeste · From style, type set by the rack"; row 4 reads
    20; a click on row 1 calls `onopen(0)` and sends nothing; Add send reads "5 and 6 free", a
    click sends `addSend { kind: 'hall' }` and calls `onopen(4)`; with `effectsBus` 4 and four
-   sends, row 1 is chosen and the editor shows Reverb (`shownBus`, pure, `app/src/ui/Effects/
-   shownBus.ts`: `shownBus(4, 4 sends)` is 0, `shownBus('master', …)` is 0 until #519); with six
+   sends, row 1 is chosen and the editor shows Reverb (`shownBus(4, 4, false)` is 0,
+   `shownBus('master', 4, false)` is 0, `shownBus('master', 4, true)` is `'master'`,
+   `shownBus(2, 3, false)` is 2); with six
    sends there is no Add send and the `nav` has `data-rows="32"` (`"40"` on the fixture); with
    `effects.sends` empty there are three rows and no Add send.
 3. Title row: "Delay" and "Send 3"; Mine has `aria-pressed="true"`, a click on From style sends
    `setFollowStyle { block: 'variation', on: true }`; "1/8" is pressed; a click on Ping-pong sends
    `setEffectType { block: 'variation', effect: 'pingPong' }`; the type options read "1/8",
-   "Dotted 1/8", "1/4", "Ping-pong" (`typeLabel(name: string)`, pure, `app/src/ui/BusTitle/
+   "Dotted 1/8", "1/4", "Ping-pong" (`typeLabel(name: string)`, pure, `app/src/ui/Effects/
    typeLabel.ts`, taking the state's `name`: "Delay 1/8." → "Dotted 1/8", "Delay 1/8" → "1/8",
-   "Delay 1/4" → "1/4", "Ping-Pong" → "Ping-pong", "Hall" → "Hall").
+   "Delay 1/4" → "1/4", "Ping-Pong" → "Ping-pong", anything else unchanged: "Hall" → "Hall").
 4. Readouts: Tempo sync is on and a click sends `setEffectParam { block: 'variation', param:
    'delaySync', value: 0 }`; with `delaySync` 0 row L2 reads "Time", "375", "ms" and its code is
    "K5"; Note reads "1/8", `aria-valuetext` "Note 1/8"; Feedback has `aria-valuenow` 38, min 0,
    max 90; with the bar element (`[data-part="bar"]`) stubbed to a 96px-wide
    `getBoundingClientRect`, a pointer press anywhere on the Feedback readout and a 48px move to
-   the right sends `setEffectParam delayFeedback 83`; a wheel notch up sends 39; → sends 39, End
-   sends 90; a double-click on Return sends `setEffectReturn { block: 'variation', level: 64 }`
-   (the default; the fixture's 36 differs from it); Band send drag sends `setBandSend`; Pad send
-   sends `setPadSend`; `dragValue(38, 48, 96, 0, 90)` is 83 and `fraction(2, 0, 7)` is 2/7 (pure,
-   `app/src/ui/Readout/readout.ts`); the readout is a focusable element with `role="slider"`,
-   not a `<button>`.
+   the right sends `setEffectParam delayFeedback 83` (one send: the press alone sends nothing,
+   FX-D9); a wheel notch up sends 39; → sends 39, End sends 90, and each key event has
+   `defaultPrevented` set (the global handler never sees it); a double-click on Return sends
+   `setEffectReturn { block: 'variation', level: 64 }` once (the default; the fixture's 36
+   differs from it); Band send drag sends `setBandSend`; Pad send sends `setPadSend`;
+   `dragValue(38, 48, 96, 0, 90)` is 83 and `fraction(2, 0, 7)` is 2/7 (pure,
+   `app/src/ui/Readout/readout.ts`); `splitUnit("5.0 kHz")` is `["5.0", "kHz"]`, `splitUnit("3
+   of 8")` is `["3 of 8", ""]`; the readout is a focusable element with `role="slider"` and
+   `aria-label` "Feedback", not a `<button>` (jsdom has no `setPointerCapture`: the component
+   guards the call).
 5. Part sends: R2 reads 16 and R3 has `data-hue="d"`; a click on R1 calls `onchannel(0)`; the R2
    button's `aria-label` is "Right 2 delay send 16. Knob 2; opens Channel"; on the Phaser, R1's
    is "Right 1 phaser send 0. Opens Channel".
@@ -484,8 +524,9 @@ sent (a fake `send`); never computed colours or layout (Stage.md D41).
     style carries `fx.follow_style` and Mine `fx.mine`; the four part-send buttons `fx.part_sends`.
 12. Wiring (`app/src/pages/EffectsWiring.test.ts`, Stage.md D32 interim): `onchannel(7)` sets
     `ui.page` to `stage` and calls `channelNav.show(7)`; `onopen(2)` sets `ui.effectsBus` to 2;
-    the comp and EQ type buttons are `aria-disabled` while `#519` isn't built (a flag in the
-    wiring, `MASTER_BUS_BUILT = false`).
+    it passes `masterBuilt` false (`MASTER_BUS_BUILT` in the wiring), so the comp and EQ type
+    buttons are `aria-disabled`; Alt+E on the page leaves `ui.page` as it is; Esc on the page
+    changes nothing (FX-D28).
 13. Tab order (FX-D22), tested as DOM order of the focusable elements on the page: app bar,
     section row, compact block (style name), header lamps and buttons left to right, send rows
     top to bottom then Add send, the title row left to right (each Segment one tab stop), the
@@ -546,12 +587,19 @@ see:
 - **FX-D9 · Readout drag.** Horizontal, relative, like a fader (Stage.md D23): the value moves by
   the pointer's travel from the press point, the bar's width standing for the whole range,
   `value = clamp(round(v0 + (x − x0) × (max − min) / width), min, max)`, `width` the bar
-  element's width, the press anywhere on the readout, with pointer capture; sends at most once
-  per animation frame and the last value on release; wheel ±1 per notch (up or right is +);
-  → and ↑ +1, ← and ↓ −1, PageUp/PageDown ±10, Home `min`, End `max` (Space and Enter do
-  nothing); double-click the parameter's `default` (a return's 64; a band or pad send's the
-  block's default in the API: reverb 100, chorus and delay 0). The press-and-drag is the only
-  way to set a value on the screen; the knob page is the other (parity).
+  element's width, the press anywhere on the readout, with pointer capture; a send goes out
+  only when the whole-number value differs from the last one sent (or from `v0` at the press),
+  at most once per animation frame, and the last value on release if it is still unsent; a
+  press without movement sends nothing. Wheel ±1 per notch (`deltaY` < 0 or `deltaX` > 0 is +,
+  one step per event whatever the delta's size; the event is `preventDefault`ed so the page
+  doesn't scroll); → and ↑ +1, ← and ↓ −1, PageUp/PageDown ±10, Home `min`, End `max`; Space and
+  Enter do nothing. Every key the readout handles, and Space and Enter, are `preventDefault`ed
+  and `stopPropagation`ed, so the window handler (`app/src/lib/shortcuts.ts`: Space is Start /
+  Stop, Enter the Browser, PageUp/PageDown the pad page) never fires from a focused readout.
+  Double-click sends the parameter's `default` (a return's 64; a band or pad send's the block's
+  default in the API: reverb 100, chorus and delay 0) when it differs from the value. The
+  press-and-drag is the only way to set a value on the screen; the knob page is the other
+  (parity).
 - **FX-D10 · Bar fraction.** `(value − min) / (max − min)` for every readout, 0–127 for returns
   and the band and pad sends (a bar past 100% shows the boost). The board drew the Note and Pad
   send bars by eye; the differences are under the screenshot threshold (Board fixture).
@@ -609,6 +657,12 @@ see:
 - **FX-D26 · Status line.** The board draws none ("No status line or Back to stage button
   here"); the kit's status line is there, empty, as on every display page (Stage.md D15), and the
   tabs replace Back to stage.
+- **FX-D27 · Chosen text weight.** The chosen row's name and a Segment's chosen option keep
+  weight 400: the kit's chosen face is 500 for buttons (tabs, One Touch), but its header tabs are
+  13 / 400 in the chosen block (kit › Faders), and these are that size. Only colours change.
+- **FX-D28 · Esc.** Esc does nothing on this page (there is nothing to close: the page is a tab;
+  `ui.escape` keeps closing drawers and the Channel view as today). Alt+E is a no-op while the
+  page is shown (FX-D1).
 
 ## Follow-ups
 
@@ -616,6 +670,8 @@ see:
 - A per-part inserts list of its own (Parts), if opening Channel for one Style part proves too
   far from "on/off and amount" for the whole band.
 - The Picker as a popover list in the Push skin, in place of a styled native `<select>`.
+- The Part sends row clips its fourth button when every part's send is three digits; a narrower
+  layout (a 72px label column, or 16px values) if that shows up in use.
 - Fine steps on readouts (Shift + drag or arrows), as the knobs have.
 - Move the Kit additions below into kit.md (an orchestrator PR, or the Channel spec #501, which
   the kit already names as the owner of the page app bar and the compact block).
@@ -632,8 +688,9 @@ on the Effects board.
 and the tabs, the live rack readout and One Touch, so the tall and display pages that have no
 display row of their own keep them in view. On Channel, Effects and their variants.
 
-- **Rack readout:** `margin-left: 16px` (on top of the bar's 8px gap: 24px from the wordmark), a
-  text button 32 tall, items on the baseline, gap 6, 14 / 400, no wrap: "Rack" `--m`, the slot
+- **Rack readout** (`RackReadout` `variant="bar"`): `margin-left: 16px` (on top of the bar's 8px
+  gap: 24px from the wordmark), a text button 32 tall, items on the baseline, gap 6, 14 / 400,
+  no wrap: "Rack" `--m`, the slot
   `--t` ("A1"), the name `--t` ("Sunday drive"; `max-width: 200px`, ellipsis), then the 5px
   round `--t` modified dot (centred). Reads, opens and labels exactly as the Stage's rack readout
   (Stage.md › Sounds row › Rack: `liveRack.name`, `liveRack.modified`, the slot from
@@ -685,18 +742,21 @@ one `<button>` per option, 24 tall, padding 0 10, 13 / 400, no border, radius 0,
 Options are `{ value, label, tip }` (`tip` a `TipKey`, put on that option's button with
 `use:tip`); `value` the chosen one. The chosen option wears the chosen face (`--t` fill, `--g`
 text, `aria-pressed="true"`, `data-face="chosen"`); the others are `--m` text on nothing
-(`aria-pressed="false"`, no `data-face`). Clicking an option calls `onchoose(value)`; a click on
-the chosen one does nothing. One tab stop (roving `tabindex`: the chosen option, or the last
-focused); ← → move focus between options, Space or Enter chooses the focused one. Not a fifth
-face: it is the chosen face at a 24px size, the same block the fader-layer tabs use.
+(`aria-pressed="false"`, no `data-face`). The chosen option keeps weight 400 (FX-D27). Clicking
+an option calls `onchoose(value)`; a click on the chosen one does nothing. One tab stop (roving
+`tabindex`: the chosen option, or the last focused); ← → move focus between options without
+wrapping, Home and End to the first and last, Space or Enter chooses the focused one; each of
+those keys is `preventDefault`ed and `stopPropagation`ed (the window handler's ← → are
+`stepStyle`). Not a fifth face: it is the chosen face at a 24px size, the same block the
+fader-layer tabs use.
 
 ### Picker
 
 `Picker`, a choice among more options than a Segment can show: a native `<select>` (so keyboard,
 screen reader and the system list come free) drawn as the chosen block: 24 tall, padding `0 24px
-0 10px`, 13 / 400, `--t` fill, `--g` text, no border, radius 0, `appearance: none`, with a "▾"
-(10px, `--g`) at right 8 drawn by the component, `aria-label` and `tip` (a `TipKey`, `use:tip`
-on the select) given by the caller. `onchange` calls `onchoose(value)`. Options are `{ value,
+0 10px`, 13 / 400, `--t` fill, `--g` text, no border, radius 0, `appearance: none`,
+`data-face="chosen"`, with a "▾" (10px, `--g`, `pointer-events: none`) at right 8 drawn by the
+component, `aria-label` and `tip` (a `TipKey`, `use:tip` on the select) given by the caller. `onchange` calls `onchoose(value)`. Options are `{ value,
 label }` in the caller's order. Used by the added send's type here and the Master compressor's
 type (#519).
 
@@ -722,21 +782,25 @@ items centred, column-gap 12, text left, `cursor: pointer`:
 - **Props:** `label`, `value`, `min`, `max`, `defaultValue`, `display` (the text to show, unit
   included; the component splits it with `splitUnit`), `code`, `tip`, `disabled`; callback
   `onchange(value: number)`.
-- **As a control:** `aria-valuemin`, `aria-valuemax`, `aria-valuenow`, `aria-valuetext` "{label}
-  {display}"; pointer, wheel, keys and double-click per FX-D9 (the press anywhere on the
-  element; `width` is the bar element's `getBoundingClientRect().width`); `ew-resize` while
-  dragging. `use:tip={tip}`. Focus ring as every control. Disabled: `aria-disabled`, label and
-  value `--d`, no fill, default cursor, still focusable.
+- **As a control:** `aria-label` = `label` (a slider needs a name), `aria-valuemin`,
+  `aria-valuemax`, `aria-valuenow`, `aria-valuetext` "{label} {display}"; pointer, wheel, keys
+  and double-click per FX-D9 (the press anywhere on the element; `width` is the bar element's
+  `getBoundingClientRect().width`; `setPointerCapture` is called only where it exists);
+  `ew-resize` while dragging. `use:tip={tip}`. Focus ring as every control. Disabled:
+  `aria-disabled`, label and value `--d`, no fill, default cursor, still focusable, no sends (no
+  readout on this page is disabled; the prop is for the variants).
 - **Maths** in `app/src/ui/Readout/readout.ts`: `fraction(value, min, max)` and `dragValue(v0,
   dx, width, min, max)` (pure, tested).
 
 ### Knob unit split
 
-kit › Knob says a trailing "%" splits off the value as a 12 / 400 unit. Extend it: a trailing
-unit after a space (" kHz", " Hz", " ms", " s", " BPM" is already dropped on the tempo knob)
-splits the same way ("5.0 kHz" → "5.0" + "kHz", "0.29 Hz" → "0.29" + "Hz", "22 ms" → "22" +
-"ms"), so the effect knob pages' values fit the 22px line. One pure function, `splitUnit(value)`,
-shared by Knob and Readout.
+kit › Knob says a trailing "%" splits off the value as a 12 / 400 unit. Extend it: one pure
+function `splitUnit(value: string): [string, string]` in `app/src/ui/Knob/splitUnit.ts`, shared
+by Knob and Readout, splits a trailing "%" (no space) or a trailing " kHz", " Hz", " ms" or " s"
+(after a space) off as the unit: "38%" → `["38", "%"]`, "5.0 kHz" → `["5.0", "kHz"]`, "0.29 Hz"
+→ `["0.29", "Hz"]`, "22 ms" → `["22", "ms"]`, "2.4 s" → `["2.4", "s"]`. The list is closed:
+anything else is returned whole with an empty unit ("3 of 8", "1/8", "L20", "Off"). The tempo
+knob's " BPM" is dropped before the split (Stage.md D6).
 
 ### Lamp row in a layer
 
