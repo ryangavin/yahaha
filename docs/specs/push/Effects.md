@@ -95,7 +95,7 @@ centred, gap 12, no wrap. The first two items are text; the rest sit at the righ
 | "Effects" | 14 / 400 `--m`; not a control | — | — | — | — |
 | "Sends" | 14 / 400 `--t`; not a control | fixed text while a send is open (FX-D24; #519 says what it reads with Master open) | — | — | — |
 | Style inserts | LampButton `size md` (32 tall, padding 0 16, 14px), label "Style inserts", no code | on = `effects.insertsOn` | `setInsertsOn { on: !insertsOn }` | `fx.inserts` | — |
-| Parts | text button, 14 / 400 `--m`, 32 tall, padding 0 | — | `onchannel(4 + effects.inserts[0].part)`: Channel for the first Style part that has an insert (FX-D12); disabled (`--d`, `aria-disabled`) when `effects.inserts` is empty | `fx.insert_parts` (new) | — |
+| Parts | text button, 14 / 400 `--m`, 32 tall, padding 0 | — | `onchannel(4 + effects.inserts[0].part)`: Channel for the first Style part that has an insert (FX-D12; until #501, `onparts()`: today's Effects drawer at its Inserts card); disabled (`--d`, `aria-disabled`) when `effects.inserts` is empty | `fx.insert_parts` (new) | — |
 | Rotary fast | LampButton `size md`, label "Rotary fast" | on = `effects.rotaryFast` | `toggleRotaryFast` (FX-D13); always enabled (a setting: it applies whenever a rotary insert plays) | `fx.rotary_fast` | Shift + encoder page ▲ |
 | separator | 1 × 16 `--line`, `aria-hidden` | — | — | — | — |
 | Master comp | LampButton `size md`, label "Master comp" | on = `effects.master.compressor.on` | `setMasterCompressorOn { on: !on }` | `fx.master_comp` | — |
@@ -420,7 +420,7 @@ commands.
 
 | Area | In `app/src` now | Change |
 |---|---|---|
-| Effects screen | `panels/effects/Effects.svelte`: a drawer (`Overlay`, `ui.effects`, Alt+E) with one card per block (From style / Mine chips, type chips, `FxKnob`s for return and parameters, `Toggle`s for the switches, `HSlider`s for Band and Pads, a Rack keeps-type toggle with "Set by rack" and "Use style's"), a card per added send (a `<select>` kind, knobs, Remove), an Add send card (a kind `<select>` and Add), and an Inserts card (all on, Rotary fast, each part's switch, name and amount) | Replaced by this page (`ui.page` `effects`, FX-D1): the cards become the send list and one open editor; the knobs become Readouts; Band and Pads become readout rows; "Rack keeps type" and "Use style's" leave the screen (FX-D5: the Badge shows the state; the switch lives in the Chorus editor, #521); the per-part inserts go to Channel (FX-D12). The drawer and its tests (`Effects.test.ts`) are removed once the page lands; `sendKinds.ts` stays (the Picker's list) |
+| Effects screen | `panels/effects/Effects.svelte`: a drawer (`Overlay`, `ui.effects`, Alt+E) with one card per block (From style / Mine chips, type chips, `FxKnob`s for return and parameters, `Toggle`s for the switches, `HSlider`s for Band and Pads, a Rack keeps-type toggle with "Set by rack" and "Use style's"), a card per added send (a `<select>` kind, knobs, Remove), an Add send card (a kind `<select>` and Add), and an Inserts card (all on, Rotary fast, each part's switch, name and amount) | Replaced by this page (`ui.page` `effects`, FX-D1): the cards become the send list and one open editor; the knobs become Readouts; Band and Pads become readout rows; "Rack keeps type" and "Use style's" leave the screen (FX-D5: the Badge shows the state; the switch lives in the Chorus editor, #521); the per-part inserts go to Channel (FX-D12). Until #501 lands, the drawer stays, reached only from Parts for its Inserts card (FX-D12); the drawer, its tests (`Effects.test.ts`) and its tooltip keys are removed once #501 lands; `sendKinds.ts` stays (the Picker's list) |
 | Master effects | `panels/mixer/MasterFx.svelte`: Comp and EQ switches on the master strip and a floating editor (`fx.master_edit`) | The header's two lamps and two type readouts; the editor becomes the Master bus (#519) |
 | Navigation | `lib/nav.ts` `NAV` entry `effects` (`toggle: ui.toggleDrawer('effects')`), `nav.effects` tooltip "Opens the Effects screen… Press again to close" | The tab shows the page (kit › App bar, D2); `nav.effects` body rewritten (FXC1); Alt+E shows the page and does nothing when it is already shown (a tab, not a toggle; FX-D1). Stage.md D32's interim rows for "Effects page" and "Effects at the master" are dropped: the band sends open this page with the bus as it was, the master strip name opens it with `ui.effectsBus = 'master'` (FX-D25) |
 | Channel, until #501 | `panels/channel/nav.svelte.ts` `show(part)` draws `ChannelView` in the Stage display's place | `onchannel(part)` from this page sets `ui.page = 'stage'` and calls `show(part)` (the view lives on the Stage today); once Channel is a page, `ui.page = 'channel'` with the part |
@@ -446,7 +446,9 @@ reads exists in `docs/app-api.md` and `app/src/lib/api/types.ts`.
    1–4"); each new key has `genos` null and `keys` `[]`. Rewrites: `nav.effects` from "Opens the
    Effects screen … Press again to close" to
    "Shows the Effects page: the send effects, the open one's editor, the style's inserts and the
-   master compressor and EQ"; `fx.send_add` gains "Adds a Hall; change its type in its editor"
+   master compressor and EQ"; removals, when the drawer goes after #501 (FX-D12): `drawer.effects`
+   and `fx.insert_part` (the drawer's own controls), so the catalog and coverage tests list no
+   control that no longer exists; `fx.send_add` gains "Adds a Hall; change its type in its editor"
    (FX-D6); `fx.rotary_fast` gains launchkey "Shift + encoder page ▲" (parity); the `launchkey`
    line of `fx.param.delay_note`, `delay_time`, `delay_feedback`, `delay_tone` and
    `variation_return` reads "Delay knob page, knob 5 / 5 / 6 / 7 / 8" (the Reverb's and Chorus's
@@ -526,7 +528,9 @@ sent (a fake `send`); never computed colours or layout (Stage.md D41).
     `ui.page` to `stage` and calls `channelNav.show(7)`; `onopen(2)` sets `ui.effectsBus` to 2;
     it passes `masterBuilt` false (`MASTER_BUS_BUILT` in the wiring), so the comp and EQ type
     buttons are `aria-disabled`; Alt+E on the page leaves `ui.page` as it is; Esc on the page
-    changes nothing (FX-D28).
+    changes nothing (FX-D28). Until #501 (FX-D12): Parts calls `onparts()`, which opens today's
+    Effects drawer (`ui.effects` true) with its Inserts card in view, and the drawer's part
+    switches still send `setPartInsertOn` / `setPartInsertAmount`.
 13. Tab order (FX-D22), tested as DOM order of the focusable elements on the page: app bar,
     section row, compact block (style name), header lamps and buttons left to right, send rows
     top to bottom then Add send, the title row left to right (each Segment one tab stop), the
@@ -609,8 +613,12 @@ see:
   fourth place for the same value.
 - **FX-D12 · Parts opens Channel.** The per-part inserts (on/off and amount) live on each Style
   part's Channel page (Channel-StylePart, #501); Parts opens the first Style part that has an
-  insert (`effects.inserts[0]`), and is disabled when the style has none. Until #501, today's
-  `ChannelView` for that part (it steps all 12 parts, DECISIONS S10).
+  insert (`effects.inserts[0]`), and is disabled when the style has none. Until #501 lands,
+  today's `ChannelView` has no insert controls, so `setPartInsertOn` and `setPartInsertAmount`
+  would have no app control (parity): until then Parts opens today's Effects drawer
+  (`ui.toggleDrawer('effects')`, `panels/effects/Effects.svelte`) scrolled to its Inserts card,
+  and the drawer stays in the code for that alone. Once #501 lands, Parts opens Channel as above
+  and the drawer, its tests and its tooltip keys go (FXC1).
 - **FX-D13 · Rotary fast toggles.** The lamp sends `toggleRotaryFast`, the command Shift +
   encoder page ▲ sends (parity), rather than `setRotaryFast`.
 - **FX-D14 · The type readouts.** The comp type reads the preset's name (the board's "Natural")
