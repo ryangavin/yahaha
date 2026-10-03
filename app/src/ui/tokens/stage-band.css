@@ -1,0 +1,134 @@
+/*
+ * Stage band roles (faders, knobs, pads, transport): palette entries, sizes, and dark and light
+ * roles. Values are the Stage-Dark board's (Stage-Dark.dc.html, the hardware band and its script).
+ * Translucent hues are built here with color-mix, one token per hue a component draws, so
+ * components never mix a colour themselves.
+ */
+
+:root {
+  /* Palette */
+  --grey-18: #2e2e2e; /* a dark pad's index */
+  --grey-24: #3d3d3d; /* a knob ring's rest */
+
+  /* Band layout */
+  --band-height: 368px;
+  --band-faders-width: 654px;
+  --band-middle-width: 626px; /* knobs and pads */
+  --band-transport-width: 88px;
+  --band-body-gap: 8px; /* header to controls */
+  --band-pads-gap: 18px; /* knobs to the pads header */
+  --band-tempo-gap: 20px; /* transport buttons to the tempo header */
+  --band-caption-height: 18px; /* "Part on/off" / "Functions" caption row */
+  --band-lamp-gap: 2px; /* caption row to the lamp row */
+
+  /* Fader: one strip's fader button */
+  --fader-height: 252px;
+  --fader-strip-height: 272px; /* fader plus its name */
+  --fader-name-height: 20px;
+  --fader-value-height: 20px;
+  --fader-travel-top: 24px;
+  --fader-travel-bottom: 5px; /* 252 − 24 − 5 = 223px of travel */
+  --fader-meter-width: 10px;
+  --fader-meter-left: -17px; /* from the strip's centre */
+  --fader-meter2-left: -5px;
+  --fader-peak-width: 22px;
+  --fader-bracket-width: 3px;
+  --fader-bracket-left: 10px;
+  --fader-cap-width: 10px;
+  --fader-cap-left: 3px;
+  --fader-cap-lift: 1px; /* the cap's top sits 1px above the level */
+  --fader-ghost-width: 42px;
+  --fader-ghost-left: -22px;
+  --fader-parked-dash: 3px;
+  --fader-parked-gap: 7px; /* dash plus gap: the parked groove repeats every 7px */
+  --fader-meter-opacity: 0.75; /* the meter is its hue at 75% */
+  --fader-off-opacity: 0.35; /* an off part's bracket and cap */
+
+  /* Knob */
+  --knob-height: 96px;
+  --knob-label-height: 14px;
+  --knob-value-height: 22px;
+  --knob-ring: 44px;
+  --knob-ring-gap: 2px;
+  --knob-stroke: 2px;
+  --knob-dot: 6px;
+  --knob-gap: 6px; /* between knobs */
+
+  /* Pad */
+  --pad-size: 68px;
+  --pad-gap: 6px;
+  --pad-index-top: 5px;
+  --pad-index-right: 7px;
+  --pad-index-height: 14px;
+  --pad-label-bottom: 14px;
+  --pad-label-height: 16px;
+  --pad-label-tracking: -0.2px;
+  --pad-bar-inset: 7px;
+  --pad-bar-bottom: 6px;
+  --pad-line-height: 2px; /* a family's group line */
+  --pad-line-offset: 3px; /* the group line's distance above the pads */
+  --pad-step-pad: 18px; /* the bank ▲ ▼ column's top and bottom padding */
+
+  /* Hue legend */
+  --legend-swatch-width: 10px;
+}
+
+/* Glows built from each theme's hues. Light sets the mixes to 0%, so they draw nothing. */
+[data-theme='dark'],
+[data-theme='light'] {
+  /* The peak line over the meters */
+  --fader-peak: color-mix(in srgb, var(--t) 85%, transparent);
+
+  /* A live fader's bracket: 0 0 6px in its hue */
+  --fader-glow-r1: 0 0 6px color-mix(in srgb, var(--r1) var(--fader-glow-mix), transparent);
+  --fader-glow-r2: 0 0 6px color-mix(in srgb, var(--r2) var(--fader-glow-mix), transparent);
+  --fader-glow-r3: 0 0 6px color-mix(in srgb, var(--r3) var(--fader-glow-mix), transparent);
+  --fader-glow-l: 0 0 6px color-mix(in srgb, var(--l) var(--fader-glow-mix), transparent);
+  --fader-glow-a: 0 0 6px color-mix(in srgb, var(--a) var(--fader-glow-mix), transparent);
+  --fader-glow-t2: 0 0 6px color-mix(in srgb, var(--t2) var(--fader-glow-mix), transparent);
+  --fader-glow-t: 0 0 6px color-mix(in srgb, var(--t) var(--fader-glow-mix), transparent);
+
+  /* A solid or armed pad: 0 0 12px in its hue */
+  --pad-glow-intro: 0 0 12px color-mix(in srgb, var(--intro) var(--pad-glow-mix), transparent);
+  --pad-glow-main: 0 0 12px color-mix(in srgb, var(--main) var(--pad-glow-mix), transparent);
+  --pad-glow-ending: 0 0 12px color-mix(in srgb, var(--ending) var(--pad-glow-mix), transparent);
+  --pad-glow-brk: 0 0 12px color-mix(in srgb, var(--brk) var(--pad-glow-mix), transparent);
+  --pad-glow-fill: 0 0 12px color-mix(in srgb, var(--fill) var(--pad-glow-mix), transparent);
+  --pad-glow-t: 0 0 12px color-mix(in srgb, var(--t) var(--pad-glow-mix), transparent);
+  --pad-glow-ok: 0 0 12px color-mix(in srgb, var(--ok) var(--pad-glow-mix), transparent);
+
+  /* A queued pad's bar: 0 0 6px in its hue */
+  --pad-bar-glow-intro: 0 0 6px color-mix(in srgb, var(--intro) var(--pad-bar-glow-mix), transparent);
+  --pad-bar-glow-main: 0 0 6px color-mix(in srgb, var(--main) var(--pad-bar-glow-mix), transparent);
+  --pad-bar-glow-ending: 0 0 6px color-mix(in srgb, var(--ending) var(--pad-bar-glow-mix), transparent);
+  --pad-bar-glow-brk: 0 0 6px color-mix(in srgb, var(--brk) var(--pad-bar-glow-mix), transparent);
+  --pad-bar-glow-fill: 0 0 6px color-mix(in srgb, var(--fill) var(--pad-bar-glow-mix), transparent);
+  --pad-bar-glow-t: 0 0 6px color-mix(in srgb, var(--t) var(--pad-bar-glow-mix), transparent);
+  --pad-bar-glow-ok: 0 0 6px color-mix(in srgb, var(--ok) var(--pad-bar-glow-mix), transparent);
+
+  /* A solid pad's index and bar: its ink, translucent */
+  --pad-solid-index: color-mix(in srgb, var(--pad-solid-ink) 55%, transparent);
+  --pad-solid-bar: color-mix(in srgb, var(--pad-solid-ink) 45%, transparent);
+}
+
+[data-theme='dark'] {
+  --fader-track: var(--grey-20); /* the bracket's groove */
+  --fader-glow-mix: 45%;
+  --knob-rest: var(--grey-24); /* the ring past the value */
+  --knob-unused: var(--grey-08); /* an unused knob's ring */
+  --pad-dark-index: var(--grey-18); /* a pad the style lacks: its index */
+  --pad-solid-ink: var(--black); /* label on a solid (playing, running) pad */
+  --pad-glow-mix: 25%;
+  --pad-bar-glow-mix: 60%;
+}
+
+[data-theme='light'] {
+  --fader-track: var(--stone-76);
+  --fader-glow-mix: 0%;
+  --knob-rest: var(--stone-76);
+  --knob-unused: var(--stone-88);
+  --pad-dark-index: var(--stone-82);
+  --pad-solid-ink: var(--white);
+  --pad-glow-mix: 0%;
+  --pad-bar-glow-mix: 0%;
+}

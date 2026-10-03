@@ -1,0 +1,171 @@
+import type { BankLamp, FaderStrip } from './types'
+
+/** The board's nine strips on the Panel page, Vol layer (Stage-Dark.dc.html). */
+export const panelStrips: FaderStrip[] = [
+  {
+    id: 'right1',
+    tag: 'Right 1',
+    hue: 'r1',
+    kind: 'part',
+    value: '90',
+    level: 90,
+    meter: 0.62,
+    meter2: 0.58,
+    peak: 0.7,
+    faderName: 'Right 1 · Stage Grand, level 90',
+    openName: 'Right 1, Stage Grand: open Channel',
+    tip: 'mixer.panel.right1',
+  },
+  {
+    id: 'right2',
+    tag: 'Right 2',
+    hue: 'r2',
+    kind: 'part',
+    value: '72',
+    level: 72,
+    meter: 0.45,
+    meter2: 0.42,
+    peak: 0.55,
+    away: 50,
+    edited: true,
+    faderName: 'Right 2 · Silk Strings, level 72, hardware fader away (soft takeover)',
+    openName: 'Right 2, Silk Strings, edited: open Channel',
+    tip: 'mixer.panel.right2',
+  },
+  {
+    id: 'right3',
+    tag: 'Right 3',
+    hue: 'r3',
+    kind: 'off',
+    value: '64',
+    level: 64,
+    meter: 0,
+    meter2: 0,
+    peak: 0,
+    missing: true,
+    faderName: 'Right 3 · Brass Section, level 64',
+    openName: 'Right 3, Brass Section, plugin missing: open Channel',
+    tip: 'mixer.panel.right3',
+  },
+  {
+    id: 'left',
+    tag: 'Left',
+    hue: 'l',
+    kind: 'part',
+    value: '80',
+    level: 80,
+    meter: 0.5,
+    meter2: 0.47,
+    peak: 0.6,
+    faderName: 'Left · Silk Strings, level 80',
+    openName: 'Left, Silk Strings: open Channel',
+    tip: 'mixer.panel.left',
+  },
+  {
+    id: 'style',
+    tag: 'Style',
+    hue: 'a',
+    kind: 'group',
+    value: '100',
+    level: 100,
+    meter: 0.7,
+    meter2: 0.65,
+    peak: 0.78,
+    faderName: 'Style volume, level 100',
+    openName: 'Style volume: open the Style fader page',
+    tip: 'mixer.style.volume',
+  },
+  {
+    id: 'multiPad',
+    tag: 'Multi Pad',
+    hue: 't2',
+    kind: 'group',
+    value: '90',
+    level: 90,
+    meter: 0,
+    meter2: 0,
+    peak: 0.12,
+    faderName: 'Multi Pad volume, level 90',
+    openName: 'Multi Pad volume: open Multi Pads',
+  },
+  {
+    id: 'fader7',
+    tag: '—',
+    hue: 't',
+    kind: 'parked',
+    value: '',
+    level: 0,
+    meter: 0,
+    meter2: 0,
+    peak: 0,
+    faderName: 'Fader 7 unused',
+    openName: 'Fader 7 unused',
+  },
+  {
+    id: 'fader8',
+    tag: '—',
+    hue: 't',
+    kind: 'parked',
+    value: '',
+    level: 0,
+    meter: 0,
+    meter2: 0,
+    peak: 0,
+    faderName: 'Fader 8 unused',
+    openName: 'Fader 8 unused',
+  },
+  {
+    id: 'master',
+    tag: 'Master',
+    hue: 't',
+    kind: 'master',
+    value: '100',
+    level: 100,
+    meter: 0.72,
+    meter2: 0.67,
+    peak: 0.8,
+    faderName: 'Master, level 100',
+    openName: 'Master: open Effects, master compressor and EQ',
+    tip: 'mixer.master',
+  },
+]
+
+/** The board's note for other layers: strips 1–4 carry the layer word and its value ("Rev 40"). */
+const REVERB = [40, 12, 0, 20]
+
+/** The same strips on the Reverb layer. */
+export const reverbStrips: FaderStrip[] = panelStrips.map((strip, i) =>
+  i < 4
+    ? {
+        ...strip,
+        value: `Rev ${REVERB[i]}`,
+        level: REVERB[i],
+        away: undefined,
+        faderName: `${strip.faderName.split(',')[0]}, Reverb ${REVERB[i]}`,
+      }
+    : strip,
+)
+
+/** The part lamps under faders 1–4 on the board: Right 3 off, the rest on. */
+export const partLamps: BankLamp[] = [
+  { id: 'right1', label: 'On', on: true, hue: 'r1', long: true, tip: 'part.right1.on', name: 'Right 1 on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
+  { id: 'right2', label: 'On', on: true, hue: 'r2', long: true, tip: 'part.right2.on', name: 'Right 2 on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
+  { id: 'right3', label: 'Off', on: false, hue: 'r3', long: true, tip: 'part.right3.on', name: 'Right 3 off. Long press: swap mode (knobs edit this part). Shift: open Channel' },
+  { id: 'left', label: 'On', on: true, hue: 'l', long: true, tip: 'part.left.on', name: 'Left on. Long press: swap mode (knobs edit this part). Shift: open Channel' },
+]
+
+/** The Launchkey function lamps under faders 5–8 on the board (Round 2): Sound latched, the rest off. */
+export const functionLamps: BankLamp[] = [
+  { id: 'harmArp', label: 'Harm/Arp', on: false, hue: 'm', tip: 'harmony.switch', name: 'Harmony/Arpeggio on/off' },
+  {
+    id: 'sound',
+    label: 'Sound',
+    on: true,
+    hue: 'm',
+    long: true,
+    tip: 'launchkey.sound',
+    name: 'Sound: hold and the pads become Quick Racks. A click latches it until the next pad tap; click again or press fader button 6 to close',
+  },
+  { id: 'leftHold', label: 'L Hold', on: false, hue: 'm', name: 'Left Hold on/off' },
+  { id: 'looper', label: 'Looper', on: false, hue: 'm', long: true, tip: 'looper.rec', name: 'Chord Looper on/off. Long press: Loop rec' },
+]

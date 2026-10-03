@@ -91,7 +91,12 @@ export const Icon: Story = {
   },
 }
 
-/** The lamp face: help mode switched on. */
+/** A band button switched on: Fade while fading, the white label over a glowing white bar. */
+export const BandOn: Story = {
+  args: { label: 'Fade', size: 'band', on: true, pressed: true },
+}
+
+/** The on face, in Round 2's lamp language: help mode switched on, a white "?" over a glowing white bar. */
 export const On: Story = {
   args: { label: '?', size: 'icon', on: true, pressed: true, name: 'Help mode' },
   play: async ({ canvasElement }) => {

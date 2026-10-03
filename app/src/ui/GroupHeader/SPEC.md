@@ -1,5 +1,12 @@
 # GroupHeader
 
+> **One baseline (PR #550).** The row aligns its items by baseline (`align-items: baseline`), and an
+> empty `::before` strut `--header-baseline` (28px) tall puts that baseline 28px from the top, so the
+> title, the ChosenTabs labels (their blocks then stand on the hairline), "Layer", an AccentBlock and
+> the counter share one line in every header. A child that groups several items (FaderBank's
+> "Layer" word and layer tabs) shares it when it aligns its own items by baseline and doesn't
+> stretch; a short hairline stands on the row's end lifted `--separator-lift`, like Separator.
+
 ## Identity (all stations)
 
 - **Kind:** complex (D9)

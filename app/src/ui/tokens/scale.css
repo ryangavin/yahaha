@@ -19,6 +19,7 @@
   --text-18: 18px; /* count row, app name */
   --text-20: 20px;
   --text-22: 22px;
+  --text-28: 28px; /* the next section, after Round 2 */
   --text-32: 32px; /* tempo */
   --text-36: 36px; /* next section */
   --text-44: 44px; /* playing section */
@@ -27,6 +28,7 @@
   --weight-regular: 400;
   --weight-medium: 500; /* a lit lamp's label, names */
   --tracking-36: -1px; /* letter-spacing of 36px light text */
+  --tracking-28: -0.8px; /* letter-spacing of 28px light text (the next section) */
 
   /* Spacing */
   --space-2: 2px;
@@ -52,14 +54,25 @@
   --bar-bottom: 5px; /* the running bar's distance from the bottom */
   --bar-lift: 3px; /* the bottom padding that keeps the bar's room in a band button */
   --bar-height: 36px; /* the app bar, and a page tab */
-  --tab-height-header: 35px; /* a header or compact tab: the band header row minus its hairline */
+  --tab-height-header: 35px; /* a tab at any size: a 36px header row (or the app bar) minus its line */
   --tab-block: 24px; /* the chosen block at page size */
   --tab-block-header: 22px; /* the chosen block at header and compact size */
   --group-header-height: 36px; /* a group header row, hairline included */
+  /* The one text baseline of a 36px header row (the app bar, a group header), from the row's top.
+     Every text in the row sits on it, and a chosen block's label sits on it too, so the label is
+     centred in its block (cap height centred in the 24px page block, mixed case in the 22px
+     header block) and the block stands on the line. */
+  --header-baseline: 28px;
+  /* A lamp: the 2px bar under the label (Round 2) */
+  --lamp-bar-height: 2px;
+  --lamp-bar-inset: 12px; /* the bar's left and right inset in a md or sm lamp */
+  --lamp-bar-inset-cell: 10px; /* in a cell lamp (the band's lamp row) */
+  --lamp-dash: 4px; /* a waiting lamp's dashed bar: dash, then gap */
+  --lamp-dash-gap: 3px;
   --block-height: 26px; /* the accent block on the style line */
   --block-height-knob: 22px; /* the accent block in the knob header */
   --chip-height: 26px; /* a waiting chip at count and line size */
-  --chip-height-display: 48px; /* a waiting chip at display size */
+  --chip-height-display: 44px; /* a waiting chip at display size: the section line's height */
   --chip-max: 200px; /* a line chip's maximum width, border included */
 
   /* Lines */

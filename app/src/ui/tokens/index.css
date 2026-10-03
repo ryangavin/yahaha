@@ -3,3 +3,7 @@
 @import './scale.css';
 @import './dark.css';
 @import './light.css';
+/* Stage roles, one file per lane: each defines its own palette entries and dark and light roles. */
+@import './stage-band.css';
+@import './stage-display.css';
+@import './stage-frame.css';

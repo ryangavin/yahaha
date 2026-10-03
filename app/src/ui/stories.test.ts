@@ -77,8 +77,8 @@ for (const [path, mod] of Object.entries(modules)) {
   const kinds = new Map(props.map((prop) => [prop.name, propKind(prop)]))
 
   describe(title, () => {
-    it('follows the taxonomy: Primitives/, Components/ or Pages/', () => {
-      expect(title).toMatch(/^(Primitives|Components|Pages)\/[A-Z]\w*$/)
+    it('follows the taxonomy: Primitives/, Components/ or Screens/', () => {
+      expect(title).toMatch(/^(Primitives|Components|Screens)\/[A-Z]\w*$/)
     })
 
     it('has docgen for its component, so its props are known', () => {

@@ -20,7 +20,7 @@ Rules every component, story and station follows. Where a rule can be checked by
 8. **Accessibility checks run on every story.** The a11y addon runs on every story, and violations fail the story tests.
 9. **Interaction states as stories.** Hover, focus and active come from the pseudo-states addon, not from story-only CSS. Every focusable component has a visible focus style that comes from a token.
 10. **Deterministic by props.** Anything that moves over time (meters, flashing queued pads, the beat) takes its moment as a prop, such as a level, a beat or a flash phase. Stories and shots are therefore repeatable, and a control can scrub through the motion. Real timers live in the app, never in the component.
-11. **One taxonomy.** Story titles follow the inventory: `Primitives/<Name>`, `Components/<Name>`, `Pages/<Name>`. A page story renders at the app's 1440×900 with `layout: 'fullscreen'`; component stories use `layout: 'centered'` at real size.
+11. **One taxonomy.** Story titles follow the inventory: `Primitives/<Name>`, `Components/<Name>`, `Screens/<Name>`. A primitive imports no other component of the library; a component is an assembly of primitives; a screen is an assembly of components. A screen story renders at the app's 1440×900 with `layout: 'fullscreen'`; component stories use `layout: 'centered'` at real size.
 12. **Fixtures, not inline data.** Realistic data (style names, sounds, racks) for complex components and pages lives in shared `*.fixtures.ts` files. That's data, not components, and stories import it.
 13. **Machine-checked axioms.** The story test checks rules 3, 7 and 8 for every story:
     - every prop of a primitive has a control;

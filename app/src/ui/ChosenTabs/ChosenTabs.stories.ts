@@ -19,6 +19,7 @@ const meta = {
     tabs: { control: 'object' },
     chosen: { control: 'select', options: [null, ...ALL_IDS] },
     size: { control: 'inline-radio', options: ['page', 'header', 'compact'] },
+    tone: { control: 'inline-radio', options: ['primary', 'secondary'] },
     label: { control: 'text' },
   },
 } satisfies Meta<typeof ChosenTabs>
@@ -63,9 +64,17 @@ export const Board: Story = {
   },
 }
 
-/** The band header's fader layer: a tablist of five, Vol chosen. */
+/** The band header's fader page: Panel on the 22px white block (Round 2's Faders header). */
+export const FaderPage: Story = {
+  args: { tabs: faderPageTabs, chosen: faderPageTabs[0].id, label: 'Fader page (master button)' },
+}
+
+/**
+ * The band header's fader layer: a tablist of five, Vol chosen on the grey second-level block
+ * (`tone: 'secondary'`, Round 2's Layer tabs).
+ */
 export const Layers: Story = {
-  args: { tabs: layerTabs, chosen: 'volume', label: 'Fader layer' },
+  args: { tabs: layerTabs, chosen: 'volume', label: 'Fader layer', tone: 'secondary' },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const tabs = canvas.getAllByRole('tab')
