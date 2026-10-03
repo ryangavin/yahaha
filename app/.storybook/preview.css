@@ -1,6 +1,0 @@
-/* Stories use the theme's text colour and font. The background is Storybook's own: the
-   backgrounds tool (preview.ts) sets the canvas, and docs pages keep Storybook's styling. */
-body {
-  color: var(--t);
-  font-family: var(--font-sans);
-}

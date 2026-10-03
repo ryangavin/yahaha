@@ -52,3 +52,26 @@ export const Board: Story = {
     await expect(args.onpress).toHaveBeenCalledTimes(3)
   },
 }
+
+const LONG_NAME = 'Bossa Nova Lounge Session With Strings And Brushes Deluxe 2'
+
+/** A 59-character style name in a 240px block: one line, clipped with "…"; the full name stays in the button's name. */
+export const LongName: Story = {
+  args: { label: LONG_NAME, as: 'button', width: 240, name: `${LONG_NAME}: open the Browser` },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole('button', { name: `${LONG_NAME}: open the Browser` })
+    await expect(button.textContent).toBe(LONG_NAME)
+    // The block is fixed at 240px; the clip itself (ellipsis, one line) needs real layout, so the
+    // Inspect agent judges it by eye: the test runner's jsdom applies no component CSS.
+    await expect(button.style.width).toBe('240px')
+  },
+}
+
+/** An empty label: the block shows its `empty` text ("No style") so it keeps its height and something to click. */
+export const Empty: Story = {
+  args: { label: '', as: 'button', empty: 'No style' },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'No style' })
+    await expect(button).toHaveAttribute('data-face', 'accent')
+  },
+}

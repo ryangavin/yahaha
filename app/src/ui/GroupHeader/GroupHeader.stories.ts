@@ -187,3 +187,30 @@ export const Board: Story = {
     await expect(args.onchooseLayer).toHaveBeenCalledWith('pan')
   },
 }
+
+/** Knobs, the violet "Style" page block, and "Page 1/6" at the right end. */
+export const Knobs: Story = {
+  args: { title: 'Knobs', width: 626, count: { label: 'Page', value: '1/6' }, content: 'knobs' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByRole('heading', { name: 'Knobs' })).toBeInTheDocument()
+    const block = await canvas.findByText('Style')
+    await expect(block).toHaveAttribute('data-face', 'accent')
+    await expect(canvas.getByText('1/6').parentElement?.textContent).toBe('Page 1/6')
+  },
+}
+
+/** Pads, the "Sections" page name, the five-hue section legend, and "Bank 1/5" at the right end. */
+export const Pads: Story = {
+  args: { title: 'Pads', width: 626, count: { label: 'Bank', value: '1/5' }, content: 'pads' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByRole('heading', { name: 'Pads' })).toBeInTheDocument()
+    await expect(await canvas.findByText('Sections')).toBeInTheDocument()
+    const text = canvasElement.textContent ?? ''
+    const order = HUES.map(([word]) => text.indexOf(word))
+    await expect(order.every((at) => at >= 0)).toBe(true)
+    await expect([...order].sort((a, b) => a - b)).toEqual(order)
+    await expect(canvas.getByText('1/5').parentElement?.textContent).toBe('Bank 1/5')
+  },
+}

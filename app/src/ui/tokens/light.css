@@ -1,9 +1,9 @@
 /*
  * The light theme: the same roles as dark.css, mapped onto the palette's light entries
- * (Stage-Light.dc.html). Applies under `data-theme="light"` on the root element. Glows are none.
+ * (Stage-Light.dc.html). Applies under `data-theme="light"`. Glows are none.
  */
 
-:root[data-theme='light'] {
+[data-theme='light'] {
   color-scheme: light;
 
   --g: var(--stone-94);

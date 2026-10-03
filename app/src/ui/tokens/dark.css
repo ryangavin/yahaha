@@ -1,10 +1,10 @@
 /*
  * The dark theme, the default: semantic roles mapped onto the palette. The role names are the
  * Push canvas's own (the board and kit `:root` lines of Stage-Dark.dc.html; KIT-DEBATE.md).
- * Components read only these roles.
+ * Components read only these roles. Applies under `data-theme="dark"`.
  */
 
-:root {
+[data-theme='dark'] {
   color-scheme: dark;
 
   /* Ground, text and greys */

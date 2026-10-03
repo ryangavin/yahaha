@@ -4,19 +4,19 @@ import scale from './scale.css?raw'
 import dark from './dark.css?raw'
 import light from './light.css?raw'
 import { useEffect, useState } from 'react'
+import { currentTheme, onTheme } from '../../../.storybook/theme'
 
 <Meta title="Foundations/Tokens" />
 
 export const useTheme = () => {
-  const read = () => document.documentElement.dataset.theme ?? 'dark'
-  const [theme, setTheme] = useState(read)
-  useEffect(() => {
-    const observer = new MutationObserver(() => setTheme(read()))
-    observer.observe(document.documentElement, { attributeFilter: ['data-theme'] })
-    return () => observer.disconnect()
-  }, [])
+  const [theme, setTheme] = useState(currentTheme)
+  useEffect(() => onTheme(setTheme), [])
   return theme
 }
+
+export const Themed = ({ children }) => (
+  <div data-theme={useTheme()}>{children}</div>
+)
 
 export const tokens = (css, prefix = '') =>
   [...css.matchAll(/^\s*(--[\w-]+)\s*:\s*([^;]+);(?:[ \t]*\/\*\s*(.*?)\s*\*\/)?/gm)]
@@ -27,11 +27,12 @@ export const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, m
 export const label = { fontSize: 'var(--text-12)', color: 'var(--m)', lineHeight: 1.4 }
 export const name = { fontFamily: 'var(--font-mono)', fontSize: 'var(--text-12)', color: 'var(--t)' }
 
-/* A number or percentage (an opacity, a mix amount): listed by Amounts, not drawn as a swatch. */
-export const isAmount = (value) => /^-?[\d.]+(%|ms)?$/.test(value)
+export const isAmount = (value) =>
+  // A number or percentage (an opacity, a mix amount): listed by Amounts, not drawn as a swatch.
+  /^-?[\d.]+(%|ms)?$/.test(value)
 
-/* Tokens listed by value: the amounts in `css`, or the tokens of `css` named in `names`. */
 export const Amounts = ({ css, names }) => {
+  // Tokens listed by value: the amounts in `css`, or the tokens of `css` named in `names`.
   const overrides = useTheme() === 'light' ? Object.fromEntries(tokens(light).map((t) => [t.name, t.value])) : {}
   return (
   <div style={{ margin: 'var(--space-16) 0' }}>
@@ -109,6 +110,8 @@ export const Sizes = ({ prefix, names }) => (
   </div>
 )
 
+<Themed>
+
 # Tokens
 
 Every token the UI library has, in the theme the toolbar shows: flip the theme to review the other one. Components use only the **roles**; the **palette** is what the themes map the roles to (`src/ui/tokens/`, see `docs/factory/storybook-axioms.md`, axioms 2 and 5).
@@ -162,3 +165,5 @@ The boards' fixed widths and heights.
 ## Tracking and motion
 
 <Amounts css={scale} names={['--tracking-36', '--long-press']} />
+
+</Themed>

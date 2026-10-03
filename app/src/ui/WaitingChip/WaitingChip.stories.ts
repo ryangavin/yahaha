@@ -32,3 +32,22 @@ export const Board: Story = {
     await expect(canvasElement.querySelector('a[href], button, input, select, textarea, [tabindex]')).toBeNull()
   },
 }
+
+/** The style line's queued style, waiting for the bar line: "Coastal Highway" outlined in the accent. */
+export const QueuedStyle: Story = {
+  args: { label: 'Coastal Highway', hue: 'a', size: 'line' },
+  play: async ({ canvasElement }) => {
+    const chip = within(canvasElement).getByText('Coastal Highway')
+    await expect(chip).toHaveAttribute('data-hue', 'a')
+    await expect(chip).toHaveAttribute('data-size', 'line')
+  },
+}
+
+/** Nothing waiting: an empty label draws no chip at all, not an empty outline. */
+export const Empty: Story = {
+  args: { label: '', hue: 'main', size: 'count' },
+  parameters: { rendersNothing: true },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelector('[data-face]')).toBeNull()
+  },
+}

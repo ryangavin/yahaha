@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/svelte-vite'
 import { expect, fn, userEvent, within } from 'storybook/test'
 import ChosenTabs from './ChosenTabs.svelte'
-import { displayPageTabs } from './ChosenTabs.fixtures'
+import { displayPageTabs, faderPageTabs, fullPageTabs, layerTabs } from './ChosenTabs.fixtures'
+
+/** Every fixture tab's id, for the `chosen` control. */
+const ALL_IDS = [...new Set([displayPageTabs, fullPageTabs, faderPageTabs, layerTabs].flat().map((tab) => tab.id))]
 
 /**
  * A short run of choices side by side, the chosen one on a white block: the app's pages,
@@ -10,10 +13,11 @@ import { displayPageTabs } from './ChosenTabs.fixtures'
 const meta = {
   title: 'Primitives/ChosenTabs',
   component: ChosenTabs,
+  parameters: { layout: 'centered' },
   args: { tabs: displayPageTabs, onchoose: fn(), tipAction: fn() },
   argTypes: {
     tabs: { control: 'object' },
-    chosen: { control: 'select', options: [null, ...displayPageTabs.map((tab) => tab.id)] },
+    chosen: { control: 'select', options: [null, ...ALL_IDS] },
     size: { control: 'inline-radio', options: ['page', 'header', 'compact'] },
     label: { control: 'text' },
   },
@@ -56,5 +60,88 @@ export const Board: Story = {
     await userEvent.keyboard(' ')
     await expect(args.onchoose).toHaveBeenLastCalledWith('looper')
     await expect(args.onchoose).toHaveBeenCalledTimes(4)
+  },
+}
+
+/** The band header's fader layer: a tablist of five, Vol chosen. */
+export const Layers: Story = {
+  args: { tabs: layerTabs, chosen: 'volume', label: 'Fader layer' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const tabs = canvas.getAllByRole('tab')
+    await expect(tabs.map((tab) => tab.getAttribute('aria-label') ?? tab.textContent?.trim())).toEqual([
+      'Volume',
+      'Pan',
+      'Reverb send',
+      'Chorus send',
+      'Delay send',
+    ])
+    await expect(canvas.getByRole('tab', { name: 'Volume' })).toHaveAttribute('aria-selected', 'true')
+  },
+}
+
+/**
+ * Roving focus with automatic activation: → ← wrap, Home and End jump, each move focuses the tab
+ * and calls `onchoose`; `chosen` stays the parent's. The keys never reach the app's window handler.
+ */
+export const Arrows: Story = {
+  args: { tabs: layerTabs, chosen: 'volume', label: 'Fader layer' },
+  play: async ({ canvasElement, args }) => {
+    const spy = fn()
+    window.addEventListener('keydown', spy)
+    try {
+      const canvas = within(canvasElement)
+      const tab = (name: string) => canvas.getByRole('tab', { name })
+      const volume = tab('Volume')
+      volume.focus()
+      await userEvent.keyboard('{ArrowRight}')
+      await expect(args.onchoose).toHaveBeenLastCalledWith('pan')
+      await expect(tab('Pan')).toHaveFocus()
+      await expect(tab('Pan')).toHaveAttribute('tabindex', '0')
+      await expect(volume).toHaveAttribute('tabindex', '-1')
+      await expect(volume).toHaveAttribute('aria-selected', 'true')
+      await userEvent.keyboard('{End}')
+      await expect(args.onchoose).toHaveBeenLastCalledWith('delay')
+      await expect(tab('Delay send')).toHaveFocus()
+      await userEvent.keyboard('{ArrowRight}')
+      await expect(args.onchoose).toHaveBeenLastCalledWith('volume')
+      await expect(volume).toHaveFocus()
+      await userEvent.keyboard('{ArrowLeft}')
+      await expect(args.onchoose).toHaveBeenLastCalledWith('delay')
+      await userEvent.keyboard('{Home}')
+      await expect(args.onchoose).toHaveBeenLastCalledWith('volume')
+      await userEvent.keyboard('{Home}')
+      await expect(volume).toHaveFocus()
+      await expect(args.onchoose).toHaveBeenCalledTimes(5)
+      await expect(spy).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', spy)
+    }
+  },
+}
+
+/** A disabled tab: "Style" in `--d`, skipped by clicks and arrows. */
+export const Disabled: Story = {
+  args: {
+    tabs: [faderPageTabs[0], { ...faderPageTabs[1], disabled: true }],
+    chosen: 'panel',
+    label: 'Fader page (master button)',
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const panel = canvas.getByRole('tab', { name: 'Panel' })
+    const style = canvas.getByRole('tab', { name: 'Style' })
+    await expect(style).toHaveAttribute('aria-disabled', 'true')
+    await expect(style).toHaveAttribute('data-face', 'disabled')
+    await expect(style).toHaveAttribute('data-contrast', 'dim')
+    await expect(style).toHaveAttribute('tabindex', '-1')
+    await expect(panel).not.toHaveAttribute('aria-disabled')
+    await expect(panel).toHaveAttribute('data-face', 'chosen')
+    await userEvent.click(style)
+    await expect(args.onchoose).not.toHaveBeenCalled()
+    panel.focus()
+    await userEvent.keyboard('{ArrowRight}')
+    await expect(panel).toHaveFocus()
+    await expect(args.onchoose).not.toHaveBeenCalled()
   },
 }

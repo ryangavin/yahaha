@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/svelte-vite'
-import { expect, fn, userEvent, within } from 'storybook/test'
+import { expect, fireEvent, fn, userEvent, waitFor, within } from 'storybook/test'
 import Button from './Button.svelte'
 
 const NONE = 'none'
@@ -51,6 +51,11 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+/** A primary-button pointer event's init (L4: jsdom has no pointer capture). */
+const pointer = (pointerId: number) => ({ pointerId, button: 0, clientX: 0, clientY: 0 })
+/** Real time, longer than `--long-press` (350 ms). */
+const pastLongPress = () => new Promise((resolve) => setTimeout(resolve, 500))
+
 /** The first Button on the Stage board: the Metronome ▾ caret, joined to its lamp, closed. */
 export const Board: Story = {
   args: {
@@ -73,5 +78,138 @@ export const Board: Story = {
     await expect(args.tipAction).toHaveBeenCalledWith(button, 'metronome.settings')
     await userEvent.click(button)
     await expect(args.onpress).toHaveBeenCalledTimes(1)
+  },
+}
+
+/** Help mode's ?: a 32 × 32 off button with a 14px character, a switch that is off. */
+export const Icon: Story = {
+  args: { label: '?', size: 'icon', pressed: false, name: 'Help mode' },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Help mode' })
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    await expect(button).toHaveAttribute('data-face', 'off')
+  },
+}
+
+/** The lamp face: help mode switched on. */
+export const On: Story = {
+  args: { label: '?', size: 'icon', on: true, pressed: true, name: 'Help mode' },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Help mode' })
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    await expect(button).toHaveAttribute('data-face', 'on')
+  },
+}
+
+/** The white chosen block with a medium label: the applied One Touch. */
+export const Chosen: Story = {
+  args: { label: '2', size: 'icon', chosen: true, pressed: true, name: 'One Touch 2, applied' },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'One Touch 2, applied' })
+    await expect(button).toHaveAttribute('data-face', 'chosen')
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+  },
+}
+
+/** A band button: 88 × 32, the label left at 8px (Stop). */
+export const Band: Story = {
+  args: { label: 'Stop', size: 'band', name: 'Stop (fade with hold)' },
+}
+
+/** The waiting face: Fade armed, outlined in `--t2` with no fill. */
+export const Waiting: Story = {
+  args: {
+    label: 'Fade',
+    size: 'pair',
+    waiting: true,
+    hue: 't2',
+    pressed: false,
+    name: 'Fade, armed',
+    tip: 'transport.fade',
+  },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Fade, armed' })
+    await expect(button).toHaveAttribute('data-face', 'waiting')
+    await expect(button).toHaveAttribute('data-hue', 't2')
+  },
+}
+
+/** Shown, not pressable: the `--d` label on the off face. No press, hold or long press. */
+export const Disabled: Story = {
+  args: { label: 'Audition', size: 'md', compact: true, disabled: true, name: 'Audition (stop the band first)' },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Audition (stop the band first)' })
+    await expect(button).toHaveAttribute('aria-disabled', 'true')
+    await expect(button).toHaveAttribute('data-face', 'disabled')
+    await expect(button).toHaveAttribute('data-contrast', 'dim')
+    await userEvent.click(button)
+    button.focus()
+    await userEvent.keyboard('{Enter}')
+    await expect(args.onpress).not.toHaveBeenCalled()
+    await fireEvent.pointerDown(button, pointer(1))
+    await pastLongPress()
+    await fireEvent.pointerUp(button, pointer(1))
+    await expect(args.onlongpress).not.toHaveBeenCalled()
+    await expect(args.onhold).not.toHaveBeenCalled()
+  },
+}
+
+/**
+ * Repeat-while-held (Tempo +): pointer down and up call `onhold`, following only the pointer that
+ * started the hold; a pointer click doesn't press, a keyboard click does; no long press.
+ */
+export const Hold: Story = {
+  args: { label: 'Tempo', symbol: 'plus', size: 'band', hold: true, name: 'Tempo up (Scene Launch)', tip: 'tempo.up' },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Tempo up (Scene Launch)' })
+    await fireEvent.pointerDown(button, pointer(1))
+    await expect(args.onhold).toHaveBeenCalledTimes(1)
+    await expect(args.onhold).toHaveBeenLastCalledWith(true)
+    await fireEvent.pointerDown(button, pointer(2))
+    await fireEvent.pointerUp(button, pointer(2))
+    await expect(args.onhold).toHaveBeenCalledTimes(1)
+    await fireEvent.pointerUp(button, pointer(1))
+    await expect(args.onhold).toHaveBeenCalledTimes(2)
+    await expect(args.onhold).toHaveBeenLastCalledWith(false)
+    await fireEvent.pointerUp(button, pointer(1))
+    await expect(args.onhold).toHaveBeenCalledTimes(2)
+    await fireEvent.pointerDown(button, pointer(3))
+    await fireEvent.pointerCancel(button, pointer(3))
+    await expect(args.onhold).toHaveBeenCalledTimes(4)
+    await expect(args.onhold).toHaveBeenLastCalledWith(false)
+
+    await fireEvent.click(button, { detail: 1 })
+    await expect(args.onpress).not.toHaveBeenCalled()
+    button.focus()
+    await userEvent.keyboard('{Enter}')
+    await expect(args.onpress).toHaveBeenCalledTimes(1)
+
+    await fireEvent.pointerDown(button, pointer(4))
+    await pastLongPress()
+    await expect(args.onlongpress).not.toHaveBeenCalled()
+    await fireEvent.pointerUp(button, pointer(4))
+    await expect(args.onlongrelease).not.toHaveBeenCalled()
+  },
+}
+
+/**
+ * The long press: held past `--long-press` it calls `onlongpress`, its release `onlongrelease`, and
+ * the click that ends it is swallowed. A short click still presses; a right-click long-presses.
+ */
+export const LongPress: Story = {
+  args: { label: 'Stop', size: 'band', tip: 'transport.stop' },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Stop' })
+    await fireEvent.pointerDown(button, pointer(1))
+    await expect(args.onlongpress).not.toHaveBeenCalled()
+    await waitFor(() => expect(args.onlongpress).toHaveBeenCalledTimes(1), { timeout: 1000 })
+    await fireEvent.pointerUp(button, pointer(1))
+    await expect(args.onlongrelease).toHaveBeenCalledTimes(1)
+    await fireEvent.click(button)
+    await expect(args.onpress).not.toHaveBeenCalled()
+    await userEvent.click(button)
+    await expect(args.onpress).toHaveBeenCalledTimes(1)
+    await fireEvent.contextMenu(button)
+    await expect(args.onlongpress).toHaveBeenCalledTimes(2)
   },
 }

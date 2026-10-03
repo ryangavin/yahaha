@@ -5,37 +5,30 @@ import '@fontsource/dm-sans/500.css'
 import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/500.css'
 import '../src/ui/tokens/index.css'
-import './preview.css'
 
-import { withThemeByDataAttribute } from '@storybook/addon-themes'
-import type { Preview } from '@storybook/svelte-vite'
-import { GLOBALS_UPDATED, SET_GLOBALS } from 'storybook/internal/core-events'
-import { addons } from 'storybook/preview-api'
+import { DecoratorHelpers } from '@storybook/addon-themes'
+import type { Decorator, Preview } from '@storybook/svelte-vite'
+import ThemeFrame from './ThemeFrame.svelte'
+import { THEMES, asTheme, followGround } from './theme'
 
-const THEMES = { dark: 'dark', light: 'light' }
+// The themes addon's toolbar (dark/light), without its decorator: that one sets the theme on the
+// page's root element, which would theme Storybook's own UI and docs pages too.
+DecoratorHelpers.initializeThemeState(Object.keys(THEMES), 'dark')
 
-/** Sets the theme on the root element, as the themes addon does for stories. */
-function applyTheme(theme: unknown) {
-  if (typeof theme === 'string' && theme in THEMES) document.documentElement.dataset.theme = theme
-}
-
-// Docs pages without stories (the Foundations page) never run the theme decorator, so they
-// follow the toolbar here instead.
-if (addons.hasChannel()) {
-  const channel = addons.getChannel()
-  for (const event of [SET_GLOBALS, GLOBALS_UPDATED]) {
-    channel.on(event, (payload: { globals?: { theme?: unknown } }) => applyTheme(payload.globals?.theme))
-  }
+/** Wraps each story in an element carrying the toolbar's theme; the tokens apply under it. */
+const withTheme: Decorator = (_, context) => {
+  const theme = asTheme(context.globals.theme)
+  followGround(theme, context.globals.backgrounds)
+  return { Component: ThemeFrame, props: { theme } }
 }
 
 const preview: Preview = {
   tags: ['autodocs'],
-  decorators: [
-    withThemeByDataAttribute({ themes: THEMES, defaultTheme: 'dark', attributeName: 'data-theme' }),
-  ],
+  decorators: [withTheme],
   parameters: {
     layout: 'centered',
-    // The backgrounds tool sets the canvas; its options are the two themes' ground (--g).
+    // The backgrounds tool sets the canvas; its options are the two themes' ground (--g), named
+    // after the theme so the ground follows the theme until the user picks one (theme.ts).
     backgrounds: {
       options: {
         dark: { name: 'Dark ground', value: '#000000' },
@@ -45,7 +38,7 @@ const preview: Preview = {
     controls: { expanded: true },
     a11y: { test: 'error' },
   },
-  initialGlobals: { backgrounds: { value: 'dark' } },
+  initialGlobals: { theme: 'dark' },
 }
 
 export default preview

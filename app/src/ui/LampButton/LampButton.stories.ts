@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/svelte-vite'
-import { expect, fn, within } from 'storybook/test'
+import { expect, fireEvent, fn, userEvent, within } from 'storybook/test'
 import LampButton from './LampButton.svelte'
 
 /**
@@ -11,6 +11,7 @@ import LampButton from './LampButton.svelte'
 const meta = {
   title: 'Primitives/LampButton',
   component: LampButton,
+  parameters: { layout: 'centered' },
   args: { ontoggle: fn(), onlongpress: fn(), onlongrelease: fn(), tipAction: fn() },
   argTypes: {
     label: { control: 'text' },
@@ -40,5 +41,83 @@ export const Board: Story = {
     await expect(button).toHaveAttribute('data-face', 'on')
     await expect(button).toHaveAttribute('data-tip', 'transport.acmp')
     await expect(args.tipAction).toHaveBeenCalledWith(button, 'transport.acmp')
+  },
+}
+
+/** Lit: the lime lamp face, ink label and the small code. */
+export const On: Story = {
+  args: { label: 'Accomp', code: 'ACMP', on: true },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Accomp ACMP' })
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    await expect(button).toHaveAttribute('data-face', 'on')
+  },
+}
+
+/**
+ * Controlled: a click, Space or Enter asks for `!on` through `ontoggle` and changes nothing itself;
+ * the parent moves `on`. A short press never long-presses.
+ */
+export const Toggles: Story = {
+  args: { label: 'Unison' },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Unison' })
+    await userEvent.click(button)
+    await expect(args.ontoggle).toHaveBeenCalledTimes(1)
+    await expect(args.ontoggle).toHaveBeenLastCalledWith(true)
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    await expect(button).toHaveAttribute('data-face', 'off')
+    button.focus()
+    await userEvent.keyboard(' ')
+    await userEvent.keyboard('{Enter}')
+    await expect(args.ontoggle).toHaveBeenCalledTimes(3)
+    for (const n of [1, 2, 3]) await expect(args.ontoggle).toHaveBeenNthCalledWith(n, true)
+    await expect(args.onlongpress).not.toHaveBeenCalled()
+  },
+}
+
+/** Shown, not pressable: dimmed label on the off face, 64 × 28 (a settings row's On/Off). */
+export const Disabled: Story = {
+  args: { label: 'Off', size: 'sm', width: 64, disabled: true, name: 'Manual Bass, works with Upper on' },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Manual Bass, works with Upper on' })
+    await expect(button).toHaveAttribute('aria-disabled', 'true')
+    await expect(button).toHaveAttribute('data-face', 'disabled')
+    await expect(button).toHaveAttribute('data-contrast', 'dim')
+    await userEvent.click(button)
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    await expect(args.ontoggle).not.toHaveBeenCalled()
+    const init = { pointerId: 1, button: 0, clientX: 0, clientY: 0 }
+    await fireEvent.pointerDown(button, init)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await expect(args.onlongpress).not.toHaveBeenCalled()
+    await fireEvent.pointerUp(button, init)
+    await expect(args.onlongrelease).not.toHaveBeenCalled()
+  },
+}
+
+/**
+ * Looper's Rec armed in the lamp row: no fill, a 1px `--rec` outline and label. A click asks to
+ * toggle; the parent, not the click, lights it.
+ */
+export const Armed: Story = {
+  args: {
+    label: 'Looper',
+    size: 'cell',
+    waiting: true,
+    hue: 'rec',
+    name: 'Looper, rec armed. Long press: loop rec',
+    tip: 'looper.rec',
+  },
+  parameters: { layout: 'padded' },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Looper, rec armed. Long press: loop rec' })
+    await expect(button).toHaveAttribute('data-face', 'waiting')
+    await expect(button).toHaveAttribute('data-hue', 'rec')
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(button)
+    await expect(args.ontoggle).toHaveBeenCalledTimes(1)
+    await expect(args.ontoggle).toHaveBeenLastCalledWith(true)
+    await expect(button).toHaveAttribute('data-face', 'waiting')
   },
 }

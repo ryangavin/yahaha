@@ -36,3 +36,25 @@ export const Board: Story = {
     await expect(marks[0].parentElement).toHaveAttribute('aria-hidden', 'true')
   },
 }
+
+/** Right 3's plugin isn't installed: the orange ⚠ alone. */
+export const Missing: Story = {
+  args: { missing: true },
+  play: async ({ canvasElement }) => {
+    const marks = canvasElement.querySelectorAll('[data-mark]')
+    await expect(marks).toHaveLength(1)
+    await expect(marks[0]).toHaveAttribute('data-mark', 'missing')
+    await expect(marks[0]).toHaveAttribute('data-hue', 'warn')
+  },
+}
+
+/** The part's plugin failed to load or crashed: the red ✕ alone. */
+export const Failed: Story = {
+  args: { failed: true },
+  play: async ({ canvasElement }) => {
+    const marks = canvasElement.querySelectorAll('[data-mark]')
+    await expect(marks).toHaveLength(1)
+    await expect(marks[0]).toHaveAttribute('data-mark', 'failed')
+    await expect(marks[0]).toHaveAttribute('data-hue', 'ending')
+  },
+}
