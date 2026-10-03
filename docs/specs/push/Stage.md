@@ -43,8 +43,11 @@ region's `margin-top`).
 ### The `Stage` component
 
 `app/src/ui/Stage/Stage.svelte` is pure: props in, callbacks out (D46). Nothing in
-`app/src/ui` reads `app.state`, the `ui` store, `tips` or `app.send`; the wiring passes
-everything below.
+`app/src/ui` reads `app.state` (the live `AppState`, on the `app` store in
+`app/src/lib/store.svelte.ts`), the `ui` store (same file), `tips` or `app.send`; the wiring
+passes everything below. Every fixture value in this spec gives every required field of its
+TS type (`app/src/lib/api/types.ts`); a field the spec doesn't name keeps the dev mock's
+initial value.
 
 | Prop | Type | Meaning |
 |---|---|---|
@@ -52,8 +55,8 @@ everything below.
 | `now` | `number` | the session clock, ms, once per animation frame (kit › Count row; D40) |
 | `receivedMs` | `number` | the `now` at which `state` arrived |
 | `meters` | `Meters \| null` | the latest meters frame (`session.meters()`, not part of `AppState`); null draws every meter empty |
-| `holds` | `number[]` | nine held peaks, strips 1–9, linear (kit › FaderStrip, `holdPeak`); `[]` or a missing entry = 0 |
-| `library` | `LibraryList \| null` | `session.library()`; null until loaded (the category and the queued chip fall back, D44) |
+| `holds` | `number[]` | nine held peaks, strips 1–9, linear (kit › FaderStrip, `holdPeak`: the wiring keeps the `HoldState`s and passes their `peak`s); `[]` or a missing entry = 0 |
+| `library` | `LibraryList` | `app.library` (never null: it starts as `revision` 0 with empty `entries`, so "not loaded" is simply "entry not found"; the category and the queued chip fall back, D44) |
 | `page` | `Page` | the chosen page tab (D52): `'stage' \| 'channel' \| 'effects' \| 'quickRacks' \| 'multiPads' \| 'looper' \| 'harmArp' \| 'library' \| 'settings'` |
 | `shift` | `boolean` | the Shift layer (`ui.shift`): Track ◀ ▶ and Pad Bank send their `shiftAction`; a part lamp's click opens Channel |
 | `keyRange` | `49 \| 61 \| 88` | the key strip's range (the wiring resolves `ui.keyRange` or the Launchkey's with `rangeFor()`, kit › Key strip) |
@@ -71,21 +74,26 @@ hold; a `Pad` one pad's state and the LED phase) and the same callbacks; a child
 `state` whole. What a component under `app/src/ui` may import from `app/src/lib`: types from
 `lib/api/types` and `lib/api/sound-library`; `use:tip` from `lib/tooltip/tip.svelte` (it marks
 `data-tip` and reports hover and focus to the help footer, which is its job); `TempoHold` from
-`lib/tempoHold` and `rangeFor`, `RANGES`, `boundary` from `panels/keystrip/keyboard.ts` (pure
-helpers). Never `store.svelte` (`app`, `ui`), `nav`, `shortcuts` or a session. Gesture
+`lib/tempoHold`; `rangeFor`, `RANGES`, `layout`, `boundary`, `detectionArea`, `noteName`,
+`pcName` from `panels/keystrip/keyboard.ts` and `brightness`, `DIM` from `lib/leds.ts` (pure
+helpers). Never `store.svelte` (`app`, `ui`), `nav`, `shortcuts` or a session. Notation: in
+this spec and the kit, `surface.controls[trackPrev]` means the `SurfaceControl` whose `id` is
+`trackPrev` (`controls` is an array; find the entry by `id`). Gesture
 timers are allowed (the `longpress` action's 350 ms and `TempoHold`'s repeat while a button
 is held): they measure a press, not motion (axiom 10 is about drawing).
 
 The wiring (`app/src/pages/StageWiring.svelte`) owns:
 
 - the frame loop: once per animation frame `now = performance.now()` (local ms; the spec
-  calls it the session clock because it is only ever differenced against `receivedMs`, which
-  is the `performance.now()` at which the state arrived in `app.subscribe`), passed as `now`
-  and `receivedMs`. The store's `clock` (`BeatClock`) keeps running for the old panels; the
-  Stage does not read it;
-- meters: it polls `app.meters()` from the frame loop at most every 33 ms (about 30 Hz, the
-  one reader `session.ts` asks for), passes the frame as `meters` and folds it into `holds`
-  with `holdPeak(prev, peak, atMs)` per strip (the group strips fold their largest peak);
+  calls it the session clock because it is only ever differenced against `receivedMs`),
+  passed as `now`. `receivedMs` is set to `performance.now()` in an `$effect` that reads
+  `app.state` (so it runs once per new state; `BeatClock`'s own `receivedMs` is private and
+  stays for the old panels; the Stage does not read `clock`);
+- meters: it polls `app.meters()` from the frame loop at most every 33 ms (about 30 Hz),
+  passes the frame as `meters` and folds it into `HoldState[]` with `holdPeak(prev, peak,
+  atMs)` per strip (the group strips fold their largest peak), passing the `peak`s as
+  `holds`. `session.ts` wants one reader (a call returns the peaks since the last), and the
+  interim `ChannelView` polls `app.meters()` every 100 ms of its own while shown (D60);
 - `library`: `app.library` from the store (it already re-fetches on
   `state.library.revision`); nothing is fetched twice;
 - `dropouts`: `dropouts.observe(state.io.synth, Date.now())` on every state,
@@ -99,15 +107,21 @@ The wiring (`app/src/pages/StageWiring.svelte`) owns:
   `onhelp` → `tips.toggleHelp()`; `onopen` → the D32 table.
 
 The `Pages/Stage` story gives explicit `argTypes`: `state`, `meters`, `library`, `holds` as
-`object` controls, `page` and `keyRange` as `select`, `display` with `control: false`
-(a snippet), the four callbacks as actions (`fn()`).
+`object` controls, `page` and `keyRange` as `select`, the four callbacks as actions (`fn()`),
+and no argType for `display` (`app/src/ui/stories.test.ts` treats a `Snippet` prop as
+content and fails any disabled or hidden control, so `control: false` is not allowed).
 
 ### The app shell around it (interim, D53)
 
-Until the other page specs land, `App.svelte` is a column filling the window: the **scaler**
-(flex 1, `--g` ground, D1) and, under it, today's `HelpFooter` (`lib/tooltip/HelpFooter.svelte`,
-full width, its own height `--help-footer-h`, taller in help mode, in the old shell's tokens).
-`scale = min(w / 1440, (h − footer) / 900)`; at 1024 × 700 with the 48px footer that is
+Until the other page specs land, `App.svelte` is a column filling the window (`.app`: `padding:
+0; gap: 0`, dropping today's `0.5rem 16px 0.6rem` and `0.6rem` gap, and its `--u` sizing):
+the **scaler** (flex 1, `--g` ground, D1) and, under it, today's `HelpFooter`
+(`lib/tooltip/HelpFooter.svelte`, unchanged: full width, its own height `--help-footer-h`
+(3rem, 48px), taller in help mode (`--help-footer-h-help`), its 8px radius and the old
+shell's tokens). `app.css`'s `--help-footer-space` (what the drawers keep clear at the
+bottom) becomes `var(--help-footer-h)` / `var(--help-footer-h-help)` alone, since the gap and
+padding it added are gone (build-time item). `scale = min(w / 1440, (h − footer) / 900)`,
+where `footer` is the footer's rendered height; at 1024 × 700 with the 48px footer that is
 0.71. Inside the scaler:
 
 - `ui.view === 'stage'`: `StageWiring` (the `Stage`, scaled and centred).
@@ -121,8 +135,10 @@ full width, its own height `--help-footer-h`, taller in help mode, in the old sh
   stay exactly as they are: unscaled, in the old tokens, over the scaled Stage.
 - The interim Channel (D32): while `channelNav.open`, the wiring passes a `display` snippet
   rendering today's `ChannelView` (`part = ui.selectedPart`, `onpart = channelNav.show`,
-  `onclose = channelNav.close`) in the display's box (`24,112 1392×300` inside the scale,
-  `overflow: auto`, the old tokens scoped per D48). Esc closes it (`App.svelte`'s `onKey` keeps
+  `onclose = channelNav.close`) in the display's box (`24,112 1392×300`, so it is the one
+  interim thing drawn inside the scale; `overflow: auto`; its wrapper restores the old font
+  and ink per D48, and the old tokens reach it because both sets live on `:root`). Esc
+  closes it (`App.svelte`'s `onKey` keeps
   `channelNav.escape()`), as do its ×, the Channel tab (D52) and the Stage tab.
 - Gone from the shell: `Header`, the quick-nav strip, `LeadSheet`, `Launchkey`, `MixerRow`,
   `KnobRackPanel`, the old `KeyStrip`, the status footer and `DropoutNotice` (the health slot
@@ -288,13 +304,18 @@ The kit's full band, key strip and status line, unchanged; the Stage adds nothin
 is whatever `mixer.faderPage` is: Panel shows the strips in kit › Faders; Style shows the Style
 parts (#507). **Until #507 lands, the Style page has a fallback** like the pads' (D33): strips
 1–8 are `FaderStrip`s from `surface.faders[0..7]` named by `label` as the state sends it
-("RHYTHM 1"…), in `--a`, with `value`, `set` and `waiting` as on Panel, no meter and no
-marks; strip 9 is Master as on Panel; the name buttons are not controls; the lamp row's
-buttons 1–8 are LampButtons labelled with the fader button's `label` from
-`surface.controls.faderButton1` … `faderButton8` ("RHYTHM 1"…, "SOUND"), `on` when that
-entry's `level` is `bright`, each click sending its `action` (disabled when null, as Sound's
-is), tooltip `launchkey.fader_button` (new, C5) for all eight; the header's "Faders" and the layer
-tabs are unchanged. The pads show the hardware's page
+("RHYTHM 1"…, upper case; no wrap, ellipsis), in `--a`, with `value`, `set` and `waiting` as
+on Panel, no meter and no marks; in the Pan layer the engine sends them unused (`set` null:
+the Unused face); the slider's tooltip by layer: `mixer.style.volume`, `mixer.style.reverb`,
+`mixer.style.chorus`, `mixer.style.variation` (Delay); `aria-valuetext` "{label} {value}";
+strip 9 is Master as on Panel; the name buttons are not controls (plain text); the lamp row's
+buttons 1–8 are LampButtons labelled with the fader button's `label` from the
+`surface.controls` entries `faderButton1` … `faderButton8` as the state sends it (no wrap,
+ellipsis), `name` the same label, `on` when that entry's `level` is `bright`, each click
+sending its `action` (disabled when null); button 6 is Sound on both pages (app-api.md ›
+surface) and keeps the Panel row's Sound behaviour and `launchkey.sound`; the other seven
+carry `mixer.style.mute`; the header's "Faders" and the layer tabs are unchanged. The pads
+show the hardware's page
 (`pads.page`); Sections is drawn here, the other
 pages in their specs (#507, #510–#512) and, until those land, with the kit's fallback face (kit ›
 Pads, D33). While Sound is held or latched the pads are the Racks page (#507; fallback until
@@ -373,9 +394,13 @@ The story spreads them: `<Stage {...boardUi} state={boardState} now={boardNow} �
   are Absent), and the library entry's `sections` text is "Main ABCD · Intro AB · Ending AB ·
   Fill ABCD · Break".
 - `styleSettings.mainTiming` "nextBar", `introEndingTiming` "nextBar".
-- `chord`: name "Am7", fingered "Am7", fingeringName "Fingered", transposeKeyboard 0, leftHold
-  false; `keyboard.chordTones` [9, 0, 4, 7].
-- `ots`: four settings, applied 2. `home.bandSends`: `[{ block: "reverb", name: "Reverb",
+- `chord`: name "Am7", fingered "Am7", fingering "fingered", fingeringName "Fingered", upper
+  false, manualBass false, manualBassActive false, transposeKeyboard 0, leftHold false (the
+  mock's initial chord is Fingered On Bass with Manual Bass on; the fixture overrides those
+  five fields together); `keyboard.chordTones` [9, 0, 4, 7].
+- `ots`: `settings` four entries `{ name: "OTS 1" … "OTS 4", parts: [] }` (`parts` unread by
+  the Stage), applied 2, link false, linkTiming "mainChange", racks `[]`, racksReadOnly
+  false. `home.bandSends`: `[{ block: "reverb", name: "Reverb",
   effectName: "Hall 1", level: 40 }, { block: "chorus", name: "Chorus", effectName: "Chorus 1",
   level: 12 }, { block: "variation", name: "Delay", effectName: "Delay LCR", level: 0 }]`.
 - `liveRack`: name "Sunday drive", modified true. `quickRacks`: bank 0, button 0 `loaded` true,
@@ -383,10 +408,12 @@ The story spreads them: `<Stage {...boardUi} state={boardState} now={boardNow} �
 - `keyboardParts` (R1, R2, R3, L): on true / true / false / true; sounding true / true / false /
   true; playsBass false; channels 1, 3, 4, 2; `sound` `{ id: "saved:p1", name: "Stage Grand" }`,
   `{ id: "saved:p41", name: "Silk Strings" }` (`soundEdited` true), `{ id: "saved:p57", name:
-  "Brass Section" }` (`plugin` `{ id: "au:SamplerDeluxe", name: "Sampler Deluxe",
-  manufacturer: "Mock", status: "failed", stage: null, error: "Not installed", outOfProcess:
-  false, inProcessFallback: false, cpu: 0, overruns: 0, recentOverruns: 0, editor: false,
-  missing: true }`, the fake plugin AGENTS.md names), `{ id: "saved:p41", name: "Silk Strings"
+  "Brass Section" }` (`plugin` `{ id: "aumu Smp7 Fake", name: "Sampler Deluxe",
+  manufacturer: "Fake Instruments", status: "failed", stage: null, error: "Not installed",
+  outOfProcess: false, inProcessFallback: false, cpu: 0, overruns: 0, recentOverruns: 0,
+  editor: false, missing: true }`, every required field of `PartPlugin`; the fake plugin
+  AGENTS.md names, with the id `app/src/lib/api/mock-plugins.ts` gives it), `{ id:
+  "saved:p41", name: "Silk Strings"
   }`; `voiceName` the same names. `soundLibrary.patches` is **replaced** by three `PatchInfo`
   literals (ids `p1`, `p41`, `p57`; `name` the sound names; `category` "piano", "strings",
   "brass"; `tags` `[]`; `favourite` false; `source` `{ kind: "soundFont", file:
@@ -397,7 +424,9 @@ The story spreads them: `<Stage {...boardUi} state={boardState} now={boardNow} �
   100. `surface.layer` none.
 - `surface.faders` (9): values 90, 72, 64, 80, 100, 90, null, null, 100; labels as the engine
   and the mock send them, "RIGHT 1", "RIGHT 2", "RIGHT 3", "LEFT", "STYLE", "M.PAD", "", "",
-  "MASTER" (the strips' display names are the kit's own; kit › FaderStrip, Rack target); `set`
+  "MASTER" (the strips' display names are the kit's own; a Panel fader 1–4 is a rack target
+  only when its `label` differs from the engine's `PART_LABELS` entry for it, kit › FaderStrip,
+  Rack target); `set`
   null for 7 and 8, the matching set command for the rest (`setPartVolume` 0–3,
   `setStyleVolume`, `setMultiPadVolume`, `setMasterVolume`, each with `volume: 0`); fader 2
   `waiting` true at `position` 50, the rest waiting false, `position` null.
@@ -407,15 +436,18 @@ The story spreads them: `<Stage {...boardUi} state={boardState} now={boardNow} �
   3 (R2) 0.0224 [100], 0.0180 [93]; channel 4 (R3) 0, 0; channel 2 (L) 0.0316 [112], 0.0248
   [104]; Style, channel 9 0.1259 [156], 0.0897 [145], channels 10–16 0; Multi Pads, channels
   5–8 0; `master` [0.1445, 0.1445] [161], `masterRms` [0.1020, 0.1020] [149].
-- `boardMeterHolds` (the nine held peaks, strips 1–9, linear; tick bottoms in px): 0.1259 [161],
-  0.0447 [128], 0, 0.0631 [139], 0.2188 [179], 0.0023 [32], 0, 0, 0.2512 [183].
+- `boardMeterHolds` (the nine held peaks, strips 1–9, linear, the `peak` of each `HoldState`
+  the wiring would hold; tick bottoms in px, `5 + height(hold)`): 0.1259 [161], 0.0447
+  [128], 0, 0.0631 [139], 0.2188 [179], 0.0023 [32], 0, 0, 0.2512 [183].
 - Lamps: `harmonyArp.on` false, `chord.leftHold` false, `looper.mode` "off", `metronome.on`
   false.
 - `knobs`: page "style", pageName "Style", pageNumber 1, pageCount 6; knobs 1–8 (function,
-  value, level, short): dynamics "127" 127 "DynCtrl"; retriggerRate "1/8" 51 "RtgRate";
-  retriggerOnOff "Off" 0 "RtgOnOff"; trackMuteA "Off" 0 "StyMuteA"; trackMuteB "Off" 0
-  "StyMuteB"; swing "0%" 0 "Swing"; none "" null "---"; tempo "104 BPM" null "Tempo". (Tempo arc
-  `(104 − 40) / 240 = 0.267`, 72°.)
+  value, level, short, name): dynamics "127" 127 "DynCtrl" "Dynamics Control"; retriggerRate
+  "1/8" 51 "RtgRate" "Retrigger Rate"; retriggerOnOff "Off" 0 "RtgOnOff" "Retrigger On/Off";
+  trackMuteA "Off" 0 "StyMuteA" "Style Track Mute A"; trackMuteB "Off" 0 "StyMuteB" "Style
+  Track Mute B"; swing "0%" 0 "Swing" "Swing"; none "" null "---" "No Assign"; tempo "104 BPM"
+  null "Tempo" "Tempo". (Tempo arc `knobFraction(null, 104)` = `(104 − 40) / 240` = 0.267,
+  72°; kit › Knob.)
 - `pads`: page "sections", pageName "Sections", pageNumber 1, pageCount 5, connected true. Pads
   1–16 (level, anim): 1 dim, 2 dim, 3 off, 4 dim, 5 dim, 6 dim, 7 off, 8 dim, 9 dim, 10 bright
   solid, 11 bright flash, 12 dim, 13 dim, 14 dim, 15 dim, 16 bright solid; every anim not named
@@ -445,13 +477,13 @@ is in `app/src/ui` today.
 |---|---|---|---|---|---|---|
 | 0 | tokens | — | — | yes; add the kit's new tokens; loaded in the app per D48 | `:root` lines 60, 65 / 36, 41; art 124–125 / 100–101 | kit › Tokens |
 | 1 | `longpress` (Svelte action, `app/src/ui/actions/`) | primitive | — | no | — | kit › Interaction conventions |
-| 1b | `sectionName`, `splitChord`, `knobFraction`, `chordTones` (pure functions, `app/src/ui/Stage/format.ts`) | primitive | — | no | — | kit › Section names; Display › Chord; kit › Knob |
+| 1b | `sectionName(name)`, `splitChord(name)`, `knobFraction(level, tempo)`, `chordTones(pcs, transpose, root)` (pure functions, `app/src/ui/Stage/format.ts`) | primitive | — | no | — | kit › Section names; Display › Chord; kit › Knob |
 | 2 | LampButton | primitive | longpress | yes; change per D49: `aria-pressed` follows `on` alone (no local flip), `data-face`, `data-hue`; add `tip: TipKey` (it applies `use:tip` itself, like every control primitive below), `join: 'start'` (radius `4px 0 0 4px`), `waiting: 'lamp' \| 'rec'` (the waiting face in that hue), `onlongpress`, `onlongrelease` | 97, 116, 277–284 / 73, 92, 253–260 | kit › Faces, Lamp row |
-| 3 | Button | primitive | longpress | no | 117–118, 131, 133, 299–300, 334–335, 366–386 / −24 | kit › Faces: `face: 'off' \| 'on' \| 'chosen' \| 'waiting'` (default off) with `hue` for waiting (a token name, default `t2`), `disabled`, `pressed` (`aria-pressed`); variants `icon` 32 × 32, `md` padding 0 14, `band` 88 × 32 left-aligned padding 0 8, `pair` 41 × 32, `cell` 32 tall filling its grid cell, 13px (the master button) (D50) |
-| 4 | ChosenTabs | primitive | — | no | 74–84, 226–237 / 50–60, 202–213 | kit › App bar (`size page`: 36 tall, 24px block), Faders header (`size header`: 35, 22px) |
+| 3 | Button | primitive | longpress | no | 117–118, 131, 133, 299–300, 334–335, 366–386 / −24 | kit › Faces: `face: 'off' \| 'on' \| 'chosen' \| 'waiting'` (default off) with `hue` for waiting (a token name, default `t2`), `disabled`, `pressed?: boolean` (rendered as `aria-pressed="true"` / `"false"` when given, omitted when undefined); variants `icon` 32 × 32, `md` padding 0 14, `band` 88 × 32 left-aligned padding 0 8, `pair` 41 × 32, `cell` 32 tall filling its grid cell, 13px (the master button), `caret` 20 × 32, 10px glyph in `--m`, radius `0 4px 4px 0` (the Metronome caret) (D50) |
+| 4 | ChosenTabs | primitive | — | no | 74–84, 226–237 / 50–60, 202–213 | `kind: 'page'` (a `<nav aria-label>` of buttons; the chosen one `aria-current="page"`; `size page`: 36 tall, 24px block, kit › App bar) or `kind: 'tab'` (a `role="tablist"` with `aria-label`, buttons `role="tab"`, the chosen one `aria-selected="true"`, the others `"false"`; `size header`: 35, 22px, kit › Faders header); props `items: { key, label, tip }[]`, `chosen: key`, `onchoose(key)` |
 | 5 | WaitingChip | primitive | — | no | 110, 166 / 86, 142 | sizes `count` (26, 18px), `line` (26, 14px), `display` (48, 36px) |
 | 6 | AccentBlock | primitive | — | no | 132, 294 / 108, 270 | kit › Faces (accent block); as a button (style name) or a span (knob page) |
-| 7 | StatusDot | primitive | — | no | 89, 161, 171 / 65, 137, 147 | 6px: solid with a glow, or hollow 1px ring |
+| 7 | StatusDot | primitive | — | no | 89, 161, 171 / 65, 137, 147 | round, `size` 6 (default; the Launchkey, Running and section dots) or 5 (the rack's modified dot, the edited mark): solid in a hue with an optional glow, or hollow 1px ring |
 | 8 | PartMarks | primitive | — | no | 194, 202–203, 262–264 / 170, 178–179, 238–240 | edited dot, ⚠, ✕, "off", "bass" |
 | 9 | GroupHeader | primitive | — | no | 224, 292, 320, 361, 379 / −24 | kit › Spacing and shape (36 tall hairline row, title, slots) |
 | 10 | BeatBlocks | primitive | — | no | 100–105 / 76–81 | kit › Count row, item 1 |
@@ -487,13 +519,32 @@ is in `app/src/ui` today.
 | 40 | FullBand | complex | FaderBank, KnobBank, PadBank, TransportColumn | no | 221–389 / 197–365 | kit › Full band |
 | 41 | Stage (page, `Pages/Stage`) | complex | AppBar, SectionRow, Display, FullBand, StatusLine, KeyStrip | no | whole board | this file |
 
+**The base `Button`** (row 3), which every faced button on the Stage is or wraps: props
+`label: string` (the text; a snippet child for a glyph with a unit, like Fill ▲), `name?:
+string` (the accessible name when the label isn't enough, as `aria-label`; default the
+label), `tip: TipKey`, `face: 'off' | 'on' | 'chosen' | 'waiting'` (default `'off'`), `hue:
+string` (a token name for the waiting face's border and label, default `'t2'`), `variant:
+'icon' | 'md' | 'band' | 'pair' | 'cell' | 'caret'` (default `'md'`), `disabled: boolean`
+(default false; `aria-disabled`, stays focusable, label `--d` with `data-contrast="dim"`),
+`pressed?: boolean` (`aria-pressed`), `current?: boolean` (`aria-current="page"`, for the
+page tabs), `join?: 'start' | 'end'` (the radius it keeps in a split), `shift: boolean`
+(default false), `onclick(e)`, `onlongpress?()`, `onlongrelease?()`, `onshiftclick?(e)`
+(fired instead of `onclick` while `shift` is true), `onpointerdown?(e)` / `onpointerup?(e)`
+(Tempo ±). It renders one `<button type="button">` with `data-face` (the face, or
+`disabled`), `data-hue` when `hue` is given, `use:tip`, and `use:longpress` when
+`onlongpress` is given. Every row below with a face is a `Button` or a `LampButton`; nothing
+else renders a `<button>` except the text buttons.
+
 **Props and callbacks.** Every control primitive (LampButton, Button, ChosenTabs, FaderStrip,
 Knob, Pad, HealthSlot, StatusLine, the text buttons) takes `tip: TipKey` and applies
 `use:tip={tip}` to its own element (a parent can't put an action on a child component), a
 `name` or label for its accessible name, `disabled` where the kit says it can be, and reports
 with one callback per gesture the kit names for it (`onclick`, `onchange(value)`,
 `onlongpress`, `onlongrelease`, `onshiftclick`); readouts take their values as props. The
-page's full list is in The `Stage` component; each SPEC.md repeats its own. Components take
+page's full list is in The `Stage` component; each child's props are the state fields its
+section reads (passed as named props, never `state`), the `now` / `receivedMs` pair where it
+draws motion, and the callbacks its section's tables send through; each SPEC.md lists them,
+and its stories' args come from the board fixture's values for those fields. Components take
 props and call callbacks; none reads `app.state` or sends. The page wiring in
 the app (`app/src/pages/StageWiring.svelte`, outside `app/src/ui`) reads `app.state`, keeps
 `now`, `receivedMs` and the meter holds, passes them down, and sends commands. Story titles
@@ -518,9 +569,9 @@ each component's Visual rules (its SPEC.md lists the ones it uses); only the nam
 | Scaling | `App.svelte` scales rows by `--u` (1024 × 700 to 1920) | D1, in the app shell; the shell's interim layout is in The app shell around it (D53) |
 | Tokens and fonts | `app.css` defines `--bg` (a colour), `--line`, `--line-strong`, `--key-white`, `--key-black` on `:root` and loads Barlow in `main.ts`; `ui/tokens/index.css` is loaded only by Storybook | D48: `main.ts` imports the kit tokens and fonts after `app.css`; `app.css` renames its clashing names (`--bg` → `--room`, `--line` → `--hairline`, `--line-strong` → `--hairline-strong`, `--key-white` → `--key-ivory`, `--key-black` → `--key-ebony`) and their users follow (**build-time item**) |
 | Shortcuts | `lib/nav.ts`, `lib/keys.ts`: Alt letters `bsropemlchyt` | Add Alt+G (Stage) and Alt+N (Channel) (D37): two `NAV` entries (D52) and `gn` in `keys.ts`'s letters |
-| Shell tests | `App.test.ts` (the five rows, the hand surface tip, the mixer details); `help/coverage.test.ts` (every `TipKey` is used by some control: its `STATES` click through today's shell, drawers, Library and the lead sheet) | `App.test.ts` is rewritten for the scaler shell (Stage mounted, Library in its place, the footer below, D53). `coverage.test.ts` keeps its drawer, Library and prompt states, drops the states that clicked controls the shell removes (`fx.master_edit` under `ui.mixer`, the Quick Racks bar, the chart lane), and adds the Stage rendered with the board fixture; keys that only the removed panels used (`stage.hand_surface`, `stage.fader_badge`, `nav.mixer`, `nav.charts`, `nav.styles`, `nav.rack`, `view.stage`'s old body…) are kept in the catalog and listed in the test's `UNUSED` allowance until their pages land (**build-time item**) |
+| Shell tests | `App.test.ts` (the five rows, the hand surface tip, the mixer details); `help/coverage.test.ts` (every focusable or clickable element in the app, in each of its `STATES`, carries a `data-tip` that is in the catalog; it checks nothing about unused keys) | `App.test.ts` is rewritten for the scaler shell (Stage mounted, Library in its place, the footer below, D53). `coverage.test.ts` keeps its drawer, Library and prompt states, drops the states that clicked controls the shell removes (`fx.master_edit` under `ui.mixer`, the Quick Racks bar, the chart lane), and gains the Stage's states (the Style fader page, a send layer, a message on the status line); keys that only the removed panels used (`stage.hand_surface`, `stage.fader_badge`, `nav.mixer`, `nav.charts`, `nav.styles`, `nav.rack`…) stay in the catalog, unused, until their pages land (**build-time item**) |
 | Wiring test | — | `app/src/pages/StageWiring.test.ts` mounts `StageWiring` with a `MockSession` (as `App.test.ts` does) for Check 20 and the `chosenPage()` cases |
-| Screenshot tool | `scripts/shots.ts`: one 1000 × 600 viewport, the story root's box as the shot, no masks, axe with every rule on every element | **Build-time item** (the Stage lane, before its screenshot check can pass; D39): a story may set `parameters.shots = { viewport: { width, height }, mask: [<selector>…] }`; the page uses that viewport, and the diff ignores each masked element's box (taken from the rendered story, applied to both images, and left out of the score's pixel count). Axe: before `axe.run`, `axe.configure({ rules: [{ id: 'color-contrast', selector: '*:not([data-contrast="dim"])' }] })` (D47); every other rule runs on every element |
+| Screenshot tool | `app/scripts/shots.ts`: one 1000 × 600 viewport, the story root's box as the shot, no masks, axe with every rule on every element | **Build-time item** (the Stage lane, before its screenshot check can pass; D39): a story may set `parameters.shots = { viewport: { width, height }, mask: [<selector>…] }`; the page uses that viewport, and the diff ignores each masked element's box (taken from the rendered story, applied to both images, and left out of the score's pixel count). Axe: before `axe.run`, `axe.configure({ rules: [{ id: 'color-contrast', selector: '*:not([data-contrast="dim"])' }] })` (D47); every other rule runs on every element |
 
 ## Contract changes needed
 
@@ -550,8 +601,7 @@ it lands.
 5. **C5 · Tooltips** (`app/src/help/tooltips.ts`, `app/docs/controls.md`), **lands before the
    build**: new keys `nav.channel` (with Alt+N), `app.health` (one body covering calm, CPU,
    dropouts, the buffer hint, no synth and a failed plugin, D45), `metronome.settings`,
-   `display.band_sends`, `launchkey.fader_button` (a Style-page fader button, by its label);
-   `view.stage` gains Alt+G and a body for the new Stage (the display, the band and the keys;
+   `display.band_sends`; `view.stage` gains Alt+G and a body for the new Stage (the display, the band and the keys;
    not the lead sheet); rewrite the `nav.*` bodies from "opens the drawer" to "shows the
    page"; `launchkey.fader_sound` ("opens the quick sound list", not Library › Sounds);
    `ots.1`–`ots.4` (applies at once, Launchkey Racks page); `mixer.strip.select` ("opens
@@ -611,18 +661,22 @@ layout, which jsdom doesn't have.
 7. Sounds row: R2's cell shows "41 Silk Strings" and the edited mark; R3's shows ⚠ and "off" and
    its tag has `data-hue="d"`; the rack reads "Rack · A1" and "Sunday drive" with the modified
    dot; the R2 sound's `aria-label` is the template's example.
-8. Pads: pad 10 `data-face="solid"` (Playing), pad 11 Next (`data-face="waiting"`, numeral
-   "NEXT"), pads 3 and 7 Absent; clicking a pad sends its `action`; Pad Bank ▲ is
-   `aria-disabled` with its action null, ▼ sends its action. On the Chord page (`pads.page`
-   "chord", labels from the mock), every pad has the fallback face and its label as caption.
+8. Pads: pad 10 `data-face="solid"` (Playing), pad 11 Next (`data-face="waiting"`,
+   `data-anim="flash"`, numeral "NEXT"), pads 3 and 7 Absent (`data-face="disabled"`,
+   `aria-disabled`); clicking a pad sends its `action`; Pad Bank ▲ is `aria-disabled` with its
+   action null, ▼ sends its action. On the Chord page (the state of a `new MockSession()`
+   after `{ type: 'setPadPage', page: 'chord' }`, so the mock's `derive()` fills the pads),
+   every pad has the fallback face and its label as caption.
 9. Faders: a 40px upward drag on strip 1 from any point (pointerdown, pointermove, pointerup;
    jsdom has no `setPointerCapture`, so the test stubs it on the element) sends its `set`
    with `volume` 113 (90 + round(40 × 127 / 223)) on the pointerup; strip 2 shows "↕" and the
    ghost; the Reverb tab sends `setFaderLayer {layer: 'reverb'}`, and with that layer strips
    1–4 read "Rev …" and have no meter element.
 10. Meter maths (pure, `height` and `holdPeak`; kit › FaderStrip gives the file): `height(0.0724)` is 138,
-    `height(0.001)` is 0; `holdPeak` keeps a peak for 1500 ms of `atMs` and then falls 20 dB/s.
-11. Lamps: a click on R1's On sends `togglePart {part: 0}` and its `aria-pressed` stays
+    `height(0.001)` is 0; `holdPeak(undefined, 0.5, 0)` is `{ peak: 0.5, sinceMs: 0 }`;
+    fed `peak` 0.1 at 1000 and 1500 it still reads 0.5; at 2500 it reads 0.05 (one second
+    past the hold, −20 dB); at 2500 with `peak` 0.2 it reads `{ peak: 0.2, sinceMs: 2500 }`.
+11. Lamps: a click on the lamp named "Right 1" sends `togglePart {part: 0}` and its `aria-pressed` stays
     `"true"` until the state changes (D49); a 350 ms press sends `setLayer
     {swap, part 0}` and no toggle; Sound, not lit: a click sends `setLayer sound`; a 350 ms
     press sends `setLayer sound` at 350 ms (before release) and `setLayer none` on release; lit,
@@ -632,10 +686,14 @@ layout, which jsdom doesn't have.
     (pointerdown, pointermove, pointerup) sends `turnKnob {knob: 0, delta: 2}` once, on the
     pointerup (the frame's steps are flushed on release, kit › Knob); a double-click sends
     `resetKnob {knob: 0}`; the tempo
-    knob's `knobFraction` is 0.267 (pure function); No Assign is `aria-disabled` with an empty
-    code line.
+    knob's `knobFraction(null, 104)` is 0.267 and `knobFraction(51, 104)` is 51/127 (pure
+    function); knob 1 has `aria-valuenow="127"`, the tempo knob `aria-valuenow="104"` with
+    `aria-valuemin="40"` and `aria-valuemax="280"`; No Assign is `aria-disabled` with
+    `aria-valuenow="0"`, an empty code line, and sends nothing on arrows.
 13. Transport: the pairs are Reset | Fade and Fill ▲ | Fill ▼; Tempo + held repeats (existing
-    `tempoHold` tests); Style tempo sends `resetTempo`; Fill ▲ sends `fillUp`.
+    `tempoHold` tests) and a keyboard click (Enter: a `click` with `detail` 0 and no
+    pointerdown) sends one `tempoUp` (D62); Style tempo sends `resetTempo`; Fill ▲ sends
+    `fillUp`.
 14. Track ◀: sends `surface.controls[trackPrev].action`; with `ui.shift` its `shiftAction`; with
     `surface.trackPrev` null it is `aria-disabled`.
 15. Every interactive element has a `data-tip` in the catalog (the existing tooltip test).
@@ -644,8 +702,10 @@ layout, which jsdom doesn't have.
     `dropouts` 2 → "2 dropouts", 3 with `bufferFrames` 256 → "3 dropouts · buffer 256?", 3 with
     `bufferFrames` 1024 or null → "3 dropouts" (its click calls `onopen('settingsAudio')`);
     calm → "Audio", no button inside. `DropoutWatch.recent` (pure over its own `observe`
-    calls, in `lib/dropouts.test.ts`): three dropouts at 0, 10 s and 20 s read 3 at 25 s, 2 at
-    41 s, 0 at 51 s (D54).
+    calls, in `lib/dropouts.test.ts`): after a baseline `observe({ dropouts: 0, bufferFrames:
+    256 }, -1000)` (the first sight only records the count), dropouts 1, 2, 3 observed at 0,
+    10 s and 20 s read 3 at 25 s, 2 at 35 s, 1 at 41 s (the 10 s one is 31 s old), 0 at 51 s
+    (D54).
 16b. Page tabs: `page` `'channel'` → the Channel tab has `aria-current="page"` and
     `data-face="chosen"`, Stage has neither; a click on Effects calls `onpage('effects')`.
     Tab chosen rules (D52, `chosenPage()` in `app/src/pages/stagePage.ts`, pure over its
@@ -657,8 +717,9 @@ layout, which jsdom doesn't have.
     `clearMessage`; with `message` null it has no focusable content.
 18. Keys: the key elements with `data-note` 43, 45, 48, 52 have `data-hue="l"`, 76 and 81
     `data-hue="r1"`; the split marker carries `data-split="54"` (the key it follows); the
-    `aria-label` is "Keys: split F#2, left hand G A C E, right hand E4 A4, 61 keys"; with
-    `held` empty it is "Keys: split F#2, no keys held, 61 keys" (D56).
+    strip is `role="img"` and its `aria-label` is "Keys: split F#2, left hand G A C E, right
+    hand E4 A4, 61 keys"; with `held` empty it is "Keys: split F#2, no keys held, 61 keys"
+    (D56).
 19. Light tokens (a text test over `app/src/ui/tokens/light.css`, no rendering): `--bg`, `--ba`,
     `--ba2`, `--bw`, `--bm`, `--bl` are `none` and every `--*-glow-mix` is `0%`.
 20. Links (D32), in `StageWiring.test.ts` with a `MockSession`: the rack readout opens the Rack
@@ -688,7 +749,7 @@ see:
   `color-contrast` rule skips elements carrying `data-contrast="dim"` (the dimmed `--d` text
   the board draws on clickable and idle things; kit › Test hooks lists every one). Every other
   rule, and colour contrast on everything else, must pass. The exemption is a configured
-  selector in `scripts/shots.ts` (gap table), not a disabled rule.
+  selector in `app/scripts/shots.ts` (gap table), not a disabled rule.
 
 ## Decisions
 
@@ -832,9 +893,10 @@ see:
   and `shiftAction` with Shift: Rack −/+ on the Racks pad page), as the parity rule says, rather
   than a hard-coded `stepStyle`; they are also disabled when there is no neighbour.
 - **D39 · Screenshot check.** The board story is `Pages/Stage` › `Board`, rendered at the
-  native 1440 × 900 with no scaling, masked only on the count row's When item. `shots.ts` gains
-  a per-story viewport and element masks as part of building the Stage (gap table); the tool
-  isn't changed by this spec.
+  native 1440 × 900 with no scaling, masked only on the count row's When item.
+  `app/scripts/shots.ts` gains a per-story viewport and element masks as a build-time item of
+  the Stage lane (gap table), before the lane's screenshot check can pass; the spec only says
+  what the tool must do.
 - **D40 · Fixture moment.** The page takes `now` as a prop and the fixture fixes it with the
   clock anchors, so the beat blocks and the pad flash are the same on every run.
 - **D41 · Test hooks.** `data-face` and `data-hue` carry each element's face and hue so vitest
@@ -861,7 +923,7 @@ see:
   clickable or idle (the R3 tag and sound number of a part that doesn't sound, an off part's
   strip name and value, idle pad numerals on `--btn`, absent captions), at about 2.2:1 on dark.
   They stay as drawn. The axe colour-contrast check exempts them through one listed rule:
-  every such element carries `data-contrast="dim"` and `scripts/shots.ts` configures
+  every such element carries `data-contrast="dim"` and `app/scripts/shots.ts` configures
   `color-contrast` with the selector `*:not([data-contrast="dim"])`. Nothing else is exempt;
   the list of carriers is in kit › Test hooks, and an element not on it that fails is a bug.
   A held key's label is `--solid-ink` on the hue, not dimmed: it carries no `data-contrast`
@@ -874,11 +936,13 @@ see:
   token sets live on `:root` and follow the same `data-theme`. Four names clash (two today,
   two once the kit's key tokens are added), and the kit's win by order, so `app.css` renames
   its own and their users follow: `--bg` (a colour; the kit's is a glow) → `--room`
-  (`app.css` body, `panels/mixer/MasterFx.svelte`), `--line` → `--hairline` (its 18 readers:
-  16 files under `panels/`, among them the hotspot `panels/mixer/Strip.svelte`, a one-word
-  rename that this lane owns for that line, plus `lib/ui/PanelSlot.svelte` and
-  `lib/ui/Knob.svelte`; `--line-strong` is renamed with it to `--hairline-strong` for
-  consistency, though it clashes with nothing), `--key-white` → `--key-ivory` and
+  (`app.css` body, `panels/mixer/MasterFx.svelte`), `--line` → `--hairline` (its readers:
+  twelve files under `panels/`, among them the hotspot `panels/mixer/Strip.svelte`, a
+  one-word rename that this lane owns for that line, and `ui/tokens/Foundations.mdx`, which
+  documents the kit's own `--line` and stays; `--line-strong` is renamed with it to
+  `--hairline-strong` for consistency, though it clashes with nothing: its ten readers are
+  `lib/ui/Knob.svelte`, `lib/ui/PanelSlot.svelte` and eight files under `panels/`),
+  `--key-white` → `--key-ivory` and
   `--key-black` → `--key-ebony` (`panels/keystrip/KeyStrip.svelte`, unmounted but kept).
   `app.css`'s `:focus-visible` (2px
   `--accent`) stays for the old panels; every kit component sets its own 1px `--focus` ring on
@@ -921,11 +985,13 @@ see:
   `HelpFooter` stays under the scaler (it is the only place tooltips show until #508; the "?"
   button toggles it as today), drawers and modals stay as fixed overlays over the scaled Stage
   in the old tokens, Library replaces the whole Stage unscaled, and the interim Channel is a
-  `display` snippet in the display's box. Nothing interim is scaled; nothing interim gets kit
-  tokens.
+  `display` snippet in the display's box (the one interim thing inside the scale, since the
+  box is). Nothing else interim is scaled; nothing interim is restyled with kit tokens.
 - **D54 · Dropouts in the slot.** The slot shows a 30 s window, not a latched notice:
-  `DropoutWatch` gains `recent(now)`, the number of dropouts it has seen in the last
-  `HINT_WINDOW_MS` (at most `HINT_COUNT`, 3, from its own `times`), and the wiring calls
+  `DropoutWatch` gains `recent(now)`: `this.times.filter((t) => now - t <= HINT_WINDOW_MS).length`,
+  the number of dropouts it has seen in the last 30 s (at most `HINT_COUNT`, 3, since
+  `observe` keeps that many; `recent` filters by its own `now`, as `times` is only pruned on
+  `observe`), and the wiring calls
   `dropouts.observe(io.synth, Date.now())` on every state and passes `dropouts.recent(Date.now())`
   once per animation frame (wall-clock ms, as `DropoutNotice` used; the session clock is for the
   beat). Rows: 3 with `io.synth.bufferFrames` a number below 1024 → "3 dropouts · buffer
@@ -938,9 +1004,10 @@ see:
   dashed groove and "—"), with no `slider`, no `button` and no `tabindex`. A `slider` without
   `aria-valuenow` fails axe's `aria-required-attr`, and there is nothing to set.
 - **D56 · Keys aria-label.** Template: "Keys: split {split}, {left}, {right}, {n} keys", where
-  `split` is the split key's name with octave (`keyboard.leftSplit`, Yamaha numbering, sharps:
-  54 → "F#2"); `left` is "left hand " plus the pitch-class names (sharps, no octave, low to
-  high) of the held keys with `zone` `left`, or is dropped when there are none; `right` is
+  `split` is the split key's name with octave (`noteName(keyboard.leftSplit)` from
+  `keyboard.ts`, Yamaha numbering: 54 → "F#2"); `left` is "left hand " plus the pitch-class
+  names (`pcName`, no octave, low to high; the file's spelling, C# Eb F# Ab Bb) of the held
+  keys with `zone` `left`, or is dropped when there are none; `right` is
   "right hand " plus the names with octave (76 → "E4") of the held keys with `zone` `right`,
   or dropped; with no held keys at all the two are replaced by "no keys held"; `n` is the
   range (49, 61, 88). Examples: "Keys: split F#2, left hand G A C E, right hand E4 A4, 61
@@ -959,6 +1026,33 @@ see:
   twice: "Faders · Reverb" and the chosen layer tab); no second line, the 65px cell has no
   room for one at 13px. Shift-click steps the layer (`stepFaderLayer`).
 
+- **D60 · Two meter readers while the interim Channel shows.** `session.meters()` returns the
+  peaks since the last call, for one reader. While today's `ChannelView` is in the display's
+  box it keeps its own 100 ms poll, so the Stage's faders and the Channel's meter split the
+  peaks between them and both may read a little low. Accepted for the interim: the Channel
+  spec (#501) replaces `ChannelView` and its poll, and the wiring is then the only reader.
+  The wiring does not pause its poll (the faders stay visible under the Channel).
+- **D61 · Knob and key-strip ARIA.** A knob is `role="slider"` with `aria-valuemin="0"`,
+  `aria-valuemax="127"` and `aria-valuenow` its `level`; the tempo knob (`level` null) uses
+  `aria-valuemin="40"`, `aria-valuemax="280"` (the range `knobFraction` spans) and
+  `aria-valuenow` `Math.round(transport.tempo)`; No Assign uses 0 / 0 / 0 with
+  `aria-disabled`. `aria-valuetext` is "{name} {value}" ("Dynamics 127", "Tempo 104 BPM").
+  The key strip is `role="img"` with the D56 label and `aria-hidden` children, like the chord
+  column (axe's `aria-prohibited-attr` forbids a bare `aria-label` on a `div`).
+- **D62 · Right-click and keyboard clicks on held gestures.** Every control with a long press
+  prevents the browser's context menu (`contextmenu` → `preventDefault`) and treats a
+  right-click as a completed long press: a part lamp latches swap, Looper sends `looperRec`,
+  and Sound not lit latches (`setLayer sound`, the same as a click, since a context menu has
+  no release); Sound lit sends `setLayer none`. Tempo + and − run `TempoHold` from
+  pointerdown to pointerup (the first `tempoUp` at once, then repeating); a click without a
+  pointer (Enter or Space, `event.detail === 0`) sends one `tempoUp` / `tempoDown`, and a
+  click that follows a pointerdown sends nothing more (no double send).
+- **D63 · Rack-target rule.** A Panel fader 1–4 is a rack target when `surface.faders[i].label`
+  differs from the engine's own label for that part, `["RIGHT 1", "RIGHT 2", "RIGHT 3",
+  "LEFT"][i]` (`PART_LABELS` in `crates/yahaha-engine/src/launchkey.rs`; the strips' display
+  names "Right 1" … are the kit's own and are never compared). The name then reads the label
+  as given ("PANR2"), `--t2`, and both the slider and the name carry `launchkey.fader_rack`.
+
 ## Follow-ups
 
 - Per-style artwork and key colour (DECISIONS S4), with what generates them.
@@ -967,4 +1061,3 @@ see:
 - Stereo meters per part would need per-channel left and right levels in `meters`.
 - A face for the Ending's ritardando (`transport.ritardando`).
 - Typed tempo entry on the tempo readout, if players ask.
-- `scripts/shots.ts`: per-story viewport and masks (D39), built with the Stage.
