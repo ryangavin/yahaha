@@ -327,7 +327,7 @@ single-prompt fixture (Board fixture). Data props: `bank`, `buttons` (the eight
 | Bank row | `quickRacks` | Bank row above |
 | Name field, never saved only | `rack.name` | label "Rack name"; value `rack.name` ("New rack" for a new one; PR-D12); tooltip `quick.save_name`; the input's `aria-label` "Rack name" |
 | Cancel | — | off face, `data-cancel`; sends `toggleQuickRackStore` (Store disarms and the waiting button is let go, as the API says; the board's "leave Store armed" is wrong, PR-D13); tooltip `quick.cancel_store` |
-| Save and store | the field | primary; never saved: `saveRackAs { name }`; saved: `saveRack`. The session stores the saved rack on the waiting button itself. Tooltip `quick.save` (retitled by C1) |
+| Save and store | the field | primary; never saved: `saveRackAs { name }` when the trimmed field differs from `rack.name`, else `saveRack` (PR-D32); saved: `saveRack`. The session stores the saved rack on the waiting button itself. Tooltip `quick.save` (retitled by C1) |
 
 `aria-label`s: Cancel "Cancel: nothing is saved or stored", Save and store "Save the rack
 as {name} and store it to Quick Rack {label}" with `{name}` the field's current trimmed
@@ -352,7 +352,7 @@ changes. Data props: `rack: { name, id }` (from `liveRack`), `then` (`RackSwitch
 | Name field, never saved only (`rack.id` null) | `rack.name` | label "Rack name", value `rack.name`; tooltip `rack.save_as_name` (PR-D12); the input's `aria-label` "Rack name" |
 | Keep editing | — | off face, first, `data-cancel`; sends `dismissRackPrompt`; tooltip `rack.keep_editing` |
 | Discard and switch | `then` | destructive, second, the label the same for `new` (only the aria-label changes); `load`: `loadRack { id: then.id, discard: true }`; `new`: `newRack { discard: true }`; tooltip `rack.discard_switch` |
-| Save first | the field | primary, last; `rack.id` set: `saveRack`; null: `saveRackAs { name }`. The session holds the switch and makes it once saved (through the Sound names prompt if one comes); the app never sends the switch itself. Tooltip `rack.save_first` |
+| Save first | the field | primary, last; `rack.id` set: `saveRack`; null: `saveRackAs { name }` when the trimmed field differs from `rack.name`, else `saveRack` (PR-D32). The session holds the switch and makes it once saved (through the Sound names prompt if one comes); the app never sends the switch itself. Tooltip `rack.save_first` |
 
 `aria-label`s: Keep editing "Keep editing: stay on {name}", Discard and switch "Discard the
 changes and switch to {then.name}" ("…and start a new rack"), Save first "Save {name} first,
@@ -636,7 +636,8 @@ layout.
    Save first sends `saveRack`; with `then` `{ kind: "new" }` Discard sends `newRack {
    discard: true }` and the body reads "Save them before starting a new rack?"; with
    `rack.id` null a field appears with value "Sunday drive" and Save first sends
-   `saveRackAs { name: "Sunday drive" }`. Mounted inside `PromptOverlay`, Esc (a `keydown`
+   `saveRack` (PR-D32), and with the field changed to "Sunday 2", `saveRackAs { name:
+   "Sunday 2" }`. Mounted inside `PromptOverlay`, Esc (a `keydown`
    dispatched on the focused button) sends `dismissRackPrompt`, calls `onescape`, and a
    bubble-phase `keydown` listener on `window` doesn't see it.
 5. Sound names (`soundNamesState`'s props): the title "Name the new sound"; the body contains
@@ -832,11 +833,18 @@ below is its own `npm run shots -- <Name>` and its own crop files):
   (PR-D14) to what the API does, so their glyphs can't match the board's. Their line counts
   are kept (the heights are the contract), so the crops still check the panel, its parts
   and its size; the words are checked by the vitest texts.
+- **PR-D32 · The default name saves with `saveRack`.** A never-saved rack's Name field
+  defaults to `rack.name` ("New rack"), and `saveRackAs` refuses a name another rack already
+  has (`save_rack` in src/session/rack_cmds.rs). So when the trimmed field equals
+  `rack.name`, Save and store and Save first send `saveRack`, which on an id-less rack picks a
+  free name ("New rack 2") itself; any other name sends `saveRackAs { name }`.
 
 ## Follow-ups
 
 - Undo a store over a slot (C2; the board's "Previous" rack).
 - A screen One Touch that never asks (Stage.md C2) drops the Unsaved prompt's One Touch case.
+  Until then, Discard on a switch held from a One Touch sends a plain `loadRack { discard:
+  true }`, so `ots.applied` and Sync Start are skipped; only Save first keeps them.
 - Delete naming slots in other banks and other styles' OTS would need them in `AppState`.
 - Save rack as… (the Rack page) and Library › Racks' rename and delete controls adopt the
   Name prompt and Delete prompt here.
