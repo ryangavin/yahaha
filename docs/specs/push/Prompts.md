@@ -22,26 +22,34 @@ the prompts sit over whatever page is up.
 - **Before building:** C1 (tooltips) must land first; the rest don't block (see Contract
   changes needed). This lane builds on the Stage lane (#500): it needs Button, StatusLine,
   KeyStrip, the `Stage` page, `Stage.fixtures.ts` and the `shots.ts` viewport-and-masks item
-  merged first; the two small additions to Stage components this spec needs (StatusLine's
-  `inert` prop, KeyStrip's `data-shot-mask="keys"`, Kit additions) are made in this lane.
+  merged first; the small additions to Stage components this spec needs are made in this
+  lane (Kit additions): Button's `tone`, StatusLine's `inert` and `hidden` props and
+  `data-shot-mask="status"`, KeyStrip's `data-shot-mask="keys"`, and a `statusHidden` prop on
+  `Stage` passed through to its StatusLine.
 
 ## Layout
 
-At 1440 × 900, inside the app shell's scaler (Stage.md D1), so the dialog is always laid out
-at the design size. Three layers, bottom to top:
+At 1440 × 900. The overlay is two sibling nodes mounted at the end of `App.svelte`, both
+`position: fixed; inset: 0` (no transformed ancestor: they are outside the Stage.md D1
+scaler, which wraps only the Stage), bottom to top:
 
 | Region | Box | What's in it | Spec |
 |---|---|---|---|
-| Scrim | the whole window (`position: fixed; inset: 0`), which at 16:10 is `0,0 1440×900` in design px | one flat colour, `--scrim` (new token) | Scrim |
-| Status line | `24,800 1392×20` | `state.message`, drawn over the scrim | kit › Status line, Kit additions |
-| Dialog | `500,y 440×h`, centred in `0,0 1440×800` (`y = (800 − h) / 2`) | the one prompt | Dialog panel, Prompts |
+| Scrim | the whole window, `z-index: 79` | one flat colour, `--scrim` (new token) | Scrim |
+| Layer | a 1440 × 900 box scaled with the D1 maths (`scale = min(w / 1440, h / 900)`, centred, `transform-origin: top left`), `z-index: 80`, `pointer-events: none` except on its contents | the status line and the dialog | below |
+| Status line (in the layer) | `24,800 1392×20` | `state.message`, drawn over the scrim | kit › Status line, Kit additions |
+| Dialog (in the layer) | `500,y 440×h`, centred in `0,0 1440×800` (`y = (800 − h) / 2`) | the one prompt | Dialog panel, Prompts |
 
-The scrim is outside the scaler (PR-D2), so the letterbox bars D1 leaves beside a window
-that isn't 16:10 dim too; the status line and the dialog are inside it. The 100px under the
-dialog's centring box is the status line's and the keys' (the kit's `24,800` and `24,820`
-boxes), so a dialog never covers the status line: the tallest board prompt (Store with a
-name field, 346) sits at `y = 227`, 227px above it. The keys are under the scrim (the board
-leaves them clear for review; in the app the scrim covers all, PR-D2).
+The overlay carries its own copy of the D1 scale (PR-D2) because it also shows over pages
+and drawers that aren't in the Stage's scaler (today's Library, the Rack drawer); the scrim
+dims the letterbox bars too. The z-indexes sit above every drawer, the Browser and the
+master popover (`lib/ui/Overlay` 40 and 50, `HelpFooter` 45, `MasterFx` 60) and below the
+Tooltip (100). The 100px under the dialog's centring box is the status line's and the keys'
+(the kit's `24,800` and `24,820` boxes), so a dialog never covers the status line: the
+tallest board prompt (Store with a name field, 346) sits at `y = 227`, 227px above it. The
+keys are under the scrim (the board leaves them clear for review; in the app the scrim
+covers all, PR-D2). On a view without a status line of its own (today's Library) the
+overlay's line still draws at `24,800`.
 
 The dialogs' heights and places in the app (one at a time):
 
@@ -59,16 +67,18 @@ The dialogs' heights and places in the app (one at a time):
 
 A height is the panel's content (below) plus 48 (padding) plus 2 (the border): title 24, a
 body line 20, a note line 16, the bank row 44, a name field 52, the actions 32, and 16 between
-each pair of parts. Bodies and notes wrap at 392px; the heights here are for the fixture's
-texts at that width (the board's line counts: Store's body four lines, Unsaved's body one and
-its note three, Sound names' body three, Delete's body three). Another text may wrap to one
-line more or less; the dialog stays centred and has no fixed height. Past 752px (the centring
-box less 24 top and bottom) the panel stops growing and its children scroll (`max-height:
-752px; overflow: auto` on the column); no fixture reaches it.
+each pair of parts. Bodies and notes wrap at 390px (440 less the padding and the border,
+the board's own content width); the heights here are for the fixture's texts at that width
+(the board's line counts: Store's body four lines, Unsaved's body one and its note three,
+Sound names' body three, Delete's body three). Another text may wrap to one line more or
+less; the dialog stays centred and has no fixed height. Past 752px (the centring box less 24
+top and bottom) the panel stops growing (`max-height: 752px`) and only its children region
+scrolls (`overflow: auto` on the children wrapper, `min-height: 0`); the title, body, note
+and actions stay. No fixture reaches it.
 
 ## Scrim
 
-`position: fixed; inset: 0; background: var(--scrim)`. Dark `rgba(0, 0, 0, 0.62)`, light
+`position: fixed; inset: 0; z-index: 79; background: var(--scrim)`. Dark `rgba(0, 0, 0, 0.62)`, light
 `rgba(242, 241, 238, 0.72)` (kit additions). `aria-hidden`. A click on it does nothing
 (PR-D3): the session holds the question, so the prompt closes only through its buttons or
 Esc; its `mousedown` is `preventDefault`ed so focus stays in the dialog. The cursor over it
@@ -76,7 +86,11 @@ is `default`. No blur, no animation.
 
 ## Dialog panel
 
-The reusable panel every prompt is built on (`Dialog`). A column:
+The reusable panel every prompt is built on (`Dialog`). Its props: `titleId: string`,
+`title: string`, `role: 'dialog' | 'alertdialog'` (default `dialog`), `kind: string` (the
+`data-prompt` value), and the snippets `body`, `note`, `children` and `actions` (each
+optional; `body` and `note` render inside the `<p>`s below, so a prompt puts its `--t` spans
+there; `actions` holds the Button row's buttons). A column:
 
 - **Box:** width 440, `box-sizing: border-box`, padding 24, `border: 1px solid var(--dialog-edge)`
   (new token: dark `color-mix(in srgb, var(--t) 40%, transparent)`, light `var(--t)`),
@@ -96,8 +110,8 @@ The reusable panel every prompt is built on (`Dialog`). A column:
   "Name the new sound").
 - **Body** (`p`, margin 0): 14 / 400, line-height 20, `--m`. A name in the body (a rack, a
   sound, a slot, a style) is a `<span>` in `--t`, same size and weight (the board's
-  "names in white"). A sound's origin word after its name ("· Factory") is 12px, still
-  `--m`.
+  "names in white"). A sound's origin after its name (" · Factory", the dot and the word in
+  one span) is 12px, still `--m`.
 - **Note** (`p`, margin 0, optional): 12 / 400, line-height 16, `--m`, names in `--t` as the
   body. Explains what the prompt doesn't do (the Unsaved prompt's "Only the screen asks").
 - **Children** (optional, between the body and the actions): a Bank row, one or more Name
@@ -114,51 +128,63 @@ The reusable panel every prompt is built on (`Dialog`). A column:
   (kit › Faces, Disabled); Enter in a field then does nothing.
 - **Test hooks:** each action button carries `data-face` (`off` / `chosen` / `disabled`) and the
   destructive one `data-hue="ending"` (kit › Faces, Stage.md D41); the panel
-  `data-prompt="store|unsavedChanges|soundNames|deleteRack|renameRack"`.
+  `data-prompt="store|unsavedChanges|soundNames|deleteRack|renameRack"`; the cancelling
+  button `data-cancel` (what Esc presses).
+- **One send per answer (PR-D26):** once a prompt has called `send`, its buttons are disabled
+  (`aria-disabled`, `data-face="disabled"`, the label `--d`) until its props change (the
+  state replied) or it unmounts, so a double click never sends twice (a second
+  `toggleQuickRackStore` would re-arm Store). App-only prompts call `onclose` right after
+  their send, so they just close.
 
-**Props (every prompt component).** `send(cmd: AppCmd)` for each command named below;
-`onclose()` when the prompt dismissed itself with no command to send (Delete's and Rename's
-Cancel, and after their action was sent); `autofocus: boolean` (default true; the crop
-stories pass false, PR-D5); `value?: string` the initial text of its name field (default:
-the suggestion each prompt names below; Sound names takes `values?: string[]`, by field);
-`onRestoreFocus?: HTMLElement | null` isn't a prop: the overlay owns focus return. The
-`PromptOverlay` takes `message: MessageState | null` (for the status line), `children` (a
-snippet: the one dialog, or the Board story's grid) and `autofocus`; it has no other input.
+**Props (every prompt component).** Its data (per prompt below), `send(cmd: AppCmd)` for
+each command named, `onclose()` when the prompt dismissed itself with no command to send
+(Delete's and Rename's Cancel) or right after its own send, and `value?: string` the initial
+text of its name field (default: the suggestion each prompt names below; Sound names takes
+`values?: string[]`, by field). Prompts don't focus anything themselves. `PromptOverlay`
+takes `message: AppState['message']` (for the status line), `children` (a snippet: the one
+dialog, or the Board story's grid), `autofocus: boolean` (default true; stories pass false,
+PR-D5) and `onescape()` (called after Esc pressed the cancel button; the wiring maps it to
+`tips.hide()`); it has no other input.
 
-**Keyboard and focus (PR-D5).** On open (and again whenever the mounted prompt changes,
-e.g. Unsaved becoming Sound names), focus goes to the first Name field when the prompt has
-one (its text selected), else to the primary-faced button. Tab and Shift+Tab cycle inside
-the dialog (a focus trap: the overlay listens for `keydown` on `document` in the capture
-phase and wraps Tab from the last focusable to the first and back, fields in order, then
-the buttons left to right; nothing outside is reachable). Enter in a field runs the primary
-action; Enter or Space on a button runs that button. Esc runs the cancelling action
-(Cancel, Keep editing); the overlay handles it in the same capture listener and stops
-propagation, so the window handler's `ui.escape()` doesn't also run. While a dialog is open
-the window key handler (`app/src/lib/shortcuts.ts` `handleKey`) hides a showing tooltip on
-Esc as now, tracks Shift, and does nothing else: the wiring sets an app-only `ui.modal` flag
-while the overlay is mounted, and `handleKey` checks it first (gap table). On close (the
-overlay unmounts), focus returns to the element that had it before the overlay mounted
-(recorded by the overlay; one opener for a whole run of prompts); if that element is gone,
-to `document.body`. Every focusable control shows the kit's focus ring on `:focus-visible`,
-except the field (PR-D6).
+**Keyboard and focus (PR-D5).** The overlay owns it. On mount, and again whenever the
+`data-prompt` of the dialog inside it changes (Unsaved becoming Sound names), focus goes to
+the first Name field in the dialog (its text selected), else to the `data-face="chosen"`
+button (the primary-faced one; Delete's is Cancel). Tab and Shift+Tab cycle inside the
+dialog (a focus trap: the overlay listens for `keydown` on `window` in the capture phase
+and wraps Tab from the last focusable to the first and back, fields in order, then the
+buttons left to right; nothing outside is reachable). Enter in a field runs the primary
+action; Enter or Space on a button runs that button. Esc presses the `data-cancel` button
+(Cancel, Keep editing); the overlay handles it in the same capture listener, stops
+propagation and calls `onescape`, so the window handler's `ui.escape()` doesn't run and the
+tooltip still hides. While a dialog is open the window key handler (`app/src/lib/shortcuts.ts`
+`handleKey`, a bubble listener, which Esc never reaches) tracks Shift and does nothing else:
+the wiring sets an app-only `ui.modal` flag while the overlay is mounted, and `handleKey`
+checks it first; the master popover's own window capture listener (`panels/effects/MasterFx.svelte`)
+checks it too (gap table). On close (the overlay unmounts), focus returns to the element
+that had it before the overlay mounted (recorded by the overlay; one opener for a whole run
+of prompts); if that element is gone, to `document.body`. Every focusable control shows the
+kit's focus ring on `:focus-visible`, except the field (PR-D6).
 
 **Hover and cursor:** kit (D35): no hover look, `pointer` on the buttons, `text` over a Name
 field, `default` elsewhere.
 
-**Stacking.** The wiring mounts the overlay after everything else in `App.svelte`: above the
-page, the drawers, the Browser and the SoundPicker (an Unsaved prompt raised from the Rack
-drawer or Library sits over them), and below the floating Tooltip, which stays last.
+**Stacking.** The wiring mounts the overlay after everything else in `App.svelte` and the
+z-indexes in Layout put it above the page, the drawers, the Browser, the SoundPicker and
+the master popover (an Unsaved prompt raised from the Rack drawer or Library sits over
+them), and below the floating Tooltip.
 
 ### Name field
 
 A label over an underlined input, a column with gap 4, used by Store, Sound names and Rename:
 
 - **Label** (`<label for>` the input's id): 12 / 400, line-height 16, `--m`, sentence case
-  ("Rack name", "New sound name"). With a **part tag** before it (Sound names): a row, gap 8,
-  the tag "R1" / "R2" / "R3" / "L" 12 / 500 in the part's hue (`--r1 --r2 --r3 --l`, with
-  `data-hue="r1|r2|r3|l"`), then the words.
-- **Input** (`<input type="text">`): 32 tall, full width, `border: 0; border-bottom: 1px solid
-  var(--t)`, no radius, `background: none`, padding 0, 18 / 300, line-height 24, `--t`,
+  ("Rack name", "New sound name"). With a **part tag** before it (Sound names): a row 16
+  tall, items centred, gap 8, the tag "R1" / "R2" / "R3" / "L" 12 / 500, line-height 16, in
+  the part's hue (`--r1 --r2 --r3 --l`, with `data-hue="r1|r2|r3|l"`), then the words.
+- **Input** (`<input type="text">`): 32 tall (`box-sizing: border-box`, the underline inside
+  it; the 24px text line centred, 4px above and below less the underline), full width,
+  `border: 0; border-bottom: 1px solid var(--t)`, no radius, `background: none`, padding 0,
+  18 / 300, line-height 24, `--t`,
   `caret-color: var(--t)`, `outline: none` (the focus ring is the underline itself: it is
   `--t` already, so the field shows focus by its caret and selection; PR-D6). `spellcheck="false"`,
   `autocomplete="off"`, `maxlength` 80. `aria-invalid="true"` while the value trimmed is
@@ -175,7 +201,8 @@ A label over an underlined input, a column with gap 4, used by Store, Sound name
 ### Bank row
 
 The Quick Racks bank on view as eight cells, used by Store: `role="img"`, 44 tall, `display:
-grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px` (cells 49.75 × 44). Each
+grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px` (cells 43.5 × 44 in the
+390 content width). Each
 cell: radius 4, `box-sizing: border-box`, `position: relative`, padding `6px 0 0 7px`, the
 slot label (`quickLabel(bank, i)`: "A1"…"A8") 13 / 500, line-height 16. Faces from
 `quickRacks.buttons[i]` and `quickRacks.storeWaiting`:
@@ -211,7 +238,9 @@ Which one shows, when several could (one at a time, the first that applies; PR-D
 5. **Rename** when `ui.prompt` is `{ kind: 'renameRack', id }`.
 
 The choice is a pure function, `pickPrompt(state: AppState, uiPrompt: UiPrompt | null)` in
-`app/src/pages/prompts.ts`, returning the prompt kind and its props, or null. 1–3 are the
+`app/src/pages/prompts.ts`, returning `{ kind, props }` (the data props of that prompt's
+component, listed with each prompt) or null. `UiPrompt` lives in `app/src/lib/store.svelte.ts`:
+`{ kind: 'deleteRack' | 'renameRack'; id: string }`, kept in `ui.prompt`. 1–3 are the
 session's questions and close when the state no longer asks them (the session clears
 `liveRack.prompt` on `dismissRackPrompt`, on a load or a save; it clears `storeWaiting` on
 the save, on a load, on `dismissRackPrompt` and on disarming Store). 4–5 are the app's own
@@ -232,16 +261,21 @@ below means that entry; none: the prompt closes, `ui.prompt = null`, PR-D10).
 `data-prompt="store"`, `role="dialog"`, title id `dlg-store`. Shown while
 `quickRacks.storeWaiting` is not null: an armed Store tap landed on button `storeWaiting` of
 the bank on view, and the live rack has to be saved before it goes there (app-api.md ›
-Quick Racks).
+Quick Racks). The session also put "Save the rack first; then it goes on Quick Rack A5" on
+the status line at that moment, so it reads under the prompt: intended, and in the
+single-prompt fixture (Board fixture). Data props: `bank`, `buttons` (the eight
+`QuickRackButton`s), `slot` (`storeWaiting`), `rack: { name, id, modified }` (from
+`liveRack`).
 
 | Part | Reads | Text / face |
 |---|---|---|
-| Title | `quickRacks.bank`, `storeWaiting` | "Store to Quick Rack {label}?" ("Store to Quick Rack A5?") |
-| Body, never saved (`liveRack.id` null) | — | "An armed tap waits for Save while the live rack is modified or never saved. This rack has never been saved, so it needs a name first. Storing over a stored slot doesn't ask: the rack it held stays in your racks." (PR-D11) |
-| Body, saved but modified (`liveRack.id` set) | `liveRack.name` | "An armed tap waits for Save while the live rack is modified or never saved. {name} has unsaved changes, so it is saved first. Storing over a stored slot doesn't ask: the rack it held stays in your racks." with the name in `--t` |
+| Title | `bank`, `slot` | "Store to Quick Rack {label}?" ("Store to Quick Rack A5?") |
+| Body, never saved (`rack.id` null) | — | "An armed tap waits for Save while the live rack is modified or never saved. This rack has never been saved, so it needs a name first. Storing over a stored slot doesn't ask: the rack it held stays in your racks." (PR-D11) |
+| Body, saved and modified (`rack.id` set, `modified`) | `rack.name` | "An armed tap waits for Save while the live rack is modified or never saved. {name} has unsaved changes, so it is saved first. Storing over a stored slot doesn't ask: the rack it held stays in your racks." with the name in `--t` |
+| Body, saved, unmodified (`rack.id` set, not `modified`: its file is gone, the one other reason the session waits) | `rack.name` | the same with the middle sentence "{name}'s saved rack is gone, so it is saved again." (PR-D27) |
 | Bank row | `quickRacks` | Bank row above |
-| Name field, never saved only | `liveRack.name` | label "Rack name"; value `liveRack.name` ("New rack" for a new one; PR-D12); tooltip `quick.save_name` |
-| Cancel | — | off face; sends `toggleQuickRackStore` (Store disarms and the waiting button is let go, as the API says; the board's "leave Store armed" is wrong, PR-D13); tooltip `quick.cancel_store` |
+| Name field, never saved only | `rack.name` | label "Rack name"; value `rack.name` ("New rack" for a new one; PR-D12); tooltip `quick.save_name` |
+| Cancel | — | off face, `data-cancel`; sends `toggleQuickRackStore` (Store disarms and the waiting button is let go, as the API says; the board's "leave Store armed" is wrong, PR-D13); tooltip `quick.cancel_store` |
 | Save and store | the field | primary; never saved: `saveRackAs { name }`; saved: `saveRack`. The session stores the saved rack on the waiting button itself. Tooltip `quick.save` (retitled by C1) |
 
 `aria-label`s: Cancel "Cancel: nothing is saved or stored", Save and store "Save the rack
@@ -257,35 +291,47 @@ the save completes and the store follows.
 `data-prompt="unsavedChanges"`, `role="dialog"`, title id `dlg-unsaved`. Shown while
 `liveRack.prompt` is `{ kind: 'unsavedChanges', then }`: `loadRack`, `newRack`, `pressQuickRack`,
 `stepQuickRack` or a screen One Touch onto a rack (Stage.md C2) would lose the live rack's
-changes.
+changes. Data props: `rack: { name, id }` (from `liveRack`), `then` (`RackSwitch`).
 
 | Part | Reads | Text / face |
 |---|---|---|
-| Title | `liveRack.name` | "Unsaved changes in {name}" |
+| Title | `rack.name` | "Unsaved changes in {name}" |
 | Body | `then` | `load`: "Save them before switching to {then.name}?"; `new`: "Save them before starting a new rack?"; the name in `--t` |
-| Note (12px) | `liveRack.name` | "Only the screen asks. The Launchkey, pedals and OTS Link switch at once and keep the edits as Recovered: {name}, a rack of yours in Library › Racks." with "Recovered: {name}" in `--t` (three lines at 392px for the fixture; PR-D14: the board's wording named One Touch and Quick Rack pads as never asking; from the screen they do, until Stage.md C2) |
-| Name field, never saved only (`liveRack.id` null) | `liveRack.name` | label "Rack name", value `liveRack.name`; tooltip `rack.save_as_name` (PR-D12) |
-| Keep editing | — | off face, first; sends `dismissRackPrompt`; tooltip `rack.keep_editing` |
-| Discard and switch | `then` | destructive, second; `load`: `loadRack { id: then.id, discard: true }`; `new`: `newRack { discard: true }`; tooltip `rack.discard_switch` |
-| Save first | the field | primary, last; `liveRack.id` set: `saveRack`; null: `saveRackAs { name }`. The session holds the switch and makes it once saved (through the Sound names prompt if one comes); the app never sends the switch itself. Tooltip `rack.save_first` |
+| Note (12px) | `rack.name` | "Only the screen asks. The Launchkey, pedals and OTS Link switch at once and keep the edits as Recovered: {name}, a rack of yours in Library › Racks." with "Recovered: {name}" in `--t` (three lines at 390px for the fixture; PR-D14: the board's wording named One Touch and Quick Rack pads as never asking; from the screen they do, until Stage.md C2) |
+| Name field, never saved only (`rack.id` null) | `rack.name` | label "Rack name", value `rack.name`; tooltip `rack.save_as_name` (PR-D12) |
+| Keep editing | — | off face, first, `data-cancel`; sends `dismissRackPrompt`; tooltip `rack.keep_editing` |
+| Discard and switch | `then` | destructive, second, the label the same for `new` (only the aria-label changes); `load`: `loadRack { id: then.id, discard: true }`; `new`: `newRack { discard: true }`; tooltip `rack.discard_switch` |
+| Save first | the field | primary, last; `rack.id` set: `saveRack`; null: `saveRackAs { name }`. The session holds the switch and makes it once saved (through the Sound names prompt if one comes); the app never sends the switch itself. Tooltip `rack.save_first` |
 
 `aria-label`s: Keep editing "Keep editing: stay on {name}", Discard and switch "Discard the
 changes and switch to {then.name}" ("…and start a new rack"), Save first "Save {name} first,
-then switch to {then.name}" ("…then start a new rack"). Esc is Keep editing.
+then switch to {then.name}" ("…then start a new rack"), `{name}` the field's current trimmed
+value when there is a field, else `rack.name`. Esc is Keep editing.
+
+A Save first the session refuses (a name another rack has, or a save that fails) closes the
+prompt: the session drops the question with the held switch (`save_rack_holding` in
+`src/session/rack_cmds.rs`), the refusal shows on the status line, the rack keeps its
+changes, and the player does the switch again (PR-D7). Only a save that needs sound names
+keeps the switch, through the Sound names prompt.
 
 ### Sound names (C)
 
 `data-prompt="soundNames"`, `role="dialog"`, title id `dlg-names`. Shown while
 `liveRack.prompt` is `{ kind: 'soundNames', parts, saveAs }`: a save found edited presets that
 become new sounds of the user's and need names. One Name field per entry of `parts`, in
-order, 16px apart.
+order, 16px apart. Data props: `parts: { part, partName, suggested, origin }[]` and `saveAs`,
+where `pickPrompt` fills `partName` ("Right 1", "Right 2", "Right 3", "Left"), `suggested`
+(the prompt's, or `keyboardParts[part].voiceName` when the prompt's is empty, PR-D28) and
+`origin` from `keyboardParts[part].sound.id` (app-api.md › `listPluginPresets`):
+`au:…#f:…` → `"Factory"`, `au:…#u:…` → `"File"`, anything else or no `sound` → null
+(PR-D15).
 
 | Part | Reads | Text / face |
 |---|---|---|
 | Title | `parts.length` | "Name the new sound"; two or more: "Name the new sounds" |
-| Body | `parts[]`, `keyboardParts[part]` | one sentence per part: "{Part name}'s {suggested}{ · Origin} was edited." joined by a space, then "Saving the rack keeps it as a new sound in My Sounds; the factory preset stays as it was." (two or more: "…keeps them as new sounds in My Sounds; the presets stay as they were."). `{suggested}` in `--t`; the origin word 12px `--m` from `keyboardParts[part].sound.id`: `au:…#…` → "Factory", `sf:…` → "SoundFont", anything else or no `sound` → no origin and no "·" (PR-D15). Part names "Right 1", "Right 2", "Right 3", "Left" |
+| Body | `parts[]` | one sentence per part: "{partName}'s {suggested}{ · origin} was edited." joined by a space, then "Saving the rack keeps it as a new sound in My Sounds; the preset stays as it was." (two or more: "…keeps them as new sounds in My Sounds; the presets stay as they were."). `{suggested}` in `--t`; " · {origin}" 12px `--m`, left out with its dot when `origin` is null |
 | Name field × n | `parts[i]` | label: the part tag (`R1` … `L` in the part hue) then "New sound name"; value `suggested`; tooltip `rack.sound_name` |
-| Cancel | — | off face; sends `dismissRackPrompt` (nothing saved; a switch that was waiting on this save is dropped too, as the API says); tooltip `rack.cancel_save` |
+| Cancel | — | off face, `data-cancel`; sends `dismissRackPrompt` (nothing saved; a switch that was waiting on this save is dropped too, as the API says); tooltip `rack.cancel_save` |
 | Save sound | the fields | primary; "Save sounds" for two or more; `saveAs` null: `saveRack { soundNames }`, else `saveRackAs { name: saveAs, soundNames }`, `soundNames` keyed by `part` with each field's trimmed value; disabled while any field is empty. Tooltip `rack.save_names` (retitled by C1) |
 
 `aria-label`s: Cancel "Cancel: don't save the rack", Save sound "Save sound: keep the edited
@@ -297,25 +343,28 @@ reads "(no name)" in the list. The field's `aria-label` "{Part name} new sound n
 ### Delete (D)
 
 `data-prompt="deleteRack"`, `role="alertdialog"`, title id `dlg-delete`. App-only: opened by
-a Delete… control (Library › Racks today, its own spec later) with `ui.prompt = { kind:
-'deleteRack', id }`.
+a Delete… control with `ui.prompt = { kind: 'deleteRack', id }` (Library › Racks today:
+`RacksTab.svelte`'s `askDelete`, which already refuses the loaded rack and keeps doing so;
+its own spec later). Data props: `rack: { id, name }`, `slots: string[]` (the labels of the
+bank-on-view buttons whose `rack` is `id`, in slot order), `ots: number[]` (1-based OTS of the
+loaded style whose `ots.racks[i].rack` is `id`), `styleName` (`style.name`).
 
 | Part | Reads | Text / face |
 |---|---|---|
-| Title | the rack's `name` | "Delete {name}?" |
-| Body | `quickRacks.buttons[]`, `ots.racks[]`, `style.name` | sentences, each only when it applies, joined by a space: slots of the bank on view whose `rack` is `id` → "Quick Rack {label} will be empty." (two: "Quick Racks A4 and A7 will be empty."; more: "Quick Racks A2, A4 and A7 will be empty."); OTS of the loaded style whose `rack` is `id` → "One Touch {n} of {style.name} goes back to the style's own." (several: "One Touch 2 and 3 of … go back to the style's own."); always "The sounds stay in your Library." The slot labels and the style name in `--t`. Slots in other banks and other styles' OTS aren't in the state, so they go unnamed (PR-D16). When the two first sentences both apply they join with ", and " and one full stop, as the board: "Quick Rack A4 will be empty, and One Touch 3 of Sunday Drive Pop goes back to the style's own. The sounds stay in your Library." |
-| Cancel | — | the default: primary face, first; `ui.prompt = null`; tooltip `library.rack_delete_cancel` |
-| Delete | `id` | destructive, last; sends `deleteRack { id }` then `ui.prompt = null`. The dialog doesn't second-guess the session: Delete on the loaded rack is the opener's to disable; sent anyway, the refusal lands on the status line (the board's example; PR-D17). Tooltip `library.rack_delete_confirm` |
+| Title | `rack.name` | "Delete {name}?" |
+| Body | `slots`, `ots`, `styleName` | sentences, each only when it applies, joined by a space: slots → "Quick Rack {label} will be empty." (two: "Quick Racks A4 and A7 will be empty."; more: "Quick Racks A2, A4 and A7 will be empty."); OTS → "One Touch {n} of {styleName} goes back to the style's own." (several: "One Touch 2 and 3 of … go back to the style's own."); always "The sounds stay in your Library." The slot labels and the style name in `--t`. Slots in other banks and other styles' OTS aren't in the state, so they go unnamed (PR-D16). When the two first sentences both apply they join with ", and " and one full stop, as the board: "Quick Rack A4 will be empty, and One Touch 3 of Sunday Drive Pop goes back to the style's own. The sounds stay in your Library." |
+| Cancel | — | the default: primary face, first, `data-cancel`; calls `onclose`; tooltip `library.rack_delete_cancel` |
+| Delete | `rack.id` | destructive, last; sends `deleteRack { id }` then calls `onclose`. The dialog doesn't second-guess the session: sent for the loaded rack anyway, the refusal lands on the status line (the board's example; PR-D17). Tooltip `library.rack_delete_confirm` |
 
 Lists in the body and the labels are "A4", "A4 and A7", "A2, A4 and A7"; "One Touch 3",
-"One Touch 2 and 3", "One Touch 1, 2 and 3" (the verb agrees: "goes" / "go"); a pure
-function `listOf(items)`.
+"One Touch 2 and 3", "One Touch 1, 2 and 3" (the body's verb agrees with its subject:
+"goes" for one OTS, "go" for more); a pure function `listOf(items)`.
 
 `aria-label`s: Cancel "Cancel: keep {name} (default)", Delete "Delete {name}: empties Quick
-Rack {labels} and returns One Touch {ns} to the style's own" ("Quick Racks" and "return"
-with two or more), each clause only when it applies, joined by " and " ("Delete Ballad:
-empties Quick Rack A4 and returns One Touch 3 to the style's own"; nothing held: "Delete
-Ballad"). Esc is Cancel. Initial focus: Cancel.
+Rack {labels} and returns One Touch {ns} to the style's own" ("Quick Racks" with two or more
+slots; "empties" and "returns" always, the subject is Delete), each clause only when it
+applies, joined by " and " ("Delete Ballad: empties Quick Rack A4 and returns One Touch 3 to
+the style's own"; nothing held: "Delete Ballad"). Esc is Cancel. Initial focus: Cancel.
 
 ### Rename (E)
 
@@ -323,13 +372,14 @@ Ballad"). Esc is Cancel. Initial focus: Cancel.
 board (the issue names it; PR-D18): opened by a Rename control with `ui.prompt = { kind:
 'renameRack', id }`. The Name prompt anatomy: a title, a Name field, Cancel and a primary.
 Height 190 (title 24, field 52, buttons 32, two gaps 32, padding 48, border 2; no body).
+Data props: `rack: { id, name }`.
 
 | Part | Reads | Text / face |
 |---|---|---|
-| Title | the rack's `name` | "Rename {name}" |
-| Name field | the rack's `name` | label "Rack name", value the name; tooltip `library.rack_rename_name` (new) |
-| Cancel | — | off face; `ui.prompt = null`; tooltip `library.rack_rename_cancel` (new) |
-| Rename | the field | primary; sends `renameRack { id, name }` then `ui.prompt = null`; disabled while empty or unchanged (trimmed value equals the name); tooltip `library.rack_rename` (new) |
+| Title | `rack.name` | "Rename {name}" |
+| Name field | `rack.name` | label "Rack name", value the name; tooltip `library.rack_rename_name` (new) |
+| Cancel | — | off face, `data-cancel`; calls `onclose`; tooltip `library.rack_rename_cancel` (new) |
+| Rename | the field | primary; sends `renameRack { id, name }` then calls `onclose`; disabled while empty or unchanged (trimmed value equals the name); tooltip `library.rack_rename` (new) |
 
 `aria-label`s: Cancel "Cancel: keep the name {name}", Rename "Rename {name} to {new name}".
 Quick Rack buttons keep the rack (the id stays). A refused name (one another rack has)
@@ -368,42 +418,54 @@ in (PR-D1). So the fixture is in two parts, both in `app/src/ui/Prompts/Prompts.
   loaded rack." is placeholder text (PR-D19) and the screenshot masks the status line. The
   clock is Stage.md's (`boardNow = 10000`, the same anchors, LED phase 0.25) and
   `boardMeterHolds` the same, so the Stage under the scrim is the Stage board.
-- **Per-prompt props** (what each prompt component takes; the wiring derives the same from a
-  state in the vitest checks):
-  - `storeProps`: bank 0, `storeWaiting` 4, buttons A1–A4 stored (`rack` "rack-sunday",
-    "rack-warm", "rack-ballad", "rack-organ"; names "Sunday drive", "Warm keys", "Ballad",
-    "Organ trio"), A5–A8 empty; `liveRack` `{ name: "New rack", id: null, modified: true,
-    prompt: null }`; field value "Rhodes Soft + Strings" (the name a `storeRack` would make,
-    `app/src/lib/api/mock-quick-racks.ts` `capture`; the component's default is
-    `liveRack.name`, the story passes this value, PR-D12). The board draws A1 loaded; with
-    `liveRack.id` null nothing is loaded (`loaded` means its rack is `liveRack.id`), so the
-    fixture draws A1 stored and the screenshot masks cell A1 (PR-D20).
-  - `unsavedProps`: `liveRack` `{ name: "Sunday drive", id: "rack-sunday", modified: true,
+- **Per-prompt states**, each an `AppState` made from `stageState` with the fields below
+  merged over it (`liveRack` over `stageState.liveRack`, so `controls` stays), plus a
+  `uiPrompt`. `pickPrompt` on each gives the props the stories and the vitest checks use.
+  Every one has `racks` = four entries, in this order: `{ id: "rack-sunday", name: "Sunday
+  drive" }`, `rack-warm` "Warm keys", `rack-organ` "Organ trio", `rack-ballad` "Ballad",
+  each with `parts` ["Stage Grand", "Silk Strings", "Brass Section", "Silk Strings"], `on`
+  [true, true, false, true], `needsAttention` false; and `quickRacks` bank 0, `store` false,
+  `readOnly` false, buttons A1–A4 holding those four ids in that order with their names
+  (`missing` false; so A4 is Ballad, as the board's Delete says), A5–A8 `{ rack: null, name:
+  "", missing: false, loaded: false }`; `loaded` is true on the button whose id is
+  `liveRack.id`.
+  - `storeState`: `quickRacks.storeWaiting` 4, `store` true; `liveRack` `{ name: "New rack",
+    id: null, modified: true, prompt: null }` (so no button is loaded); `message` `{ seq: 8,
+    text: "Save the rack first; then it goes on Quick Rack A5", error: false }` (what the
+    session says on the armed tap). Props: `bank` 0, `slot` 4, the buttons, `rack` `{ name:
+    "New rack", id: null, modified: true }`; the story's `value` "Rhodes Soft + Strings" (the
+    name a `storeRack` would make, `app/src/lib/api/mock-quick-racks.ts` `capture`; the
+    component's default is "New rack", PR-D12). The board draws A1 loaded; with `liveRack.id`
+    null nothing is loaded, so the fixture draws A1 stored and the screenshot masks cell A1
+    (PR-D20).
+  - `unsavedState`: `liveRack` `{ name: "Sunday drive", id: "rack-sunday", modified: true,
     prompt: { kind: "unsavedChanges", then: { kind: "load", id: "rack-warm", name: "Warm
-    keys" } } }`.
-  - `soundNamesProps`: `liveRack.prompt` `{ kind: "soundNames", parts: [{ part: 0, suggested:
-    "Rhodes Soft" }], saveAs: null }`; `keyboardParts[0].sound` `{ id:
-    "au:fake.sampler-deluxe#rhodes-soft", name: "Rhodes Soft" }` (so the origin reads
-    "Factory"); field value "Rhodes Soft 2" (the board's; the component's default is
-    `suggested`, "Rhodes Soft", and the story passes the board's value, PR-D21).
-  - `deleteProps`: `ui.prompt` `{ kind: "deleteRack", id: "rack-ballad" }`; `racks` holds
-    "Ballad" (`rack-ballad`), `quickRacks` bank 0 with A4 `rack` "rack-ballad", `ots.racks[2]`
-    `{ rack: "rack-ballad", name: "Ballad", missing: false }` (the others null), `style.name`
-    "Sunday Drive Pop", `liveRack.id` "rack-sunday".
-  - `renameProps`: `deleteProps`' racks with `ui.prompt` `{ kind: "renameRack", id:
-    "rack-ballad" }`.
+    keys" } } }`. Props: `rack` `{ name: "Sunday drive", id: "rack-sunday" }`, `then` as above.
+  - `soundNamesState`: `liveRack` as `unsavedState`'s but `prompt` `{ kind: "soundNames",
+    parts: [{ part: 0, suggested: "Rhodes Soft" }], saveAs: null }`; `keyboardParts[0]`
+    `soundEdited` true, `sound` `{ id: "au:fake.sampler-deluxe#f:12", name: "Rhodes Soft" }`
+    (a factory preset of the mock plugin, so the origin reads "Factory"). Props: `parts`
+    `[{ part: 0, partName: "Right 1", suggested: "Rhodes Soft", origin: "Factory" }]`,
+    `saveAs` null; the story's `values` `["Rhodes Soft 2"]` (the board's; the component's
+    default is "Rhodes Soft", PR-D21).
+  - `deleteState`: `uiPrompt` `{ kind: "deleteRack", id: "rack-ballad" }`; `liveRack` `{ name:
+    "Sunday drive", id: "rack-sunday", modified: true, prompt: null }` (A1 loaded);
+    `ots.racks` four entries, `[2]` = `{ rack: "rack-ballad", name: "Ballad", missing: false }`
+    and the others `{ rack: null, name: "", missing: false }`; `style.name` "Sunday Drive Pop".
+    Props: `rack` `{ id: "rack-ballad", name: "Ballad" }`, `slots` ["A4"], `ots` [3],
+    `styleName` "Sunday Drive Pop".
+  - `renameState`: `deleteState` with `uiPrompt` `{ kind: "renameRack", id: "rack-ballad" }`.
+    Props: `rack` `{ id: "rack-ballad", name: "Ballad" }`.
 
-Each per-prompt fixture is an `AppState` (from `stageState`) plus `uiPrompt`, so the wiring
-tests run `pickPrompt` on it; the stories pass the same through the components, with the
-board's typed field values as `value` (Store "Rhodes Soft + Strings", Sound names "Rhodes
-Soft 2") and `autofocus: false` (PR-D5).
+The stories render the prompt components with those props, the board's typed field values
+as `value` / `values`, and no focus (the overlay's `autofocus` false, PR-D5).
 
 The `Pages/Prompts` › `Board` story renders `PromptOverlay` (with `stageState.message`,
-`autofocus: false`) over `Stage` with `stageState`, and in place of the one dialog the four
-prompts in the board's grid: `grid-template-columns: 440px 440px; gap: 24px; align-items:
-start`, centred in `0,0 1440×800` (so the grid's left is 268 and its top 82). The light
-board's `--m` and `--lamp-ink` differ from the tokens as on the Stage (Stage.md › Board
-fixture); no mask.
+`autofocus: false`) over `Stage` with `stageState` and `statusHidden: true` (Kit additions; so
+one status line shows), and in place of the one dialog the four prompts in the board's
+grid: `grid-template-columns: 440px 440px; gap: 24px; align-items: start`, centred in
+`0,0 1440×800` (so the grid's left is 268 and its top 82). The light board's `--m` and
+`--lamp-ink` differ from the tokens as on the Stage (Stage.md › Board fixture); no mask.
 
 ## Components
 
@@ -444,8 +506,8 @@ outside it.
 | Unsaved changes, sound names | `panels/rack/RackPanel.svelte` asks them inside the Rack drawer; `panels/quickracks/rackPromptDrawer.svelte.ts` opens the drawer when a prompt appears | Replaced by the Unsaved and Sound names prompts over the page; the drawer no longer opens on a prompt (`openRackDrawerOnPrompt` goes); the Rack panel's prompt UI goes |
 | Delete | `panels/library/RacksTab.svelte`: an inline confirm (`confirming`) with `library.rack_delete_confirm` / `_cancel` | Replaced by the Delete prompt: Delete… sets `ui.prompt = { kind: 'deleteRack', id }`; the inline confirm goes |
 | Rename | `RacksTab.svelte`: the name input renames on Enter (`library.rack_name`) | The inline rename stays until the Library › Racks spec decides; the Rename prompt is built and storied for it (PR-D18) |
-| Modal state | none (`ui` has no modal flag; `handleKey` runs everywhere but inputs) | `ui.prompt` and `ui.modal` in `app/src/lib/store.svelte.ts`; `handleKey` returns after tracking Shift (and hiding a tip on Esc) when `ui.modal` is set |
-| Status line | the footer (Stage.md › Gap) | The kit's status line; drawn over the scrim by the overlay while a prompt is up, and the page's own copy hidden meanwhile (Kit additions; the page wiring passes `hidden` from `ui.modal`) |
+| Modal state | none (`ui` has no modal flag; `handleKey` runs everywhere but inputs; `panels/effects/MasterFx.svelte` has its own window capture Esc listener) | `ui.prompt` and `ui.modal` in `app/src/lib/store.svelte.ts`; `handleKey` returns after tracking Shift when `ui.modal` is set; MasterFx's Esc listener returns when it is set |
+| Status line | the footer (Stage.md › Gap) | The kit's status line; drawn over the scrim by the overlay while a prompt is up, and the page's own copy hidden meanwhile (Kit additions; `StageWiring` passes `statusHidden` from `ui.modal`) |
 | Dialogs | `panels/rack/RackSlot.svelte` has a `role="dialog"` popover (insert settings) with the old `.pop mat-raised` look | Untouched here; the Dialog panel is the Push dialog, for the prompts (and Prompts-More, #524) |
 | Screenshot tool | `app/scripts/shots.ts` (Stage.md › Gap: per-story viewport and masks) | The Board story needs the same item (viewport 1440 × 900, masks); built with the Stage, reused here |
 
@@ -477,43 +539,48 @@ unless it says otherwise. They read roles, names, attributes, `data-face` / `dat
 `data-prompt` / `data-slot` and the commands sent (a fake `send`); never computed colours or
 layout.
 
-1. `pickPrompt` (pure): with `soundNamesProps`' state plus `storeWaiting` 4 it returns
-   `soundNames`; with `prompt` null, `store`; with `prompt` null, `storeWaiting` null and
-   `uiPrompt` deleteRack, `deleteRack`; with a `deleteRack` `uiPrompt` whose id isn't in
-   `racks`, null; with nothing, null. The wiring (its store mocked with `stageState`) mounts
-   no dialog and no scrim for null.
-2. Store (`storeProps`): the title reads "Store to Quick Rack A5?"; the Name field's default
+1. `pickPrompt` (pure): on `soundNamesState` plus `storeWaiting` 4 it returns kind
+   `soundNames` with the props above; on `storeState`, `store`; on `deleteState`,
+   `deleteRack` with `slots` ["A4"] and `ots` [3]; on `deleteState` with an id not in `racks`,
+   null; on `stageState`, null. The wiring (its store mocked with `stageState`) mounts no
+   dialog and no scrim for null.
+2. Store (`storeState`'s props): the title reads "Store to Quick Rack A5?"; the Name field's default
    value is "New rack" and, with `value` "Rhodes Soft + Strings", that; its tooltip
    `quick.save_name`; the cell `data-slot="4"` is `data-face="waiting"` and contains "here";
    `data-slot="0"` is `off`; the row's `aria-label` is "Bank A: A1 to A4 stored, A5 chosen,
    A6 to A8 empty". Clicking Save and store calls `send` with `saveRackAs { name: "Rhodes
    Soft + Strings" }`; with the field cleared the button is `aria-disabled`,
    `data-face="disabled"`, and click and Enter send nothing; Cancel sends
-   `toggleQuickRackStore`. With `liveRack.id` "rack-sunday" and `name` "Sunday drive" there
+   `toggleQuickRackStore`; after a send every button is `aria-disabled` until the props
+   change. With `rack` `{ id: "rack-sunday", name: "Sunday drive", modified: true }` there
    is no field, the body contains "Sunday drive has unsaved changes" and Save and store
-   sends `saveRack`.
+   sends `saveRack`; with `modified` false the body contains "Sunday drive's saved rack is
+   gone".
 3. `bankRowLabel` (pure): the example above; all empty → "Bank B: B1 to B8 empty"; A1 loaded
    and waiting 0, the rest empty → "Bank A: A1 chosen, A2 to A8 empty"; A1 missing, A2 loaded,
    waiting 4, the rest empty → "Bank A: A1 missing, A2 loaded, A3 to A4 empty, A5 chosen, A6
    to A8 empty". `listOf` (pure): `["A4"]` → "A4", two → "A4 and A7", three → "A2, A4 and A7".
-4. Unsaved (`unsavedProps`): the title "Unsaved changes in Sunday drive", the body "Save them
+4. Unsaved (`unsavedState`'s props): the title "Unsaved changes in Sunday drive", the body "Save them
    before switching to Warm keys?"; three buttons in the order Keep editing (`data-face="off"`),
    Discard and switch (`data-hue="ending"`), Save first (`data-face="chosen"`); Keep editing
    sends `dismissRackPrompt`; Discard sends `loadRack { id: "rack-warm", discard: true }`;
    Save first sends `saveRack`; with `then` `{ kind: "new" }` Discard sends `newRack {
    discard: true }` and the body reads "Save them before starting a new rack?"; with
-   `liveRack.id` null a field appears with value "Sunday drive" and Save first sends
-   `saveRackAs { name: "Sunday drive" }`. Esc (a `keydown` on the dialog) sends
-   `dismissRackPrompt` and a `keydown` listener on `window` doesn't see it.
-5. Sound names (`soundNamesProps`): the title "Name the new sound"; the body contains
+   `rack.id` null a field appears with value "Sunday drive" and Save first sends
+   `saveRackAs { name: "Sunday drive" }`. Mounted inside `PromptOverlay`, Esc (a `keydown`
+   dispatched on the focused button) sends `dismissRackPrompt`, calls `onescape`, and a
+   bubble-phase `keydown` listener on `window` doesn't see it.
+5. Sound names (`soundNamesState`'s props): the title "Name the new sound"; the body contains
    "Right 1's", "Rhodes Soft" and "Factory"; the field's label has the tag "R1" with
    `data-hue="r1"`; the field's default value is "Rhodes Soft" and, with `values` `["Rhodes
    Soft 2"]`, that; Save sound then sends `saveRack { soundNames: { 0: "Rhodes Soft 2" } }`;
    with `saveAs` "Warm keys 2" it sends `saveRackAs { name: "Warm keys 2", soundNames }`; with
    two parts (0 and 3, suggested "Rhodes Soft" and "Warm Pad"), two fields, the title "Name
-   the new sounds", the button "Save sounds", and the command carries `{ 0: …, 3: … }`; a
-   `sf:` id gives "SoundFont", a `saved:` id no origin word; Cancel sends `dismissRackPrompt`.
-6. Delete (`deleteProps`): `role="alertdialog"`, the title "Delete Ballad?", the body "Quick
+   the new sounds", the button "Save sounds", and the command carries `{ 0: …, 3: … }`; with
+   `origin` null the body has no " · "; Cancel sends `dismissRackPrompt`. `pickPrompt`: an
+   `#u:` id gives origin "File", a `saved:` id null, and an empty `suggested` becomes the
+   part's `voiceName`.
+6. Delete (`deleteState`'s props): `role="alertdialog"`, the title "Delete Ballad?", the body "Quick
    Rack A4 will be empty, and One Touch 3 of Sunday Drive Pop goes back to the style's own.
    The sounds stay in your Library."; Cancel is `data-face="chosen"` and first, Delete
    `data-hue="ending"` and last; Delete sends `deleteRack { id: "rack-ballad" }` and then
@@ -521,7 +588,7 @@ layout.
    is the last sentence only; with slots A2, A4 and A7 the body starts "Quick Racks A2, A4
    and A7 will be empty"; with OTS 2 and 3 "One Touch 2 and 3 of Sunday Drive Pop go back";
    initial focus is Cancel.
-7. Rename (`renameProps`): the title "Rename Ballad", the field value "Ballad", Rename
+7. Rename (`renameState`'s props): the title "Rename Ballad", the field value "Ballad", Rename
    `aria-disabled` while the value is "Ballad" or empty; typing "Ballad 2" and Enter sends
    `renameRack { id: "rack-ballad", name: "Ballad 2" }` and calls `onclose`.
 8. Focus: on mount the Store prompt's field has focus with its text selected; the Unsaved
@@ -533,7 +600,9 @@ layout.
 9. Status line over the scrim: the overlay with `message` `stageState.message` has one
    `role="status"` region reading the refusal, with the ⚠ and no button or focusable content
    inside; with `message` null it is empty. `StatusLine` with `inert` renders the text with no
-   button; with `hidden` it is `aria-hidden` and not visible (its `visibility`).
+   button; with `hidden` it has `aria-hidden="true"` and `data-hidden` (its CSS,
+   `visibility: hidden`, is a story's to show: jsdom applies no component CSS). `Stage` with
+   `statusHidden` passes it through.
 10. Every interactive element has a `data-tip` in the catalog (the existing tooltip test).
 11. Light tokens (a text test over `app/src/ui/tokens/light.css`): `--scrim` is
     `rgba(242, 241, 238, 0.72)` and `--dialog-edge` is `var(--t)`.
@@ -562,7 +631,8 @@ below is its own `npm run shots -- <Name>` and its own crop files):
   `[data-slot="0"]`. The crop includes the 1px `--dialog-edge` border, which on the board
   mixes with the scrim over the Stage and in the story with the `--g` ground: at most 1% of
   the crop's pixels, inside the threshold. A crop whose height differs from the box fails as
-  wrong size, so the fixture texts must wrap to the line counts in Layout.
+  wrong size, so the fixture texts must wrap to the line counts in Layout; they are the
+  board's own texts at the board's own 390px, so they do, and the Board shot is the judge.
 - `Components/StorePrompt` › `Saved`, `Components/UnsavedChangesPrompt` › `New` and
   `NeverSaved`, `Components/SoundNamesPrompt` › `TwoParts`, `Components/DeleteRackPrompt` ›
   `NothingHeld`, `Components/RenameRackPrompt` › `Rename`, `Components/NameField` › `Empty`
@@ -596,8 +666,10 @@ below is its own `npm run shots -- <Name>` and its own crop files):
   extra ring; its caret and selection show focus. The buttons keep the kit's ring.
 - **PR-D7 · Refusals stay on the status line.** The prompts validate only emptiness (and, for
   Rename, an unchanged name). A name another rack has, or anything else the session refuses,
-  comes back on the status line over the scrim; a session-held prompt stays open because
-  the state still asks, an app-only one (Delete, Rename) has closed and can be reopened.
+  comes back on the status line over the scrim. Whether the prompt stays follows the state:
+  Store's wait survives a failed save, so it stays; a refused Save first from the Unsaved
+  prompt drops the session's question (the API: a save that fails drops the held switch), so
+  it closes; an app-only one (Delete, Rename) has closed and can be reopened.
 - **PR-D8 · Missing rack cell.** A button whose rack is gone draws as stored with its label in
   `--warn`, the kit's missing colour; the cell is too narrow for the ⚠ glyph.
 - **PR-D9 · Precedence.** Sound names before Unsaved before Store before the app's own: the
@@ -619,9 +691,9 @@ below is its own `npm run shots -- <Name>` and its own crop files):
 - **PR-D14 · Who asks.** The note says only the screen asks, and names the Launchkey, pedals
   and OTS Link as switching at once: on screen a One Touch onto a rack and a Quick Rack
   button do ask (app-api.md › `recallOts`, `pressQuickRack`) until Stage.md C2.
-- **PR-D15 · Origin word.** "Factory" for a plugin preset (`au:…#…`), "SoundFont" for
-  `sf:…`, nothing otherwise; the state has no "file" origin, so an `.aupreset` file's sound
-  reads with no origin.
+- **PR-D15 · Origin word.** "Factory" for a factory preset (`au:…#f:…`), "File" for an
+  `.aupreset` (`au:…#u:…`), nothing otherwise (a sound-names prompt comes only from edited
+  plugin sounds, so those two are the cases).
 - **PR-D16 · Delete names what the state knows.** The bank on view and the loaded style's
   OTS; other banks and styles aren't in `AppState`. The board's note (2) left this open.
 - **PR-D17 · Delete never second-guesses.** The dialog sends `deleteRack` whatever the rack;
@@ -644,8 +716,15 @@ below is its own `npm run shots -- <Name>` and its own crop files):
   kit's focus ring is skipped on the name field for the same reason (PR-D6). Both go in
   kit.md as named exceptions.
 - **PR-D25 · Bank change while storing.** `storeWaiting` belongs to the bank on view, so a
-  Launchkey Bank ± hides the Store prompt until that bank is back; nothing is lost and the
-  API already says what clears the wait.
+  Launchkey Bank ± hides the Store prompt until that bank is back; the wait survives (the
+  API says what clears it), the overlay unmounts and focus returns to the opener, and a
+  name typed but not sent is gone when it comes back (the field restarts from its default).
+- **PR-D26 · One send per answer.** After a prompt sends, its buttons are disabled until the
+  state replies, so a double click can't re-arm Store or save twice.
+- **PR-D27 · Store body for a lost file.** The session waits for a saved, unmodified rack
+  only when its file is gone; the body says so instead of claiming unsaved changes.
+- **PR-D28 · Empty suggestion.** The session may send an empty `suggested`; `pickPrompt`
+  falls back to the part's `voiceName`, so the body and the field always have a name.
 
 ## Follow-ups
 
@@ -670,8 +749,8 @@ For kit.md (not edited here):
   scrim (the overlay renders it) and is inert: plain text, no `clearMessage` button, not
   focusable (PR-D23). `StatusLine` gains two props: `inert` (the text with no button) and
   `hidden` (`aria-hidden`, `visibility: hidden`, the space kept), which the page wiring
-  passes from `ui.modal` so the page's own copy is silent meanwhile. It carries
-  `data-shot-mask="status"`. This board is where the kit's status line is drawn (Stage.md
+  passes from `ui.modal` so the page's own copy is silent meanwhile (`Stage` gains a
+  `statusHidden` prop that passes it through). It carries `data-shot-mask="status"`. This board is where the kit's status line is drawn (Stage.md
   Components #15 points here): dark line 401, light 393.
 - **Status line mismatches on this board:** the board draws it as a `<p>` with no button
   (the kit's has one when there is a message; inert here by PR-D23, so no mismatch while a
