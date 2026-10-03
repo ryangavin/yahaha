@@ -4,7 +4,7 @@ Rules every component, story and station follows. Where a rule can be checked by
 
 ## The owner's axioms
 
-1. **Themes are real themes.** Dark and light (and any later theme) come through Storybook's themes addon (`@storybook/addon-themes`, `withThemeByDataAttribute` on `data-theme`), from day one. Components never branch on the theme; they read tokens.
+1. **Themes are real themes.** Dark and light (and any later theme) come through Storybook's themes addon (`@storybook/addon-themes`' toolbar, with our decorator putting `data-theme` on a wrapper around each story, never on the page), from day one. Components never branch on the theme; they read tokens.
 2. **Design tokens for everything.** Every colour, size, space, radius, font, weight, glow and duration a component uses is a CSS custom property. No literal values in components. A theme is just a set of token values, kept so it's easy to tweak.
 3. **Controls for everything the story shows.** Every prop a story sets away from its default is a native Storybook control.
    - **A single component:** every prop is a control.
