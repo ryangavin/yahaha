@@ -25,10 +25,13 @@ so the player sets up the harmony without leaving the band.
   compact block's run dot, the app bar's Launchkey dot) and the kit's band glows.
 - **Before building:** the Stage lane (#500) must have landed: it builds the kit components
   this page reuses (AppBar, SectionRow, FullBand, StatusLine, KeyStrip, ChosenTabs, LampButton
-  with `data-face` and its `tip` prop, Stage.md D41 and Components 2–4), `ui.page` (Stage.md
-  D2), the page-wiring pattern (D46), `app/src/ui/Stage/Stage.fixtures.ts` and the shots
-  masks (D39). Then Stage C5 (tooltips) and this page's C-HA1 (one tooltip key) must land;
-  the rest doesn't block (see Contract changes needed).
+  with `data-face`, Stage.md D41 and Components 2–4), `ui.page` (Stage.md D2), the
+  page-wiring pattern (D46), `app/src/ui/Stage/Stage.fixtures.ts` and the shots masks (D39).
+  Tooltips on components: a Svelte action can't go on a component, so each kit component that
+  is a control takes a `tip` prop (the key) and puts `use:tip` on its own element; the Stage
+  lane adds it to LampButton and the rest as it builds them (Stage.md Check 15 needs it too),
+  and this page's new components take the same prop. Then Stage C5 (tooltips) and this page's
+  C-HA1 (two tooltip keys) must land; the rest doesn't block (see Contract changes needed).
 
 ## Layout
 
@@ -83,16 +86,17 @@ content over the hairline), items centred, gap 12, no wrap. It is a `role="group
 |---|---|---|---|---|---|
 | Title | "Harmony / Arpeggio" 14 / 400 `--m`; not a control | — | — | — | — |
 | Type name | 14 / 400 `--t`, `min-width: 0`, ellipsis; not a control | `harmonyArp.typeName`; empty (library not loaded, or no name yet): "—" in `--d` | — | — | — |
-| Category caption | 13 / 400 `--m`, gap 12 after the name; shown only when `harmonyArp.category` is not "Harmony" (HA-D3); not a control | Echo category: the category ("Echo"); arpeggio (`mode` `arpeggio`): "Arpeggio · {category}" ("Arpeggio · Up & Down") | — | — | — |
-| On | LampButton `size md` (32 tall, padding 0 16, 14px), `margin-left: auto`, label "On" when lit and "Off" when not (HA-D4), code "Fader button 5" (12px, 6px after the label, `--code-opacity` when lit) | `harmonyArp.on` (`aria-pressed`) | `toggleHarmonyArp` | `harmony.switch` | fader button 5 (Panel page); the band's Harm/Arp lamp is the same switch |
+| Category caption | 13 / 400 `--m`, gap 12 after the name; shown only in two cases (HA-D3), else absent; not a control | `mode` `harmony` with `harmonyArp.category` exactly "Echo": "Echo"; `mode` `arpeggio` with a non-empty `category`: "Arpeggio · {category}" ("Arpeggio · Up & Down"); any other case (the Harmony category, an empty or unknown category): no caption | — | — | — |
+| On | LampButton `size md` (32 tall, padding 0 16, 14px), `margin-left: auto`, label "On" when lit and "Off" when not (HA-D4), code "Fader button 5" (12px, 6px after the label, `--code-opacity` when lit) | `harmonyArp.on` (`aria-pressed`, the face and the label all from this one field: the lamp is controlled by its `on` prop and keeps no state of its own, as every lamp on the band; a click sends and waits for the state) | `toggleHarmonyArp` | `harmony.switch` | fader button 5 (Panel page); the band's Harm/Arp lamp is the same switch |
 
 `aria-label` of the lamp: "Harmony/Arpeggio on (fader button 5)" / "Harmony/Arpeggio off
 (fader button 5)". Keyboard shortcut Shift+J (the `J` entry in `app/src/lib/keys.ts`, exists).
 
 ### Category tabs
 
-`417,172 975×32`, one row, items centred, no wrap. Two tab groups and a label (tabs inside a
-group touch: gap 0):
+`417,172 975×32`, one row, items centred, no wrap, gap 0 (the separator's margins and the
+label's right margin are the only spaces; tabs inside a group touch). Two tab groups and a
+label:
 
 - **Harmony categories** (`role="group"` `aria-label="Harmony categories"`): three ChosenTabs
   `size row` (Kit additions): "Harmony", "Echo", "Multi Assign", padding 0 10, 13 / 400. Fixed:
@@ -121,10 +125,11 @@ chosen. Clicking a tab only changes what the grid shows; it sends nothing, so br
 stops an Echo or an arpeggio (changing the type does, app-api.md › Keyboard Harmony /
 Arpeggio). Clicking the chosen tab does nothing (cursor stays `pointer`: it is an enabled
 control). Unchosen tabs: `--m` text, no face. Tooltip `harmony.category` (new, C-HA1) on every
-tab. `aria-label` "{name}: {n} types" / "{name}: {n} patterns", "1 type" / "1 pattern" in the
-singular ("Harmony: 19 types", "Multi Assign: 1 type", "Up & Down: 5 patterns"), plus ",
-selected type here" when the selected type is in it. No Launchkey mapping (the hardware has no
-type control beyond the switch).
+tab. The category tabs replace the kit's tab label rule with their own `aria-label`:
+"{name}: {n} types" / "{name}: {n} patterns", "1 type" / "1 pattern" in the singular
+("Harmony: 19 types", "Multi Assign: 1 type", "Up & Down: 5 patterns"), plus ", selected
+type here" when the selected type is in it, and no ", chosen" (the chosen tab is read from
+`aria-pressed`). No Launchkey mapping (the hardware has no type control beyond the switch).
 
 ### Type grid
 
@@ -173,7 +178,9 @@ settings" ("Standard Duet 1 settings"; empty name: "Settings"). Which rows it ha
 | `harmony` | anything else | Assign 44 · Volume 44 · Touch limit 36 · Chord note only 36 |
 
 Every row has `border-top: 1px solid var(--line)` (box-sizing border-box), items centred, gap
-12, no wrap, and starts with a **label** cell 64 wide (`flex: none`), 13 / 400 `--m`. Three
+12, no wrap, and starts with a **label** cell 64 wide (`flex: none`, `white-space: nowrap`,
+`overflow: visible`: "Touch limit" at 13px is about 64px and may run a pixel or two into the
+gap), 13 / 400 `--m`. Three
 row shapes carry every setting (Kit additions › Settings rows): a **ChoiceRow** (tabs), a
 **BarRow** (a value with a bar) and a **LampRow** (lamp buttons). The rows:
 
@@ -185,7 +192,7 @@ row shapes carry every setting (Kit additions › Settings rows): a **ChoiceRow*
 | Chord note only | LampRow 36 | none | LampButton `size sm` "Chord note only" | `harmonyArp.chordNoteOnly` | `setChordNoteOnly { on: !chordNoteOnly }` | `harmony.chord_note_only` | — |
 | Speed | ChoiceRow 36, `role="group"` `aria-label="Speed: the repeat rate"` | "Speed" | ChosenTabs `row-sm` 1/4, 1/6, 1/8, 1/12, 1/16, 1/32 (28 tall, 22px block, 13px, padding 0 8) | `harmonyArp.speed` | `setHarmonySpeed { speed }` | `harmony.speed` | — |
 | Note | 44 tall, a hairline-topped row of text; no label cell | none | "Multi Assign has no settings: each right-hand key goes to Right 1, 2 and 3 in turn." 13 / 400 `--m`, line-height 16, wrapping, starting at the row's left edge (no padding), centred vertically; not a control | — | — | — | — |
-| More | 36 tall, a hairline-topped row; no label cell (interim, HA-D15) | none | a text button "Quantize, Hold, Velocity, Keep Key On…" 13 / 400 `--t2`, left-aligned, centred vertically | — | opens today's Harmony drawer (`ui.toggleDrawer('harmony')`, opened, not toggled closed), where those settings are until #527 | `nav.harmony` | — |
+| More | 36 tall, a hairline-topped row; no label cell (interim, HA-D15) | none | a text button "Quantize, Hold, Velocity, Keep Key On…" 13 / 400 `--t2`, left-aligned, centred vertically; `aria-label` "More arpeggio settings: Quantize, Hold, Velocity, Keep Key On. Opens the Harmony/Arpeggio panel" | — | opens today's Harmony drawer (`ui.toggleDrawer('harmony')`, opened, not toggled closed), where those settings are until #527 | `harmony.more` (new, C-HA1) | — |
 
 Assign tabs: ChosenTabs `size row` (Auto and Multi padding 0 10, 13 / 400 `--m` unchosen) and
 the three part tabs R1, R2, R3 (padding 0 8, 13 / 500, in `--r1`, `--r2`, `--r3` when
@@ -241,7 +248,7 @@ the Rack page knob 5 ("Harm level", Stage.md D6) is this page's Volume.
 | An Echo type (Echo, Tremolo, Trill) | header caption "Echo"; Echo tab chosen; grid of three; kind `echo`: Assign, Volume, Speed, Touch limit |
 | Multi Assign | Multi Assign tab chosen; grid of one; kind `multi`: the note only |
 | An arpeggio pattern | caption "Arpeggio · {category}"; that arpeggio tab chosen; grid of its patterns; kind `arpeggio` (#527; interim per HA-D15: Assign, Volume, and the More row to today's drawer) |
-| Harm/Arp tab or Alt+H pressed while on this page | back to the Stage (`ui.page` `stage`), as the drawer toggled closed; Esc does the same (HA-D24) |
+| Harm/Arp tab or Alt+H pressed while on this page | back to the Stage (`ui.page` `stage`), as the drawer toggled closed, closing any drawer open over the page too; Esc runs `ui.escape()` (drawers and overlays close first) and returns to the Stage only when nothing was open (HA-D24) |
 | Help mode until #508 lands | as the Stage's interim: `?` toggles `tips.help` and today's tooltip footer, nothing on the page changes |
 | Assign Right 2 | R2 wears the white block (no hue); R1 and R3 keep their hues |
 | Assign Multi, then an arpeggio | Auto shows chosen; Multi absent |
@@ -274,10 +281,13 @@ replaced; `boardNow` (10000) and `boardMeterHolds` are the Stage's:
 - `liveRack.controls`: the default map (`defaultControlMap()` in `app/src/lib/api/types.ts`):
   knobs 5 `harmonyVolume`, so Volume reads "Knob 5".
 - `boardLibrary` (the lists are not in `AppState`: the app keeps them in `app.library`, from
-  `session.library()`; the page takes them as a `library` prop): the Stage fixture's entries
-  and voices, with `harmonyTypes` and `arpPatterns` as the dev mock's
+  `session.library()`; the page takes them as a `library` prop), a `LibraryList`: revision 1,
+  `entries` the dev mock's (`app/src/lib/api/mock.ts` `STYLES` through `entryOf`, which hold
+  the entry whose `id` is the fixture's `style.id` with folder "Pop", as the Stage's fixture
+  describes), `voices` the mock's `VOICES`, and `harmonyTypes` and `arpPatterns` the mock's
   (`app/src/lib/api/mock-harmony.ts` `HARMONY_TYPES`, `ARP_PATTERNS`: the 23 types, Multi
-  Assign at index 19 with category "Harmony"; the 23 patterns in seven categories).
+  Assign at index 19 with category "Harmony"; the 23 patterns in seven categories). This page
+  takes no library from the Stage's fixture (it exports none).
 - Page: the story renders `Harmony` with `page: 'harmArp'` (the active tab is a prop; in the
   app it is `ui.page`, Stage.md D2); the viewed category is the selected type's (Harmony), as
   on mount.
@@ -338,7 +348,7 @@ meter holds and the viewed category, passes them down (`state`, `library`, `page
 
 | Area | In `app/src` now | Change |
 |---|---|---|
-| Harmony / Arpeggio | `panels/harmony/Harmony.svelte`: a drawer (`Overlay`, `ui.harmony`) with a Toggle, the type name, ◀ ▶ step buttons, a Harmony / Arpeggio `Choice`, one list grouped by category, and `Field` / `HSlider` / `Choice` / `Toggle` settings | Replaced by the page: a display tab (`ui.page` `harmArp`, Stage.md D2), category tabs instead of the mode choice and the grouped list, the settings column; no step buttons (HA-D11); the drawer's tests move to the page's (Checks). The drawer stays in the code, reached only from the arpeggio kind's More row, until #527 lands (HA-D15); then it goes |
+| Harmony / Arpeggio | `panels/harmony/Harmony.svelte`: a drawer (`Overlay`, `ui.harmony`) with a Toggle, the type name, ◀ ▶ step buttons, a Harmony / Arpeggio `Choice`, one list grouped by category, and `Field` / `HSlider` / `Choice` / `Toggle` settings | Replaced by the page: a display tab (`ui.page` `harmArp`, Stage.md D2), category tabs instead of the mode choice and the grouped list, the settings column; no step buttons (HA-D11). The drawer and its tests (`Harmony.test.ts`) stay in the code, the drawer reached only from the arpeggio kind's More row, until #527 lands (HA-D15); then both go, and the page's checks (below) are the page's own from the start |
 | Navigation | `lib/nav.ts`: Harmony/Arp Alt+H toggles the drawer | The tab and Alt+H set `ui.page` `harmArp`, and back to `stage` from the page (kit › App bar, D2; HA-D24); Esc on the page returns to the Stage |
 | Shortcuts | `lib/keys.ts`: `J` (Shift+J) toggles the switch, `L` (Shift+L) steps the type, `*` toggles Arpeggio Hold | Unchanged (HA-D11) |
 | Compact block | none (the Stage display's chord and tempo are 128px and 32px) | New, from the kit addition below; shares `splitChord`, the tone spelling and the fit maths with the Stage's ChordReadout |
@@ -353,16 +363,20 @@ catalog test fails); it lands with the Stage's C5 or as its own small PR. The St
 covers `nav.harmony` (its body says "opens the panel"; the rewrite to "shows the page" is C5's
 rule for every `nav.*`). Nothing else on this page needs the API to change.
 
-1. **C-HA1 · Tooltips** (`app/src/help/tooltips.ts`, `app/docs/controls.md`), **lands before
-   the build**: a new key `harmony.category`, the full entry `{ title: 'Category', body:
+1. **C-HA1 · Tooltips** (`app/src/help/tooltips.ts`; then `app/docs/controls.md`
+   regenerated with `npm run docs:controls` in `app/`, since `controls-doc.test.ts` requires
+   the file to equal the render), **lands before the build**. Two new keys in the Keyboard
+   Harmony / Arpeggio group: `harmony.category`, the full entry `{ title: 'Category', body:
    'Shows this category\'s Harmony types or arpeggio patterns. The type you have stays until
    you pick another.', genos: 'Keyboard Harmony / Arpeggio type', keys: [], launchkey: null }`,
-   and its `controls.md` row ("Harm/Arp page › Category tabs: shows that category's types or
-   patterns; picks nothing"). And `harmony.volume` gains `launchkey: 'Knob 5 on the Rack knob
-   page (with the default controller map); a Panel fader mapped to Harmony volume'` (today
-   null). Keys the page no longer uses stay in the catalog for now (`harmony.mode_harmony`,
-   `harmony.mode_arpeggio`, `harmony.prev_type`, `harmony.next_type`, `harmony.close`);
-   dropping them is a follow-up with the drawer's removal.
+   and `harmony.more`, `{ title: 'More arpeggio settings', body: 'Opens the Harmony/Arpeggio
+   panel for Quantize, Hold, Velocity and Keep Key On, until they are on this page.', genos:
+   'Arpeggio', keys: [], launchkey: null }` (removed with #527). And `harmony.volume` gains
+   `launchkey: 'Knob 5 on the Rack knob page (with the default controller map); a Panel fader
+   mapped to Harmony volume'` (today null). Keys the page no longer uses stay in the catalog
+   for now (`harmony.mode_harmony`, `harmony.mode_arpeggio`, `harmony.prev_type`,
+   `harmony.next_type`, `harmony.close`); dropping them is a follow-up with the drawer's
+   removal.
 2. **Suggested, not needed (follow-up):** give Multi Assign its own `category` ("Multi Assign")
    in `harmonyTypes` (`crates/yahaha-core/src/harmony.rs` `Category`, `tests/fixtures/library.json`,
    the dev mocks, app-api.md) so the screen needn't group it by name (HA-D2). Until then, and
@@ -372,8 +386,10 @@ rule for every `nav.*`). Nothing else on this page needs the API to change.
 
 Vitest (`npx vitest run` on the page and component tests), each against the board fixture
 unless it says otherwise. They read roles, names, attributes and the commands sent (a fake
-`send`), and the `data-face` / `data-hue` hooks (kit › Faces, D41); never computed colours or
-layout.
+`send`), and the `data-face` / `data-hue` hooks (kit › Faces, Stage.md D41); never computed
+colours or layout. Checks that cross the wiring (the viewed category, the page setter, the
+drawer opener: 2, 7, 17) render `HarmonyWiring` over the mock session with the fixture state
+and a fake `send`; the rest render the pure components with props.
 
 1. Header: the group's `aria-label` is "Harmony / Arpeggio: Standard Duet 1, on"; the lamp
    reads "On", has `aria-pressed="true"` and `data-face="on"`, and a click sends
@@ -445,8 +461,9 @@ layout.
     settings rows top to bottom (Assign tabs, Volume, Touch limit, Chord note only), then the
     band and the status line as the kit orders them. The divider, the title, the type name,
     the tempo, the tones and the section are not focusable.
-17. Page: with `page` "harmArp" the Harm/Arp tab has `aria-current="page"`; pressing the tab
-    or Escape calls the page setter with "stage" (HA-D24).
+17. Page: with `ui.page` "harmArp" the Harm/Arp tab has `aria-current="page"`; pressing the
+    tab sets `ui.page` to "stage"; Escape with the Harmony drawer open closes the drawer and
+    leaves the page as it is; Escape again sets `ui.page` to "stage" (HA-D24).
 
 **Story and screenshot checks** (`npm run shots -- Harmony`, real Chrome), for what jsdom
 can't see:
@@ -541,8 +558,8 @@ can't see:
   so the two boards' shared pixels come from one source.
 - **HA-D18 · Hover, cursor, focus, tab order:** the kit's (Stage.md D35, D36); the sliders use
   `ew-resize` while dragging, the horizontal twin of the faders' `ns-resize`.
-- **HA-D19 · Tooltips.** One new key, `harmony.category`, for both tab groups; the existing
-  `harmony.*` keys cover the rest. The compact block carries the Stage's keys (`browser.open`,
+- **HA-D19 · Tooltips.** Two new keys: `harmony.category` for both tab groups and
+  `harmony.more` for the interim More row; the existing `harmony.*` keys cover the rest. The compact block carries the Stage's keys (`browser.open`,
   `display.tempo`, `display.chord`); the rack readout `stage.rack_name`; One Touch `ots.1`–`ots.4`.
 - **HA-D20 · Library not loaded, and unknown categories.** Fixed Harmony tabs, no arpeggio
   tabs, an empty grid, and the header's name from state ("—" when the state's `typeName` is
@@ -559,9 +576,13 @@ can't see:
   (`harmonyType` or `arpPattern` by `mode`); the kind, header caption and tab snapping read
   `typeName` and `category`, which the engine sets from that same index. Tests set all of
   them together.
-- **HA-D24 · Leaving the page.** The Harm/Arp tab, Alt+H and Escape on this page return to
-  the Stage (`ui.page` `stage`), as the drawer toggled closed. The other tabs switch pages as
-  the kit says.
+- **HA-D24 · Leaving the page.** The Harm/Arp tab and Alt+H on this page return to the
+  Stage (`ui.page` `stage`) and close any drawer open over it, as the drawer toggled closed.
+  Escape runs `ui.escape()` (`app/src/lib/store.svelte.ts`: drawers and overlays close
+  first); when nothing was open it sets `ui.page` to `stage`, the way it sends Library back
+  to the Stage today. The `ui.page` branch is added to `ui.escape()` by the Stage lane's D2
+  work or here, whichever lands first; the page component itself listens to no keys. The
+  other tabs switch pages as the kit says.
 
 ## Kit additions
 
@@ -576,15 +597,19 @@ The kit's App bar (kit › App bar) with two parts added after the wordmark, bec
 replaces the Stage display that carries them (`Channel-Dark.dc.html` lines 77–101 are the
 source; this board's 52–81 copy it). Every non-Stage display page and the tall pages use it.
 
-- **Rack readout** (`RackReadout` `variant inline`), `margin-left: 16px`, a text button 32
-  tall, items on the baseline, gap 6, 14 / 400, no wrap: "Rack" `--m`, then the slot `--t`
+- **Rack readout** (`RackReadout` `variant inline`), `margin-left: 16px` on top of the bar's
+  gap 8 (so 24px after the wordmark: the wordmark is 59px wide at 18 / 500, and the readout
+  starts at x = 24 + 59 + 24 = 107), a text button 32 tall, items on the baseline, gap 6, 14 /
+  400, no wrap: "Rack" `--m`, then the slot `--t`
   (the bank letter and button number, Stage.md › Sounds row: "A1"; absent when no
   `quickRacks.buttons` entry is `loaded`, Stage.md D21), then `liveRack.name` `--t`, then a 5px
   round `--t` dot (`align-self: center`) when `liveRack.modified`. Click: opens the Rack page
   (Stage.md D32 interim: the Rack drawer). Tooltip `stage.rack_name`. `aria-label` "Rack:
   {name}{, modified}{, on Quick Rack A1}. Opens the Rack page". No ellipsis (the name has room
   here; a 60-character name pushes the tabs, which is a follow-up).
-- **One Touch**, `margin-left: 12px`, the Stage's group (Stage.md › Style line, One Touch):
+- **One Touch**, `margin-left: 12px` on top of the gap 8 (20px after the readout; its x
+  depends on the rack name's width, as on the board), the Stage's group (Stage.md › Style
+  line, One Touch):
   "One Touch" 14 `--m` with 4px right margin, four 32 × 32 buttons, gap 4, chosen = applied,
   disabled past `ots.settings.length`, `recallOts { index }` at once (D17), tooltips
   `ots.1`–`ots.4`, `aria-label`s as the Stage's.
@@ -606,7 +631,7 @@ content is 76).
 
 | Control | Face | Reads | Sends / does | Tooltip |
 |---|---|---|---|---|
-| Style name | AccentBlock as a text button: padding 0 6, 13 / 500, line-height 16, `--g` on `--a`, `min-width: 0`, ellipsis | `style.name` (never empty: the engine always has a style loaded; an empty string shows "—") | opens the Browser (`ui.browser = true`, Stage.md D3) | `browser.open` |
+| Style name | AccentBlock as a text button: padding 0 6, 13 / 500, line-height 16, `--g` on `--a`, `min-width: 0`, ellipsis; `aria-label` "{name}: open the Browser" | `style.name` (never empty: the engine always has a style loaded; an empty string shows "—") | opens the Browser (`ui.browser = true`, Stage.md D3) | `browser.open` |
 | Tempo | `margin-left: auto`; the number 18 / 300, line-height 16, `--t`, then "BPM" 12 / 400 `--m` with 3px left margin; not a control | `transport.tempo` rounded (`Math.round`) | — | `display.tempo` |
 | Run dot | 6px round StatusDot: `transport.running` → `--ok` with `--bg` (`data-state="running"`); stopped with `transport.syncStart` → a hollow 1px `--ok` ring (`sync`); stopped → `visibility: hidden`, space kept (`stopped`); `role="img"` `aria-label` "Running" / "Sync start" / "Stopped" | `transport.running`, `transport.syncStart` | — | — |
 
@@ -620,13 +645,17 @@ content is 76).
   name), the font shrinks to `max(32, floor(48 × space / width))` px, `width` its `scrollWidth`
   at 48px, measured after each change of `chord.name`, `keyboard.chordTones` or
   `transport.section`; letter-spacing scales (−2 × size / 48). Tooltip `display.chord`.
-- **Tones** (`flex: none`): the note names of the Stage's tones (Stage.md › Chord: `keyboard.chordTones`
+- **Tones** (`flex: 0 1 auto`, see below): the note names of the Stage's tones (Stage.md › Chord: `keyboard.chordTones`
   moved by `chord.transposeKeyboard`, root first, at most six, the Stage's spelling), joined
   by spaces, 14 / 300, letter-spacing 3, `--t2`, no intervals ("A C E G"). No chord: absent.
 - **Section** (`margin-left: auto`, `flex: none`): 24 / 300, line-height 48, letter-spacing
   −0.5. Running: `transport.section` in the Genos spelling (kit › Section names) in its hue
   (`data-hue`), no glow. Stopped: `Main {A + transport.main}` in `--m` (Stage.md D4,
   `data-hue="m"`). Not a control.
+- **When it still doesn't fit** (the chord at its 32px floor, six tones and a long section
+  can pass 320px): the row is `overflow: hidden` and the tones give way: the tones element
+  gets `min-width: 0; overflow: hidden; text-overflow: ellipsis` and is the only item that
+  shrinks (`flex: 0 1 auto`); the chord and the section keep their full width.
 
 The block is not focusable except its style name. Light: `--ba` is `none`; nothing else changes.
 
