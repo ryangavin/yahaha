@@ -1,1 +1,136 @@
 /* Stage display roles (section row, count row, style line, now playing, sound row, display art): palette entries, sizes, and dark and light roles. */
+
+/* Palette: the display art's raw colours (Stage-Dark.dc.html's art gradients) and their light twins (ours). */
+:root {
+  --art-violet-38: #4a3b86; /* the art's core */
+  --art-violet-31: #3d3070; /* the core's rim */
+  --art-ink-02: #06050a; /* the near hill */
+  --art-ink-06: #0e0b16; /* the far hill */
+  --art-ink-04: #0b0814; /* the sky's middle */
+  --art-ink-13: #1c1033; /* the sky's foot */
+  --art-lilac-78: #c4b8f0; /* light: the art's core */
+  --art-lilac-84: #d4cbf3; /* light: the core's rim */
+  --art-stone-90: #e8e6ec; /* light: the near hill */
+  --art-stone-87: #dfdce6; /* light: the far hill */
+  --art-stone-92: #ecebef; /* light: the sky's middle */
+  --art-lilac-88: #ddd6f0; /* light: the sky's foot */
+}
+
+/* Theme-independent sizes */
+:root {
+  /* The section row and the display span the screen inside its 24px padding. */
+  --stage-row-width: 1392px;
+  --display-height: 300px;
+  --display-pad-top: 16px;
+  --display-pad-left: 24px;
+  --display-content-width: 814px; /* the style line, now playing and the sound row */
+  --display-art-width: 528px; /* the art at the display's right edge: the board's 38% of 1390 */
+
+  /* Count row */
+  --beat-size: 24px;
+  --beat-radius: 2px;
+  --beat-edge: 2px; /* beat one's top edge */
+  --leading-24: 24px;
+
+  /* Style line */
+  --send-height: 24px;
+  --style-name-max: 240px; /* the style's accent block; a longer name ends in an ellipsis */
+
+  /* Now playing */
+  --now-height: 162px;
+  --now-chord-width: 300px;
+  --now-section-width: 490px;
+  --text-128: 128px; /* the chord */
+  --leading-104: 104px;
+  --tracking-128: -6px;
+  --tracking-44: -1.5px;
+  --tracking-32: -0.5px;
+  --leading-14: 14px;
+  --leading-16: 16px;
+  --leading-18: 18px;
+  --leading-40: 40px;
+  --leading-52: 52px;
+  --label-height: 16px; /* the "Chord" and "Section" labels */
+  --note-width: 24px; /* one note of the chord's note row */
+  --note-row-height: 32px;
+  --tempo-gap: 50px; /* from the section line down to the tempo row */
+
+  /* Sound row */
+  --sound-row-height: 44px;
+  --sound-row-gap: 20px; /* above the sound row */
+  --rack-cell-width: 200px;
+  --sound-cell-width: 145.5px; /* a quarter of what the rack cell and the gaps leave of 814 */
+  --part-label-width: 32px;
+}
+
+[data-theme='dark'] {
+  /* The display art: a dim violet glow over a dark sky and two hills, faded in from the ground at its left. */
+  --art-core: var(--art-violet-38);
+  --art-rim: var(--art-violet-31);
+  --art-glow-20: color-mix(in srgb, var(--violet-300) 20%, transparent);
+  --art-glow-6: color-mix(in srgb, var(--violet-300) 6%, transparent);
+  --art-glow-0: color-mix(in srgb, var(--violet-300) 0%, transparent);
+  --art-hill-near: var(--art-ink-02);
+  --art-hill-far: var(--art-ink-06);
+  --art-sky-top: var(--black);
+  --art-sky-mid: var(--art-ink-04);
+  --art-sky-foot: var(--art-ink-13);
+  --art-fade-100: var(--black);
+  --art-fade-60: color-mix(in srgb, var(--black) 60%, transparent);
+  --art-fade-20: color-mix(in srgb, var(--black) 20%, transparent);
+  --art-fade-10: color-mix(in srgb, var(--black) 10%, transparent);
+
+  /* The current beat's glow, per section hue (the status dot's 6px glow, --bg for Main). */
+  --beat-glow-intro: var(--dot-glow-intro);
+  --beat-glow-main: var(--dot-glow-main);
+  --beat-glow-ending: var(--dot-glow-ending);
+  --beat-glow-brk: var(--dot-glow-brk);
+  --beat-glow-fill: var(--dot-glow-fill);
+  --beat-edge-colour: var(--t); /* beat one's top edge */
+
+  /* The display-size playing section's glow, per section hue (--bm for Main). */
+  --section-glow-intro: 0 0 18px color-mix(in srgb, var(--intro) 30%, transparent);
+  --section-glow-main: var(--bm);
+  --section-glow-ending: 0 0 18px color-mix(in srgb, var(--ending) 30%, transparent);
+  --section-glow-brk: 0 0 18px color-mix(in srgb, var(--brk) 30%, transparent);
+  --section-glow-fill: 0 0 18px color-mix(in srgb, var(--fill) 30%, transparent);
+
+  /* The chord: the accent with the display glow; held, muted without it. */
+  --chord: var(--a);
+  --chord-glow: var(--ba2);
+  --chord-held: var(--m);
+}
+
+[data-theme='light'] {
+  --art-core: var(--art-lilac-78);
+  --art-rim: var(--art-lilac-84);
+  --art-glow-20: color-mix(in srgb, var(--violet-600) 14%, transparent);
+  --art-glow-6: color-mix(in srgb, var(--violet-600) 5%, transparent);
+  --art-glow-0: color-mix(in srgb, var(--violet-600) 0%, transparent);
+  --art-hill-near: var(--art-stone-90);
+  --art-hill-far: var(--art-stone-87);
+  --art-sky-top: var(--stone-94);
+  --art-sky-mid: var(--art-stone-92);
+  --art-sky-foot: var(--art-lilac-88);
+  --art-fade-100: var(--stone-94);
+  --art-fade-60: color-mix(in srgb, var(--stone-94) 60%, transparent);
+  --art-fade-20: color-mix(in srgb, var(--stone-94) 20%, transparent);
+  --art-fade-10: color-mix(in srgb, var(--stone-94) 10%, transparent);
+
+  --beat-glow-intro: none;
+  --beat-glow-main: none;
+  --beat-glow-ending: none;
+  --beat-glow-brk: none;
+  --beat-glow-fill: none;
+  --beat-edge-colour: var(--t);
+
+  --section-glow-intro: none;
+  --section-glow-main: none;
+  --section-glow-ending: none;
+  --section-glow-brk: none;
+  --section-glow-fill: none;
+
+  --chord: var(--a);
+  --chord-glow: none;
+  --chord-held: var(--m);
+}
