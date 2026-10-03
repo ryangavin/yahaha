@@ -32,11 +32,19 @@ Use: `<button use:longpress={{ onlongpress, onlongrelease, disabled }}>`. Every 
 
 | Param | Type | Default | Meaning |
 |---|---|---|---|
-| `onlongpress` | `(() => void) \| undefined` | — | Called once when a press has been held for the long-press time without moving more than 4px, while the pointer is still down; or on a right-click (`contextmenu`). |
+| `onlongpress` | `(() => void) \| undefined` | — | Called once when a press has been held for the long-press time without moving more than 4px, while the pointer is still down; or on a right-click (`contextmenu`). Undefined: the action behaves exactly as `disabled` (D10). |
 | `onlongrelease` | `(() => void) \| undefined` | — | Called once when a press that fired `onlongpress` ends: its `pointerup` or `pointercancel`, a right-click's release, or `destroy` while it is still held. Never called for a press that didn't fire. |
-| `disabled` | `boolean` | `false` | No long press: a `pointerdown` starts nothing and a `contextmenu` calls nothing (its native menu is still prevented). Clicks pass through untouched. |
+| `disabled` | `boolean` | `false` | No long press: a `pointerdown` starts nothing (no timer, no `window` listeners, no swallow) and a `contextmenu` calls nothing (its native menu is still prevented). Clicks pass through untouched. |
 
-`update(params)` replaces all three at once (a param left out is undefined). The callbacks called are always the latest ones given.
+`update(params)` replaces all three at once (a param left out is undefined). The callbacks called are always the latest ones given. "Off" below means `disabled` is true or `onlongpress` is undefined.
+
+### New tokens
+
+| Token | Dark | Light | Used for |
+|---|---|---|---|
+| `--long-press` | `350ms` | `350ms` | the hold time before `onlongpress` (in `scale.css`, theme-independent) |
+
+It is not in `app/src/ui/tokens/*` today; it lands in the orchestrator's tokens contract PR before this action is built. The action reads it by name and never hard-codes 350 except as `LONG_PRESS_FALLBACK_MS` (D2). No contrast rows (the action draws nothing).
 
 ### Exports besides the action
 
@@ -48,18 +56,20 @@ Use: `<button use:longpress={{ onlongpress, onlongrelease, disabled }}>`. Every 
 
 ### Behaviour
 
-- **The time.** At each `pointerdown` that starts a press, the action reads `getComputedStyle(node).getPropertyValue('--long-press')` (the token `--long-press: 350ms` in `scale.css`, which the kit adds) and parses it with `parseDuration`; `null` → `LONG_PRESS_FALLBACK_MS` (D2). The time is fixed for that press.
-- **Start.** A `pointerdown` on the node with `button === 0` (the primary button, a pen or a touch), while not `disabled` and while no press is in progress, starts a press: it records `pointerId`, `clientX`, `clientY`, clears any pending swallow (below), starts one `setTimeout` for the time, and adds `pointermove`, `pointerup` and `pointercancel` listeners on `window`. Any other button, or a second pointer while a press is in progress, is ignored.
+- **The time.** At each `pointerdown` that starts a press, the action calls `window.getComputedStyle(node).getPropertyValue('--long-press')` (always through `window`, so a test can spy on it) and parses the result with `parseDuration`; `null` → `LONG_PRESS_FALLBACK_MS` (D2). The time is fixed for that press.
+- **A press in progress** is either a primary press (from its `pointerdown` until its `pointerup` or `pointercancel`, fired or not) or a held right-click (from a `contextmenu` with the right button down until that button's release, below). At most one is in progress at a time.
+- **Start.** A `pointerdown` on the node with `button === 0` (the primary button, a pen or a touch), while not off and while no press is in progress, starts a press: it records `pointerId`, `clientX`, `clientY`, starts one `setTimeout` for the time, and adds `pointermove`, `pointerup` and `pointercancel` listeners on `window`. Any other button, a `pointerdown` while off, or a second pointer while a press is in progress starts nothing.
+- **Which `pointerdown` clears the swallow (D14).** Every `pointerdown` on the node while no press is in progress clears a pending swallow, whatever its button and whether or not it starts a press (a right or middle button, or one while off, included). A `pointerdown` while a press is in progress (a second finger, a second pointer) changes nothing, so it can't undo the swallow of the press that is still held.
 - **No pointer capture (D3).** The action never calls `setPointerCapture`; it follows the press with the `window` listeners, filtered by `pointerId`, so the browser's own click rules (a release outside the button is no click) are unchanged.
 - **Cancel before it fires.** Before the time is up, a `pointermove` of the same pointer whose distance from the start, `Math.hypot(dx, dy)`, is greater than `MOVE_TOLERANCE_PX` (4 exactly is still a press), or its `pointerup` or `pointercancel`, clears the timeout and removes the `window` listeners. Nothing is called; the click that follows a `pointerup` goes through as an ordinary click.
 - **Fire.** When the timeout runs out, the action calls `onlongpress()` and marks the next click swallowed. From then on moves don't matter. The press's `pointerup` or `pointercancel` calls `onlongrelease()` and removes the `window` listeners.
-- **Swallow (D4).** The action adds one `click` listener on the node with `{ capture: true }` when it is created. While a swallow is pending, the first `click` that reaches it calls `event.stopImmediatePropagation()` and `event.preventDefault()` and clears the swallow, so the component's own click handler (Svelte's delegated `onclick` included) never sees it: a long press never also toggles or presses. The swallow is also cleared by the next `pointerdown` or `keydown` on the node, so a release outside the button (no click) can't eat a later real click or a Space / Enter press.
-- **Right-click (D5).** A `contextmenu` event on the node always gets `preventDefault()` (no browser menu on these controls). If not `disabled` and no press is in progress, the action calls `onlongpress()`, then:
-  - if `event.buttons & 2` (the right button is still down: macOS, where the menu opens on press), `onlongrelease()` on the next `pointerup` or `pointercancel` on `window`;
-  - otherwise (Windows, where it comes after the release, or the keyboard's Menu key / Shift+F10), `onlongrelease()` straight after `onlongpress()`.
-  A right-click marks nothing swallowed (browsers send no `click` for it). A `contextmenu` while a primary press is in progress (a touch long-press menu) only gets `preventDefault()`.
+- **Swallow (D4).** The action adds one `click` listener and one `keydown` listener on the node, both with `{ capture: true }`, when it is created. While a swallow is pending, the first `click` that reaches it calls `event.stopImmediatePropagation()` and `event.preventDefault()` and clears the swallow, so the component's own click handler (Svelte's delegated `onclick` included) never sees it: a long press never also toggles or presses. The swallow is also cleared by a `pointerdown` as above and by any `keydown` on the node (the keydown itself is untouched), so a release outside the button (no click) can't eat a later real click or a Space / Enter press.
+- **Right-click (D5).** A `contextmenu` event on the node always gets `preventDefault()` (no browser menu on these controls), even while off. If not off and no press is in progress, the action calls `onlongpress()`, then:
+  - if `event.buttons & 2` (the right button is still down: macOS, where the menu opens on press), the right-click is held: it is a press in progress, and `onlongrelease()` comes on the first `window` `pointerup` whose `button === 2`, or the first `window` `pointercancel` of any pointer (D11). A `pointerup` of another button doesn't end it;
+  - otherwise (Windows, where it comes after the release, or the keyboard's Menu key / Shift+F10), `onlongrelease()` straight after `onlongpress()`, and nothing is in progress.
+  A right-click marks nothing swallowed (browsers send no `click` for it). A `contextmenu` while a press is in progress (a touch long-press menu during a primary press, or a second `contextmenu` during a held right-click) only gets `preventDefault()`; a primary `pointerdown` during a held right-click starts nothing (D12).
 - **Keyboard (D6).** No hold-to-long-press on Space or Enter (key repeat makes it unreliable, and Space / Enter must stay the click). The keyboard route is the `contextmenu` event the platform sends for the Menu key or Shift+F10 on a focused control, handled as a right-click with the button up.
-- **Disabled while pressing.** `update({ disabled: true })` during a press that hasn't fired cancels it as above. A press that already fired still gets its `onlongrelease()` on release, so a momentary function (Sound held) always ends.
+- **Turned off while pressing.** An `update` that turns the action off (`disabled: true`, or `onlongpress` undefined) during a primary press that hasn't fired cancels it as above (timeout cleared, `window` listeners removed, nothing called). A primary press that already fired, and a held right-click, still get their `onlongrelease()` on release (the latest `onlongrelease` given, if any), so a momentary function (Sound held) always ends (D13).
 - **Destroy.** Clears the timeout, removes the node's and `window`'s listeners, and drops any swallow. If a press (or a right-click with the button down) has fired and not yet been released, it calls `onlongrelease()` once first. After `destroy`, no event calls anything.
 - **Real-time and allocation.** Runs on the UI thread only; adding listeners per press is fine. The timeout measures a gesture, not motion, so it is allowed (kit › Interaction conventions; axiom 10 is about drawing).
 
@@ -70,7 +80,7 @@ Use: `<button use:longpress={{ onlongpress, onlongrelease, disabled }}>`. Every 
 
 ## Tests (instead of Stories)
 
-An action has no stories. The checks are vitest unit tests in `app/src/ui/actions/longpress/longpress.test.ts`, run with `npx vitest run src/ui/actions/longpress`. Each test: `vi.useFakeTimers()`; a fresh `<button>` appended to `document.body`; `const handle = longpress(button, { onlongpress, onlongrelease })` with `vi.fn()` callbacks; a plain bubble-phase `click` listener `clicked = vi.fn()` added to the button after the action (it stands for the component's handler); events built with `new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 1, pointerId: 1, clientX, clientY })` and `new MouseEvent('click' | 'contextmenu', { bubbles: true, cancelable: true, buttons })`, dispatched on the button (they bubble to `window`). `afterEach`: `handle.destroy()`, remove the button, `vi.useRealTimers()`, `vi.restoreAllMocks()`. jsdom has no `--long-press` value, so the time is the 350 ms fallback unless a test stubs it.
+An action has no stories. The checks are vitest unit tests in `app/src/ui/actions/longpress/longpress.test.ts`, run with `npx vitest run src/ui/actions/longpress`. Each test: `vi.useFakeTimers()`; a fresh `<button>` appended to `document.body`; `const handle = longpress(button, { onlongpress, onlongrelease })` with `vi.fn()` callbacks; a plain bubble-phase `click` listener `clicked = vi.fn()` added to the button after the action (it stands for the component's handler); events built with `new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 1, pointerId: 1, clientX, clientY })` (jsdom 30, which vitest uses, has `PointerEvent` with `pointerId`, `button` and `clientX`; L4), `new MouseEvent('click' | 'contextmenu', { bubbles: true, cancelable: true, buttons })` and `new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key })`, dispatched on the button with `dispatchEvent` (they bubble to `window`). A case's values not listed (`button`, `buttons`, `pointerId`, `clientX`, `clientY`) are those defaults, with `clientX` and `clientY` 10. `afterEach`: `handle.destroy()`, remove the button, `vi.useRealTimers()`, `vi.restoreAllMocks()`. jsdom has no `--long-press` value, so the time is the 350 ms fallback unless a test stubs it.
 
 | # | Case | Steps | Expect |
 |---|---|---|---|
@@ -82,7 +92,7 @@ An action has no stories. The checks are vitest unit tests in `app/src/ui/action
 | 6 | Move after firing is ignored | case 1, then `pointermove` at (60, 60), then `pointerup` | `onlongrelease` called once |
 | 7 | The click after a fire is swallowed exactly once | case 2, then `click`, then `click` | first click: `clicked` not called, `defaultPrevented` `true`; second: `clicked` called once |
 | 8 | Swallow cleared by a new press | case 2 (no click); `pointerdown`; advance 100; `pointerup`; `click` | `clicked` called once; `onlongpress` called once in all |
-| 9 | Swallow cleared by a key | case 2; `keydown` (`key: ' '`) on the button; `click` | `clicked` called once |
+| 9 | Swallow cleared by a key | case 2; `new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: ' ' })` on the button; `click` | `clicked` called once; the keydown's `defaultPrevented` is `false` |
 | 10 | `pointercancel` before firing | `pointerdown`; advance 100; `pointercancel`; advance 1000 | neither callback called |
 | 11 | `pointercancel` after firing | case 1; `pointercancel` | `onlongrelease` called once |
 | 12 | Other pointers and buttons | `pointerdown` with `button: 2`; advance 1000. Then a press with `pointerId: 1`, and at 100 ms a `pointerdown` with `pointerId: 2`; at 200 a `pointerup` with `pointerId: 2`; advance 150 | first: nothing called. Second: `onlongpress` called once at 350 (pointer 2 neither started nor ended the press) |
@@ -93,16 +103,22 @@ An action has no stories. The checks are vitest unit tests in `app/src/ui/action
 | 17 | Update to disabled mid-press | `pointerdown`; advance 100; `update({ onlongpress, onlongrelease, disabled: true })`; advance 1000 | nothing called. Same after firing (case 1, then update to disabled, then `pointerup`): `onlongrelease` called once |
 | 18 | Destroy while pending | `pointerdown`; advance 100; `handle.destroy()`; advance 1000; `pointerup`; `click` | nothing called; `vi.getTimerCount()` 0; `clicked` called once |
 | 19 | Destroy while held after firing | case 1; `destroy()`; `pointerup` | `onlongrelease` called exactly once (by `destroy`) |
-| 20 | The token sets the time | `vi.spyOn(window, 'getComputedStyle').mockReturnValue({ getPropertyValue: () => '500ms' } as unknown as CSSStyleDeclaration)`; `pointerdown`; advance 499 | not called; advance 1 → called once |
+| 20 | The token sets the time (the action calls `window.getComputedStyle`) | `vi.spyOn(window, 'getComputedStyle').mockReturnValue({ getPropertyValue: () => '500ms' } as unknown as CSSStyleDeclaration)`; `pointerdown`; advance 499 | not called; advance 1 → called once |
 | 21 | `parseDuration` | pure | `'350ms'` → 350, `'0.5s'` → 500, `' 200ms '` → 200, `'0ms'` → 0, `''` → null, `'abc'` → null, `'-5ms'` → null, `'350'` → null |
 | 22 | Ignores events elsewhere | `pointerdown` on another element in `document.body`; advance 1000 | nothing called |
+| 23 | An ignored `pointerdown` clears the swallow | case 2 (no click); `pointerdown` with `button: 2, buttons: 2`; `pointerup` with `button: 2, buttons: 0`; `click` | `clicked` called once; `onlongpress` called once in all |
+| 24 | A second pointer during a fired press keeps the swallow | case 1; `pointerdown` with `pointerId: 2`; `pointerup` with `pointerId: 1`; `click` | `onlongrelease` called once; `clicked` not called |
+| 25 | Held right-click ends only on the right button | `contextmenu` with `buttons: 2`; `pointerup` with `button: 0, buttons: 2`; then `pointerup` with `button: 2, buttons: 0` | after the first `pointerup`, `onlongrelease` not called; after the second, called once. Again with `pointercancel` (`pointerId: 7`) in place of the second `pointerup`: called once |
+| 26 | Held right-click is a press in progress | `contextmenu` with `buttons: 2`; second `contextmenu` with `buttons: 2`; `pointerdown` (`button: 0`); advance 1000; `pointerup` with `button: 2, buttons: 0` | second `contextmenu` `defaultPrevented` `true`; `onlongpress` called once in all; `onlongrelease` called once |
+| 27 | No `onlongpress` is off | `longpress(button, { onlongrelease })`; `pointerdown`; advance 1000; `pointerup`; `click`; `contextmenu` | `onlongrelease` never called; `clicked` called once; `vi.getTimerCount()` 0 after the `pointerdown`; the `contextmenu`'s `defaultPrevented` is `true` |
+| 28 | Turned off during a held right-click | `contextmenu` with `buttons: 2`; `update({ onlongpress, onlongrelease, disabled: true })`; `pointerup` with `button: 2, buttons: 0` | `onlongrelease` called once |
 
 The components' stories cover the action inside a real component (LampButton › `LongPress`, `RightClick`; Button › `LongPress`).
 
 ## Done when (Inspect station)
 
 - Every case in the table exists and passes (`npx vitest run src/ui/actions/longpress`).
-- `index.ts` uses no timer other than the one press timeout, adds nothing to the DOM, and reads the time only from `--long-press` (with the 350 fallback).
+- `index.ts` uses no timer other than the one press timeout, adds nothing to the DOM, and reads the time only from `--long-press` (with the 350 fallback). The token itself comes from the tokens contract PR (D9); until it lands every press uses the fallback, which is the same 350 ms.
 - svelte-check and lint pass on the folder.
 
 ## Decisions
@@ -115,3 +131,10 @@ The components' stories cover the action inside a real component (LampButton ›
 - **D6 · Keyboard.** There is no keyboard hold; the Menu key or Shift+F10 (the platform's `contextmenu`) is the keyboard long press, and every long-press function has another app route.
 - **D7 · Primary button only.** Only `button === 0` starts the timer; the other buttons reach the long press through `contextmenu` alone, so a right-click never fires twice.
 - **D8 · Destroy ends a held press.** Unmounting a component during a fired press calls `onlongrelease`, so a momentary state never sticks.
+- **D9 · L1, the token.** `--long-press` (350ms, both themes) is listed under New tokens and lands in the orchestrator's tokens contract PR; this spec never edits `tokens/*`.
+- **D10 · No `onlongpress` is off.** With `onlongpress` undefined the action behaves as `disabled` (no timer, no swallow, `contextmenu` still prevented); an `onlongrelease` alone is never called.
+- **D11 · Right-click release by button.** A held right-click ends on the first `pointerup` with `button === 2` or any `pointercancel`, not by `pointerId` (a `contextmenu` carries no reliable `pointerId` in every browser).
+- **D12 · A held right-click is a press in progress.** While it is held, a second `contextmenu` and a primary `pointerdown` start nothing, so `onlongpress` never fires twice before one `onlongrelease`.
+- **D13 · Off mid-press.** Turning the action off cancels a primary press that hasn't fired; a fired press or a held right-click still gets `onlongrelease` on release.
+- **D14 · Swallow and ignored presses.** Any `pointerdown` while nothing is in progress clears the swallow, whatever its button; one during a press in progress (a second pointer) does not, so the held press's click is still swallowed.
+- **D15 · L4, the test environment.** The unit tests use jsdom 30's `PointerEvent` with fake timers; the action calls no pointer-capture API, so nothing needs guarding; the components' long-press plays use real time with `waitFor` (timeout 1000).
