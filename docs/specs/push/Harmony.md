@@ -120,7 +120,8 @@ app-only value `{ group: 'harmony' | 'arpeggio', name }` the page wiring keeps w
 is mounted. On mount, and whenever the selected type changes (`harmonyArp.mode`,
 `harmonyType` or `arpPattern` changes, from anywhere: the screen, the hardware, a rack load),
 it is the selected type's category; a click on a tab sets it to that tab until the next such
-change. The selected type's category is: `mode` `arpeggio` → `{ arpeggio, harmonyArp.category }`;
+change. The selected type's category is: `mode` `arpeggio` → `{ arpeggio, harmonyArp.category }`
+(an empty category → `{ arpeggio, "Other" }`, the tab HA-D28 gives such patterns);
 `mode` `harmony` → `{ harmony, "Multi Assign" }` when `harmonyArp.typeName` is "Multi Assign",
 else `{ harmony, harmonyArp.category }` ("Harmony" or "Echo"; any other value counts as
 "Harmony", HA-D20). When the viewed category has no tab (mode `arpeggio` with an empty
@@ -132,8 +133,8 @@ control). Unchosen tabs: `--m` text, no face. Tooltip `harmony.category` (new, C
 tab. The category tabs replace the kit's tab label rule with their own `aria-label`:
 "{name}: {n} types" / "{name}: {n} patterns", "1 type" / "1 pattern" in the singular
 ("Harmony: 19 types", "Multi Assign: 1 type", "Up & Down: 5 patterns"), plus ", selected
-type here" when the selected type is in it, and no ", chosen" (the chosen tab is read from
-`aria-pressed`). No Launchkey mapping (the hardware has no type control beyond the switch).
+type here" when the selected type is in it; ChosenTabs appends ", chosen" to the chosen one
+as to every tab ("Harmony: 19 types, selected type here, chosen"). No Launchkey mapping (the hardware has no type control beyond the switch).
 
 ### Type grid
 
@@ -184,17 +185,17 @@ settings" ("Standard Duet 1 settings"; empty name: "Settings"). Which rows it ha
 Every row has `border-top: 1px solid var(--line)` (box-sizing border-box), items centred, gap
 12, no wrap. The ChoiceRow and BarRow shapes start with a **label** cell 64 wide (`flex:
 none`, `white-space: nowrap`, `overflow: visible`: "Touch limit" at 13px is about 64px and may
-run a pixel or two into the gap), 13 / 400 `--m`; the LampRow, Note and More rows have no
+run a pixel or two into the gap), 13 / 400 `--m`; the SettingsLampRow, Note and More rows have no
 label cell, so their content starts at the row's left edge (x 1021). Three row shapes carry
 every setting (Kit additions › Settings rows): a **ChoiceRow** (tabs), a **BarRow** (a value
-with a bar) and a **LampRow** (lamp buttons). The rows:
+with a bar) and a **SettingsLampRow** (lamp buttons). The rows:
 
 | Row | Shape | Label | Face | Reads | Sends | Tooltip | Launchkey |
 |---|---|---|---|---|---|---|---|
 | Assign | ChoiceRow 44; its tab group (the one `role="group"`, the ChosenTabs' own) is labelled "Assign: which Right parts sound the effect" | "Assign" | tabs Auto, Multi, R1, R2, R3; Multi only in the `harmony` and `echo` kinds (RM p.46) | `harmonyArp.assign`: `auto` → Auto, `multi` → Multi, `right1..3` → R1..R3; in the `arpeggio` kind a `multi` shows Auto chosen (it plays as Auto), and clicking Auto then sends `auto` (HA-D27) | `setHarmonyAssign { assign }` | `harmony.assign` | — |
 | Volume | BarRow 44, slider 0–127 | "Volume" over a second line (HA-D8) | the bar and the value | `harmonyArp.volume` | `setHarmonyVolume { volume }` | `harmony.volume` | the knob of the Rack knob page whose target is `harmonyVolume` (knob 5 with the default map); a Panel fader with that target |
 | Touch limit | BarRow 36, slider 1–127 | "Touch limit" | the bar and the value | `harmonyArp.touchLimit` | `setTouchLimit { velocity }` | `harmony.touch_limit` | — |
-| Chord note only | LampRow 36 | none | LampButton `size sm` "Chord note only" | `harmonyArp.chordNoteOnly` | `setChordNoteOnly { on: !chordNoteOnly }` | `harmony.chord_note_only` | — |
+| Chord note only | SettingsLampRow 36 | none | LampButton `size sm` "Chord note only" | `harmonyArp.chordNoteOnly` | `setChordNoteOnly { on: !chordNoteOnly }` | `harmony.chord_note_only` | — |
 | Speed | ChoiceRow 36; its tab group labelled "Speed: the repeat rate" | "Speed" | ChosenTabs `row-sm` 1/4, 1/6, 1/8, 1/12, 1/16, 1/32 (28 tall, 22px block, 13px, padding 0 8) | `harmonyArp.speed` | `setHarmonySpeed { speed }` | `harmony.speed` | — |
 | Note | 44 tall, a hairline-topped row of text; no label cell | none | "Multi Assign has no settings: each right-hand key goes to Right 1, 2 and 3 in turn." 13 / 400 `--m`, line-height 16, wrapping, starting at the row's left edge (no padding), centred vertically; not a control | — | — | — | — |
 | More | 36 tall, a hairline-topped row; no label cell (interim, HA-D15) | none | a text button "Quantize, Hold, Velocity, Keep Key On…" 13 / 400 `--t2`, left-aligned, centred vertically; `aria-label` "More arpeggio settings: Quantize, Hold, Velocity, Keep Key On. Opens the Harmony/Arpeggio panel" | — | opens today's Harmony drawer (`ui.toggleDrawer('harmony')`, opened, not toggled closed), where those settings are until #527 | `harmony.more` (new, C-HA1) | — |
@@ -228,16 +229,19 @@ row and drag horizontally, with pointer capture; `value = clamp(round(v0 + (x �
 w), min, max)` with `v0`, `x0` the value and pointer x at pointerdown and `w` the bar
 element's `getBoundingClientRect().width` read at pointerdown (239 at 1440: 371 − 64 − 12 − 12
 − 44), never a jump to the pointer. A send goes out when the whole-number value changes, at
-most once per animation frame (a move schedules one `requestAnimationFrame` if none is
-pending; the frame sends the latest value); on pointerup the row cancels the pending frame
-and sends the current value once if it differs from the last value sent (HA-D26; a click
-without movement sends nothing). The row draws and steps from the value it last
-sent until the state's value changes, then from the state (HA-D7). Wheel: one step per wheel
-event by the sign of `deltaY` (negative, up: +1; positive: −1; zero: nothing; `deltaX` is
-ignored). Keys: ArrowRight and ArrowUp +1, ArrowLeft and ArrowDown −1,
-PageUp/PageDown ±10, Home/End to min/max (the slider stops propagation, kit › Interaction
-conventions); double-click resets Volume to 100 and Touch limit to 1 (one send, of the default,
-when it differs). Cursor `pointer`, `ew-resize` while dragging.
+most once per animation frame: a move stores the new value first, then schedules one
+`requestAnimationFrame` if none is pending (the handle is kept in `frame`, 0 when none); the
+frame's callback clears `frame` and sends the stored value if it differs from the last value
+sent. On pointerup the row cancels the pending frame (`cancelAnimationFrame`, `frame` = 0)
+and sends the stored value once if it differs from the last value sent (HA-D26; a click
+without movement sends nothing). The row draws and steps from the value it last sent until
+the state's value changes, then from the state (HA-D7). Wheel, keys and double-click send at
+once, not through the frame. Wheel: one step per wheel event by the sign of `deltaY`
+(negative, up: +1; positive: −1; zero: nothing; `deltaX` is ignored). Keys: ArrowRight and
+ArrowUp +1, ArrowLeft and ArrowDown −1, PageUp/PageDown ±10, Home/End to min/max (the slider
+stops propagation, kit › Interaction conventions); double-click resets Volume to 100 and Touch
+limit to 1 (one send, of the default, when it differs). Cursor `pointer`, `ew-resize` while
+dragging.
 
 Chord note only: LampButton `size sm` (28 tall, 13px; the board's 30px rounds to the kit's
 size, HA-D6), centred vertically in its 36px row, left-aligned, label "Chord note only", no
@@ -337,19 +341,19 @@ page reuses it. Components marked **new** are this page's own or its kit additio
 | 4 | RackReadout `variant inline` **new variant** | primitive | StatusDot | Stage (add the variant) | 54 / 44 | Kit additions › App bar, page variant |
 | 5 | BarRow **new** | primitive | — | no | 176–185 / 166–175 | Kit additions › Settings rows; Settings column |
 | 6 | ChoiceRow **new** | primitive | ChosenTabs | no | 166–175 / 156–165 | Kit additions › Settings rows |
-| 7 | LampRow **new** | primitive | LampButton | no | 186–188 / 176–178 | Kit additions › Settings rows |
+| 7 | SettingsLampRow **new** | primitive | LampButton | no | 186–188 / 176–178 | Kit additions › Settings rows |
 | 8 | TypeGrid **new** | primitive | — | no | 158–162; data 530–542 / 148–152; 513–525 | Type grid |
 | 9 | CategoryTabs **new** | complex | ChosenTabs | no | 141–154; data 518–528 / 131–144; 507–511 | Category tabs |
 | 10 | HarmonyHeader **new** | complex | LampButton | no | 134–138 / 124–128 | Header |
-| 11 | SettingsColumn **new** (its Note and More rows are its own markup, not components) | complex | ChoiceRow, BarRow, LampRow | no | 165–189 / 155–179 | Settings column |
-| 12 | CompactNowPlaying **new** | complex | AccentBlock, StatusDot, ChordReadout | no | 117–128 / 107–118 | Kit additions › Compact block |
+| 11 | SettingsColumn **new** (its Note and More rows are its own markup, not components) | complex | ChoiceRow, BarRow, SettingsLampRow | no | 165–189 / 155–179 | Settings column |
+| 12 | CompactNowPlaying **new** | complex | AccentBlock, ChordReadout (its run dot is its own span) | no | 117–128 / 107–118 | Kit additions › Compact block |
 | 13 | OneTouch, PageTabs, LaunchkeyStatus | complex | Button, ChosenTabs, StatusDot | Stage | 55–61, 62–73, 77 / 45–51, 52–63, 67 | kit › App bar; Stage.md › Style line |
 | 14 | AppBar `variant page` **new variant** | complex | PageTabs, LaunchkeyStatus, HealthSlot, RackReadout, OneTouch | Stage (add the variant) | 52–81 / 42–71 | Kit additions › App bar, page variant |
 | 15 | CountRow, MetronomeSplit, SectionRow, LampRow (band), FaderBank, KnobBank, PadGrid, PadBank, TransportColumn, FullBand | complex | as Stage.md › Components 25–27, 34–40 | Stage | 84–108, 196–364 / 74–98, 186–354 | kit |
 | 16 | HarmonyPage **new** | complex | HarmonyHeader, CategoryTabs, TypeGrid, SettingsColumn, CompactNowPlaying | no | 111–193 / 101–183 | Display page |
 | 17 | Harmony (page, `Pages/Harmony`) **new** | complex | AppBar, SectionRow, HarmonyPage, FullBand, StatusLine, KeyStrip | no | whole board | this file |
 
-The band's lamp row (Stage.md component 34) and this page's LampRow (7) are different
+The band's lamp row (Stage.md component 34) and this page's SettingsLampRow (7) are different
 components: the band's is nine cells; this one is a settings row. Also from the Stage lane,
 not components: `app/src/ui/Stage/Stage.fixtures.ts` (the fixture's base), the
 `app/src/pages/` wiring pattern, `ui.page`, and the shots masks.
@@ -365,18 +369,25 @@ or sends. The `Harmony` page component's interface (HA-D25):
 | `viewed` | `{ group: 'harmony' \| 'arpeggio', name: string } \| null` | the wiring's viewed category | the chosen category tab and the grid's list; **null means "the selected type's category"** (`selectedCategory(state)` below): what a story passes, and what the wiring passes until the first tab click after a snap |
 | `now`, `receivedMs`, `meterHolds` | as the Stage's | the wiring's clock and `holdPeak` | the band's blocks, LEDs and meters |
 | `shift` | `boolean` | `ui.shift` | the kit's Shift behaviour (`shiftAction`, Shift-click on part lamps and master buttons) |
-| `keyRange` | `49 \| 61 \| 88` | `ui.keyRange` | the key strip |
+| `keyRange` | `KeyRange \| null` (`49 \| 61 \| 88`; null = the connected Launchkey's, the kit's Key strip rule) | `ui.keyRange` | the key strip |
 | `help` | `boolean` | `tips.help` | the `?` button's `aria-pressed` |
-| `open` | `{ drawer: DrawerName \| null, view: View }` | the first of `ui.rack` … `ui.harmony` that is true, in `ui.toggleDrawer`'s parameter order (null when none), and `ui.view` | which app bar tab is drawn chosen while an interim drawer or the Library is open over the page (Kit additions › App bar) |
+| `selectedPart` | `number` | `ui.selectedPart` | the Channel tab's interim target |
+| `open` | `{ nav: string \| null, channel: boolean }` | `nav`: the `label` of the first `NAV` entry (`app/src/lib/nav.ts`) whose `open()` is true, null when none; `channel`: the Channel interim is showing | which app bar tab is drawn chosen while something is open over the page: the tab whose label equals `open.nav` ("Effects", "Quick Racks", "Multi Pads", "Looper", "Library", "Settings"), or Channel when `open.channel`; the page's own tab when both are empty (Kit additions › App bar). An open Styles browser, Rack, Charts or Mixer (entries with no tab) chooses no tab: the page's tab stays chosen |
 
-Callbacks: `onsend(cmd)` (every `AppCmd`), `onpage(page)` (a built page's tab; Escape's
-return is the wiring's, HA-D24), `onviewed(category)` (a category tab click), `ondrawer(name)`
-(an interim drawer target: the More row, the rack readout, the drawer tabs Effects, Quick
-Racks, Multi Pads, Looper, and the health slot's Settings target `'settings'`),
-`onlibrary(tab, part?)` (the Library tab and the kit's quick-sound openers: `ui.openLibrary`),
-`onbrowser()` (the style name), `onchannel(part)` (the kit's Channel openers), `onhelp()` (the
-`?` button: `tips.toggleHelp()`, which is not a command). A kit part that needs none of these
-reads only what it is given.
+Callbacks: `onsend(cmd)` (every `AppCmd`), `onpage(page)` (a tab whose page is built, and
+the page's own tab: HA-D24 says what the wiring does then), `onnav(label)` (a tab whose page
+isn't built yet: the wiring runs that `NAV` entry's `toggle()`, the kit's rule), `onviewed(category)`
+(a category tab click), `ondrawer(name)` (an interim target that opens and never toggles
+closed: the More row `'harmony'`, the rack readout `'rack'`; the wiring runs
+`ui.toggleDrawer(name)` only when that drawer is closed), `onsettings(tab)` (the health slot:
+the Stage's D32 Settings target, `panels/settings/nav.svelte.ts`), `onlibrary(tab, part?)`
+(the kit's quick-sound openers: `ui.openLibrary`), `onbrowser()` (the style name),
+`onchannel(part)` (the kit's Channel openers and the Channel tab, which passes
+`selectedPart`), `onhelp()` (the `?` button: `tips.toggleHelp()`, which is not a command). A
+kit part that needs none of these reads only what it is given. The Channel interim on this
+page: while `channelNav` is open, the wiring renders today's `ChannelView` in the Display
+page's box (`24,112 1392×300`) in place of `HarmonyPage`, as `App.svelte` does for the Stage
+today; the band and keys stay.
 
 Pure functions, in `app/src/ui/CategoryTabs/categories.ts`: `selectedCategory(state)` → the
 `{ group, name }` of Category tabs (from `mode`, `typeName`, `category`); `categoriesOf(library)`
@@ -388,24 +399,27 @@ The page wiring (`app/src/pages/HarmonyWiring.svelte`, outside `app/src/ui`, the
 pattern, Stage.md D46) reads `app.state`, `app.library`, `ui` and `tips`, keeps `now` (once per
 animation frame), `receivedMs`, the meter holds (`holdPeak`) and the viewed category (set by
 `onviewed`, reset to null whenever `mode`, `harmonyType` or `arpPattern` changes: the snap of
-Category tabs), passes them down, and maps each callback to `app.send`, `ui.page`,
-`ui.toggleDrawer`, `ui.openLibrary`, `ui.browser`, `tips.toggleHelp` or the Channel interim.
+Category tabs), passes them down, and maps each callback to `app.send`, `ui.page` (or the
+HA-D24 rule for the page's own tab), a `NAV` entry's `toggle()`, `ui.toggleDrawer`,
+`ui.openLibrary`, `ui.browser`, `tips.toggleHelp` or the Channel interim.
 `App.svelte` mounts one wiring by `ui.page`: the Stage lane's `StageWiring` for `stage`,
 `HarmonyWiring` for `harmArp` (each page lane adds its own branch; the D1 scaler wraps whichever
 is mounted).
 
 **Files this page owns:** `app/src/ui/Harmony/` (the page, its fixtures, stories, crops and
 tests), `app/src/ui/HarmonyHeader/`, `CategoryTabs/`, `TypeGrid/`, `SettingsColumn/`,
-`CompactNowPlaying/`, `BarRow/`, `ChoiceRow/`, `LampRow/`, and
+`HarmonyPage/`, `CompactNowPlaying/`, `BarRow/`, `ChoiceRow/`, `SettingsLampRow/` (not
+`LampRow/`: that folder is the band's lamp row, Stage.md component 34), and
 `app/src/pages/HarmonyWiring.svelte`. **Edits outside them**, each the smallest addition, made
 after the Stage lane has landed so the two lanes never touch a file at once (HA-D25):
 
 | File | Edit |
 |---|---|
-| `app/src/App.svelte` | the `harmArp` branch that mounts `HarmonyWiring` |
+| `app/src/App.svelte` | the `harmArp` branch that mounts `HarmonyWiring`; today's `HelpFooter` stays mounted below the scaled page as it is (its fate is #508's) |
 | `app/src/lib/nav.ts` | the Harm/Arp entry's `toggle()` and `open()` work on `ui.page` (HA-D24) instead of the drawer |
 | `app/src/lib/store.svelte.ts` | `ui.escape()`: the `ui.page` branch (HA-D24), unless the Stage lane's D2 work already added it |
-| `app/src/help/coverage.test.ts` | two `STATES` entries: `['Harm/Arp page', () => (ui.page = 'harmArp')]` and `['Harm/Arp page, Echo type', (s) => (s.send({ type: 'setHarmonyType', index: 21 }), (ui.page = 'harmArp'))]`, so Check 15 covers the page's controls, Speed included |
+| `app/src/help/coverage.test.ts` | three `STATES` entries whose setup also assigns `app.library = LIBRARY` (the mock's export, so the lists are there synchronously; the fetch is a promise the test never awaits): `['Harm/Arp page', …]` (`ui.page = 'harmArp'`), `['Harm/Arp page, Echo type', …]` (also sends `setHarmonyType { index: 21 }`) and `['Harm/Arp page, arpeggio', …]` (also sends `setArpPattern { index: 0 }`: the More row), so Check 15 covers every row; and `ui.page = 'stage'` in the file's `afterEach` |
+| `app/src/ui/tokens/scale.css`, `Foundations.mdx` | the tokens under Kit additions › Tokens to add, and their rows in the foundations page (storybook axiom 6) |
 | `app/src/ui/ChosenTabs/` | the `row` and `row-sm` sizes (Kit additions) |
 | `app/src/ui/ChordReadout/` | the `compact` size |
 | `app/src/ui/RackReadout/` | the `inline` variant |
@@ -425,7 +439,7 @@ once the Stage has landed.
 | Shortcuts | `lib/keys.ts`: `J` (Shift+J) toggles the switch, `L` (Shift+L) steps the type, `*` toggles Arpeggio Hold | Unchanged (HA-D11) |
 | Compact block | none (the Stage display's chord and tempo are 128px and 32px) | New, from the kit addition below; shares `splitChord`, the tone spelling and the fit maths with the Stage's ChordReadout |
 | App bar | Stage lane's AppBar (page tabs, status, health) | The page variant adds the rack readout and One Touch after the wordmark |
-| Settings rows | `panels/settings/Field.svelte`, `HSlider.svelte`, `Choice.svelte` (old tokens) | The kit's rows (BarRow, ChoiceRow, LampRow), which the Settings pages (#528–#533) can reuse |
+| Settings rows | `panels/settings/Field.svelte`, `HSlider.svelte`, `Choice.svelte` (old tokens) | The kit's rows (BarRow, ChoiceRow, SettingsLampRow), which the Settings pages (#528–#533) can reuse |
 | LampButton | `app/src/ui/LampButton/LampButton.svelte` (#499): keeps its own `pressed`, flips it on click and calls `ontoggle(newState)`; no `data-face`, no `tip` prop | Controlled: the `on` prop is the only source of the face, `aria-pressed` and the label; a click calls `ontoggle(!on)` without flipping anything; `data-face` ("on" / "off" / "record" / "disabled"); a `tip` prop that puts `use:tip` on its button. Stage.md component 2 lists `join`, `onlongpress` and `onlongrelease`; this page needs these three too, and whichever lane builds LampButton first makes all of them |
 | Screenshot tool | `app/scripts/shots.ts` (one 1000 × 600 viewport, no masks) | The Stage lane's per-story viewport and masks (Stage.md D39); this page adds a second mask |
 
@@ -468,9 +482,12 @@ of a check assigns a changed state the same way, then `flushSync()`), set `ui.pa
 'harmArp'`, and stub `app.send` with `vi.spyOn(app, 'send').mockImplementation(() => {})` to
 record commands (`app.send` with no session is already a no-op). The rest render the pure
 components with props and a recorded `onsend`. Pointer checks stub
-`requestAnimationFrame` to run its callback at once (`vi.stubGlobal('requestAnimationFrame',
-(cb) => (cb(0), 1))` and `cancelAnimationFrame` to a no-op), so a move's frame send happens
-synchronously.
+`requestAnimationFrame` to run its callback at once and return 0 (`vi.stubGlobal('requestAnimationFrame',
+(cb) => (cb(0), 0))`; the callback clears `frame` itself, so the returned 0 leaves nothing
+pending) and `cancelAnimationFrame` to a no-op, so a move's frame send happens synchronously.
+Because a pure row steps from the value it last sent (HA-D7) and a recorded `onsend` never
+echoes a state, every sub-step of a slider check that names a starting value is its own
+render at that value.
 
 1. Header: the group's `aria-label` is "Harmony / Arpeggio: Standard Duet 1, on"; the lamp
    reads "On", has `aria-pressed="true"` and `data-face="on"`, and a click sends
@@ -479,7 +496,7 @@ synchronously.
    category "Harmony", no caption element.
 2. Category tabs: the Harmony group has three tabs, the arpeggio group seven, named "Up &
    Down" … "Sequence" (from the mock's `ARP_PATTERNS`); "Harmony" is `aria-pressed="true"`
-   (`data-face="chosen"`) and its `aria-label` "Harmony: 19 types, selected type here".
+   (`data-face="chosen"`) and its `aria-label` "Harmony: 19 types, selected type here, chosen".
    Clicking "Echo" sends nothing and the grid then lists Echo, Tremolo, Trill with no
    `data-face="chosen"` item; the header still reads "Standard Duet 1". Then a state with mode
    "arpeggio", `arpPattern` 13, `typeName` "Alberti 16", category "Broken Chord": the "Broken
@@ -516,9 +533,10 @@ synchronously.
    `setHarmonyVolume { volume: 113 }` (100 + round(24 × 127 / 239); the stubbed frame sends it
    on the move and the pointerup finds nothing new to send, HA-D26); with
    `requestAnimationFrame` stubbed to never run, the same gesture still sends exactly one 113,
-   on the pointerup; pointerdown and pointerup without a move send nothing; wheel one notch up sends 101; ArrowDown 99; ArrowRight 101;
-   PageUp 110; End 127; double-click at 100 sends nothing and at 90 sends 100; the bar's fill
-   carries `style="width: 78.7%"` (one decimal, HA-D16).
+   on the pointerup; pointerdown and pointerup without a move send nothing; each from a fresh
+   render at 100: wheel one notch up sends 101, ArrowDown 99, ArrowRight 101, PageUp 110, End
+   127, double-click sends nothing; rendered at 90, double-click sends 100; the bar's fill
+   element has `style.width` "78.7%" (one decimal, HA-D16).
 9. Touch limit: `role="slider"` named "Touch limit", min 1, `aria-valuetext` "Touch limit 1 of
    127"; ArrowDown at 1 sends nothing; ArrowUp sends `setTouchLimit { velocity: 2 }`;
    double-click at 40 sends 1.
@@ -550,9 +568,10 @@ synchronously.
     band and the status line as the kit orders them. The divider, the title, the type name,
     the tempo, the tones and the section are not focusable.
 17. Page: with `ui.page` "harmArp" the Harm/Arp tab has `aria-current="page"`; pressing the
-    tab sets `ui.page` to "stage"; with `ui.page` "harmArp" and `ui.rack` true (the Rack
-    drawer open), the Quick Racks tab is the chosen one and pressing the Harm/Arp tab sets
-    `ui.rack` false and leaves `ui.page` "harmArp"; calling `ui.escape()` directly (the global
+    tab sets `ui.page` to "stage"; with `ui.page` "harmArp" and `ui.effects` true (the Effects
+    drawer open), the Effects tab is the chosen one, Harm/Arp is not, and pressing the Harm/Arp
+    tab sets `ui.effects` false and leaves `ui.page` "harmArp"; with `ui.rack` true (no tab)
+    Harm/Arp stays chosen; calling `ui.escape()` directly (the global
     key handler in `lib/shortcuts.ts` is covered by its own test) with the Harmony drawer open
     closes the drawer and leaves the page as it is; `ui.escape()` again sets `ui.page` to
     "stage" (HA-D24).
@@ -578,7 +597,7 @@ can't see:
   with Speed, and the note; no crop (the board doesn't draw them), judged by Inspect.
 - `Primitives/TypeGrid` › `Browsing` (viewed "Random", selected elsewhere): two items, no white
   block; no crop. (Primitives live under `Primitives/`, `docs/factory/storybook-axioms.md`
-  axiom 11; BarRow, ChoiceRow and LampRow stories go there too.)
+  axiom 11; BarRow, ChoiceRow and SettingsLampRow stories go there too.)
 - `Components/CategoryTabs` › `Full` (the seven arpeggio categories at 10px padding): the row
   stays one line inside 975px; no crop.
 - `Components/CompactNowPlaying` › `LongChord` (`name: "C#m7b5/G#"`): the chord shrinks and the
@@ -636,7 +655,7 @@ can't see:
 - **HA-D12 · Compact block rules** (Kit additions): the run dot follows the Stage's run state
   (solid running, hollow sync start, hidden stopped with its space kept); the section is
   `transport.section` in its hue while running and `Main {A+main}` in `--m` stopped (Stage.md
-  D4); the chord fits by the Stage's rule scaled to 48px (floor 32px); the tones are the
+  D4); the chord fits by the Stage's rule scaled to 48px (floor 32px, never above 48); the tones are the
   Stage's note names without intervals.
 - **HA-D13 · Page app bar.** The rack readout is one line ("Rack A1 Sunday drive ●") reading
   the Stage's RackReadout fields; the One Touch group is the Stage's (D16, D17: applies at once,
@@ -679,9 +698,14 @@ can't see:
   them together.
 - **HA-D24 · Leaving the page.** The Harm/Arp tab and Alt+H (the `nav.ts` entry) on this
   page: when nothing is open over it, return to the Stage (`ui.page` `stage`), as the drawer
-  toggled closed; when an interim drawer or the Library is open over it, they close it and the
-  page stays (the kit's "entering a page closes every drawer first" wins: the tab wasn't
-  drawn chosen, so pressing it shows the page). Escape runs `ui.escape()`
+  toggled closed; when something is open over it, they close it and the page stays (the kit's
+  "entering a page closes every drawer first" wins: the tab wasn't drawn chosen, so pressing
+  it shows the page). "Open over it" is: any `NAV` entry whose `open()` is true (the drawers,
+  the Styles browser, the Library), `ui.mixer`, or the Channel interim (`channelNav`); the
+  wiring closes them the way `ui.toggleDrawer` closes the Library (each drawer flag false,
+  `ui.browser` and `ui.mixer` false, `ui.view = 'stage'`, `channelNav.close()`). The page's own
+  tab calls `onpage('harmArp')`; the wiring, seeing `ui.page` already `harmArp`, runs this
+  rule instead of setting the page. Escape runs `ui.escape()`
   (`app/src/lib/store.svelte.ts`: drawers and overlays close first); when nothing was open it
   sets `ui.page` to `stage`, the way it sends Library back to the Stage today. The `ui.page`
   branch is added to `ui.escape()` by the Stage lane's D2 work or here, whichever lands first;
@@ -758,7 +782,7 @@ content is 76).
 |---|---|---|---|---|
 | Style name | AccentBlock as a text button: padding 0 6, 13 / 500, line-height 16, `--g` on `--a`, radius 0 (as the Stage's style name), `min-width: 0`, ellipsis; `aria-label` "{name}: open the Browser" | `style.name` (never empty: the engine always has a style loaded; an empty string shows "—") | opens the Browser (`ui.browser = true`, Stage.md D3) | `browser.open` |
 | Tempo | `margin-left: auto`; the number 18 / 300, line-height 16, `--t`, then "BPM" 12 / 400 `--m` with 3px left margin; not a control | `transport.tempo` rounded (`Math.round`) | — | `display.tempo` |
-| Run dot | 6px round StatusDot: `transport.running` → `--ok` with `--bg` (`data-state="running"`); stopped with `transport.syncStart` → a hollow 1px `--ok` ring (`sync`); stopped → `visibility: hidden`, space kept (`stopped`); `role="img"` `aria-label` "Running" / "Sync start" / "Stopped" | `transport.running`, `transport.syncStart` | — | — |
+| Run dot | a 6px (`--dot`) round `<span>` of the block's own, not the Stage's StatusDot (which has no `data-state` or hidden state): `transport.running` → `--ok` with `--bg` (`data-state="running"`); stopped with `transport.syncStart` → a hollow 1px `--ok` ring (`sync`); stopped → `visibility: hidden`, space kept (`stopped`); `role="img"` `aria-label` "Running" / "Sync start" / "Stopped" | `transport.running`, `transport.syncStart` | — | — |
 
 **Row 2** (48 tall, items on the baseline, gap 14, no wrap):
 
@@ -767,14 +791,17 @@ content is 76).
   300 (`--text-48`), line-height 48, letter-spacing `--ls-chord` (−2px), `--a`, `text-shadow:
   var(--ba)`, in the Stage's two runs (Stage.md D30, `splitChord`: the extension at weight 200,
   letter-spacing 0). No chord: "—" in `--d`, no shadow. **Fit:** the readout takes a `space`
-  prop (px) and draws the name at `compactChordSize(width, space)` = `max(32, floor(48 × space
-  / width))` px, `width` its own `scrollWidth` at 48px (measured in a hidden 48px copy, so the
-  measurement doesn't depend on the current size), re-measured after each change of
-  `chord.name`; letter-spacing scales (−2 × size / 48). `CompactNowPlaying` computes `space`
-  = 320 − 14 − the tones' natural width (`scrollWidth`, not the ellipsized width) − 14 − the
-  section's width, re-reading the two widths after each change of `keyboard.chordTones`,
-  `chord.transposeKeyboard`, `transport.section`, `transport.main` or `transport.running`. The
-  pure function is in `app/src/ui/CompactNowPlaying/fit.ts` (Check 18). Tooltip
+  prop (px) and draws the name at `compactChordSize(width, space, base = 48)` = `min(base,
+  max(32, floor(base × space / width)))` px, `width` its own `scrollWidth` at `base` px
+  (measured in a hidden copy at `base`, so the measurement doesn't depend on the current
+  size), re-measured after each change of `chord.name`; `base` is `--text-48` read with
+  `getComputedStyle` at mount (48 when it doesn't parse, as in jsdom); letter-spacing scales
+  (−2 × size / 48). `CompactNowPlaying` computes `space` = 320 − 14 − the tones' natural width
+  (`scrollWidth`, not the ellipsized width) − 14 − the section's width, or with no chord (no
+  tones element) 320 − 14 − the section's width, re-reading the widths after each change of
+  `chord.name`, `keyboard.chordTones`, `chord.transposeKeyboard`, `transport.section`,
+  `transport.main` or `transport.running`. The pure function is in
+  `app/src/ui/CompactNowPlaying/fit.ts` (Check 18). Tooltip
   `display.chord`.
 - **Tones** (`flex: 0 1 auto`, see below): the note names of the Stage's tones (Stage.md › Chord: `keyboard.chordTones`
   moved by `chord.transposeKeyboard`, root first, at most six, the Stage's spelling), joined
@@ -812,22 +839,24 @@ TipKey }[]`, `chosen: string | null` (the id that is inert and, unless `drawn` i
 the face), `drawn?: string` (the id that wears the chosen face when it isn't `chosen`,
 HA-D27), `mask?: string` (a `data-shot-mask` on the group), `onchoose(id)`. A tab's
 `aria-label` is `name` when given (the category tabs' "{name}: {n} types…" and Assign's
-"Right 1"; a given `name` is used as is, with no ", chosen" added) and otherwise `text` plus
-", chosen" while it wears the face. `hue` sets `data-hue` and the unchosen colour; both are
-dropped while the tab wears the face.
+"Right 1") and otherwise `text`, in both cases plus ", chosen" while it wears the face.
+`aria-pressed` and `data-face` follow the face (so a `drawn` tab reads pressed); only
+inertness follows `chosen`. `hue` sets `data-hue` and the unchosen colour, `weight` the
+unchosen weight; both are dropped while the tab wears the face, which is always weight 400 in
+the `row` sizes (the kit's 500 chosen weight is the `page` and `header` sizes').
 
 ### Settings rows
 
 Three row shapes for a settings column; each is `border-top: 1px solid var(--line)`
 (border-box), items centred, gap 12, no wrap. ChoiceRow and BarRow start with a 64px label
 cell (`flex: none`, 13 / 400 `--m`, optionally a second line 12 / 400 `--d`, line-heights 16
-and 14, gap 1); LampRow has none:
+and 14, gap 1); SettingsLampRow has none:
 
 | Row | Height | Content after the label |
 |---|---|---|
 | ChoiceRow | 44 (or 36 with `row-sm` tabs) | a ChosenTabs `row` group |
 | BarRow | 44 or 36 | a 2px bar (`flex: 1`, `--past` track, `--t2` fill from the left, `width: value / max × 100%` to one decimal) then the value, 44 wide, right-aligned, 22 / 300, line-height 24, `--t`; the row is one `<div role="slider" tabindex="0">` named by `aria-label` (Settings column › BarRow drawing gives the pointer and key maths) |
-| LampRow | 36 | one or more LampButton `size sm`, gap 8, left-aligned, no label cell |
+| SettingsLampRow | 36 | one or more LampButton `size sm`, gap 8, left-aligned, no label cell |
 
 A row of plain text (this page's Note) or a single text button (its More row) is the
 column's own markup: hairline top, no label cell, content at the left edge, centred
@@ -855,11 +884,15 @@ Storybook axiom 2: no literal sizes in components. The values above that the sca
 | `--dot-sm` | 5px | the rack readout's modified dot |
 | `--dot` | 6px | the run dot (if the Stage lane hasn't named the status dot's size) |
 
+| `--row-height` | 44px | ChoiceRow and BarRow at 44 |
+| `--row-height-sm` | 36px | the 36px rows |
+| `--chosen-block`, `--chosen-block-sm` | 24px, 22px | the `row` / `row-sm` chosen blocks (the same values as the kit's `page` / `header` sizes; if the Stage lane has named them, use its names) |
+| `--lh-14`, `--lh-16`, `--lh-24`, `--lh-48` | 14px, 16px, 24px, 48px | the line-heights above |
+| `--space-1`, `--space-3` | 1px, 3px | the label's two-line gap; the "BPM" margin |
+
 Sizes the scale already has: 11–22 (`--text-*`), 32 (`--control-height`), 28
-(`--control-height-compact`), 2–24 (`--space-*`), 1 (`--line-width`), 2 (`--focus-offset`).
-The rows' 44 and 36 are `--space-24 + --space-20` and `--space-24 + --space-12` only by
-arithmetic, so they get `--row-height: 44px` and `--row-height-sm: 36px`; the chosen blocks'
-24 and 22 are the kit's (Stage.md component 4) and share its names.
+(`--control-height-compact`), 2–24 (`--space-*`), 1 (`--line-width`), 2 (`--focus-offset`;
+the grid items' `outline-offset: -2px` is `calc(-1 * var(--focus-offset))`).
 
 ## Follow-ups
 
