@@ -1,0 +1,14 @@
+/* The preview canvas and docs pages sit on the theme's ground, in the theme's text colour. The
+   docs' own blocks (the controls table, code) keep Storybook's styling. */
+html,
+body,
+.sbdocs.sbdocs-wrapper,
+.sbdocs .docs-story {
+  background: var(--g);
+  color: var(--t);
+  font-family: var(--font-sans);
+}
+
+.sbdocs.sbdocs-wrapper :is(.sbdocs-h1, .sbdocs-h2, .sbdocs-h3, .sbdocs-h4, .sbdocs-p, .sbdocs-li) {
+  color: var(--t);
+}

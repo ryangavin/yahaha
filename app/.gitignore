@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Storybook build, and the UI library's screenshots (npm run shots)
+storybook-static
+.shots
+*storybook.log
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

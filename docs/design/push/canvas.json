@@ -1,0 +1,753 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-01T05:47:29Z"
+  },
+  "title": "yahaha · Push",
+  "launch": {
+    "view": "canvas",
+    "page": "play"
+  },
+  "pages": [
+    {
+      "id": "play",
+      "name": "Play"
+    },
+    {
+      "id": "find-style",
+      "name": "Find a style"
+    },
+    {
+      "id": "change-sound",
+      "name": "Change a sound"
+    },
+    {
+      "id": "shape-mix",
+      "name": "Shape the mix"
+    },
+    {
+      "id": "save-setup",
+      "name": "Save your setup"
+    },
+    {
+      "id": "pads-loops",
+      "name": "Pads, loops, harmony"
+    },
+    {
+      "id": "set-up",
+      "name": "Set up"
+    }
+  ],
+  "boards": {
+    "Stage-Dark.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Stage · dark",
+      "page": "play"
+    },
+    "Stage-Light.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Stage · light",
+      "page": "play"
+    },
+    "FirstRun-Dark.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "FirstRun · dark",
+      "page": "play"
+    },
+    "FirstRun-Light.dc.html": {
+      "x": 1520,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "FirstRun · light",
+      "page": "play"
+    },
+    "PadsPage2-Dark.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "PadsPage2 · dark",
+      "page": "play"
+    },
+    "PadsPage2-Light.dc.html": {
+      "x": 3040,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "PadsPage2 · light",
+      "page": "play"
+    },
+    "Browser-Dark.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Browser · dark",
+      "page": "find-style"
+    },
+    "Browser-Light.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Browser · light",
+      "page": "find-style"
+    },
+    "SoundPick-Dark.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "SoundPick · dark",
+      "page": "change-sound"
+    },
+    "SoundPick-Light.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "SoundPick · light",
+      "page": "change-sound"
+    },
+    "LibrarySounds-Dark.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "LibrarySounds · dark",
+      "page": "change-sound"
+    },
+    "LibrarySounds-Light.dc.html": {
+      "x": 1520,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "LibrarySounds · light",
+      "page": "change-sound"
+    },
+    "LibraryInstruments-Dark.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "LibraryInstruments · dark",
+      "page": "change-sound"
+    },
+    "LibraryInstruments-Light.dc.html": {
+      "x": 3040,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "LibraryInstruments · light",
+      "page": "change-sound"
+    },
+    "Rack-Dark.dc.html": {
+      "x": 4560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Rack · dark",
+      "page": "change-sound"
+    },
+    "Rack-Light.dc.html": {
+      "x": 4560,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Rack · light",
+      "page": "change-sound"
+    },
+    "Channel-Dark.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Channel · dark",
+      "page": "shape-mix"
+    },
+    "Channel-Light.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Channel · light",
+      "page": "shape-mix"
+    },
+    "Effects-Dark.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Effects · dark",
+      "page": "shape-mix"
+    },
+    "Effects-Light.dc.html": {
+      "x": 1520,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Effects · light",
+      "page": "shape-mix"
+    },
+    "QuickRacks-Dark.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "QuickRacks · dark",
+      "page": "save-setup"
+    },
+    "QuickRacks-Light.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "QuickRacks · light",
+      "page": "save-setup"
+    },
+    "LibraryRacks-Dark.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "LibraryRacks · dark",
+      "page": "save-setup"
+    },
+    "LibraryRacks-Light.dc.html": {
+      "x": 1520,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "LibraryRacks · light",
+      "page": "save-setup"
+    },
+    "Prompts-Dark.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Prompts · dark",
+      "page": "save-setup"
+    },
+    "Prompts-Light.dc.html": {
+      "x": 3040,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Prompts · light",
+      "page": "save-setup"
+    },
+    "MultiPads-Dark.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "MultiPads · dark",
+      "page": "pads-loops"
+    },
+    "MultiPads-Light.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "MultiPads · light",
+      "page": "pads-loops"
+    },
+    "Looper-Dark.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Looper · dark",
+      "page": "pads-loops"
+    },
+    "Looper-Light.dc.html": {
+      "x": 1520,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Looper · light",
+      "page": "pads-loops"
+    },
+    "Harmony-Dark.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Harmony · dark",
+      "page": "pads-loops"
+    },
+    "Harmony-Light.dc.html": {
+      "x": 3040,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Harmony · light",
+      "page": "pads-loops"
+    },
+    "SettingsChord-Dark.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsChord · dark",
+      "page": "set-up"
+    },
+    "SettingsChord-Light.dc.html": {
+      "x": 0,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsChord · light",
+      "page": "set-up"
+    },
+    "SettingsStyle-Dark.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsStyle · dark",
+      "page": "set-up"
+    },
+    "SettingsStyle-Light.dc.html": {
+      "x": 1520,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsStyle · light",
+      "page": "set-up"
+    },
+    "SettingsKeyboard-Dark.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsKeyboard · dark",
+      "page": "set-up"
+    },
+    "SettingsKeyboard-Light.dc.html": {
+      "x": 3040,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsKeyboard · light",
+      "page": "set-up"
+    },
+    "SettingsPedals-Dark.dc.html": {
+      "x": 4560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsPedals · dark",
+      "page": "set-up"
+    },
+    "SettingsPedals-Light.dc.html": {
+      "x": 4560,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsPedals · light",
+      "page": "set-up"
+    },
+    "SettingsSystem-Dark.dc.html": {
+      "x": 6080,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsSystem · dark",
+      "page": "set-up"
+    },
+    "SettingsSystem-Light.dc.html": {
+      "x": 6080,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsSystem · light",
+      "page": "set-up"
+    },
+    "SettingsLaunchkey-Dark.dc.html": {
+      "x": 7600,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsLaunchkey · dark",
+      "page": "set-up"
+    },
+    "SettingsLaunchkey-Light.dc.html": {
+      "x": 7600,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "SettingsLaunchkey · light",
+      "page": "set-up"
+    },
+    "StyleMap-Dark.dc.html": {
+      "x": 9120,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "StyleMap · dark",
+      "page": "set-up"
+    },
+    "StyleMap-Light.dc.html": {
+      "x": 9120,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "StyleMap · light",
+      "page": "set-up"
+    },
+    "SoundPicker-Dark.dc.html": {
+      "x": 10640,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "SoundPicker · dark",
+      "page": "set-up"
+    },
+    "SoundPicker-Light.dc.html": {
+      "x": 10640,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "SoundPicker · light",
+      "page": "set-up"
+    },
+    "Stage-Help-Dark.dc.html": {
+      "x": 4560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Stage-Help · dark",
+      "page": "play"
+    },
+    "Stage-Help-Light.dc.html": {
+      "x": 4560,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Stage-Help · light",
+      "page": "play"
+    },
+    "Stage-Metronome-Dark.dc.html": {
+      "x": 6080,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Stage-Metronome · dark",
+      "page": "play"
+    },
+    "Stage-Metronome-Light.dc.html": {
+      "x": 6080,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Stage-Metronome · light",
+      "page": "play"
+    },
+    "PadsChord-Dark.dc.html": {
+      "x": 7600,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "PadsChord · dark",
+      "page": "play"
+    },
+    "PadsChord-Light.dc.html": {
+      "x": 7600,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "PadsChord · light",
+      "page": "play"
+    },
+    "PadsMultiPads-Dark.dc.html": {
+      "x": 9120,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "PadsMultiPads · dark",
+      "page": "play"
+    },
+    "PadsMultiPads-Light.dc.html": {
+      "x": 9120,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "PadsMultiPads · light",
+      "page": "play"
+    },
+    "PadsSetup-Dark.dc.html": {
+      "x": 10640,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "PadsSetup · dark",
+      "page": "play"
+    },
+    "PadsSetup-Light.dc.html": {
+      "x": 10640,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "PadsSetup · light",
+      "page": "play"
+    },
+    "Channel-StylePart-Dark.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Channel-StylePart · dark",
+      "page": "shape-mix"
+    },
+    "Channel-StylePart-Light.dc.html": {
+      "x": 3040,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Channel-StylePart · light",
+      "page": "shape-mix"
+    },
+    "Effects-Master-Dark.dc.html": {
+      "x": 4560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Effects-Master · dark",
+      "page": "shape-mix"
+    },
+    "Effects-Master-Light.dc.html": {
+      "x": 4560,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Effects-Master · light",
+      "page": "shape-mix"
+    },
+    "Effects-Reverb-Dark.dc.html": {
+      "x": 6080,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Effects-Reverb · dark",
+      "page": "shape-mix"
+    },
+    "Effects-Reverb-Light.dc.html": {
+      "x": 6080,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Effects-Reverb · light",
+      "page": "shape-mix"
+    },
+    "Effects-Chorus-Dark.dc.html": {
+      "x": 7600,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Effects-Chorus · dark",
+      "page": "shape-mix"
+    },
+    "Effects-Chorus-Light.dc.html": {
+      "x": 7600,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Effects-Chorus · light",
+      "page": "shape-mix"
+    },
+    "Rack-MapEdit-Dark.dc.html": {
+      "x": 6080,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Rack-MapEdit · dark",
+      "page": "change-sound"
+    },
+    "Rack-MapEdit-Light.dc.html": {
+      "x": 6080,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Rack-MapEdit · light",
+      "page": "change-sound"
+    },
+    "Prompts-More-Dark.dc.html": {
+      "x": 4560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Prompts-More · dark",
+      "page": "save-setup"
+    },
+    "Prompts-More-Light.dc.html": {
+      "x": 4560,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Prompts-More · light",
+      "page": "save-setup"
+    },
+    "Harmony-Arp-Dark.dc.html": {
+      "x": 4560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Harmony-Arp · dark",
+      "page": "pads-loops"
+    },
+    "Harmony-Arp-Light.dc.html": {
+      "x": 4560,
+      "y": 1240,
+      "w": 1440,
+      "h": 900,
+      "title": "Harmony-Arp · light",
+      "page": "pads-loops"
+    }
+  },
+  "order": [
+    "Stage-Dark.dc.html",
+    "Stage-Light.dc.html",
+    "FirstRun-Dark.dc.html",
+    "FirstRun-Light.dc.html",
+    "PadsPage2-Dark.dc.html",
+    "PadsPage2-Light.dc.html",
+    "Stage-Help-Dark.dc.html",
+    "Stage-Help-Light.dc.html",
+    "Stage-Metronome-Dark.dc.html",
+    "Stage-Metronome-Light.dc.html",
+    "PadsChord-Dark.dc.html",
+    "PadsChord-Light.dc.html",
+    "PadsMultiPads-Dark.dc.html",
+    "PadsMultiPads-Light.dc.html",
+    "PadsSetup-Dark.dc.html",
+    "PadsSetup-Light.dc.html",
+    "Browser-Dark.dc.html",
+    "Browser-Light.dc.html",
+    "SoundPick-Dark.dc.html",
+    "SoundPick-Light.dc.html",
+    "LibrarySounds-Dark.dc.html",
+    "LibrarySounds-Light.dc.html",
+    "LibraryInstruments-Dark.dc.html",
+    "LibraryInstruments-Light.dc.html",
+    "Rack-Dark.dc.html",
+    "Rack-Light.dc.html",
+    "Rack-MapEdit-Dark.dc.html",
+    "Rack-MapEdit-Light.dc.html",
+    "Channel-Dark.dc.html",
+    "Channel-Light.dc.html",
+    "Effects-Dark.dc.html",
+    "Effects-Light.dc.html",
+    "Channel-StylePart-Dark.dc.html",
+    "Channel-StylePart-Light.dc.html",
+    "Effects-Master-Dark.dc.html",
+    "Effects-Master-Light.dc.html",
+    "Effects-Reverb-Dark.dc.html",
+    "Effects-Reverb-Light.dc.html",
+    "Effects-Chorus-Dark.dc.html",
+    "Effects-Chorus-Light.dc.html",
+    "QuickRacks-Dark.dc.html",
+    "QuickRacks-Light.dc.html",
+    "LibraryRacks-Dark.dc.html",
+    "LibraryRacks-Light.dc.html",
+    "Prompts-Dark.dc.html",
+    "Prompts-Light.dc.html",
+    "Prompts-More-Dark.dc.html",
+    "Prompts-More-Light.dc.html",
+    "MultiPads-Dark.dc.html",
+    "MultiPads-Light.dc.html",
+    "Looper-Dark.dc.html",
+    "Looper-Light.dc.html",
+    "Harmony-Dark.dc.html",
+    "Harmony-Light.dc.html",
+    "Harmony-Arp-Dark.dc.html",
+    "Harmony-Arp-Light.dc.html",
+    "SettingsChord-Dark.dc.html",
+    "SettingsChord-Light.dc.html",
+    "SettingsStyle-Dark.dc.html",
+    "SettingsStyle-Light.dc.html",
+    "SettingsKeyboard-Dark.dc.html",
+    "SettingsKeyboard-Light.dc.html",
+    "SettingsPedals-Dark.dc.html",
+    "SettingsPedals-Light.dc.html",
+    "SettingsSystem-Dark.dc.html",
+    "SettingsSystem-Light.dc.html",
+    "SettingsLaunchkey-Dark.dc.html",
+    "SettingsLaunchkey-Light.dc.html",
+    "StyleMap-Dark.dc.html",
+    "StyleMap-Light.dc.html",
+    "SoundPicker-Dark.dc.html",
+    "SoundPicker-Light.dc.html"
+  ],
+  "notes": {
+    "t-play": {
+      "x": 0,
+      "y": -260,
+      "text": "Play · dark above, light below",
+      "kind": "title1",
+      "maxW": 12160,
+      "page": "play"
+    },
+    "t-find-style": {
+      "x": 0,
+      "y": -260,
+      "text": "Find a style · dark above, light below",
+      "kind": "title1",
+      "maxW": 1520,
+      "page": "find-style"
+    },
+    "t-change-sound": {
+      "x": 0,
+      "y": -260,
+      "text": "Change a sound · dark above, light below",
+      "kind": "title1",
+      "maxW": 7600,
+      "page": "change-sound"
+    },
+    "t-shape-mix": {
+      "x": 0,
+      "y": -260,
+      "text": "Shape the mix · dark above, light below",
+      "kind": "title1",
+      "maxW": 9120,
+      "page": "shape-mix"
+    },
+    "t-save-setup": {
+      "x": 0,
+      "y": -260,
+      "text": "Save your setup · dark above, light below",
+      "kind": "title1",
+      "maxW": 6080,
+      "page": "save-setup"
+    },
+    "t-pads-loops": {
+      "x": 0,
+      "y": -260,
+      "text": "Pads, loops, harmony · dark above, light below",
+      "kind": "title1",
+      "maxW": 6080,
+      "page": "pads-loops"
+    },
+    "t-set-up": {
+      "x": 0,
+      "y": -260,
+      "text": "Set up · dark above, light below",
+      "kind": "title1",
+      "maxW": 12160,
+      "page": "set-up"
+    }
+  },
+  "designSystems": []
+}

@@ -21,5 +21,5 @@
   },
   /* scripts/ is checked here, not in tsconfig.node.json: the scripts import src/help/tooltips.ts
    * and src/lib/api/shape.ts, and checking them in both programs doubled the work. */
-  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "scripts/**/*.ts", ".storybook/**/*.ts"]
 }

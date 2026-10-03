@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>First run · Push Dark</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<!--
+BOARD NOTES (not drawn)
+- Gaps phase 1 (GAPS-DESIGN.md), the shared kit: the Transport column gains the Fills pair, Fill ▲ / Fill ▼ (fillUp, fillDown;
+  tooltip: a fill, then the next Main up / down), and "Style tempo" under Tempo + / − (resetTempo; Launchkey: Tempo + and −
+  together). Full band: Reset and Fade sit side by side so both fit in the 368px column. Half band: the column's rows are 24px
+  (▶ ■ / Reset Fade / Fill ▲ ▼ / + − / Style tempo) to fit its 176px. The Metronome lamp gains a ▾ caret segment that opens its
+  popover (on/off, volume 0–127, bell on beat 1; drawn in phase 2).
+- Push, dark: the Stage pair's app bar, section row, display geometry, band and key strip, with the first-run content of Ink's
+  Stage-FirstRun in the display. Heights as the Stage: 24 + 36 + 8 + 32 + 12 + 300 + 20 + 368 + 20 + 56 + 24 = 900.
+- The engine always loads a style (session/library.rs), so there is no "no style" state: Sunday Drive Pop is loaded, stopped. The
+  chord/section block is replaced by one way in, "Choose a style" (the accent block, opens Library > Styles), three plain steps,
+  and a "Ready now" summary. Shown until the player first presses Start or opens the browser.
+- The live rack is "New rack" (ROUND3; types.ts), never saved: no Quick Rack lit, no One Touch applied, no modified dot.
+- No Launchkey yet: the app bar reads "No Launchkey" with a hollow dot, and one dialog-style line sits over the band. Hotplug is
+  automatic every 2 s, so there is no "Look again" or "Reconnect". The band stays fully clickable and in full colour (no
+  desaturation filter), so its lamps show their real state.
+- Stopped: no meters, no peak ticks, no lit pads; the transport Start / Stop and pad 16 carry a dim lamp. Dynamics defaults to 127.
+- No coaching line: the info bar is gone (owner); the three steps carry the coaching. Only a transient refusal may appear at the
+  display's bottom edge, none here. "Click a key to hear" stays dropped (no note-on command).
+- Right 2 and Right 3 are off on a new rack (dim tag, "off"); faders 1-4 at the default levels.
+- Fix round (FIX-DEBATE.md, KIT-DEBATE.md): KIT tokens; the Stage's app bar, section row, One Touch group, full band and strips JS,
+  copied verbatim and then set to this board's state, the only edits: "No Launchkey" (hollow dot) in place of the Launchkey dot, the
+  "Audio" slot calm; the count row stopped (beat blocks unlit, beat one's white top edge kept, "Bar —", "Main A", "stopped": no next, no
+  fill); One Touch 1-4 in the welcome line with none applied (a new rack); Right 2's lamp off; Start / Stop's lamp unlit (--past bar);
+  the band in full colour; the strips JS keeps the Stage's code with first-run data and one override (no peak ticks while stopped).
+  Accomp and Sync Start in the welcome line are lamp-face chips (Accomp lime, Sync Start plain). Applying a One Touch never asks.
+- Self review (SELF-REVIEW.md): app bar right area fixed at 196px, health slot at the right edge, 10px tab padding (fix 5); pad
+  captions tie name and numeral with a no-break space, 4px pad side padding (fix 2). Fix 9: the part "On" lamps (Right 1, Left) were
+  already class="lamp" aria-pressed="true" like the Stage's, but the band's filter: saturate(0) turned their lime face white; the
+  filter is gone, so they show the lime lamp face (and the pads their family hues). "No Launchkey" stays in the app bar and the line
+  over the band. No status line over the keys on this board, so fix 11 has nothing to remove.
+-->
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@200;300;400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+:root{--g:#000;--t:#fff;--t2:#d6d6d6;--m:#8c8c8c;--d:#4d4d4d;--btn:#161616;--line:#262626;--a:#a58cff;--main:#4fd66a;--ok:#4fd66a;--r1:#3b8eff;--r2:#ff4f9e;--r3:#ff9a2e;--l:#16c7a6;--intro:#bfb24e;--ending:#c45a5a;--brk:#8f62a8;--fill:#7a9ea6;--util:#5a5a5a}
+body{margin:0;font-family:"DM Sans",system-ui,sans-serif;background:#000;color:#fff;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:#8c8c8c}a:hover{color:#fff}
+/* KIT tokens + lamp faces (copy verbatim; the light twin swaps only the :root line) */
+:root{--lamp:#9fe04a;--lamp-ink:#000;--solid-ink:#000;--past:#333;--mbg:#141414;--bg:0 0 6px rgba(79,214,106,0.7);--ba:0 0 18px rgba(165,140,255,0.28);--bw:0 0 6px rgba(255,255,255,0.6);--warn:#ff9a2e;--rec:#e5534b;--bm:0 0 18px rgba(79,214,106,0.3);--ba2:0 0 28px rgba(165,140,255,0.28);--bl:0 0 6px rgba(22,199,166,0.6);--keyline:#000}
+.lamp{background:var(--btn);color:var(--m)}.lamp[aria-pressed="true"]{background:var(--lamp);color:var(--lamp-ink);font-weight:500}.lamp .sub{color:var(--m);font-weight:400}.lamp[aria-pressed="true"] .sub{color:var(--lamp-ink);opacity:0.6}.lamp.rec[aria-pressed="true"]{background:var(--rec);color:var(--solid-ink)}.lamp.rec[aria-pressed="true"] .sub{color:var(--solid-ink)}.lamp[aria-disabled="true"]{color:var(--d);cursor:default}
+</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; padding: 24px; background: var(--g); color: var(--t); font-family: 'DM Sans', sans-serif">
+
+  <!-- APP BAR (36) -->
+  <header style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--t); display: flex; align-items: center; gap: 8px">
+    <span style="font-size: 18px; line-height: 24px; font-weight: 500; letter-spacing: -0.2px; color: var(--t)">yahaha</span>
+    <nav aria-label="Pages" style="margin-left: auto; height: 36px; display: flex; align-items: stretch">
+      <button aria-current="page" style="height: 36px; padding: 10px 10px 0; background: linear-gradient(var(--t), var(--t)) left bottom / 100% 24px no-repeat; border: 0; color: var(--g); font-size: 14px; font-weight: 400; white-space: nowrap">Stage</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Channel</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Effects</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Quick Racks</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Multi Pads</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Looper</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Harm/Arp</button>
+      <span aria-hidden="true" style="align-self: center; width: 1px; height: 16px; margin: 0 8px; background: var(--line)"></span>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Library</button>
+      <button style="height: 36px; padding: 10px 10px 0; background: none; border: 0; color: var(--m); font-size: 14px; font-weight: 400; white-space: nowrap">Settings</button>
+    </nav>
+    <!-- right area, fixed 196px so the tabs sit at the same x on every board: Launchkey status, then the health slot at the right edge -->
+    <div style="width: 196px; flex: none; height: 36px; display: flex; align-items: center">
+    <span aria-hidden="true" style="flex: none; width: 1px; height: 16px; background: var(--line)"></span>
+    <span role="status" aria-label="Launchkey not connected" style="margin-left: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 400; color: var(--m); white-space: nowrap"><span aria-hidden="true" style="width: 6px; height: 6px; box-sizing: border-box; border-radius: 50%; border: 1px solid var(--m); background: none"></span>No Launchkey</span>
+    <!-- health slot: calm = "Audio" muted, no number. Trouble (red, var(--ending)): "CPU 74%" above ~70% load, "2 dropouts", "3 dropouts · buffer 256?", "R3 failed" -->
+    <span role="status" aria-label="Audio health: fine" title="Audio health: speaks only in trouble (CPU above 70%, dropouts, a failed plugin)" style="margin-left: auto; padding-left: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 400; color: var(--m); white-space: nowrap">Audio</span>
+    </div>
+  </header>
+
+  <!-- SECTION ROW (32): Accomp at the left, the count in the middle, helpers at the right -->
+  <div role="toolbar" aria-label="Switches and helpers" style="flex: none; margin-top: 8px; height: 32px; display: flex; align-items: center; gap: 24px; white-space: nowrap">
+    <button class="lamp" aria-pressed="true" title="Accompaniment on/off (ACMP)" style="height: 32px; box-sizing: border-box; padding: 0 16px; border-radius: 4px; border: 0; font-size: 14px; white-space: nowrap">Accomp<span class="sub" style="margin-left: 6px; font-size: 12px">ACMP</span></button>
+    <!-- COUNT ROW, stopped (first run): beat blocks unlit (beat one keeps its white top edge), no bar, the section that Start plays, no next, no fill -->
+    <div role="status" aria-label="Stopped. Main A plays on Start" style="flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; justify-content: center; gap: 20px; font-size: 18px; line-height: 24px; font-weight: 300; white-space: nowrap">
+      <span aria-hidden="true" style="display: flex; gap: 4px">
+        <span style="width: 24px; height: 24px; border-radius: 2px; background: var(--btn); box-shadow: inset 0 2px 0 var(--t)"></span>
+        <span style="width: 24px; height: 24px; border-radius: 2px; background: var(--btn)"></span>
+        <span style="width: 24px; height: 24px; border-radius: 2px; background: var(--btn)"></span>
+        <span style="width: 24px; height: 24px; border-radius: 2px; background: var(--btn)"></span>
+      </span>
+      <span aria-hidden="true" style="color: var(--m); font-weight: 400">Bar <span style="color: var(--d); font-weight: 300">—</span></span>
+      <span aria-hidden="true" style="color: var(--main)">Main A</span>
+      <span aria-hidden="true" style="color: var(--m)">stopped</span>
+    </div>
+    <span style="margin-left: auto; display: flex; align-items: center; gap: 8px">
+      <span role="group" aria-label="Metronome" style="display: flex; gap: 1px"><button class="lamp" aria-pressed="false" style="height: 32px; box-sizing: border-box; padding: 0 16px; border-radius: 4px 0 0 4px; border: 0; font-size: 14px">Metronome</button><button aria-label="Metronome settings: on/off, volume, bell on beat 1" aria-haspopup="dialog" aria-expanded="false" title="Metronome settings" style="width: 20px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 0 4px 4px 0; border: 0; background: var(--btn); color: var(--m); font-size: 10px">▾</button></span>
+      <button class="lamp" aria-pressed="false" style="height: 32px; box-sizing: border-box; padding: 0 16px; border-radius: 4px; border: 0; font-size: 14px">Unison</button>
+      <button aria-label="Panic: all notes off" title="Panic: all notes off" style="height: 32px; box-sizing: border-box; padding: 0 14px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">Panic</button>
+      <button aria-label="Help mode: point at any control to learn what it does" aria-pressed="false" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">?</button>
+    </span>
+  </div>
+
+  <!-- DISPLAY (300): first-run variant of the Stage display; same art, same rack + sounds row -->
+  <section aria-label="Stage display, first run" style="position: relative; flex: none; margin-top: 12px; height: 300px; box-sizing: border-box; border: 1px solid transparent; border-radius: 0; background: var(--g); overflow: hidden">
+    <div aria-hidden="true" style="position: absolute; top: 0; right: 0; bottom: 0; width: 38%; background: radial-gradient(circle at 62% 44%, #4a3b86 0, #3d3070 3%, rgba(165,140,255,0.2) 7%, rgba(165,140,255,0.06) 18%, rgba(165,140,255,0) 34%), radial-gradient(ellipse 80% 44% at 40% 104%, #06050a 0, #06050a 58%, rgba(0,0,0,0) 60%), radial-gradient(ellipse 70% 38% at 92% 100%, #0e0b16 0, #0e0b16 62%, rgba(0,0,0,0) 64%), linear-gradient(180deg, #000 0%, #0b0814 55%, #1c1033 100%)"></div>
+    <div aria-hidden="true" style="position: absolute; top: 0; right: 0; bottom: 0; width: 38%; background: linear-gradient(90deg, #000 0%, rgba(0,0,0,0.6) 22%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.2) 100%)"></div>
+
+    <div style="position: absolute; left: 24px; top: 16px; width: 814px; height: 266px; display: flex; flex-direction: column">
+
+      <!-- welcome line (32) -->
+      <div style="flex: none; height: 32px; display: flex; align-items: center; gap: 8px; white-space: nowrap">
+        <span style="font-size: 18px; line-height: 26px; font-weight: 500; color: var(--t)">Welcome to yahaha</span>
+        <span style="margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 400">
+          <span class="lamp" aria-pressed="true" title="Accomp is on" style="height: 22px; padding: 0 8px; border-radius: 4px; font-size: 13px; line-height: 22px">Accomp</span>
+          <span class="lamp" aria-pressed="false" title="Sync Start is off" style="height: 22px; padding: 0 8px; border-radius: 4px; font-size: 13px; line-height: 22px">Sync Start</span>
+        </span>
+        <!-- ONE TOUCH: the Stage's four 32px buttons; none applied on a new rack (all plain). A click applies at once (no dialog). Launchkey: Shift + pads 9-12 -->
+        <div role="group" aria-label="One Touch Setting (OTS): none applied. Click to apply; on the Launchkey, Shift + pads 9 to 12" style="margin-left: 16px; height: 32px; display: flex; align-items: center; gap: 4px; white-space: nowrap">
+          <span style="margin-right: 4px; font-size: 14px; font-weight: 400; color: var(--m)">One Touch</span>
+          <button aria-label="Apply One Touch 1 (Shift + pad 9)" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">1</button>
+          <button aria-label="Apply One Touch 2 (Shift + pad 10)" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">2</button>
+          <button aria-label="Apply One Touch 3 (Shift + pad 11)" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">3</button>
+          <button aria-label="Apply One Touch 4 (Shift + pad 12)" style="width: 32px; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px">4</button>
+        </div>
+      </div>
+
+      <!-- start here + ready now (162) -->
+      <div style="flex: none; margin-top: 8px; height: 162px; display: grid; grid-template-columns: 430px 360px; gap: 24px">
+        <div style="min-width: 0; display: flex; flex-direction: column">
+          <span style="height: 16px; line-height: 16px; font-size: 14px; font-weight: 400; color: var(--m)">Start here</span>
+          <button aria-label="Choose a style: opens the style browser (Library, Styles)" style="margin-top: 6px; align-self: flex-start; height: 44px; box-sizing: border-box; padding: 0 16px; border: 0; border-radius: 0; background: var(--a); color: var(--g); display: flex; align-items: center; gap: 16px; white-space: nowrap">
+            <span style="font-size: 30px; line-height: 44px; font-weight: 400; letter-spacing: -0.6px">Choose a style</span>
+            <span aria-hidden="true" style="font-size: 22px; font-weight: 300">→</span>
+          </button>
+          <p style="margin: 4px 0 0; height: 20px; font-size: 14px; line-height: 20px; color: var(--m); white-space: nowrap">A style is your band. One is loaded already, so you can start now.</p>
+          <ol aria-label="Three steps" style="margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column">
+            <li style="height: 22px; display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--t); white-space: nowrap"><span style="width: 14px; font-size: 14px; font-weight: 300; color: var(--a)">1</span>Press Start / Stop (Play on the Launchkey).</li>
+            <li style="height: 22px; display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--t); white-space: nowrap"><span style="width: 14px; font-size: 14px; font-weight: 300; color: var(--a)">2</span>Hold a chord left of the split; the band follows it.</li>
+            <li style="height: 22px; display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--t); white-space: nowrap"><span style="width: 14px; font-size: 14px; font-weight: 300; color: var(--a)">3</span>Play the tune with your right hand.</li>
+          </ol>
+        </div>
+
+        <div style="min-width: 0; display: flex; flex-direction: column">
+          <span style="height: 16px; line-height: 16px; font-size: 14px; font-weight: 400; color: var(--m)">Ready now</span>
+          <div style="margin-top: 6px; height: 24px; display: flex; align-items: baseline; gap: 10px; white-space: nowrap">
+            <span style="font-size: 18px; line-height: 24px; font-weight: 500; color: var(--t)">Sunday Drive Pop</span>
+            <span style="font-size: 14px; color: var(--m)">Pop · 4/4</span>
+          </div>
+          <div style="margin-top: 8px; height: 40px; display: flex; align-items: baseline; gap: 6px; white-space: nowrap">
+            <span style="font-size: 32px; line-height: 40px; font-weight: 300; letter-spacing: -0.5px; color: var(--t)">104</span>
+            <span style="font-size: 14px; color: var(--m)">BPM</span>
+            <span style="margin-left: 18px; font-size: 24px; line-height: 40px; font-weight: 300; letter-spacing: -0.5px; color: var(--main)">Main A</span>
+            <span style="margin-left: auto; align-self: center; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--m)"><span aria-hidden="true" style="width: 6px; height: 6px; box-sizing: border-box; border-radius: 50%; border: 1px solid var(--m)"></span>Stopped</span>
+          </div>
+          <div style="margin-top: 12px; display: flex; flex-direction: column">
+            <button aria-label="No Quick Rack lit. Opens the Quick Racks page" style="height: 28px; box-sizing: border-box; padding: 0; background: none; border: 0; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: var(--m); white-space: nowrap">Quick Rack<span style="font-size: 18px; font-weight: 300; color: var(--d)">—</span></button>
+            <button aria-label="No One Touch Setting applied. Opens the Quick Racks page" style="height: 28px; box-sizing: border-box; padding: 0; background: none; border: 0; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--m); white-space: nowrap">One Touch<span style="font-size: 12px">OTS</span><span style="margin-left: auto; font-size: 18px; font-weight: 300; color: var(--d)">—</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- rack + sounds (44): the Stage's row; a new rack, never saved -->
+      <div style="flex: none; margin-top: 20px; height: 44px; display: grid; grid-template-columns: 200px repeat(4, minmax(0, 1fr)); gap: 8px">
+        <button aria-label="Rack: New rack, not saved yet. Opens the Rack page" style="min-width: 0; height: 44px; box-sizing: border-box; padding: 0; background: none; border: 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; text-align: left; white-space: nowrap">
+          <span style="font-size: 12px; font-weight: 400; color: var(--m)">Rack · <span style="color: var(--d)">—</span></span>
+          <span style="font-size: 14px; line-height: 16px; color: var(--t)">New rack</span>
+        </button>
+        <div style="min-width: 0; height: 44px; box-sizing: border-box; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 4px">
+          <button aria-label="Right 1: open Channel" title="Right 1" style="width: 32px; height: 43px; flex: none; padding: 0; background: none; border: 0; text-align: left; font-size: 14px; font-weight: 500; color: var(--r1)">R1</button>
+          <button aria-label="Right 1 sound: 1 Stage Grand. Opens the quick sound list" style="flex: 1; min-width: 0; height: 43px; padding: 0; background: none; border: 0; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap">
+            <span style="flex: none; font-size: 12px; color: var(--m)">1</span>
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; color: var(--t)">Stage Grand</span>
+          </button>
+        </div>
+        <div style="min-width: 0; height: 44px; box-sizing: border-box; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 4px">
+          <button aria-label="Right 2: open Channel" title="Right 2" style="width: 32px; height: 43px; flex: none; padding: 0; background: none; border: 0; text-align: left; font-size: 14px; font-weight: 500; color: var(--d)">R2</button>
+          <button aria-label="Right 2 sound: 41 Silk Strings, off. Opens the quick sound list" style="flex: 1; min-width: 0; height: 43px; padding: 0; background: none; border: 0; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap">
+            <span style="flex: none; font-size: 12px; color: var(--d)">41</span>
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; color: var(--m)">Silk Strings</span>
+            <span style="flex: none; font-size: 12px; color: var(--m)">off</span>
+          </button>
+        </div>
+        <div style="min-width: 0; height: 44px; box-sizing: border-box; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 4px">
+          <button aria-label="Right 3: open Channel" title="Right 3" style="width: 32px; height: 43px; flex: none; padding: 0; background: none; border: 0; text-align: left; font-size: 14px; font-weight: 500; color: var(--d)">R3</button>
+          <button aria-label="Right 3 sound: 57 Brass Section, off. Opens the quick sound list" style="flex: 1; min-width: 0; height: 43px; padding: 0; background: none; border: 0; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap">
+            <span style="flex: none; font-size: 12px; color: var(--d)">57</span>
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; color: var(--m)">Brass Section</span>
+            <span style="flex: none; font-size: 12px; color: var(--m)">off</span>
+          </button>
+        </div>
+        <div style="min-width: 0; height: 44px; box-sizing: border-box; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 4px">
+          <button aria-label="Left: open Channel" title="Left" style="width: 32px; height: 43px; flex: none; padding: 0; background: none; border: 0; text-align: left; font-size: 14px; font-weight: 500; color: var(--l)">L</button>
+          <button aria-label="Left sound: 41 Silk Strings. Opens the quick sound list" style="flex: 1; min-width: 0; height: 43px; padding: 0; background: none; border: 0; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap">
+            <span style="flex: none; font-size: 12px; color: var(--m)">41</span>
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; color: var(--t)">Silk Strings</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- HARDWARE BAND (368): the Stage's band verbatim, in its stopped state (Right 2 off, Start unlit), in full colour so the lamps read; fully clickable -->
+  <div style="flex: none; margin-top: 20px; height: 368px; display: flex; gap: 12px">
+
+    <section aria-label="Faders" style="width: 654px; flex: none; display: flex; flex-direction: column">
+      <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: stretch; gap: 12px; white-space: nowrap">
+        <span style="align-self: center; font-size: 14px; font-weight: 400; color: var(--m)">Faders</span>
+        <div role="tablist" aria-label="Fader page (master button)" style="display: flex">
+          <button role="tab" aria-selected="true" style="height: 35px; padding: 11px 10px 0; background: linear-gradient(var(--t), var(--t)) left bottom / 100% 22px no-repeat; border: 0; color: var(--g); font-size: 13px; font-weight: 400">Panel</button>
+          <button role="tab" aria-selected="false" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Style</button>
+        </div>
+        <span aria-hidden="true" style="align-self: center; width: 1px; height: 16px; background: var(--line)"></span>
+        <div role="tablist" aria-label="Fader layer" style="display: flex; align-items: stretch">
+          <span style="align-self: center; margin-right: 4px; font-size: 14px; font-weight: 400; color: var(--m)">Layer</span>
+          <button role="tab" aria-selected="true" aria-label="Volume" style="height: 35px; padding: 11px 10px 0; background: linear-gradient(var(--t), var(--t)) left bottom / 100% 22px no-repeat; border: 0; color: var(--g); font-size: 13px; font-weight: 400">Vol</button>
+          <button role="tab" aria-selected="false" aria-label="Pan" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Pan</button>
+          <button role="tab" aria-selected="false" aria-label="Reverb send" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Reverb</button>
+          <button role="tab" aria-selected="false" aria-label="Chorus send" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Chorus</button>
+          <button role="tab" aria-selected="false" aria-label="Delay send" style="height: 35px; padding: 11px 10px 0; background: none; border: 0; color: var(--m); font-size: 13px; font-weight: 400">Delay</button>
+        </div>
+      </div>
+      <div style="flex: none; margin-top: 8px; height: 324px; display: flex; flex-direction: column">
+        <!-- strips (272): level value overlaid at the top of the track (20) over meter + 3px bracket (223px travel), name (20) -->
+        <div style="flex: none; height: 272px; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{strips}}" as="s" hint-placeholder-count="9">
+            <div style="min-width: 0; height: 272px; box-sizing: border-box; padding: 0; border-radius: 0; background: none; display: flex; flex-direction: column">
+              <button aria-label="{{s.faderAria}}" title="{{s.title}}" style="position: relative; flex: none; width: 100%; height: 252px; padding: 0; background: none; border: 0">
+                <span aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; height: 20px; line-height: 20px; text-align: center; font-size: 18px; font-weight: 300; color: {{s.valColor}}; white-space: nowrap">{{s.val}}</span>
+                <!-- two meter bars -->
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 17px); top: 24px; bottom: 5px; width: 10px; background: var(--mbg); opacity: {{s.meterOp}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 5px); top: 24px; bottom: 5px; width: 10px; background: var(--mbg); opacity: {{s.meterOp}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 17px); bottom: 5px; width: 10px; height: {{s.meterH}}px; background: {{s.meter}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 5px); bottom: 5px; width: 10px; height: {{s.meterH2}}px; background: {{s.meter}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 17px); bottom: {{s.peakB}}px; width: 22px; height: 1px; background: {{s.peak}}; opacity: {{s.meterOp}}"></span>
+                <!-- the fader: a 3px bracket in the part colour with a cap tick; it outranks the meter -->
+                <span aria-hidden="true" style="position: absolute; left: calc(50% + 10px); top: 24px; bottom: 5px; width: 3px; background: {{s.groove}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% + 10px); bottom: 5px; width: 3px; height: {{s.fillH}}px; background: {{s.fill}}; box-shadow: {{s.fillGlow}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% + 3px); top: {{s.capY}}px; width: 10px; height: 3px; background: {{s.capColor}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: calc(50% - 22px); top: {{s.ghostTop}}px; width: 42px; height: 0; border-top: 1px dashed var(--m); opacity: {{s.ghostOp}}"></span>
+                <span aria-hidden="true" style="position: absolute; left: 0; top: 24px; font-size: 13px; line-height: 13px; color: var(--m)">{{s.wait}}</span>
+              </button>
+              <button aria-label="{{s.openAria}}" style="flex: none; width: 100%; height: 20px; box-sizing: border-box; padding: 0; border-radius: 0; border: 0; background: none; display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap">
+                <span style="font-size: 13px; line-height: 16px; font-weight: 500; color: {{s.tagColor}}">{{s.tag}}</span>
+                <span aria-hidden="true" title="Sound edited" style="display: {{s.editedDisp}}; flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--t)"></span>
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" style="display: {{s.missingDisp}}; flex: none; stroke: var(--warn); fill: none"><path d="M6 1.5 L11 10.5 H1 Z" stroke-width="1" stroke-linejoin="round"/><path d="M6 5 V7.4" stroke-width="1"/><circle cx="6" cy="8.9" r="0.6" style="fill: var(--warn); stroke: none"/></svg>
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" style="display: {{s.failedDisp}}; flex: none; stroke: var(--ending); fill: none"><path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </sc-for>
+        </div>
+        <!-- one 32px button row for both groups: part lamps under faders 1-4, a hairline, then the Functions group (Launchkey fader buttons 5-9) under its own header.
+             Lamp faces: class "lamp" + aria-pressed (true = lime face, black label; false = plain face, grey label, no bar). Panel is a page toggle, not a lamp. -->
+        <div style="flex: none; height: 18px; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); column-gap: 8px; white-space: nowrap">
+          <span style="grid-column: 1 / 5; box-sizing: border-box; border-bottom: 1px solid var(--line); font-size: 12px; line-height: 16px; color: var(--m)">Part on/off</span>
+          <span style="grid-column: 5 / 10; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; font-size: 12px; line-height: 16px; color: var(--m)">Functions<span style="margin-left: auto">Launchkey fader buttons 5–9</span></span>
+        </div>
+        <div style="position: relative; flex: none; margin-top: 2px; height: 32px; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 8px">
+          <span aria-hidden="true" style="position: absolute; top: 0; bottom: 0; left: calc((100% - 64px) * 4 / 9 + 28px); width: 1px; background: var(--line)"></span>
+          <button class="lamp" aria-pressed="true" aria-label="Right 1 on. Long press: swap mode (knobs edit this part). Shift: open Channel" title="Right 1 on/off. Long press: swap mode. Shift: open Channel" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">On</button>
+          <button class="lamp" aria-pressed="false" aria-label="Right 2 off. Long press: swap mode (knobs edit this part). Shift: open Channel" title="Right 2 on/off. Long press: swap mode. Shift: open Channel" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">Off</button>
+          <button class="lamp" aria-pressed="false" aria-label="Right 3 off. Long press: swap mode (knobs edit this part). Shift: open Channel" title="Right 3 on/off. Long press: swap mode. Shift: open Channel" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">Off</button>
+          <button class="lamp" aria-pressed="true" aria-label="Left on. Long press: swap mode (knobs edit this part). Shift: open Channel" title="Left on/off. Long press: swap mode. Shift: open Channel" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">On</button>
+          <button class="lamp" aria-pressed="false" aria-label="Harmony/Arpeggio on/off" title="Harmony/Arpeggio on/off" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">Harm/Arp</button>
+          <button class="lamp" aria-pressed="false" aria-label="Sound: hold and the pads become Quick Racks. A click latches it until the next pad tap; click again or press fader button 6 to close" title="Sound: hold for Quick Racks on the pads; click to latch until the next pad tap" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">Sound</button>
+          <button class="lamp" aria-pressed="false" aria-label="Left Hold on/off" title="Left Hold on/off" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">L Hold</button>
+          <button class="lamp" aria-pressed="false" aria-label="Chord Looper on/off. Long press: Loop rec" title="Long press: Loop rec" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; font-size: 13px; white-space: nowrap">Looper</button>
+          <button aria-label="Fader page is Panel: click for Style" title="Fader page is Panel: click for Style" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 13px; white-space: nowrap">Panel</button>
+        </div>
+      </div>
+    </section>
+
+    <div style="width: 626px; flex: none; display: flex; flex-direction: column">
+      <section aria-label="Knobs" style="flex: none; display: flex; flex-direction: column">
+        <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px">
+          <span style="font-size: 14px; font-weight: 400; color: var(--m)">Knobs</span>
+          <span style="padding: 0 8px; font-size: 13px; line-height: 22px; color: var(--g); background: var(--a)">Style</span>
+          <span style="margin-left: auto; font-size: 13px; font-weight: 400; color: var(--m)">Page <span style="color: var(--t)">1/6</span></span>
+        </div>
+        <div style="flex: none; margin-top: 8px; height: 96px; display: flex; gap: 8px">
+          <div style="width: 32px; flex: none; display: flex; flex-direction: column; justify-content: center; gap: 6px">
+            <button aria-label="Knob page up" style="width: 32px; height: 32px; padding: 0; box-sizing: border-box; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 12px">▲</button>
+            <button aria-label="Knob page down" style="width: 32px; height: 32px; padding: 0; box-sizing: border-box; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 12px">▼</button>
+          </div>
+          <div style="flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); column-gap: 6px">
+            <sc-for list="{{knobs}}" as="k" hint-placeholder-count="8">
+              <!-- plain name (14), value (22), 44px ring with tip dot (2 + 44), Genos code (14) = 96 -->
+              <button aria-label="{{k.aria}}" style="min-width: 0; height: 96px; padding: 0; box-sizing: border-box; background: none; border: 0; display: flex; flex-direction: column; align-items: center; text-align: center">
+                <span style="height: 14px; line-height: 14px; font-size: 12px; font-weight: 400; color: {{k.legendColor}}; white-space: nowrap">{{k.name}}</span>
+                <span style="height: 22px; line-height: 22px; font-size: 22px; font-weight: 300; color: {{k.valColor}}; white-space: nowrap">{{k.val}}<span style="margin-left: 2px; font-size: 12px; font-weight: 400">{{k.unit}}</span></span>
+                <span style="position: relative; display: block; flex: none; margin-top: 2px; width: 44px; height: 44px; border-radius: 50%; background: conic-gradient(from 225deg, {{k.arc}} 0deg {{k.deg}}deg, {{k.rest}} {{k.deg}}deg 270deg, rgba(0,0,0,0) 270deg 360deg)">
+                  <span style="position: absolute; inset: 2px; border-radius: 50%; background: var(--g)"></span>
+                  <span aria-hidden="true" style="display: {{k.dotDisp}}; position: absolute; left: {{k.dotX}}px; top: {{k.dotY}}px; width: 6px; height: 6px; border-radius: 50%; background: {{k.arc}}"></span>
+                </span>
+                <span style="height: 14px; line-height: 14px; font-size: 12px; color: var(--m); white-space: nowrap">{{k.help}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Pads" style="flex: none; margin-top: 18px; display: flex; flex-direction: column">
+        <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; white-space: nowrap">
+          <span style="font-size: 14px; font-weight: 400; color: var(--m)">Pads</span>
+          <span style="font-size: 14px; color: var(--t)">Sections</span>
+          <span style="margin-left: 4px; display: flex; align-items: center; gap: 12px; font-size: 12px">
+            <span style="display: flex; align-items: center; gap: 6px; color: var(--intro)"><span aria-hidden="true" style="width: 10px; height: 2px; border-radius: 1px; background: var(--intro)"></span>Intro</span>
+            <span style="display: flex; align-items: center; gap: 6px; color: var(--main)"><span aria-hidden="true" style="width: 10px; height: 2px; border-radius: 1px; background: var(--main)"></span>Main</span>
+            <span style="display: flex; align-items: center; gap: 6px; color: var(--ending)"><span aria-hidden="true" style="width: 10px; height: 2px; border-radius: 1px; background: var(--ending)"></span>Ending</span>
+            <span style="display: flex; align-items: center; gap: 6px; color: var(--brk)"><span aria-hidden="true" style="width: 10px; height: 2px; border-radius: 1px; background: var(--brk)"></span>Break</span>
+            <span style="display: flex; align-items: center; gap: 6px; color: var(--fill)"><span aria-hidden="true" style="width: 10px; height: 2px; border-radius: 1px; background: var(--fill)"></span>Fill</span>
+          </span>
+          <span style="margin-left: auto; font-size: 13px; font-weight: 400; color: var(--m)">Bank <span style="color: var(--t)">1/5</span></span>
+        </div>
+        <div style="flex: none; margin-top: 8px; height: 142px; display: flex; gap: 8px">
+          <div style="width: 32px; flex: none; box-sizing: border-box; padding: 18px 0; display: flex; flex-direction: column; justify-content: space-between">
+            <button aria-label="Pad bank up" style="width: 32px; height: 32px; padding: 0; box-sizing: border-box; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 12px">▲</button>
+            <button aria-label="Pad bank down" style="width: 32px; height: 32px; padding: 0; box-sizing: border-box; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 12px">▼</button>
+          </div>
+          <div style="position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-auto-rows: 68px; column-gap: 6px; row-gap: 6px">
+            <!-- family fields drawn as Push group lines: a 2px line in the family hue over each family's pads; utility pads in grey -->
+            <span aria-hidden="true" style="position: absolute; left: -3px; top: -3px; width: 222px; height: 74px; background: linear-gradient(var(--intro), var(--intro)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <span aria-hidden="true" style="position: absolute; left: 219px; top: -3px; width: 74px; height: 74px; background: linear-gradient(var(--util), var(--util)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <span aria-hidden="true" style="position: absolute; left: 293px; top: -3px; width: 222px; height: 74px; background: linear-gradient(var(--ending), var(--ending)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <span aria-hidden="true" style="position: absolute; left: 515px; top: -3px; width: 74px; height: 74px; background: linear-gradient(var(--util), var(--util)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <span aria-hidden="true" style="position: absolute; left: -3px; top: 71px; width: 296px; height: 74px; background: linear-gradient(var(--main), var(--main)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <span aria-hidden="true" style="position: absolute; left: 293px; top: 71px; width: 74px; height: 74px; background: linear-gradient(var(--brk), var(--brk)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <span aria-hidden="true" style="position: absolute; left: 367px; top: 71px; width: 74px; height: 74px; background: linear-gradient(var(--util), var(--util)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <span aria-hidden="true" style="position: absolute; left: 441px; top: 71px; width: 74px; height: 74px; background: linear-gradient(var(--util), var(--util)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <span aria-hidden="true" style="position: absolute; left: 515px; top: 71px; width: 74px; height: 74px; background: linear-gradient(var(--util), var(--util)) center top / calc(100% - 6px) 2px no-repeat"></span>
+            <sc-for list="{{pads}}" as="p" hint-placeholder-count="16">
+              <button aria-label="{{p.aria}}" style="position: relative; min-width: 0; height: 68px; box-sizing: border-box; border-radius: 4px; border: 1px solid {{p.border}}; background: {{p.bg}}; color: {{p.fg}}; box-shadow: {{p.glow}}; padding: 0 4px 14px; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; text-align: left">
+                <span style="position: absolute; top: 5px; right: 7px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 14px; color: {{p.idxColor}}">{{p.idx}}</span>
+                <span style="font-size: 14px; font-weight: 500; line-height: 16px; letter-spacing: -0.2px">{{p.name}}</span>
+                <span aria-hidden="true" style="position: absolute; left: 7px; right: 7px; bottom: 6px; height: 2px; border-radius: 1px; background: {{p.bar}}; box-shadow: {{p.barGlow}}"></span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section aria-label="Transport and tempo" style="width: 88px; flex: none; display: flex; flex-direction: column">
+      <div style="flex: none; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: center">
+        <span style="font-size: 14px; font-weight: 400; color: var(--m)">Transport</span>
+      </div>
+      <div style="flex: none; margin-top: 8px; display: flex; flex-direction: column; gap: 6px">
+        <!-- one Start: a plain lamp button that mirrors pad 16 (same label, same green bar when running) -->
+        <button aria-label="Start / Stop, stopped (Play). The same control as pad 16" title="Start / Stop: the same control as pad 16" aria-pressed="false" style="position: relative; width: 88px; height: 32px; box-sizing: border-box; padding: 0 4px 3px 8px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t); font-size: 13px; font-weight: 500; text-align: left; white-space: nowrap"><span aria-hidden="true" style="position: absolute; left: 8px; right: 8px; bottom: 5px; height: 2px; border-radius: 1px; background: var(--past)"></span>Start / Stop</button>
+        <button aria-label="Stop (fade with hold)" title="Stop (fade with hold)" style="width: 88px; height: 32px; box-sizing: border-box; padding: 0 8px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px; text-align: left">Stop</button>
+        <!-- Reset and Fade side by side (41 + 6 + 41), so the Fills pair fits under them without growing the band -->
+        <div style="display: grid; grid-template-columns: 41px 41px; gap: 6px">
+          <button aria-label="Section reset: restart the section from its first bar" title="Section reset: restart the section from its first bar" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 13px; white-space: nowrap">Reset</button>
+          <button aria-label="Fade in/out" aria-pressed="false" title="Fade in/out" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 13px; white-space: nowrap">Fade</button>
+        </div>
+        <!-- FILLS (fillUp, fillDown): a fill, then the next Main up / down that the style has; stopped, it selects that Main -->
+        <div role="group" aria-label="Fills" style="display: grid; grid-template-columns: 41px 41px; gap: 6px">
+          <button aria-label="Fill Up: a fill, then the next Main up (at Main D, its own fill)" title="Fill Up: a fill, then the next Main up" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 13px; white-space: nowrap">Fill <span style="font-size: 9px">▲</span></button>
+          <button aria-label="Fill Down: a fill, then the next Main down (at Main A, its own fill)" title="Fill Down: a fill, then the next Main down" style="min-width: 0; height: 32px; box-sizing: border-box; padding: 0; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 13px; white-space: nowrap">Fill <span style="font-size: 9px">▼</span></button>
+        </div>
+      </div>
+      <div style="flex: none; margin-top: 20px; height: 36px; box-sizing: border-box; border-bottom: 1px solid var(--line); display: flex; align-items: center">
+        <span style="font-size: 14px; font-weight: 400; color: var(--m)">Tempo</span>
+      </div>
+      <div style="flex: none; margin-top: 8px; display: flex; flex-direction: column; gap: 6px">
+        <button aria-label="Tempo up (Scene Launch)" title="Scene Launch" style="width: 88px; height: 32px; box-sizing: border-box; padding: 0 8px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px; text-align: left; white-space: nowrap">Tempo <span style="font-weight: 300">+</span></button>
+        <button aria-label="Tempo down (Function)" title="Function" style="width: 88px; height: 32px; box-sizing: border-box; padding: 0 8px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 14px; text-align: left; white-space: nowrap">Tempo <span style="font-weight: 300">−</span></button>
+        <!-- STYLE TEMPO (resetTempo): back to the tempo the style came with. Launchkey: Scene Launch + Function together -->
+        <button aria-label="Style tempo: back to the tempo the style came with (Scene Launch and Function together)" title="Style tempo: back to the style's own tempo (Scene Launch + Function)" style="width: 88px; height: 32px; box-sizing: border-box; padding: 0 8px; border-radius: 4px; border: 0; background: var(--btn); color: var(--t2); font-size: 13px; text-align: left; white-space: nowrap">Style tempo</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- the one line about the Launchkey, over the band: a dialog-style panel with a 1px light edge (no button: hotplug is automatic) -->
+  <div role="status" style="position: absolute; left: 24px; top: 588px; width: 1392px; height: 44px; display: flex; justify-content: center; pointer-events: none">
+    <div style="height: 44px; box-sizing: border-box; padding: 0 20px; border: 1px solid var(--m); border-radius: 0; background: var(--g); box-shadow: 0 0 0 9999px rgba(0,0,0,0); display: flex; align-items: center; gap: 16px; white-space: nowrap">
+      <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--m)"><span aria-hidden="true" style="width: 6px; height: 6px; box-sizing: border-box; border-radius: 50%; border: 1px solid var(--m)"></span>No Launchkey</span>
+      <span style="font-size: 14px; color: var(--t)">Plug in your Launchkey and it lights up here. Until then, click the pads and buttons.</span>
+    </div>
+  </div>
+
+  <!-- KEYS (56) -->
+  <section aria-label="Keys: split F#2, chord detection in the lower zone, nothing held, 61 keys" style="flex: none; margin-top: 20px; height: 56px; display: flex; flex-direction: column">
+    <div style="flex: none; position: relative; height: 56px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--g)">
+      <sc-for list="{{whites}}" as="w" hint-placeholder-count="36">
+        <div style="position: absolute; top: 0; left: {{w.x}}px; width: {{w.w}}px; height: 100%; box-sizing: border-box; border-right: 1px solid var(--keyline); background: {{w.bg}}; box-shadow: {{w.ring}}; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 14px; color: {{w.labColor}}">{{w.lab}}</div>
+      </sc-for>
+      <sc-for list="{{blacks}}" as="b" hint-placeholder-count="25">
+        <div style="position: absolute; top: 0; left: {{b.x}}px; width: 22px; height: 32px; border-radius: 0 0 3px 3px; background: {{b.bg}}; box-shadow: {{b.ring}}"></div>
+      </sc-for>
+      <div aria-hidden="true" style="position: absolute; top: 0; left: 0; width: 424px; height: 2px; background: var(--l); box-shadow: var(--bl)"></div>
+      <div aria-hidden="true" style="position: absolute; top: 0; bottom: 0; left: 424px; width: 2px; background: var(--t)"></div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+  // Push, dark. First run: a new rack, stopped, no Launchkey.
+  var C = {
+    ground: '#000', btn: '#161616', meterBg: '#141414', track: '#333333', line: '#262626', barOff: '#333333', dim: '#4d4d4d',
+    muted: '#8c8c8c', text2: '#d6d6d6', text: '#ffffff', accent: '#a58cff', ringRest: '#3d3d3d',
+    intro: '#bfb24e', main: '#4fd66a', ending: '#c45a5a', brk: '#8f62a8', fill: '#7a9ea6',
+    util: '#5a5a5a', run: '#4fd66a'
+  };
+  var PART = { r1: '#3b8eff', r2: '#ff4f9e', r3: '#ff9a2e', l: '#16c7a6' };
+  function rgba(h, a) { var n = parseInt(h.slice(1), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+  var TRAVEL = 223;
+
+  // [name, strip name, value, level 0-127, meter 0-1, peak 0-1, kind, own button, own button aria, hue, away position, mark, name aria]
+  var F = [
+    ['Right 1', 'Right 1 · Stage Grand', '100', 100, 0, 0, 'on', 'On', 'Right 1 on/off. Long press: swap mode (knobs edit this part)', PART.r1, -1, '', 'Right 1, Stage Grand: open Channel'],
+    ['Right 2', 'Right 2 · Silk Strings', '80', 80, 0, 0, 'off', 'Off', 'Right 2 on/off. Long press: swap mode (knobs edit this part)', PART.r2, -1, '', 'Right 2, Silk Strings, off: open Channel'],
+    ['Right 3', 'Right 3 · Brass Section', '80', 80, 0, 0, 'off', 'Off', 'Right 3 on/off. Long press: swap mode (knobs edit this part)', PART.r3, -1, '', 'Right 3, Brass Section, off: open Channel'],
+    ['Left', 'Left · Silk Strings', '80', 80, 0, 0, 'on', 'On', 'Left on/off. Long press: swap mode (knobs edit this part)', PART.l, -1, '', 'Left, Silk Strings: open Channel'],
+    ['Style', 'Style volume', '100', 100, 0, 0, 'group', '', '', C.accent, -1, '', 'Style volume: open the Style fader page'],
+    ['Multi Pad', 'Multi Pad volume', '100', 100, 0, 0, 'group', '', '', C.text2, -1, '', 'Multi Pad volume: open Multi Pads'],
+    ['—', 'Fader 7 unused', '', 0, 0, 0, 'parked', '', '', C.dim, -1, '', 'Fader 7 unused'],
+    ['—', 'Fader 8 unused', '', 0, 0, 0, 'parked', '', '', C.dim, -1, '', 'Fader 8 unused'],
+    ['Master', 'Master', '100', 100, 0, 0, 'master', '', '', C.text, -1, '', 'Master: open Effects, master compressor and EQ']
+  ];
+  // Fader layer. 'Vol' draws part-hue strips. Any other layer ('Pan', 'Rev', 'Cho', 'Dly') changes strips 1-4: meters hidden,
+  // bracket and fill white, the value carries the layer word ("Rev 40", from LV); part names keep their hue. Then the fader header
+  // reads "Faders · Reverb" in white and that layer tab is the white block. The layer persists across pages; no fallback timer.
+  var LAYER = 'Vol', LV = [40, 12, 0, 20];
+  // mark: '' | 'edited' | 'missing' (orange ⚠) | 'failed' (red ✕)
+  var strips = F.map(function (r, i) {
+    var kind = r[6], hue = r[9], parked = kind === 'parked', off = kind === 'off';
+    var live = !parked && !off, layered = LAYER !== 'Vol' && i < 4;
+    var level = layered ? LV[i] : r[3];
+    var capTop = parked ? TRAVEL : Math.round((1 - level / 127) * TRAVEL);
+    var away = r[10] >= 0, ink = layered ? C.text : hue;
+    return {
+      tag: r[0], openAria: r[12],
+      title: parked ? r[1] : r[1] + ': ' + (layered ? LAYER + ' ' + level : r[2]) + (away ? ' (hardware fader away: move it through the value to take over)' : ''),
+      faderAria: parked ? r[1] : r[1] + ', ' + (layered ? LAYER + ' ' + level : 'level ' + r[2]) + (away ? ', hardware fader away (soft takeover)' : ''),
+      val: parked ? '' : (layered ? LAYER + ' ' + level : r[2]),
+      valColor: live ? ink : C.dim,
+      tagColor: live ? hue : C.dim,
+      editedDisp: r[11] === 'edited' ? 'block' : 'none',
+      missingDisp: r[11] === 'missing' ? 'block' : 'none',
+      failedDisp: r[11] === 'failed' ? 'block' : 'none',
+      wait: away ? '↕' : '',
+      groove: parked ? 'repeating-linear-gradient(to bottom, ' + C.line + ' 0 3px, rgba(0,0,0,0) 3px 7px)' : C.track,
+      fillH: parked ? 0 : TRAVEL - capTop,
+      fill: live ? ink : (off ? rgba(ink, 0.35) : 'rgba(0,0,0,0)'),
+      fillGlow: live && !layered ? '0 0 6px ' + rgba(hue, 0.45) : 'none',
+      capY: capTop + 23,
+      capColor: parked ? 'rgba(0,0,0,0)' : (off ? rgba(ink, 0.35) : ink),
+      meterOp: parked || layered ? 0 : 1,
+      meterH: layered ? 0 : Math.round(r[4] * TRAVEL),
+      meterH2: layered ? 0 : Math.round(r[4] * 0.93 * TRAVEL),
+      meter: live && !layered ? rgba(hue, 0.75) : 'rgba(0,0,0,0)',
+      peakB: 5 + Math.round(r[5] * TRAVEL),
+      peak: 'rgba(255,255,255,0.85)',
+      ghostTop: away ? Math.round((1 - r[10] / 127) * TRAVEL) + 24 : 0,
+      ghostOp: away ? 1 : 0
+    };
+  });
+  // The part lamps and the Functions row are static markup (class "lamp"), not data.
+  // First run, stopped: no peak ticks (the code above is the Stage's, verbatim; only the data and this override are the board's).
+  strips.forEach(function (s) { s.peak = 'rgba(0,0,0,0)'; });
+
+
+  // Knob page 1 of 6, Style. Dynamics defaults to 127.
+  var K = [
+    ['Dynamics', 'DynCtrl', '127', 1], ['Retrig rate', 'RtgRate', '1/8', 0.4], ['Retrigger', 'RtgOnOff', 'Off', 0],
+    ['Mute A', 'StyMuteA', 'Off', 0], ['Mute B', 'StyMuteB', 'Off', 0], ['Swing', 'Swing', '0%', 0], ['---', '', '', -1], ['Tempo', 'Tempo', '104', 0.27]
+  ];
+  var knobs = K.map(function (k, i) {
+    var unused = k[3] < 0, deg = unused ? 0 : Math.round(k[3] * 270);
+    var m = /^(.*\d)(%)$/.exec(k[2]);
+    var th = (225 + deg) * Math.PI / 180, R = 21;
+    return {
+      name: k[0], help: k[1], val: m ? m[1] : k[2], unit: m ? m[2] : '',
+      aria: 'Knob ' + (i + 1) + ': ' + (unused ? 'unused' : k[0] + ' (' + k[1] + ') ' + k[2]),
+      deg: deg,
+      arc: unused ? C.meterBg : C.accent, rest: unused ? C.meterBg : C.ringRest,
+      dotDisp: unused ? 'none' : 'block',
+      dotX: (22 + R * Math.sin(th) - 3).toFixed(1), dotY: (22 - R * Math.cos(th) - 3).toFixed(1),
+      valColor: C.accent, legendColor: unused ? C.dim : C.text2
+    };
+  });
+
+  // Pads, stopped: nothing playing or queued; sections the style lacks are dark.
+  // A no-break space ( ) ties each name to its numeral or letter, so only whole words wrap ("Sync / Start", never "Ending / II").
+  var P = [
+    ['Intro I', 'intro', 'I1'], ['Intro II', 'intro', 'I2'], ['Intro III', 'intro', 'I3', 'dark'], ['Sync Start', 'util', 'SS'],
+    ['Ending I', 'ending', 'E1'], ['Ending II', 'ending', 'E2'], ['Ending III', 'ending', 'E3', 'dark'], ['Auto Fill', 'util', 'AF'],
+    ['Main A', 'main', 'A'], ['Main B', 'main', 'B'], ['Main C', 'main', 'C'], ['Main D', 'main', 'D'],
+    ['Break', 'brk', 'Br'], ['Tap', 'util', 'Tp'], ['Sync Stop', 'util', 'SS'], ['Start / Stop', 'start', '▶']
+  ];
+  var pads = P.map(function (d, i) {
+    var fam = d[1], st = d[3] || '', util = fam === 'util' || fam === 'start';
+    var hue = util ? C.text : C[fam];
+    var p = { name: d[0], idx: String(i + 1), aria: d[0] + ' (pad ' + (i + 1) + ')', bg: C.btn, fg: util ? C.text2 : hue, border: 'rgba(0,0,0,0)', glow: 'none', idxColor: C.dim, bar: 'rgba(0,0,0,0)', barGlow: 'none' };
+    if (fam === 'start') { p.aria = 'Start / Stop, stopped (pad 16; the transport Start / Stop is the same control)'; p.bar = C.barOff; }
+    if (st === 'dark') { p.fg = C.dim; p.idxColor = '#2e2e2e'; p.aria = d[0] + ' (not in this style)'; }
+    return p;
+  });
+
+  // Keys: nothing held; the left zone tinted.
+  var W = 1390 / 36, notes = 'CDEFGAB';
+  var whites = [];
+  for (var i = 0; i < 36; i++) {
+    var n = notes.charAt(i % 7), oct = 1 + Math.floor(i / 7), left = i <= 10;
+    whites.push({ x: (i * W).toFixed(2), w: W.toFixed(2), bg: left ? '#0d1a17' : '#161616', ring: 'none', lab: n === 'C' ? 'C' + oct : '', labColor: C.dim });
+  }
+  var blacks = [], pos = [0, 1, 3, 4, 5];
+  for (var o = 0; o < 5; o++) {
+    for (var j = 0; j < 5; j++) {
+      var wi = o * 7 + pos[j];
+      blacks.push({ x: ((wi + 1) * W - 11).toFixed(2), bg: '#000', ring: 'inset 0 0 0 1px ' + (wi <= 10 ? '#1d3a33' : '#2e2e2e') });
+    }
+  }
+  return { strips: strips, knobs: knobs, pads: pads, whites: whites, blacks: blacks };
+}
+}
+</script>
+</body>
+</html>

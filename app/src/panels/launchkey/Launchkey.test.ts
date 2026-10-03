@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MockSession, LIBRARY } from '../../lib/api/mock'
 import { app, ui } from '../../lib/store.svelte'
 import Launchkey from './Launchkey.svelte'
@@ -303,12 +303,60 @@ describe('Launchkey mirror: page order and held layers', () => {
     expect(pad(96).dataset.tip).toBe('quick.store_rack')
   })
 
-  it('the Sound button sends what the hardware button sends on the layer showing', async () => {
+  it('a click on Sound latches the Sound layer (setLayer) and the next click lets go', async () => {
     const { session } = setup()
-    // Panel page: a hold, no command.
-    const before = JSON.stringify(session.state.mixer)
+    const sent = vi.spyOn(app, 'send')
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000)
+    const click = async () => {
+      const b = soundButton()
+      await fireEvent.pointerDown(b, { button: 0, pointerId: 1 })
+      now.mockReturnValue(1100)
+      await fireEvent.pointerUp(b, { button: 0, pointerId: 1 })
+      await fireEvent.click(b, { detail: 1 })
+      flushSync()
+    }
+    await click()
+    expect(sent.mock.calls.map((c) => c[0])).toEqual([{ type: 'setLayer', layer: { type: 'sound' } }])
+    expect(session.state.surface.layer).toEqual({ type: 'sound' })
+    expect(soundButton().getAttribute('aria-pressed')).toBe('true')
+    expect(pad(112).textContent).toContain('OTS 1')
+    sent.mockClear()
+    await click()
+    expect(sent.mock.calls.map((c) => c[0])).toEqual([{ type: 'setLayer', layer: { type: 'none' } }])
+    expect(session.state.surface.layer).toEqual({ type: 'none' })
+    expect(pad(113).textContent).toContain('MAIN B')
+    now.mockRestore()
+    sent.mockRestore()
+  })
+
+  it('Sound held down is momentary: setLayer sound on press, none on release', async () => {
+    const { session } = setup()
+    const sent = vi.spyOn(app, 'send')
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000)
+    await fireEvent.pointerDown(soundButton(), { button: 0, pointerId: 1 })
+    flushSync()
+    expect(sent.mock.calls.map((c) => c[0])).toEqual([{ type: 'setLayer', layer: { type: 'sound' } }])
+    expect(pad(112).textContent).toContain('OTS 1')
+    now.mockReturnValue(1500)
+    await fireEvent.pointerUp(soundButton(), { button: 0, pointerId: 1 })
+    await fireEvent.click(soundButton(), { detail: 1 })
+    expect(sent.mock.calls.map((c) => c[0])).toEqual([
+      { type: 'setLayer', layer: { type: 'sound' } },
+      { type: 'setLayer', layer: { type: 'none' } },
+    ])
+    expect(session.state.surface.layer).toEqual({ type: 'none' })
+    now.mockRestore()
+    sent.mockRestore()
+  })
+
+  it('Enter on Sound latches and lets go; with Shift on the Style page it mutes the Pad part', async () => {
+    const { session } = setup()
+    // A keyboard press (a click with no pointer) latches, the next one lets go.
     await fireEvent.click(soundButton())
-    expect(JSON.stringify(session.state.mixer)).toBe(before)
+    expect(session.state.surface.layer).toEqual({ type: 'sound' })
+    flushSync()
+    await fireEvent.click(soundButton())
+    expect(session.state.surface.layer).toEqual({ type: 'none' })
     // Style page with Shift: it mutes the sixth Style part, as on the hardware.
     session.send({ type: 'toggleFaderPage' })
     ui.shiftLatched = true
@@ -335,11 +383,15 @@ describe('Launchkey mirror: page order and held layers', () => {
     knob(0).focus()
     await fireEvent.keyDown(knob(0), { key: 'ArrowUp' })
     await fireEvent.keyDown(knob(1), { key: 'ArrowUp' })
-    // Knob 1 has no default sound: a reset sends nothing.
+    await fireEvent.keyDown(knob(7), { key: 'ArrowDown' })
+    expect(knob(1).dataset.tip).toBe('part.swap')
+    // The swap knobs have no default to go back to: a reset sends nothing.
     await fireEvent.dblClick(knob(0))
+    await fireEvent.dblClick(knob(1))
     expect(sent).toEqual([
       { type: 'swapSound', part: 1, step: 1 },
-      { type: 'turnKnob', knob: 1, delta: 1 },
+      { type: 'turnSwapKnob', part: 1, knob: 1, delta: 1 },
+      { type: 'turnSwapKnob', part: 1, knob: 7, delta: -1 },
     ])
   })
 

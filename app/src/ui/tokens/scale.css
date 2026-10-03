@@ -1,0 +1,47 @@
+/*
+ * Theme-independent tokens: the one radius, type, spacing, control sizes and line widths, from the
+ * Push canvas boards. The canvas doesn't name these; the names are ours, the values are its.
+ */
+
+:root {
+  /* The one radius */
+  --radius: 4px;
+
+  /* Type: DM Sans for words and numbers, JetBrains Mono for key and pad digits */
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --text-11: 11px;
+  --text-12: 12px; /* small codes, captions */
+  --text-13: 13px; /* compact buttons */
+  --text-14: 14px; /* body, buttons */
+  --text-18: 18px; /* count row, app name */
+  --text-20: 20px;
+  --text-22: 22px;
+  --text-32: 32px; /* tempo */
+  --text-36: 36px; /* next section */
+  --text-44: 44px; /* playing section */
+  --weight-thin: 200;
+  --weight-light: 300; /* numbers */
+  --weight-regular: 400;
+  --weight-medium: 500; /* a lit lamp's label, names */
+
+  /* Spacing */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-14: 14px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+
+  /* Control heights */
+  --control-height: 32px; /* buttons in the section row and the band */
+  --control-height-compact: 28px; /* buttons in settings and strip rows */
+
+  /* Lines */
+  --line-width: 1px; /* hairlines, outlines, the focus ring */
+  --focus-offset: 2px;
+}

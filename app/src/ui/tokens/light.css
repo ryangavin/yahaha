@@ -1,0 +1,50 @@
+/*
+ * The light theme: the same roles as dark.css, mapped onto the palette's light entries
+ * (Stage-Light.dc.html). Applies under `data-theme="light"` on the root element. Glows are none.
+ */
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --g: var(--stone-94);
+  --t: var(--grey-07);
+  --t2: var(--grey-17);
+  --m: var(--grey-39); /* the canvas's #6e6e6e, darkened to pass AA 4.5:1 on --btn */
+  --d: var(--stone-68);
+  --btn: var(--stone-89);
+  --line: var(--stone-82);
+  --past: var(--stone-76);
+  --mbg: var(--stone-88);
+  --keyline: var(--stone-82);
+  --util: var(--stone-65);
+  --focus: var(--grey-07);
+
+  --lamp: var(--lime-700);
+  /* Ink and code differ from the canvas (#111, code at 0.6) to pass AA 4.5:1 on the light lamp. */
+  --lamp-ink: var(--black);
+  --code-opacity: 1;
+  --solid-ink: var(--white);
+  --rec: var(--red-700);
+  --warn: var(--orange-700);
+  --ok: var(--green-700);
+
+  --a: var(--violet-600);
+
+  --r1: var(--blue-700);
+  --r2: var(--pink-700);
+  --r3: var(--orange-700);
+  --l: var(--teal-700);
+
+  --intro: var(--gold-700);
+  --main: var(--green-700);
+  --ending: var(--rose-700);
+  --brk: var(--plum-600);
+  --fill: var(--slate-600);
+
+  --bg: none;
+  --ba: none;
+  --ba2: none;
+  --bw: none;
+  --bm: none;
+  --bl: none;
+}

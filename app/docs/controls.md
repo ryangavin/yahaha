@@ -174,10 +174,10 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 
 | control | what it does | Genos | key | Launchkey |
 |---|---|---|---|---|
-| **Right 1 on/off** | Turns Right 1 on or off. Right parts that are on sound together, which is how you layer voices. | PART ON/OFF RIGHT 1 | `5` | Panel fader page: button under fader 1 |
-| **Right 2 on/off** | Turns Right 2 on or off. Turn on Right 1 and Right 2 together to layer, for example piano and strings. | PART ON/OFF RIGHT 2 | `6` | Panel fader page: button under fader 2 |
-| **Right 3 on/off** | Turns Right 3 on or off, a third layer for the right hand. | PART ON/OFF RIGHT 3 | `7` | Panel fader page: button under fader 3 |
-| **Left on/off** | Turns the Left voice on or off: your left hand plays it below the split. It can't be turned off while Manual Bass is on. | PART ON/OFF LEFT | `8` `L` | Panel fader page: button under fader 4; Shift + Pad Bank ▲ |
+| **Right 1 on/off** | Turns Right 1 on or off. Right parts that are on sound together, which is how you layer voices. On its mixer strip, press and hold On to swap its sound: the knobs are Right 1's (knob 1 its sound, 2–8 its mix) until you click On again. | PART ON/OFF RIGHT 1 | `5` | Panel fader page: button under fader 1 |
+| **Right 2 on/off** | Turns Right 2 on or off. Turn on Right 1 and Right 2 together to layer, for example piano and strings. On its mixer strip, press and hold On to swap its sound: the knobs are Right 2's (knob 1 its sound, 2–8 its mix) until you click On again. | PART ON/OFF RIGHT 2 | `6` | Panel fader page: button under fader 2 |
+| **Right 3 on/off** | Turns Right 3 on or off, a third layer for the right hand. On its mixer strip, press and hold On to swap its sound: the knobs are Right 3's (knob 1 its sound, 2–8 its mix) until you click On again. | PART ON/OFF RIGHT 3 | `7` | Panel fader page: button under fader 3 |
+| **Left on/off** | Turns the Left voice on or off: your left hand plays it below the split. It can't be turned off while Manual Bass is on. On its mixer strip, press and hold On to swap its sound: the knobs are Left's (knob 1 its sound, 2–8 its mix) until you click On again. | PART ON/OFF LEFT | `8` `L` | Panel fader page: button under fader 4; Shift + Pad Bank ▲ |
 | **Edit Right 1** | Picks Right 1 as the part whose voice Voice −/+ changes. | Part select (Right 1) | `F1` | Panel fader page: Shift + button under fader 1 |
 | **Edit Right 2** | Picks Right 2 as the part whose voice Voice −/+ changes. | Part select (Right 2) | `F2` | Panel fader page: Shift + button under fader 2 |
 | **Edit Right 3** | Picks Right 3 as the part whose voice Voice −/+ changes. | Part select (Right 3) | `F3` | Panel fader page: Shift + button under fader 3 |
@@ -196,7 +196,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **As written for** | The voice the style's author wrote this band part for, and its MIDI channel on the yahaha port. Load a matching instrument on that channel in Ableton to hear the style as intended; ≈ marks the nearest General MIDI voice to a Yamaha one. | Style parts (Mixer › Style) | — | — |
 | **Plugin instances** | How many instrument plugins are loaded right now: one for every keyboard or Style part that plays a plugin (each part gets its own), plus one still playing out while its part's next plugin loads. | — | — | — |
 | **Library patch** | The part plays a patch from your sound library. Pick a GM voice instead to go back to it. | Voice Selection | — | — |
-| **Swap sound** | Hold a part's Panel fader button and turn knob 1 to step that part's sound by number, live, keeping its mix; knobs 2–8 are its mix. Let go to keep the sound: dialling back is the cancel. A hold that turns no knob is a tap, which turns the part on or off. | — | — | Panel fader page: hold the button under fader 1–4 and turn knob 1 |
+| **Swap sound** | Hold a part's Panel fader button and turn knob 1 to step that part's sound by number, live, keeping its mix; knobs 2–8 are its mix. Let go to keep the sound (dialling back is the cancel); a hold that turns no knob is a tap, which turns the part on or off. On screen, press and hold a keyboard part's On on its mixer strip: swap stays on when you let go, so you can turn the knobs here, and a click on that On ends it. | — | — | Panel fader page: hold the button under fader 1–4 and turn knob 1 |
 
 ## Rack panel
 
@@ -603,7 +603,7 @@ Every control in the app, as its tooltip describes it. Hover over any control in
 | **Unused fader** | On the Panel fader page, faders 5–8 and buttons 6–8 do nothing. Switch to the Style page (the button under the master fader) to mix the band. | — | — | Panel fader page: faders 5–8 and the buttons under faders 6–8 |
 | **Unused pad** | This pad does nothing on this page and stays dark. | — | — | — |
 | **Part sound** | The sound this keyboard part plays: ● when its plugin has unsaved edits, ⚠ when its plugin is missing. Click to open Library › Sounds with this part as the target. | Voice name (Home screen) | — | — |
-| **Sound** | Hold it and the pads act and light as the Racks page, from any page: tap a rack pad to load it, or Store to put the live rack there. Let go and the pads go back to the page you were on. White while held. | — | — | Panel or Style fader page: button under fader 6 (hold) |
+| **Sound** | Hold it and the pads act and light as the Racks page, from any page: tap a rack pad to load it, or Store to put the live rack there. Let go and the pads go back to the page you were on; it is white while held. On screen, click it to latch the Sound layer and click again to let go, or press and hold it for as long as you want it. | — | — | Panel or Style fader page: button under fader 6 (hold) |
 
 ## Stage layout: hand surface, fader badges, mixer bar
 
