@@ -24,6 +24,7 @@
   /* Lamps and states */
   --lamp: var(--lime-400); /* switched-on face */
   --lamp-ink: var(--black); /* label on the lamp face */
+  --lamp-line: var(--lime-400); /* a waiting lamp's outline and label on the ground */
   --code-opacity: 0.6; /* the small code on the lamp face is --lamp-ink at this opacity */
   --solid-ink: var(--black); /* label on a solid record face */
   --rec: var(--red-400); /* record red */
@@ -53,4 +54,16 @@
   --bw: 0 0 6px color-mix(in srgb, var(--white) 60%, transparent); /* white */
   --bm: 0 0 18px color-mix(in srgb, var(--green-400) 30%, transparent); /* Main-hue text */
   --bl: 0 0 6px color-mix(in srgb, var(--teal-400) 60%, transparent); /* L-zone line on the keys */
+  --dot-glow-mix: 70%; /* how much of a status dot's hue its glow carries, as --bg */
+
+  /* Status dot glows, one per dot hue (StatusDot). They read the theme's hue and --dot-glow-mix,
+     so light (0%) draws nothing without overriding them. */
+  --dot-glow-ok: 0 0 6px color-mix(in srgb, var(--ok) var(--dot-glow-mix), transparent);
+  --dot-glow-d: 0 0 6px color-mix(in srgb, var(--d) var(--dot-glow-mix), transparent);
+  --dot-glow-t: 0 0 6px color-mix(in srgb, var(--t) var(--dot-glow-mix), transparent);
+  --dot-glow-intro: 0 0 6px color-mix(in srgb, var(--intro) var(--dot-glow-mix), transparent);
+  --dot-glow-main: 0 0 6px color-mix(in srgb, var(--main) var(--dot-glow-mix), transparent);
+  --dot-glow-ending: 0 0 6px color-mix(in srgb, var(--ending) var(--dot-glow-mix), transparent);
+  --dot-glow-brk: 0 0 6px color-mix(in srgb, var(--brk) var(--dot-glow-mix), transparent);
+  --dot-glow-fill: 0 0 6px color-mix(in srgb, var(--fill) var(--dot-glow-mix), transparent);
 }

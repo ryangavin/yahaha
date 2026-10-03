@@ -33,29 +33,31 @@
   --stone-89: #e4e3df;
   --stone-94: #f2f1ee;
 
-  /* Hues */
+  /* Hues. Values marked C6 are darkened or lightened from the canvas to pass AA as text on the
+     ground and the button face, and under --solid-ink (Stage.md, C6). */
   --lime-400: #9fe04a;
   --lime-700: #4f8a0e;
+  --lime-750: #477b0c; /* the light waiting lime on the ground (LampButton D15) */
   --green-400: #4fd66a;
-  --green-700: #1c8040;
+  --green-700: #19733a; /* C6; the canvas's #1c8040 */
   --red-400: #e5534b;
   --red-700: #b8322c;
   --orange-400: #ff9a2e;
-  --orange-700: #c85f00;
+  --orange-700: #a24d00; /* C6; the canvas's #c85f00 */
   --violet-300: #a58cff;
   --violet-600: #5b3fd6;
   --blue-400: #3b8eff;
   --blue-700: #1257d6;
   --pink-400: #ff4f9e;
-  --pink-700: #d0186f;
+  --pink-700: #c21668; /* C6; the canvas's #d0186f */
   --teal-400: #16c7a6;
-  --teal-700: #008f78;
+  --teal-700: #007360; /* C6; the canvas's #008f78 */
   --gold-400: #bfb24e;
-  --gold-700: #857a1f;
-  --rose-400: #c45a5a;
+  --gold-700: #6e651a; /* C6; the canvas's #857a1f */
+  --rose-400: #c66060; /* C6; the canvas's #c45a5a */
   --rose-700: #a84444;
-  --plum-400: #8f62a8;
+  --plum-400: #986faf; /* C6; the canvas's #8f62a8 */
   --plum-600: #7a4a96;
   --slate-400: #7a9ea6;
-  --slate-600: #4d7480;
+  --slate-600: #476b76; /* C6; the canvas's #4d7480 */
 }

@@ -35,11 +35,17 @@ const preview: Preview = {
   ],
   parameters: {
     layout: 'centered',
-    // The ground comes from the theme's --g token, not from the backgrounds tool.
-    backgrounds: { disable: true },
+    // The backgrounds tool sets the canvas; its options are the two themes' ground (--g).
+    backgrounds: {
+      options: {
+        dark: { name: 'Dark ground', value: '#000000' },
+        light: { name: 'Light ground', value: '#f2f1ee' },
+      },
+    },
     controls: { expanded: true },
     a11y: { test: 'error' },
   },
+  initialGlobals: { backgrounds: { value: 'dark' } },
 }
 
 export default preview

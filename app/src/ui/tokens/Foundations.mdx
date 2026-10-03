@@ -27,11 +27,32 @@ export const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, m
 export const label = { fontSize: 'var(--text-12)', color: 'var(--m)', lineHeight: 1.4 }
 export const name = { fontFamily: 'var(--font-mono)', fontSize: 'var(--text-12)', color: 'var(--t)' }
 
+/* A number or percentage (an opacity, a mix amount): listed by Amounts, not drawn as a swatch. */
+export const isAmount = (value) => /^-?[\d.]+(%|ms)?$/.test(value)
+
+/* Tokens listed by value: the amounts in `css`, or the tokens of `css` named in `names`. */
+export const Amounts = ({ css, names }) => {
+  const overrides = useTheme() === 'light' ? Object.fromEntries(tokens(light).map((t) => [t.name, t.value])) : {}
+  return (
+  <div style={{ margin: 'var(--space-16) 0' }}>
+    {tokens(css)
+      .filter((t) => (names ? names.includes(t.name) : isAmount(t.value)))
+      .map((t) => (
+        <div key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-16)' }}>
+          <span style={{ ...name, width: 200, flex: 'none' }}>{t.name}</span>
+          <span style={label}>{overrides[t.name] ?? t.value}{t.note ? ` · ${t.note}` : ''}</span>
+        </div>
+      ))}
+  </div>
+  )
+}
+
 export const Swatches = ({ css, glows = false }) => {
   const overrides = useTheme() === 'light' ? Object.fromEntries(tokens(light).map((t) => [t.name, t.value])) : {}
   return (
   <div style={grid}>
     {tokens(css)
+      .filter((t) => !isAmount(t.value))
       .filter((t) => glows === /px/.test(t.value))
       .map((t) => ({ ...t, value: overrides[t.name] ?? t.value, note: overrides[t.name] ? '' : t.note }))
       .map((t) => (
@@ -76,9 +97,9 @@ export const Type = () => (
   </div>
 )
 
-export const Sizes = ({ prefix }) => (
+export const Sizes = ({ prefix, names }) => (
   <div style={{ margin: 'var(--space-16) 0' }}>
-    {tokens(scale, prefix).map((t) => (
+    {tokens(scale, prefix).filter((t) => !names || names.includes(t.name)).map((t) => (
       <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-16)', minHeight: 24 }}>
         <span style={{ ...name, width: 200, flex: 'none' }}>{t.name}</span>
         <span style={{ ...label, width: 64, flex: 'none' }}>{t.value}</span>
@@ -104,6 +125,12 @@ The Push canvas's own names. A swatch is the role's colour in the current theme.
 
 <Swatches css={dark} glows />
 
+### Amounts
+
+Opacities and mixes the roles apply to a colour.
+
+<Amounts css={dark} />
+
 ## Palette
 
 The raw colours. Only the theme files read them.
@@ -125,3 +152,13 @@ The raw colours. Only the theme files read them.
 ## Controls
 
 <Sizes prefix="--control-" />
+
+## Component sizes
+
+The boards' fixed widths and heights.
+
+<Sizes prefix="--" names={['--button-band-width', '--button-pair-width', '--caret-width', '--bar-bottom', '--bar-lift', '--bar-height', '--tab-height-header', '--tab-block', '--tab-block-header', '--group-header-height', '--block-height', '--block-height-knob', '--chip-height', '--chip-height-display', '--chip-max']} />
+
+## Tracking and motion
+
+<Amounts css={scale} names={['--tracking-36', '--long-press']} />
