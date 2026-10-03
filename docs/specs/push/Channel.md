@@ -66,7 +66,8 @@ right and 16 top and bottom gives the content box `48,128 1344×436`, a row with
 
 ### Compact block
 
-`48,128 320×84`, a `role="group"` `aria-label="Now playing"`, a column, `overflow: hidden`; not
+`48,128 320×84`, a `role="group"` whose `aria-label` is the "Now playing: …" template at the end
+of this section, a column, `overflow: hidden`; not
 a control, no tooltip of its own except the chord's (`display.chord`) and tempo's
 (`display.tempo`). Everything in it is the Stage display's, at the compact size; the count row
 above carries beat, bar and next. Its rows take 16 + 12 + 48 = 76 of the 84: the last 8px are
@@ -115,9 +116,9 @@ empty, so the parts list below lands on the board's y.
 - **Entry**, a text button: 32 tall, padding 0 8, radius 0, no border except
   `border-bottom: 1px solid` (`--line`; the open part: its hue), items centred, gap 8, left
   aligned, no wrap; `aria-current="true"` on the open part.
-  - **Tag**, `min-width: 22px`, 13 / 500: "R1", "R2", "R3", "L", "Rhythm 1", "Rhythm 2", "Bass",
-    "Chord 1", "Chord 2", "Pad", "Phrase 1", "Phrase 2" (fixed; the Style names are
-    `styleParts[i].name`). Colour: the part hue for a keyboard part (`--r1 --r2 --r3 --l`), `--t2`
+  - **Tag**, `min-width: 22px`, 13 / 500: "R1", "R2", "R3", "L" (fixed strings), then
+    `styleParts[i].name` read from the state ("Rhythm 1", "Rhythm 2", "Bass", "Chord 1", "Chord
+    2", "Pad", "Phrase 1", "Phrase 2" in the fixture). Colour: the part hue for a keyboard part (`--r1 --r2 --r3 --l`), `--t2`
     for a Style part (Style parts carry no hue); `--d` when the part doesn't sound (keyboard:
     `sounding` false; Style: `on` false).
   - **Name**, 14 / 400, `min-width: 0`, ellipsis: a keyboard part's sound name (Stage › Sounds
@@ -147,9 +148,9 @@ first: the plugin line has `flex-shrink: 0.5`, the name 1). Left under Manual Ba
 |---|---|---|---|---|---|
 | "Channel" | 14 `--m`; not a control | — | — | — | — |
 | Part block | padding 0 8, 14 / 500, line-height 22, `--g` on the part hue (`data-hue`); not a control | `keyboardParts[part].name` ("Right 1") | — | `mixer.channel` (the MIDI channel) | — |
-| Sound | a text button, 32 tall, items on the baseline, gap 8: the number 12 `--m`, the name 16 `--t`, then the marks (kit › FaderStrip, name button marks: edited dot, ⚠, ✕; "off" 12 `--m` when the part doesn't sound). Not sounding: the number `--d`, the name `--m` (as the Stage's sound cell) | number and name as Stage › Sounds row (patch number from `soundLibrary.patches`, `sound.name` else `voiceName`) | opens the quick sound list for the part (#514; interim D32: Library › Sounds) | `launchkey.fader_sound` | — |
+| Sound | a text button, 32 tall, items on the baseline, gap 8: the number 12 `--m`, the name 16 `--t`, then the marks (kit › FaderStrip, name button marks: edited dot, ⚠, ✕; "off" 12 `--m` when `on` is false and the part doesn't sound, as Stage › Sounds row: a part silenced by another's solo shows no "off"). Not sounding: the number `--d`, the name `--m` (as the Stage's sound cell) | number and name as Stage › Sounds row (patch number from `soundLibrary.patches`, `sound.name` else `voiceName`) | opens the quick sound list for the part (#514; interim D32: Library › Sounds) | `launchkey.fader_sound` | — |
 | "Mine" | 12 / 500 `--a`; not a control; hidden otherwise | `sound.id` is `saved:<id>` or `inMySounds(soundLibrary.patches, sound.id)` (`app/src/panels/sounds/instruments.ts`) | — | `channel.sound_mine` (new) | — |
-| Plugin line | 12 `--m`, hidden when `plugin` is absent: "{plugin.name} · {status}{ · in process}"; the name, the separators and " · in process" in `--m`; the status word is its own span, coloured and carrying `data-hue`: `loading` `--m` (`m`), `playing` `--ok` (`ok`), `failed` `--ending` (`ending`), `muted` `--warn` (`warn`); "in process" when `outOfProcess` is false, with a 12px `--warn` ⚠ before it when `inProcessFallback`; `missing` true → "{name} · missing", the word "missing" in that span in `--warn` (`warn`), whatever `status` says, and no "in process" | `keyboardParts[part].plugin` | not a control | `part.plugin` | — |
+| Plugin line | 12 `--m`, hidden when `plugin` is absent; four spans in a row with no whitespace between them: the name span "{plugin.name} · " (`--m`), the **status span** (the status word, coloured and carrying `data-hue`: `loading` `--m` (`m`), `playing` `--ok` (`ok`), `failed` `--ending` (`ending`), `muted` `--warn` (`warn`)), then, when `outOfProcess` is false, the separator span " · " (`--m`) and the process span "in process" (`--m`) which, when `inProcessFallback`, starts with a 12px `--warn` ⚠ and a 3px gap ("⚠ in process"); `missing` true → the status span reads "missing" in `--warn` (`warn`), whatever `status` says, and the separator and process spans are not drawn | `keyboardParts[part].plugin` | not a control | `part.plugin` | — |
 | Edit | off face, 26 tall, padding 0 10, 13px; shown only when `plugin.editor` | — | `app.pluginEditor(part, true)` (`app/src/lib/store.svelte.ts`, which forwards to the session's `pluginEditor`: the shell's `open_plugin_editor`; the dev mock's flips `soundEdited` and posts a message) | `part.plugin_edit` | — |
 | CPU | `margin-left: auto`; "CPU " 13 `--m`, the number 16 / 300 `--t` in its own span, "%" 12 `--m`; not a control | the `meters.channels` entry whose `channel` equals `keyboardParts[part].channel`: `Math.round(cpu × 100)`; no such entry (no synth): the number span reads "—" in `--d` (`data-hue="d"`), "CPU " stays, "%" is not drawn | — | `mixer.cpu` | — |
 | ◀ | 32 × 32 off face, 12px | — | the part opener on `(part + 11) mod 12` | `mixer.channel.prev` | — |
@@ -180,7 +181,8 @@ Three row shapes are used everywhere in the groups:
   right-aligned part comes after `margin-left: auto`. (The Sends header alone is 32 tall, its
   button 31.)
 - **Bar readout** (the `BarReadout` component), 32 tall, items centred, gap 10: the label 76
-  wide, 14 / 400 `--t`, no wrap; the bar (`role="slider"`, `flex: 1`, 32 tall, `position:
+  wide, 14 / 400 `--t`, no wrap, `overflow: hidden`, ellipsis (an insert setting's
+  "Sensitivity" or "Frequency" may end in one); the bar (`role="slider"`, `flex: 1`, 32 tall, `position:
   relative`, transparent, no border; about 72px wide at this column width); the **value slot**
   58 wide, right-aligned, no wrap, `overflow: hidden`, holding the value 18 / 300 `--t` and then
   the unit 12 / 400 `--m` with 2px left margin (no unit: nothing); a value and unit too wide for
@@ -219,8 +221,9 @@ no movement sends nothing. Wheel: one unit per notch, up (`deltaY < 0`) positive
 control: one step). Right and Up +1, Left and Down −1, PageUp/PageDown ±10 (a stepped control:
 ±1 and ±10 steps), Home/End the ends; `stopPropagation` as the kit's faders. Double-click resets
 to the control's
-default (given per row). Cursor `ew-resize` while dragging. Each change sends the row's
-command with the value filled in.
+default (given per row); a double-click sends the default even when the value is already there
+(a reset is a deliberate act, and the command is idempotent). Cursor `ew-resize` while
+dragging. Each change sends the row's command with the value filled in.
 
 #### A · Mix and Sends
 
@@ -250,8 +253,8 @@ Then, 12 below, the **Sends header**, 32 tall, hairline, space between: "Sends" 
 "1–6" 12 `--m` after it; **+ Add send**, a text button 31 tall, 14 `--t2`, the "+" at weight
 300 (`aria-haspopup="listbox"`, `aria-expanded`): opens the kind menu (Groups › D, Kind menu)
 with the twelve send kinds (Hall, Room, Stage, Plate, Chorus, Celeste, Flanger, Delay 1/8, Delay
-1/8., Delay 1/4, Ping-Pong, Phaser; the `SendKind` names in app-api.md › Send kinds; none is
-current, so the cursor starts on Hall); picking one sends `addSend { kind }`. Disabled
+1/8., Delay 1/4, Ping-Pong, Phaser: `SEND_KINDS` in `app/src/panels/effects/sendKinds.ts`, in
+its order, each entry's `name`; none is current, so the cursor starts on the first); picking one sends `addSend { kind }`. Disabled
 (`aria-disabled`, `--d`) when six sends exist. Tooltip `channel.add_send` (new). `aria-label`
 "Add a send effect ({n} of 6)" with n = the number of sends + 1; full: "Add a send effect: all
 six added".
@@ -367,7 +370,8 @@ Launchkey: none.
 - **Header**, 24 tall, hairline, gap 8: "Inserts" 14 `--m`; `margin-left: auto`; **Rotary
   fast**, a LampButton 22 tall, padding 0 10, 12px, radius 4 (`size xs`): on = `effects.rotaryFast`;
   sends `toggleRotaryFast`; tooltip `fx.rotary_fast`; `aria-label` "Rotary fast, global: the
-  rotary speed for every part"; then "global" 12 `--m`. Launchkey: Shift + encoder page ▲.
+  rotary speed for every part"; then "global" 12 `--m`. Launchkey: Shift + encoder page ▲ (its
+  tooltip's `launchkey` line is `null` today; CH-C1 adds it, as the Effects spec's FXC1 does).
 - **Slot 1**, 8 below, a row 32 tall, gap 8: "1" 12 `--m`, 12 wide; the **kind button**
   (`flex: 1`, 32 tall, off face, padding 0 10, 14px, items centred, space between: the kind's
   `name` in `--t` (`--m` for "None"), then "▼" 10px `--m`); the **On** lamp (LampButton `cell`
@@ -404,9 +408,12 @@ semitones". Launchkey: none
 
 **Kind menu** (the `KindMenu` component, new; CH-D13). The insert kind button
 (`aria-haspopup="listbox"`, `aria-expanded`) and + Add send open a popover `role="listbox"`
-in the **overlay layer**: a `position: absolute; inset: 0` div at the root of the `Channel`
-component, above everything else in it, positioned in the 1440 × 900 coordinates (so the D1
-scaler scales it with the page and no column clips it). The popover's top edge sits on the
+in the **overlay layer**: a `position: absolute; inset: 0; pointer-events: none` div at the
+root of the `Channel` component, last in its DOM and above everything else in it, positioned in
+the 1440 × 900 coordinates (so the D1 scaler scales it with the page and no column clips it);
+the popover itself has `pointer-events: auto`, so clicks elsewhere reach the page as usual and
+"a click outside" is any pointerdown whose target is not inside the popover (a document
+listener while it is open; that click also does what it would have done anyway). The popover's top edge sits on the
 button's bottom edge (gap 0), it is the button's width (Add send: 160 wide, its right edge on
 the button's right edge), `--btn` fill, radius 4, 4px padding, `box-shadow: none`. It may cover
 the half band. When its bottom would pass y 876 (the key strip's bottom) it opens upward, its
@@ -414,7 +421,8 @@ bottom edge on the button's top edge; its height is capped so it stays inside y 
 (then its list scrolls, `overflow-y: auto; scrollbar-width: thin`). On the board: the
 seven-kind insert menu (232 tall) opens downward from slot 1 (its row y 208 to 240: the menu y
 240 to 472) and from slot 2 (row y 348 to 380: the menu y 380 to 612); the twelve-kind send
-menu (392 tall) opens downward from + Add send (y 340 to 732).
+menu (392 tall) opens downward from + Add send (the button y 308 to 339 inside its 32px header:
+the menu y 339 to 731).
 One `role="option"` per kind, 32 tall, padding 0 10, 14 / 400 `--t2`, no wrap; the current kind
 (`aria-selected="true"`) `--t` weight 500; the option under the pointer or the keyboard cursor
 `background: var(--line)` (the one hover look the kit allows, because a menu needs a cursor;
@@ -424,7 +432,9 @@ which tracks the cursor with `aria-activedescendant`; the cursor starts on the c
 the row's command and closes; on the current kind it only closes (so re-picking Rotary doesn't
 reset its settings); Esc, a click outside or Tab closes without sending; Up/Down move the cursor
 without wrapping, Home/End to the ends. After Esc or a pick, focus returns to the button; after
-a click outside or Tab it goes where the click or Tab took it. Insert kinds, in order
+a click outside it goes where the click took it; Tab and Shift+Tab close the menu and move
+focus to the element after or before the **button** in the tab order (the menu intercepts the
+key and focuses that element itself, since the popover sits at the end of the DOM). Insert kinds, in order
 (`INSERT_KINDS` in `channel.ts`): None,
 Distortion, Compressor, Auto Wah, Tremolo, Rotary, Phaser; a slot whose kind this build doesn't
 know lists it too, last, by its own name. Tooltip on the button and on every option: the
@@ -445,7 +455,7 @@ on the Stage.
 |---|---|
 | Playing, Right 1 open (the board) | as drawn |
 | Another keyboard part open | the header block, parts-list entry and every bar's hue follow the part (`--r2`, `--r3`, `--l`); the rows read that part's state |
-| A Style part open | spec #518 (Channel-StylePart). Until it lands (CH-D14): the same page with `mixer.styleParts[p]` (`p = part − 4`) and its `strip`; the block and bars in `--t2`; Level reads `styleParts[p].volume` (↕ from its `waiting`) and sends `setStylePartVolume { part: p, volume }` (tooltip `mixer.style.volume`); On lit from `styleParts[p].on` (the state already folds Manual Bass in), click `toggleStylePart { part: p }`, no long press (tooltip `mixer.style.mute`); Solo lit when `mixer.styleSolo === p`, click `setStyleSolo { part: p }` or `{ part: null }` when lit (tooltip `mixer.solo`); the Pan row disabled ("—"); the sound is a plain readout, not a button: `voice.label` 16 `--t` (null voice: "—" in `--d`), no number, Mine, plugin line or Edit (tooltip `mixer.strip.voice`); CPU from channel `styleParts[p].channel`; the Tone rows disabled ("—"); the Play rows disabled: Mono's lamp `aria-disabled` with label "Off", Portamento's bar disabled ("—"), Octave's and Bend's steppers `aria-disabled` with the value "—" in `--d` (a Style part has no `controllers.parts` entry); sends 1–6 as `setStripSend { strip: part }`; the EQ rows as `setStripEq { strip: part }`; the Compressor group unchanged (`setStripCompressor* { strip: part }`); **the Inserts group unchanged and live** (CH-D23): slot 1 is the style's insertion effect for the part (`styleParts[p].strip.inserts[0]`: kind, On, settings), slot 2 the strip's own, both editing with `setStripInsertKind` / `On` / `Setting { strip: part, … }`, which the API maps onto `setPartInsertOn` and `setPartInsertAmount` (slot 0's On and setting 0); a part whose style gives no insert shows "None" in slot 1, as a keyboard part's empty slot |
+| A Style part open | spec #518 (Channel-StylePart). Until it lands (CH-D14): the same page with `mixer.styleParts[p]` (`p = part − 4`) and its `strip`; the block and bars in `--t2`; Level reads `styleParts[p].volume` (↕ from its `waiting`) and sends `setStylePartVolume { part: p, volume }` (tooltip `mixer.style.volume`); On lit from `styleParts[p].on` (the state already folds Manual Bass in), click `toggleStylePart { part: p }`, no long press (tooltip `mixer.style.mute`); Solo lit when `mixer.styleSolo === p`, click `setStyleSolo { part: p }` or `{ part: null }` when lit (tooltip `mixer.solo`); the Part block reads `styleParts[p].name` ("Rhythm 1"); the Pan row disabled ("—"); the sound is a plain readout, not a button: `voice.label` 16 `--t` (null voice: "—" in `--d`), no number, Mine, plugin line or Edit (tooltip `mixer.strip.voice`); CPU from channel `styleParts[p].channel`; the Tone rows disabled ("—"); the Play rows disabled: Mono's lamp `aria-disabled` with label "Off", Portamento's bar disabled ("—"), Octave's and Bend's steppers `aria-disabled` with the value "—" in `--d` (a Style part has no `controllers.parts` entry); every disabled bar keeps its `aria-label`, has `aria-valuetext` "{label}, not available" ("Pan, not available", "Cutoff, not available", "Portamento, not available") and no `aria-valuenow`; the disabled stepper values are named "Octave, not available" and "Bend range, not available"; sends 1–6 as `setStripSend { strip: part }`; the EQ rows as `setStripEq { strip: part }`; the Compressor group unchanged (`setStripCompressor* { strip: part }`); **the Inserts group unchanged and live** (CH-D23): slot 1 is the style's insertion effect for the part (`styleParts[p].strip.inserts[0]`: kind, On, settings), slot 2 the strip's own, both editing with `setStripInsertKind` / `On` / `Setting { strip: part, … }`, which the API maps onto `setPartInsertOn` and `setPartInsertAmount` (slot 0's On and setting 0); a part whose style gives no insert shows "None" in slot 1, as a keyboard part's empty slot |
 | Stopped | compact block: run dot hidden, section in `--m` (Stage D4); count row and band as the Stage's Stopped state |
 | Sync Start armed | compact run dot a hollow ring, "Sync start"; count row and pad 4 as the Stage's |
 | Part off (`on` false, not sounding) | On lamp off ("Off"); parts-list tag `--d`, name `--m`; the sound cell's "off" mark; the strip in the band as kit › FaderStrip, Part off. Every row still edits |
@@ -531,9 +541,9 @@ this spec and the Kit additions.
 
 | # | Component | Kind | Built from | Exists | Board lines (dark / light) | Spec |
 |---|---|---|---|---|---|---|
-| 0 | tokens | — | — | yes (Stage adds the kit's); **add** to `scale.css` `--text-15`, `--text-16`, `--text-24`, `--text-48` (the half strips' values, the sound name, the compact section and chord) | 66, 71 / 30, 35 | kit › Tokens |
+| 0 | tokens | — | — | yes (Stage adds the kit's); **add** to `scale.css` `--text-8` (the half transport's Fill arrows), `--text-15`, `--text-16`, `--text-24`, `--text-48` (the half strips' values, the sound name, the compact section and chord) | 66, 71 / 30, 35 | kit › Tokens |
 | 1 | LampButton | primitive | longpress | yes; **add** `size xs` (22 tall, padding 0 10, 12px), `size half` (`cell` at a 12px label, for the half band's lamp row) and fixed widths 72 / 52 at `cell`, `size sm` at 52 | 208–209, 266, 296, 302, 325, 407–414 / −36 | kit › Faces; this file |
-| 2 | Button | primitive | longpress | Stage; **add** variants `menu` (32 tall, padding 0 10, space between, ▼), `step` (32 × 28), `edit` (26 tall, padding 0 10, 13px), `half` (40 × 32, 28 × 28, 24-tall transport cells) | 185, 187–188, 301, 319, 337–345, 424–425, 433–439, 481–491 / −36 | kit › Faces (off) |
+| 2 | Button | primitive | longpress | Stage; **add** variants `menu` (32 tall, padding 0 10, space between, ▼), `step` (32 × 28), `edit` (26 tall, padding 0 10, 13px), `half` (40 × 32, 28 × 28, 24-tall transport cells, and the half lamp row's master button: the column's full width, 32 tall, 12px centred, padding 0 4) | 185, 187–188, 301, 319, 337–345, 424–425, 433–439, 481–491 / −36 | kit › Faces (off) |
 | 3 | ChosenTabs | primitive | — | Stage; **add** `size chip` (26 tall, padding 0 8, 14px, full block, wrapping) | 269–275, 359–371 / −36 | Groups › C; Kit additions › Half band |
 | 4 | AccentBlock | primitive | — | Stage; **add** `size line` (13 / 500, line-height 16, padding 0 6) and a hue prop (the part block: 14 / 500, line-height 22, padding 0 8, `--g` on the hue) | 145, 178, 432 / −36 | Compact block; Part header |
 | 5 | StatusDot | primitive | — | Stage | 147 / 111 | Compact block |
@@ -619,7 +629,8 @@ until it lands the screen behaves as its row says.
    "opens the part's channel", the wording kit › Faders and Stage › Sounds row give the strip
    name and the tag). Launchkey fields:
    `mixer.channel.level` "Panel fader 1–4"; `mixer.strip.send` "Reverb, Chorus and Delay fader
-   layers (sends 1–3); swap knob 8 (send 4)". `mixer.channel.close` and
+   layers (sends 1–3); swap knob 8 (send 4)"; `fx.rotary_fast` "Shift + encoder page ▲" (the
+   same line the Effects spec's FXC1 adds; whichever lands first). `mixer.channel.close` and
    `mixer.channel.portamento_time` are dropped by the Channel build PR itself, with
    `ChannelView.svelte` and its tests (they still use them, so the contract PR can't). The
    tooltip coverage test (`app/src/help/coverage.test.ts`) gains the Channel page and an open
@@ -660,23 +671,26 @@ tested as the two spans).
 1. Parts list: twelve entries in the order R1, R2, R3, L, Rhythm 1 … Phrase 2; entry 1 has
    `aria-current="true"`, `data-face="chosen"`, its tag `data-hue="r1"`, and is named "Part 1 of
    12: R1 Stage Grand, open"; entry 3 is named "Part 3 of 12: R3 Brass Section, off" and its tag
-   has `data-hue="d"`; a Style entry shows its tag and no name; the header reads "Part 1 of 12";
+   has `data-hue="d"`; a Style entry shows its tag and no name; the header's count span reads "1
+   of 12";
    clicking entry 2 sets `ui.selectedPart` to 1 and sends `selectPart {part: 1}`; clicking Rhythm
    1 sets 4 and sends nothing; ▶ on part 0 does what clicking entry 2 does.
 2. Part header: the block reads "Right 1" with `data-hue="r1"`; the sound button's name is the
    Stage template's example for Stage Grand ("Right 1 sound: 1 Stage Grand. Opens the quick
-   sound list"); "Mine" is shown; the plugin line reads "Sampler Deluxe · playing · in process"
-   and "playing" has `data-hue="ok"`; Edit calls `pluginEditor(0, true)`; the CPU number reads
+   sound list"); "Mine" is shown; the plugin line's spans read "Sampler Deluxe · ", "playing",
+   " · " and "in process", and the status span has `data-hue="ok"`; Edit calls `pluginEditor(0, true)`; the CPU number reads
    "3" (with `meters.channels` empty, "—" with `data-hue="d"`); ▶ is named
    "Next part (R2)" and opens part 1; ◀ "Previous part (Phrase 2)" opens 11. With `plugin`
-   removed: no plugin line and no Edit. With `plugin.status` "failed", `missing` true: the line
-   reads "Sampler Deluxe · missing" and the "missing" span has `data-hue="warn"`.
+   removed: no plugin line and no Edit. With `plugin.status` "failed", `missing` true: the
+   status span reads "missing" with `data-hue="warn"`, and there is no process span.
 3. Compact block: the chord's runs are "Am" and "7", the tones "A C E G", "104" and "BPM", the
    run dot `data-run="running"` with `aria-label="Running"`, "Main B" `data-hue="main"`; stopped:
    `data-run="stopped"` and no label, the section `data-hue="m"`; sync start: `data-run="sync"`,
    `aria-label="Sync start"`. Its `aria-label` is the template's example; with `chord.name` null
    it contains "no chord" and the tones are empty.
-4. Bar maths (pure, `app/src/ui/BarReadout/bar.ts`): `fraction({ value, min, max, steps? })`
+4. Bar maths (pure: `fraction` and `fillBox` in `app/src/ui/BarReadout/bar.ts`, part of
+   Components row 8; `hzUnit`, `ratioText` and `dbText` in `app/src/ui/BarReadout/eq.ts`, Gap
+   against today): `fraction({ value, min, max, steps? })`
    is `(value − min) / (max − min)`, or with `steps` (a Hz table) `stepOf(steps, value) /
    (steps.length − 1)`; it gives the fixture's fractions for each row of the Groups tables
    (Level 90 → 0.709, Pan 64 → 0.504, Low +2 → 0.583, Low freq 120 → 12 / 36, High freq 8000 →
@@ -709,7 +723,7 @@ tested as the two spans).
    fast lit, click sends `toggleRotaryFast`; Insert 1 On lit, click sends `setStripInsertOn {strip:
    0, slot: 0, on: false}`; Mono off, click sends `setStripMono {strip: 0, on: true}`.
 8. EQ and Tone: rows read "Low +2 dB", "Low freq 120 Hz", "High −2 dB", "High freq 8.0 kHz";
-   Cutoff "+12", Resonance "+4", Attack "0", Release "+8", Vibrato "0"; a drag on Cutoff sends
+   "Cutoff +12", "Resonance +4", "Attack 0", "Release +8", "Vibrato 0"; a drag on Cutoff sends
    `setStripTone {strip: 0, control: 'cutoff', value}`; double-click on Cutoff sends 64; More
    is `aria-expanded="false"` and the rows Vib rate and Vib delay are absent; after a click they
    are present (reading "Vib rate 0", "Vib delay 0"), the button reads "‹ Less" and is named
@@ -718,7 +732,8 @@ tested as the two spans).
    `data-face="chosen"`; clicking Rich sends `setStripCompressorPreset {strip: 0, preset: 'rich'}`;
    rows read "Threshold −18 dB", "Ratio 3:1", "Attack 10 ms", "Release 120 ms", "Make-up 0
    dB"; a drag on Ratio sends `setStripCompressorParam {param: 'ratio'}`; double-click on
-   Threshold sends −24 and on Make-up 0 (Punchy's); the Punchy tab is the only tab with `tabindex`
+   Threshold sends −24 and on Make-up sends 0 although it is 0 already (Punchy's; a reset
+   always sends); the Punchy tab is the only tab with `tabindex`
    0, ArrowRight moves focus to Electronic without sending, Enter there sends the preset; a click
    on Punchy sends `setStripCompressorPreset {preset: 'punchy'}`; with `edited` false, no
    "Edited".
@@ -957,7 +972,8 @@ Header row, gap 12, as kit › Faders (the layer tabs' padding is `11px 8px 0` h
 
 - **Strips** (84 tall): `repeat(9, minmax(0, 1fr))`, gap 8 (61.1px each), each a column: the
   **fader** (a 66-tall button, `position: relative`, full width) over the **name button** (18
-  tall, 12 / 500 in the hue, centred, gap 4, the kit's marks at 11px).
+  tall, 12 / 500 in the hue, centred, gap 4, the kit's marks with the ⚠ and ✕ at 11px and the
+  edited dot 4px).
   - **Value**: top 0, 16 tall, centred, 15 / 300, in the hue (the kit's formats by layer).
   - **Track**: from 19 to 63 (`TOP` 19, travel 44). Two 6px meter bars at `50% − 11px` and
     `50% − 3px`, top 19 bottom 3, on `--mbg` (hidden, `opacity: 0`, when unused or layered): the
@@ -981,7 +997,8 @@ Header row, gap 12, as kit › Faders (the layer tabs' padding is `11px 8px 0` h
   then the row (32 tall, 2px below, gap 8, the 1px `--line` divider between columns 4 and 5 at
   `left: calc((100% − 64px) × 4 / 9 + 28px)`): the kit's nine buttons (kit › Lamp row; the master
   button reads "Panel" / "Style") as LampButton `size half` (the `cell` size with a 12px label,
-  Components row 1) and the master button a `band`-style Button at 12px.
+  Components row 1) and the master button a Button `half` (the column's full width, 32 tall,
+  12px centred, padding 0 4; Components row 2).
 
 #### Track
 
@@ -1022,10 +1039,12 @@ padBankDown].action`, tooltips `padpage.prev`, `padpage.next`); "Bank" 13 `--m` 
   currentColor; border-top/bottom: 3.5px solid transparent`, 3px left margin) and the ■ a 6 × 6
   `currentColor` square (3px left margin). Faces from `level` and `anim` as kit › Pad: Idle
   `--btn` with the family hue caption (utility `--t2`); Absent caption `--d`; Playing hue fill
-  and border, `--solid-ink` caption; Next `--btn`, hue border, `--t` caption at line-height 23,
-  and a 2px bar (radius 1) at bottom 3, left and right 8, in the hue with the `--bar-glow-mix`
-  glow, flashing on the LED clock; Armed `--btn`, hue border, glow at `--glow-mix`, `--t`
-  caption, pulsing; On (a utility switch) `--lamp`. Start / Stop (pad 16) in `--ok`. Other pages:
+  and border, `--solid-ink` caption, the kit's 12px glow at `--glow-mix`; Next `--btn`, hue
+  border, `--t` caption at line-height 23, and a 2px bar (radius 1) at bottom 3, left and right
+  8, in the hue with the `--bar-glow-mix` glow, flashing on the LED clock; Armed `--btn`, hue
+  border (light theme: plus the kit's `--armed-ring` inset ring), glow at `--glow-mix`, `--t`
+  caption, pulsing; On (a utility switch) `--lamp`. Every glow and ring is kit › Pad's; only
+  the geometry above changes. Start / Stop (pad 16) in `--ok`. Other pages:
   the kit's fallback (D33) with `pads.pads[i].label` as the caption. `aria-label`, press,
   tooltips and Launchkey as kit › Pad.
 
@@ -1057,7 +1076,8 @@ line** (20 tall), 4px, the **key strip** (56 tall, kit › Key strip, unchanged)
 The status line is one row, 20 tall, items centred, gap 16, no wrap: the kit's status line
 (`role="status"`, `aria-live="polite"`, `flex: 1`, `min-width: 0`, ellipsis; `state.message`
 only, never coaching, the clear button as kit › Status line) and then, right-aligned, the **key
-readouts**, each 13 / 400 `--m` with its value in `--t`:
+readouts** in a row with gap 16, each a label span 13 / 400 `--m` and, 4px after it
+(`margin-left: 4px`), its value span 13 / 400 `--t`:
 
 | Readout | Reads | Value |
 |---|---|---|
