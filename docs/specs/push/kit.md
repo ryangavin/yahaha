@@ -264,9 +264,15 @@ given): that one stays for the old panels and nothing in `app/src/ui` imports it
   name, the lamp row, knob ▲ ▼ and knobs, pad ▲ ▼ and pads 1–16, transport, tempo), the status
   line when it has a message. The key strip and every non-control are not focusable. The window
   key handler stays as it is (`app/src/lib/shortcuts.ts`, `lib/keys.ts`): it already leaves
-  Space and Enter to a focused button; faders and knobs handle their own arrows and
-  PageUp/PageDown and call `stopPropagation`, so the global ← → (`stepStyle`) don't fire while
-  one has focus.
+  Space and Enter to a focused `<button>` and Alt + letter works everywhere. **Global keys a
+  control must stop:** a focused fader or knob (`role="slider"`) handles ↑ ↓ ← → (±1; ← and →
+  the same as ↓ and ↑, as a native slider does) and PageUp / PageDown (±10), the fader also
+  Home / End (0 / 127), in its own `keydown` and calls `stopPropagation()` on exactly those
+  keys, so the window bindings for ← → (`stepStyle`) and PageUp / PageDown (`cyclePadPage`)
+  don't fire while one has focus (↑ ↓ Home End have no window binding today). Every other key
+  passes through: Space on a focused fader still starts and stops the band, Escape still blurs
+  it (the handler's own rule). Tabs (`ChosenTabs`) are buttons: they handle no keys of their
+  own and stop nothing.
 - **Links to pages not built yet (D32):** a control that opens a page or popover whose spec
   hasn't been built opens today's equivalent drawer or panel where one exists, else it is drawn
   in its face but disabled (`aria-disabled`, its tooltip still says what it will do). The
@@ -504,7 +510,8 @@ strip's middle (32.8px at the 65.6px width).
   pointer), with pointer capture. A send goes out when the whole-number value changes, at most
   once per animation frame (the latest value of that frame), and the last value is always sent
   on pointerup. Wheel ±1 per notch; double-click resets to 100 (pan to 64, sends to 0); arrows
-  ±1, PageUp/PageDown ±10. Each change sends `surface.faders[i].set` with its value field
+  ±1, PageUp/PageDown ±10, Home/End 0/127 (the keys it stops: Interaction conventions ›
+  Keyboard). Each change sends `surface.faders[i].set` with its value field
   (`volume`, `pan` or `value`) filled in; with the controller map's `moveRackFader` the field is
   `volume`. Tooltips: `mixer.panel.right1` … `mixer.panel.left`,
   `mixer.part.pan`, `mixer.part.reverb`, `mixer.part.chorus`, `mixer.part.variation` by layer;
@@ -579,7 +586,9 @@ From `knobs.knobs[i]` (`function`, `name`, `short`, `value`, `level`). A 68 × 9
   press point, with pointer capture: one `turnKnob { knob, delta }` per whole 4px travelled
   (Shift: per 12px), up positive; the steps of one animation frame go as one `turnKnob` with
   their sum as `delta`; wheel ±1 per notch; double-click
-  `resetKnob { knob }`; arrows ±1. No Assign: `aria-disabled`. Tooltip `knobs.knob`. Launchkey:
+  `resetKnob { knob }`; arrows `turnKnob` ±1, PageUp/PageDown ±10; no Home/End (a knob's
+  steps are not a level: Retrigger Rate switches every 3) (the keys it stops: Interaction
+  conventions › Keyboard). No Assign: `aria-disabled` and no key does anything. Tooltip `knobs.knob`. Launchkey:
   knobs 1–8. In swap mode `turnKnob` acts as `turnSwapKnob` on the session's side, so the screen
   sends the same command.
 

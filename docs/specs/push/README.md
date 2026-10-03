@@ -13,6 +13,9 @@ One spec per Push board (`docs/design/push/`), each from its `spec` issue (#500 
 - **Every link:** where it goes, and what it does until that page's spec is built (the kit's interim rule: today's drawer or panel if one exists, else disabled with its tooltip).
 - **Tokens:** colours, type and spacing by name, defined once in kit.md; dark and light; each glow and mix token assigned to the elements that use it.
 - **States and interactions:** what changes on click, hold, Shift and key; hover and cursor; tab order; what the screen shows when empty or in trouble.
+- **Global keys:** for every control that handles keys itself (a fader, a knob, a tab list, a text field), which of the window handler's bindings (`app/src/lib/keys.ts`) it must stop while it has focus, and how (`stopPropagation` on its own `keydown`); the rest keep working through it.
+- **Pure functions, one path each:** every pure function the checks name (`splitChord`, `holdPeak`, `chosenPage`…) has its file path given once, in the Components table or the kit, and is referred to by name everywhere else; two specs never put the same function in two files.
+- **Engine-derived fixture values cite the formula:** a fixture value that the engine or the wiring computes (a meter height, a held peak, a beat position, a knob fraction) is given with the formula and inputs that produce it (`height(0.0724)` = 138, from `height()` in the kit), so a builder can check the number instead of trusting it.
 - **A board fixture that fixes the moment:** the full state that reproduces the board, consistent with what the engine would actually send, plus the clock (`now`, the anchors, the LED phase) and anything the wiring computes (meter holds), so the screenshot is the same on every run.
 - **A Components table:** every part, primitive or complex, in build order, what it's built from, whether it exists in `app/src/ui` today, and its board lines for crops.
 - **Gap against today:** what exists in `app/src` now, what changes, and tool changes the checks need (e.g. `scripts/shots.ts`).
@@ -21,6 +24,8 @@ One spec per Push board (`docs/design/push/`), each from its `spec` issue (#500 
 - **Decisions:** anything the board left open or got wrong, numbered (D1…), each a sentence a later brief can cite.
 
 A variant board (one copied from another, such as Stage-Help) specs only what differs and links its base spec.
+
+**Kit additions.** A screen spec that needs something the kit lacks (a new face variant, a token, a shared component drawn on its board) writes it under its own "Kit additions" heading, in kit.md's format, and builds against that text. It does not edit kit.md: the kit's owner folds the addition into kit.md in the PR that lands the kit change, or a follow-up kit-only PR does, and the screen spec's section then shrinks to a pointer (`kit.md › Pad`). A screen lane never touches kit.md, so two screen specs can't race on it.
 
 ## Done when (a spec)
 

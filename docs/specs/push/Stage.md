@@ -620,7 +620,7 @@ layout, which jsdom doesn't have.
    with `volume` 113 (90 + round(40 × 127 / 223)) on the pointerup; strip 2 shows "↕" and the
    ghost; the Reverb tab sends `setFaderLayer {layer: 'reverb'}`, and with that layer strips
    1–4 read "Rev …" and have no meter element.
-10. Meter maths (pure, `app/src/ui/FaderStrip/meter.ts`): `height(0.0724)` is 138,
+10. Meter maths (pure, `height` and `holdPeak`; kit › FaderStrip gives the file): `height(0.0724)` is 138,
     `height(0.001)` is 0; `holdPeak` keeps a peak for 1500 ms of `atMs` and then falls 20 dB/s.
 11. Lamps: a click on R1's On sends `togglePart {part: 0}` and its `aria-pressed` stays
     `"true"` until the state changes (D49); a 350 ms press sends `setLayer
