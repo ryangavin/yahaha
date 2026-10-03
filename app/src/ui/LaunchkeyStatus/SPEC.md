@@ -15,7 +15,7 @@
 | Prop | Type | Default | Meaning |
 |---|---|---|---|
 | `connected` | `boolean` | `false` | A Launchkey DAW port is connected. True: the solid green dot and the muted label. False: the hollow dot and the dimmed label. |
-| `tip` | `Attachment<HTMLElement> \| undefined` (`svelte/attachments`) | — | The tooltip attachment, applied to the root span (as HealthSlot's `tip`). The parent passes `fromAction(tipAction, () => 'launchkey.status')`. Stories pass `fn()`. |
+| `tip` | `Attachment<HTMLElement> \| undefined` (`svelte/attachments`) | — | The tooltip attachment, applied to the root span (as HealthSlot's `tip`). The parent passes `fromAction(tipAction, () => 'launchkey.status')`. Stories pass `fn()` (D6). |
 
 ### From the state
 
@@ -65,11 +65,11 @@
 
 ## Stories (Story station)
 
-Title `Components/LaunchkeyStatus`, `layout: 'centered'`. Every story renders in dark and light (the toolbar theme). Every story passes `tip: fn()`. Controls: `connected` (boolean). It has no callbacks and isn't focusable, so there is no `Focused` story.
+Title `Components/LaunchkeyStatus`, `layout: 'centered'`. Every story renders in dark and light (the toolbar theme). The meta's args are `{ connected: true, tip: fn() }`; each story overrides only what it lists. Controls: `connected` (boolean). `tip` gets no control and no argType override (not `control: false`, which the story test rejects as a disabled control): its argType only carries `description: 'Tooltip attachment; wired at integration'`, and the story test treats it as an action, since it is a function prop and `fn()` is a valid attachment (a spy that returns nothing) (D6). It has no callbacks and isn't focusable, so there is no `Focused` story.
 
 | Story | Args | Shows | Crop | Play (interaction check) |
 |---|---|---|---|---|
-| `Board` | `{ connected: true }` | the green dot (glowing in dark, flat in light) and "Launchkey" in `--m` | — (D2) | the `status` named "Launchkey connected" has `data-tip="launchkey.status"`, `data-connected="true"` and the text "Launchkey"; the label has `data-hue="m"`; the dot has `data-face="solid"` and `data-hue="ok"`; `tip` was called once; nothing in the story is focusable |
+| `Board` | `{ connected: true }` | the green dot (glowing in dark, flat in light) and "Launchkey" in `--m` | — (D2) | the `status` named "Launchkey connected" has `data-tip="launchkey.status"`, `data-connected="true"` and the text "Launchkey"; the label has `data-hue="m"`; the dot has `data-face="solid"` and `data-hue="ok"`; `tip` was called once, with the root span; nothing in the story is focusable: `canvasElement.querySelectorAll('button, a, input, select, textarea, [tabindex]')` is empty |
 | `NotConnected` | `{ connected: false }`, `parameters: { a11y: { config: { rules: [{ id: 'color-contrast', enabled: false }] } } }` | the hollow `--d` ring and "Launchkey" in `--d` | — (no board draws it) | the `status` named "Launchkey not connected" has `data-connected="false"` and the text "Launchkey"; the label has `data-hue="d"`; the dot has `data-face="hollow"` and `data-hue="d"` |
 
 This component has no crops: the connected pixels are checked inside `Components/AppBar` › `Board` (crop `Stage 24,24 1392×36`); the not-connected look is judged by Inspect on `NotConnected` and on `Components/AppBar` › `LaunchkeyNotConnected`.
@@ -77,7 +77,8 @@ This component has no crops: the connected pixels are checked inside `Components
 ## Done when (Inspect station)
 
 - Every story in the table exists, renders in dark and light, and its play passes (`npx vitest run src/ui`).
-- `npm run shots -- LaunchkeyStatus` finds no axe violation on any story, with `NotConnected`'s `color-contrast` rule off (D3); the connected pixels pass in `npm run shots -- AppBar`.
+- `npm run shots -- LaunchkeyStatus` finds no axe violation on any story except one: `color-contrast` on `NotConnected`'s `--d` label (D3). That one is accepted until the UI-library contract change "`scripts/shots.ts` honours `parameters.a11y.config.rules`" lands; after it, there is none. The connected pixels pass in `npm run shots -- AppBar`.
+- `npx vitest run src/ui` passes `NotConnected`'s a11y check: the story test honours `parameters.a11y`, and jsdom doesn't check colour contrast anyway.
 - Only listed tokens are used; no inline colours, no literal sizes outside the Visual rules.
 - svelte-check and lint pass on the folder.
 
@@ -85,6 +86,11 @@ This component has no crops: the connected pixels are checked inside `Components
 
 - **D1 · Own label, child dot.** LaunchkeyStatus draws the word itself and passes the dot's look to StatusDot; the green glow is StatusDot's solid `ok` glow (`--dot-glow-mix`, which in dark equals the board's `--bg`), so this component names no glow token.
 - **D2 · No crop.** Its box is the dot, the gap and the text width (about 82.7 × 18 px from x 1229 on the board), not whole pixels, so it has no crop of its own; AppBar's `Board` crop checks it at its board position.
-- **D3 · The dimmed label stays `--d`.** Not connected, the label is `--d` as kit › App bar draws it (the "absent" dimming), below AA; the state is carried by the accessible name, so `NotConnected` (here and in AppBar) turns off axe's `color-contrast` rule. `scripts/shots.ts` runs axe without story parameters today, so it must honour `parameters.a11y.config.rules` (a UI-library contract change) before those stories pass `npm run shots`; an owner question offers `--m` instead.
+- **D3 · The dimmed label stays `--d`.** Not connected, the label is `--d` as kit › App bar draws it (the "absent" dimming), below AA; the state is carried by the accessible name, so `NotConnected` (here and in AppBar) sets `parameters.a11y.config.rules: [{ id: 'color-contrast', enabled: false }]`. `stories.test.ts` honours `parameters.a11y` (Storybook's a11y annotations) but checks no colour contrast in jsdom; `scripts/shots.ts` runs axe on `#storybook-root` with no per-story config, so the label fails there until the UI-library contract change "`scripts/shots.ts` honours `parameters.a11y.config.rules`" lands, and Done when accepts that one violation meanwhile.
 - **D4 · Same word in both states.** The visible text is "Launchkey" whether connected or not; only the dot, the colour and the accessible name change.
 - **D5 · Tooltip by attachment.** The root is this component's own element, so it takes the tooltip as a `tip` attachment, as HealthSlot does (HealthSlot D7), and writes the static `data-tip` itself so Stage.md Check 15 holds without the wiring.
+- **D6 · `tip` is treated like an action in stories.** An attachment is a function prop, so the story test (axiom 13: no control is disabled, every callback is an action) requires it to be an `fn()` action rather than a plain `() => {}` with `control: false`; the meta passes `tip: fn()`, which is a valid attachment, and its argType description says it is wired at integration.
+
+### Owner questions
+
+- **The not-connected label:** `--d` (recommended, kit) or `--m`? `--d` is below AA (D3); `--m` passes and drops the contrast exception.
