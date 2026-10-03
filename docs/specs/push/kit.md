@@ -6,7 +6,8 @@ band of faders, knobs, pads and transport, the key strip, the status line). Defi
 screen spec names a part (`kit.md` › Pad) and says only what its screen does differently.
 
 - **Source boards:** `docs/design/push/Stage-Dark.dc.html` and `Stage-Light.dc.html` (#500). The
-  light board's markup is byte-identical to the dark one; every theme difference is a token.
+  light board's markup matches the dark one except for the art layers; every other theme
+  difference is a token.
 - **Variants owned elsewhere:** the page variant of the app bar (adds the rack readout and One
   Touch), the half band of the tall pages and the compact now-playing block are drawn on
   `Channel-Dark.dc.html`; the Channel spec (#501) adds them to this file.
@@ -47,7 +48,17 @@ tokens win: light `--m` is `#646464` (the board's `#6e6e6e` fails AA on `--btn`)
 | `--a` | #a58cff | #5b3fd6 | the accent: style name, chord, knob arcs and values, band sends |
 | `--r1 --r2 --r3 --l` | #3b8eff #ff4f9e #ff9a2e #16c7a6 | #1257d6 #d0186f #c85f00 #008f78 | part hues |
 | `--intro --main --ending --brk --fill` | #bfb24e #4fd66a #c45a5a #8f62a8 #7a9ea6 | #857a1f #1c8040 #a84444 #7a4a96 #4d7480 | section hues |
-| `--bg --ba --ba2 --bw --bm --bl` | glows (green dot, accent text, chord, white, Main text, L line) | `none` | |
+| `--bg` | `0 0 6px` `--green-400` at 70% | `none` | the green status glow: Launchkey dot, Running dot, Start / Stop bar |
+| `--ba` | `0 0 18px` `--violet-300` at 28% | `none` | the compact chord on the tall pages (Channel spec #501); nothing on the Stage |
+| `--ba2` | `0 0 28px` `--violet-300` at 28% | `none` | the Stage chord (`text-shadow`) |
+| `--bl` | `0 0 6px` `--teal-400` at 60% | `none` | the key strip's detection line in the left hand |
+| `--bw`, `--bm` | white at 60%; `--green-400` at 30% | `none` | no kit component uses them: `--bm` is the Main instance of the section text glow, which the kit draws per hue with `--text-glow-mix` (D29); keep both for the boards |
+
+**Glows by hue (D29).** A glow in a section's or part's hue is built from the hue and a mix
+token, never from `--bg` or `--bm` (those are fixed green): the section dot and the current beat
+block `0 0 6px color-mix(in srgb, <hue> var(--dot-glow-mix), transparent)`; the playing
+section's name `0 0 18px color-mix(in srgb, <hue> var(--text-glow-mix), transparent)`. In Main
+these equal the board's `--bg` and `--bm`.
 
 ### Tokens to add (this kit needs them; add to `palette.css` and both theme files)
 
@@ -70,10 +81,36 @@ tokens win: light `--m` is `#646464` (the board's `#6e6e6e` fails AA on `--btn`)
 | `--fill-glow-mix` | `45%` | `0%` | a fader's fill glow (6px) |
 | `--key-glow-mix` | `45%` | `0%` | a held key's glow (10px) |
 | `--text-glow-mix` | `30%` | `0%` | the playing section's text glow (18px), in its hue |
+| `--dot-glow-mix` | `70%` | `0%` | the section dot's and the current beat block's 6px glow, in the section's hue |
 | `--armed-ring` | `0px` | `1px` | light only: an armed pad's extra inset ring (no glow in light) |
 | `--solid-ink-index` | `55%` | `70%` | a solid pad's numeral: `color-mix(var(--solid-ink) …)` |
 | `--solid-ink-bar` | `45%` | `60%` | a solid pad's 2px bar |
-| `--stage-art`, `--stage-art-fade` | the two gradients of `Stage-Dark.dc.html:64-65`, verbatim | `Stage-Light.dc.html:40-41`, verbatim | Stage display art (Stage.md D9) |
+| `--stage-art`, `--stage-art-fade` | below | below | Stage display art (Stage.md D9) |
+
+The art tokens, copied from the boards (the art layer and the fade layer over it). Dark:
+
+```css
+--stage-art:
+  radial-gradient(circle at 62% 44%, #4a3b86 0, #3d3070 3%, rgba(165,140,255,0.2) 7%, rgba(165,140,255,0.06) 18%, rgba(165,140,255,0) 34%),
+  radial-gradient(ellipse 80% 44% at 40% 104%, #06050a 0, #06050a 58%, rgba(0,0,0,0) 60%),
+  radial-gradient(ellipse 70% 38% at 92% 100%, #0e0b16 0, #0e0b16 62%, rgba(0,0,0,0) 64%),
+  linear-gradient(180deg, #000 0%, #0b0814 55%, #1c1033 100%);
+--stage-art-fade: linear-gradient(90deg, #000 0%, rgba(0,0,0,0.6) 22%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.2) 100%);
+```
+
+Light:
+
+```css
+--stage-art:
+  radial-gradient(circle at 62% 44%, #d9cff5 0, #c9bcf0 4%, rgba(155,130,240,0.2) 9%, rgba(155,130,240,0.06) 20%, rgba(155,130,240,0) 34%),
+  radial-gradient(ellipse 80% 44% at 40% 104%, #dcd6ea 0, #dcd6ea 58%, rgba(220,214,234,0) 60%),
+  radial-gradient(ellipse 70% 38% at 92% 100%, #e6e0ee 0, #e6e0ee 62%, rgba(230,224,238,0) 64%),
+  linear-gradient(180deg, #f2f1ee 0%, #eeeaf6 58%, #e7dff4 100%);
+--stage-art-fade: linear-gradient(90deg, #f2f1ee 0%, rgba(242,241,238,0.6) 22%, rgba(242,241,238,0.1) 60%, rgba(242,241,238,0.2) 100%);
+```
+
+These are literal colours on purpose: the art is a picture, not a role (D9). They live in
+`dark.css` and `light.css` with the other roles.
 
 Scale tokens to add to `scale.css`: `--text-9` (the ▲▼ in Fill buttons), `--text-10` (the ▾ caret),
 `--text-128` (the chord), `--weight-thin` exists (200), `--travel: 223px` (fader travel),
@@ -127,6 +164,23 @@ held). The 2px bar survives only inside pads and on Start / Stop. The accent blo
 Every focusable control shows a 1px `--focus` outline at 2px offset (`--focus-offset`) on
 `:focus-visible`, and nothing on mouse focus.
 
+**Hover, press and cursor (D35).** The boards draw no hover or pressed look, so there is none:
+no colour, fill or outline change on `:hover` or `:active`. The cursor is `pointer` on every
+enabled control (faced buttons and the text buttons: style name, band sends, rack readout,
+sound cells, tags, strip names, health slot, status line) and `default` on disabled controls
+and on everything that isn't a control. Faders and knobs use `ns-resize` while dragging.
+
+**Text buttons.** Some controls wear no face: the band sends, the rack readout, the sound cells
+and their part tags, the strip names, the health slot and the status line. They are readouts
+that open something; they draw as their text only (transparent, no border) and follow the hover
+and focus rules above. The four faces are for switches and actions.
+
+**Test hooks (D41).** So that tests read meaning rather than computed colours (jsdom resolves
+neither custom properties nor `color-mix`), every element drawn in a face carries
+`data-face="off|on|chosen|waiting|disabled|record|solid"`, and every element whose colour is a
+hue or a role chosen from state carries `data-hue="<token name without -->"` (`r1`, `main`,
+`d`, `ending`…). The visual check of what those mean is the stories' screenshots.
+
 ## Hue roles
 
 - **Parts**, saturated and unique: Right 1 `--r1` blue, Right 2 `--r2` pink, Right 3 `--r3`
@@ -144,8 +198,9 @@ Every focusable control shows a 1px `--focus` outline at 2px offset (`--focus-of
 
 The state names sections the SFF way (`transport.section`, `queued`, `landing`:
 `Intro A`, `Main B`, `Fill In BB`, `Fill In BA`, `Ending C`). The screen shows them the Genos way,
-everywhere: `Intro A/B/C` → `Intro I/II/III`, `Ending A/B/C` → `Ending I/II/III`, `Main A–D`
-unchanged, `Fill In BA` → `Break`, any other `Fill In XY` → `Fill`. A no-break space ties a name
+everywhere: `Intro A/B/C/D` → `Intro I/II/III/IV`, `Ending A/B/C/D` → `Ending I/II/III/IV`
+(SFF allows a D; the Genos has three, D44), `Main A–D` unchanged, `Fill In BA` → `Break`, any
+other `Fill In XY` → `Fill`. A name that matches none of these shows as given. A no-break space ties a name
 to its numeral (`Intro I`), so only whole words wrap.
 
 ## Interaction conventions
@@ -154,14 +209,37 @@ to its numeral (`Intro I`), so only whole words wrap.
   than 4px; it fires when the time is up, not on release, and the click is then swallowed.
   **Right-click** does what long press does. **Shift-click** is the Launchkey's Shift layer:
   `ui.shift` (Shift held on the computer keyboard, or the latched on-screen Shift where a screen
-  has one).
+  has one). Long press is one shared Svelte action, `use:longpress` in
+  `app/src/ui/actions/longpress.ts` (pointerdown starts a 350 ms timeout; moving over 4px,
+  pointerup or pointercancel before it clears it; it fires `onlongpress` and marks the next
+  click swallowed; it calls `onlongrelease` on the pointerup or pointercancel that ends a press
+  that fired). That timeout measures a gesture, not motion, so it is allowed (axiom 10 is about
+  drawing). LampButton exposes it as `onlongpress` / `onlongrelease` props.
 - **Drag** on a fader or knob moves it; **wheel** steps it; **double-click** resets it; arrow
   keys step it when focused (PageUp/PageDown ten steps, Shift for fine on knobs).
 - **Tooltips:** every interactive element carries `use:tip={'<key>'}` (`data-tip`), with the key
   in `app/src/help/tooltips.ts`. The kit gives each part's key.
 - **Parity:** what the Launchkey does, the screen does with the same command. Where a part's
   state carries an `action` (`pads.pads[i].action`, `surface.controls[i].action`), the screen
-  sends exactly that (`app.send(action)`) and is disabled when it is null.
+  sends exactly that (`app.send(action)`) and is disabled when it is null. With `ui.shift`, a
+  control that mirrors a `surface.controls` entry sends its `shiftAction` instead (disabled when
+  that is null). Controls bound this way: Pad Bank ▲ ▼ (`padBankUp`, `padBankDown`) and Track ◀ ▶
+  (`trackPrev`, `trackNext`; Stage.md › Style line). The other band buttons send their named
+  command (tables below), which is what the hardware button sends too.
+- **Keyboard (D36):** tab order is the DOM order, which is the reading order: app bar (tabs,
+  then health slot when it is a button), section row, display (style line left to right, rack
+  readout, then each part's tag and sound), band (fader header tabs, each strip's fader then its
+  name, the lamp row, knob ▲ ▼ and knobs, pad ▲ ▼ and pads 1–16, transport, tempo), the status
+  line when it has a message. The key strip and every non-control are not focusable. The window
+  key handler stays as it is (`app/src/lib/shortcuts.ts`, `lib/keys.ts`): it already leaves
+  Space and Enter to a focused button; faders and knobs handle their own arrows and
+  PageUp/PageDown and call `stopPropagation`, so the global ← → (`stepStyle`) don't fire while
+  one has focus.
+- **Links to pages not built yet (D32):** a control that opens a page or popover whose spec
+  hasn't been built opens today's equivalent drawer or panel where one exists, else it is drawn
+  in its face but disabled (`aria-disabled`, its tooltip still says what it will do). The
+  targets and their interim behaviour are in Stage.md D32; each target's own spec removes its
+  row when it lands.
 - **Motion** comes from state, never a component timer: queued pads flash and armed pads pulse
   on the LED clock (`surface.clock`, see app-api.md › Pad), the beat blocks follow the section
   clock, meters follow `meters` frames. Components take the moment as a prop (axiom 10).
@@ -178,8 +256,19 @@ to its numeral (`Intro I`), so only whole words wrap.
   as a 24px block on the bottom of the tab (`background: linear-gradient(var(--t), var(--t)) left
   bottom / 100% 24px no-repeat`), so it sits on the white line. App-only state: `ui.page`
   (Stage.md D2). Tooltips: `view.stage`, `nav.channel` (new), `nav.effects`, `nav.quick`,
-  `nav.multipad`, `nav.looper`, `nav.harmony`, `view.library`, `nav.settings`. Shortcuts: the
-  existing Alt letters in `app/src/lib/nav.ts`, and Alt+B for Library.
+  `nav.multipad`, `nav.looper`, `nav.harmony`, `view.library`, `nav.settings`. Shortcuts (D37),
+  by physical key: Stage Alt+G and Channel Alt+N (new: added to `NAV` in `app/src/lib/nav.ts`
+  and to the Alt letters in `app/src/lib/keys.ts`), Effects Alt+E, Quick Racks Alt+R, Multi Pads
+  Alt+P, Looper Alt+L, Harm/Arp Alt+H, Library Alt+B, Settings Alt+T (the existing letters).
+  The other existing Alt keys stay as they are and have no tab: Alt+S the Browser, Alt+O the
+  Rack page (today the Rack drawer), Alt+M the mixer details, Alt+C Charts (hidden, DECISIONS
+  X1), Alt+Y Library › Style map.
+- **Tabs before their page exists:** until a page's spec is built, its tab runs today's
+  `NAV` entry (`toggle()`, the drawer or Library tab it opens now) and is drawn chosen while that
+  entry's `open()` is true; Stage is chosen when no drawer is open and `ui.view` is `stage`.
+  Channel has no drawer: until #501 it shows today's `ChannelView` for the selected part in
+  place of the display (`panels/channel/nav.svelte.ts` `show(ui.selectedPart)`), and is chosen
+  while that is open. (D32.)
 - **Right area**, fixed 196 × 36 so the tabs sit at the same x on every board: a 1 × 16 `--line`
   separator, then the Launchkey status and the health slot.
   - **Launchkey status** (`role="status"`), 8px after the separator: a 6px dot and "Launchkey",
@@ -197,8 +286,12 @@ to its numeral (`Intro I`), so only whole words wrap.
     | `meters.cpu.total` ≥ 0.70 | "CPU 74%" (rounded) | `--ending` | opens Settings › System |
     | otherwise | "Audio" | `--m` | not clickable |
 
-    It is a button only when it has a click. Tooltip `app.health` (new); in trouble, also
-    `audio.dropouts`.
+    The slot is a `role="status"` span; when the text has a click, the text inside it is a
+    `<button>` (a text button, focusable), otherwise plain text. One tooltip key, `app.health`
+    (new), on the button or, without one, on the span; its body covers every row of the table, so
+    the slot carries no second key (D45). "Opens Channel for that part" and "opens Settings ›
+    System" follow D32 until #501 and #532 land. `aria-label` "Audio health: {text}" ("Audio
+    health: fine" when calm).
 
 ## Section row
 
@@ -209,11 +302,13 @@ to its numeral (`Intro I`), so only whole words wrap.
 - **Count row** (`role="status"`), the row's flexible middle, centred, gap 20, 18px type. See
   Count row below.
 - **Right group**, gap 8:
-  - **Metronome**, a split button: the LampButton "Metronome" (radius `4px 0 0 4px`; on =
-    `metronome.on`; sends `toggleMetronome`; tooltip `metronome.on`) joined by 1px to a 20 × 32
-    caret "▾" (`--btn`, `--m`, 10px; radius `0 4px 4px 0`; `aria-haspopup="dialog"`,
-    `aria-expanded`) that opens the metronome popover (spec #509). Tooltip `metronome.settings`
-    (new). No Launchkey mapping.
+  - **Metronome**, a split button (the `MetronomeSplit` component, a `role="group"`
+    `aria-label="Metronome"` with gap 1px): the LampButton "Metronome" (`join="start"`, which
+    sets the radius to `4px 0 0 4px`; on = `metronome.on`; sends `toggleMetronome`; tooltip
+    `metronome.on`) and a 20 × 32 caret "▾" (`--btn`, `--m`, 10px; radius `0 4px 4px 0`;
+    `aria-haspopup="dialog"`, `aria-expanded`, `aria-label="Metronome settings"`) that opens the
+    metronome popover (spec #509). Until #509 is built the caret is disabled (D32). Tooltip
+    `metronome.settings` (new). No Launchkey mapping.
   - **Unison** LampButton. On = `transport.unison`. Sends `toggleUnison`. Tooltip
     `transport.unison`. No Launchkey mapping.
   - **Panic**, off face, padding 0 14. Sends `panic`. Tooltip `transport.panic`.
@@ -225,9 +320,16 @@ to its numeral (`Intro I`), so only whole words wrap.
 Left to right, each item hidden when it has nothing to say:
 
 1. **Beat blocks:** one 24 × 24 block (radius 2, gap 4) per beat of the bar
-   (`surface.clock.beatsPerBar`). The current beat (from the clock, app-api.md › surface.clock) is
-   the playing section's hue with `--bg` glow; past beats `--past`; later beats `--btn`. Beat one
-   always has a 2px `--t` top edge (`box-shadow: inset 0 2px 0 var(--t)`). Stopped: all `--btn`.
+   (`surface.clock.beatsPerBar`). The current beat is the playing section's hue with its glow
+   (D29: `0 0 6px`, `--dot-glow-mix`); past beats `--past`; later beats `--btn`. Beat one always
+   has a 2px `--t` top edge (`box-shadow: inset 0 2px 0 var(--t)`; on the current block both
+   shadows, the edge first). Stopped: all `--btn`. The current beat comes from the clock at the
+   moment `now` (a prop, the session clock in ms): `t = clock.atMs + (now − receivedMs)`,
+   `pos = sectionAnchorBeats + (t − sectionAnchorMs) · tempo / 60000` (app-api.md ›
+   surface.clock), current beat index `floor(pos) mod beatsPerBar` (0-based). The page wiring
+   passes `now` once per animation frame; components and stories take it as a prop, and
+   `receivedMs` is the `now` at which the state arrived (the wiring records it). Each block
+   carries `data-beat="past|current|later"`, and beat one `data-downbeat` (test hooks, D41).
 2. **Bar:** "Bar" 400 `--m`, then `{transport.bar}/{transport.sectionBars}` 300 `--t`. Hidden
    when stopped.
 3. **Sections:** the playing section's name in its hue, then "→" `--m`, then the next one in the
@@ -242,9 +344,13 @@ Left to right, each item hidden when it has nothing to say:
    with `styleSettings.mainTiming` `immediate` → "next beat"; anything else queued → "after bar
    {bar}"; stopped with `transport.syncStart` → "sync start". (Stage.md D5.)
 
-The whole row is one `role="status"` with an `aria-label` that reads it out ("Beat 3 of 4, bar 3
-of 4. Main B playing, Main C next. The fill lands after bar 3"); its parts are `aria-hidden`.
-Tooltip `display.position`.
+The whole row is one `role="status"` with an `aria-label` that reads it out; its parts are
+`aria-hidden`. Template, each sentence dropped when its item is hidden: "Beat {b} of {n}, bar
+{bar} of {sectionBars}." "{playing} playing, {next} next." (no next: "{playing} playing.";
+stopped: "Stopped on {Main X}.") then the When item as a sentence ("The fill lands after bar
+3.", "Sync start armed."). Example: "Beat 3 of 4, bar 3 of 4. Main B playing, Main C next. The
+fill lands after bar 3." Tooltip `display.position`. The When item carries
+`data-shot-mask="when"` (Stage.md › Checks).
 
 ## Full band
 
@@ -274,11 +380,13 @@ Panel page the strips are, from `surface.faders[0..8]`:
 
 | Strip | Name | Value | Hue | Meter (`meters`) | Name click |
 |---|---|---|---|---|---|
-| 1–4 | "Right 1", "Right 2", "Right 3", "Left" | `surface.faders[i].value` | `--r1 --r2 --r3 --l` | the part's channel (`keyboardParts[i].channel`) | opens Channel for part i (tooltip `mixer.strip.select`) |
-| 5 | "Style" | `mixer.styleVolume` | `--a` | the loudest of channels 9–16 | Style fader page (`setFaderPage style`; tooltip `mixer.style_level`) |
-| 6 | "Multi Pad" | `mixer.multiPadVolume` | `--t2` | the loudest of channels 5–8 | opens the Multi Pads page (tooltip `mixer.pad_level`) |
+| 1–4 | "Right 1", "Right 2", "Right 3", "Left" | `surface.faders[i].value` | `--r1 --r2 --r3 --l` | the `meters.channels` entry whose `channel` is `keyboardParts[i].channel` | opens Channel for part i (tooltip `mixer.strip.select`; D32) |
+| 5 | "Style" | `surface.faders[4].value` (= `mixer.styleVolume`) | `--a` | channels 9–16: peak = the largest `peak`, RMS = the largest `rms` | Style fader page (`setFaderPage style`; tooltip `mixer.style_level`) |
+| 6 | "Multi Pad" | `surface.faders[5].value` (= `mixer.multiPadVolume`) | `--t2` | channels 5–8, the same way | opens the Multi Pads page (tooltip `mixer.pad_level`; D32) |
 | 7–8 | "—" | none | `--d` | none | not a control |
-| 9 | "Master" | `mixer.master` | `--t` | `meters.master` / `masterRms` | opens Effects at the master (spec #519; tooltip `mixer.master`) |
+| 9 | "Master" | `surface.faders[8].value` (= `mixer.master`) | `--t` | peak = the larger of `meters.master`, RMS = the larger of `meters.masterRms` | opens Effects at the master (spec #519; tooltip `mixer.master`; D32) |
+
+A channel missing from `meters.channels` (no synth, or not sent) reads 0.
 
 The Style page (strips 1–8 the Style parts, buttons 1–8 their mutes) is drawn on PadsPage2 and
 specified there (#507); the strip and lamp components are the same.
@@ -291,10 +399,16 @@ One column: a 252-tall fader (the control) over a 20-tall name button.
   (0–127). Pan layer: `L20` / `C` / `R20` (64 = C). Send layers: the layer word and the number,
   "Rev 40", "Cho 12", "Dly 0", in `--t`. Empty when unused.
 - **Track** from 24 to 247 (`--travel` 223px). Left of centre, two 10px meter bars at
-  `50% − 17px` and `50% − 5px` on `--mbg`: the left bar is the channel's RMS, the right its peak,
-  both in the hue at `--meter-mix`. A 22 × 1 `--peak` tick at the held peak across both. Meter
-  height = travel × clamp((20·log10(level) + 60) / 60, 0, 1). The client keeps the peak for
-  1.5 s, then lets it fall at 20 dB/s (Stage.md D7).
+  `50% − 17px` and `50% − 5px`, from 24 to 247, on `--mbg`: the left bar is the peak, the right
+  the RMS (so the right is the lower, as drawn), both in the hue at `--meter-mix`, growing from
+  the bottom (5px above the strip's 252 bottom). A 22 × 1 `--peak` tick at the held peak across
+  both, its bottom at `5 + height(hold)`. `height(x) = round(223 × clamp((20·log10(x) + 60) / 60,
+  0, 1))`, 0 for x = 0 (Stage.md D7).
+- **Meter input:** the strip takes `meter: { peak, rms, hold } | null`, each a linear amplitude
+  (0–1, as `meters` sends them); null draws no meter. The strip only draws. The held peak
+  (`hold`) is computed by the page wiring from successive `meters` frames, by their `atMs`
+  (held 1.5 s, then falling 20 dB/s, never below the current peak), in a pure function
+  `holdPeak(prev, peak, atMs)` in `app/src/ui/FaderStrip/meter.ts`; no timer.
 - **Set level** right of centre: a 3px `--track` groove at `50% + 10px`, a 3px fill in the hue
   from the bottom to the level (glow `0 0 6px` at `--fill-glow-mix`), and a 10 × 3 cap at
   `50% + 3px`, `top = (1 − value/127) × 223 + 23`. The set level outranks the meter.
@@ -311,18 +425,23 @@ One column: a 252-tall fader (the control) over a 20-tall name button.
   `aria-label="Fader 7 unused"`; tooltip `launchkey.fader_unused`.
 - **Rack target:** when the live rack's controller map gives fader 1–4 another target
   (`surface.faders[i].label` is not the part's own name, e.g. `PANR2`, `HARMARP`), the name reads
-  that label as given, in `--t2`, no meter, and the name opens the Rack page. Tooltip
+  that label as given, in `--t2`, no meter, and the name opens the Rack page (`ui.page`
+  `rack`, D2; until the Rack spec is built, the Rack drawer, D32). Tooltip
   `launchkey.fader_rack`.
 - **Name button**, 20 tall, centred, gap 4: the name 13 / 500 in the hue, then the strip marks
   (keyboard parts only, DECISIONS M11): a 5px `--t` dot when `soundEdited`; a 12px `--warn` ⚠
   when `plugin.missing`; a 12px `--ending` ✕ when `plugin.status` is `failed` and not missing.
 - **The fader as a control:** `role="slider"`, `aria-valuemin 0`, `aria-valuemax 127`,
   `aria-valuenow` the value, `aria-valuetext` "Right 1 90" (with ", hardware fader away" while
-  waiting). Pointer: press and drag vertically, 223px = 127 (absolute: the value follows the
-  pointer's travel from where it was pressed); wheel ±1; double-click resets to 100 (pan to 64,
-  sends to 0); arrows ±1, PageUp/PageDown ±10. Each change sends `surface.faders[i].set` with its
-  value field (`volume`, `pan` or `value`) filled in; with the controller map's `moveRackFader`
-  the field is `volume`. Tooltips: `mixer.panel.right1` … `mixer.panel.left`,
+  waiting). Pointer (D23): press anywhere on the fader and drag vertically; the value moves by the
+  pointer's travel from the press point, `value = clamp(round(v0 + (y0 − y) × 127 / 223), 0,
+  127)` with `v0`, `y0` the value and pointer y at pointerdown (relative, not a jump to the
+  pointer), with pointer capture. A send goes out when the whole-number value changes, at most
+  once per animation frame (the latest value of that frame), and the last value is always sent
+  on pointerup. Wheel ±1 per notch; double-click resets to 100 (pan to 64, sends to 0); arrows
+  ±1, PageUp/PageDown ±10. Each change sends `surface.faders[i].set` with its value field
+  (`volume`, `pan` or `value`) filled in; with the controller map's `moveRackFader` the field is
+  `volume`. Tooltips: `mixer.panel.right1` … `mixer.panel.left`,
   `mixer.part.pan`, `mixer.part.reverb`, `mixer.part.chorus`, `mixer.part.variation` by layer;
   `mixer.style_level`, `mixer.pad_level`, `mixer.master`. Launchkey: faders 1–8 and the master.
 
@@ -337,7 +456,7 @@ over columns 1–4; "Functions" over 5–9 with "Launchkey fader buttons 5–9" 
 |---|---|---|---|---|---|---|---|
 | 1–4 part | "On" / "Off" (`keyboardParts[i].on`); "Swap" while that part's swap is held | `keyboardParts[i].sounding` | `togglePart { part }` (in swap: `setLayer none`) | `setLayer { type: swap, part }`, latched until the next click | opens Channel for the part | `part.right1.on` … `part.left.on`; `part.swap` | fader buttons 1–4 (hold + knob: swap; Shift: select part) |
 | Harm/Arp | "Harm/Arp" | `harmonyArp.on` | `toggleHarmonyArp` | — | — | `harmony.switch` | fader button 5 |
-| Sound | "Sound" | `surface.layer.type == 'sound'` | `setLayer { type: sound }`; on when lit: `setLayer none` | momentary: `setLayer sound` now, `setLayer none` on release | — | `launchkey.sound` | fader button 6 (hold) |
+| Sound | "Sound" | `surface.layer.type == 'sound'` | not lit: `setLayer { type: sound }` (latch); lit: `setLayer none` | not lit: `setLayer sound` when the 350 ms elapse (pointer still down), `setLayer none` on that press's pointerup or pointercancel; lit: as a click (D18) | — | `launchkey.sound` | fader button 6 (hold) |
 | L Hold | "L Hold" | `chord.leftHold` | `toggleLeftHold` | — | — | `detection.left_hold` | fader button 7 |
 | Looper | "Looper" | `looper.mode == 'looping'` | `looperOnOff` | `looperRec` | — | `looper.on_off`, `looper.rec` | fader button 8; Shift + 8 = REC |
 | master button | "Panel" / "Style" (`mixer.faderPage`) | not a lamp: off face, `--t2` | `toggleFaderPage` | — | `stepFaderLayer { delta: 1 }` | `mixer.page`, `mixer.layer` | button under the master fader (Shift: layer) |
@@ -366,7 +485,7 @@ vertically) then eight **Knob** columns (`repeat(8, 1fr)`, column gap 6, 68px ea
 From `knobs.knobs[i]` (`function`, `name`, `short`, `value`, `level`). A 68 × 96 column, centred:
 
 - **Name** 12 / 400, 14 tall, `--t2`: the plain word for the function (Stage.md D6 table), else
-  `name`. No Assign: "---" in `--d`.
+  `name`. No Assign (`function` `none`): "---" in `--d`, and the code line is empty.
 - **Value** 22 / 300, 22 tall, `--a`: `value`; a trailing "%" splits off as a 12 / 400 unit with
   2px gap. Empty for No Assign.
 - **Ring** 44px, 2px margin-top: a 270° arc from 225° (`conic-gradient(from 225deg, var(--a) 0
@@ -375,8 +494,10 @@ From `knobs.knobs[i]` (`function`, `name`, `short`, `value`, `level`). A 68 × 9
   ring's centre). `fraction = level / 127`; tempo (`level` null) uses
   `clamp((tempo − 40) / 240, 0, 1)`. No Assign: arc and rest `--mbg`, no dot.
 - **Code** 12 / 400, 14 tall, `--m`: `short`.
-- **As a control:** `role="slider"`, `aria-valuetext` "Dynamics 127". Drag vertically: one
-  `turnKnob { knob, delta }` step per 4px (Shift: per 12px); wheel ±1; double-click
+- **As a control:** `role="slider"`, `aria-valuetext` "Dynamics 127". Drag vertically from the
+  press point, with pointer capture: one `turnKnob { knob, delta }` per whole 4px travelled
+  (Shift: per 12px), up positive; the steps of one animation frame go as one `turnKnob` with
+  their sum as `delta`; wheel ±1 per notch; double-click
   `resetKnob { knob }`; arrows ±1. No Assign: `aria-disabled`. Tooltip `knobs.knob`. Launchkey:
   knobs 1–8. In swap mode `turnKnob` acts as `turnSwapKnob` on the session's side, so the screen
   sends the same command.
@@ -432,11 +553,23 @@ Sections captions (fixed, DECISIONS H3): Intro I, Intro II, Intro III, Sync Star
 Ending II, Ending III, Auto Fill; Main A, Main B, Main C, Main D, Break, Tap, Sync Stop,
 Start / Stop. Other pages caption from `pads.pads[i].label` (their specs give the table).
 
+**Other pages until their spec lands (D33).** The Racks, Chord, Multi Pads and Setup pages
+(#507, #510–#512), and the Racks page shown while Sound is held or latched, use one fallback:
+every pad is family utility (caption `--t2` when idle, hue `--t` for the Playing, Next and Armed
+faces; `bright` + `solid` is Playing, not On), no group lines, no legend in the header; the
+caption is `pads.pads[i].label` as the state gives it (e.g. "OTS 1", "BANK -"), and an empty
+label is an Absent pad. The numeral, the aria-label rule and "press sends `action`" are as above.
+Tooltip on a fallback pad: its page's existing key (`padpage.racks`, `padpage.chord`,
+`padpage.multi_pads`, `padpage.setup`); an empty pad `launchkey.unused`.
+
 ### Transport and tempo
 
 Header "Transport" (36 tall, hairline), then (8px) a column, gap 6; then 20px, header "Tempo",
-then (8px) a column, gap 6. All 88 × 32 off-face buttons, label left-aligned with 8px padding
-(pairs: two 41 × 32 buttons, gap 6, label centred, 13px).
+then (8px) a column, gap 6. All 88 × 32 off-face buttons, label left-aligned with 8px padding,
+except two pairs of 41 × 32 buttons (gap 6, padding 0, label centred, 13px): **Reset | Fade** on
+one row and **Fill ▲ | Fill ▼** (a `role="group"` `aria-label="Fills"`) on the next. Top to
+bottom: Start / Stop, Stop, Reset | Fade, Fill ▲ | Fill ▼; Tempo: Tempo +, Tempo −, Style tempo
+(each full width).
 
 | Button | Face | Sends | Tooltip | Launchkey |
 |---|---|---|---|---|
@@ -479,6 +612,8 @@ numbering, C3 = 60).
 ## Status line
 
 `24,800 1392×20` on display pages: the 20px gap between the band and the keys. One line,
-`role="status"`, `aria-live="polite"`, 14px, ellipsis. `state.message.text` in `--t`; with
-`message.error`, a 12px `--warn` ⚠ before it (gap 8). Empty when `message` is null. It speaks only
-for state messages, never coaching. Tooltip `display.status`. A click clears it (`clearMessage`).
+`role="status"`, `aria-live="polite"`, 14px, line-height 20, ellipsis. `state.message.text` in
+`--t`; with `message.error`, a 12px `--warn` ⚠ before it (gap 8). Empty when `message` is null.
+It speaks only for state messages, never coaching. With a message, the line's content is one
+text `<button>` (focusable; click, Enter or Space sends `clearMessage`) inside the status
+region; empty, nothing in it is focusable. Tooltip `display.status` on the button.
